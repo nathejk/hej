@@ -30,3 +30,6 @@ Everything in that file applies here unless explicitly overridden below.
 
 - All endpoints must have OpenAPI annotations
 - New features and significant changes require a PRD (`prd` skill) before implementation
+- **Icons:** use [Lucide](https://lucide.dev/) for all icons across the project
+  (frontend `lucide-vue-next`), unless a specific instruction says otherwise.
+  Do not introduce other icon sets (e.g. PrimeIcons, Font Awesome) for UI icons.

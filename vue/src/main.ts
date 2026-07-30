@@ -4,7 +4,6 @@ import PrimeVue from 'primevue/config'
 import Lara from '@primevue/themes/lara'
 import ToastService from 'primevue/toastservice'
 
-import 'primeicons/primeicons.css'
 import '@/assets/main.css'
 
 import App from '@/App.vue'

@@ -16,6 +16,9 @@ rule). The nav is filtered by the signed-in role, then the ≤5 / burger rule is
 applied to the filtered set: at most 5 slots; if more than 5 allowed
 destinations, render 4 + a "More" burger.
 
+Icons: use **Lucide** (`lucide-vue-next`) per `.rules` — no PrimeIcons/other
+sets. The overflow ("More") slot uses the Lucide `Menu` (burger) icon.
+
 Depends on: 010, 013 (navigation config).
 
 ## Acceptance Criteria

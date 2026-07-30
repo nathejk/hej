@@ -26,7 +26,8 @@ Depends on: 001, 008 (roles available via session).
       `UpdatesView.vue` + extra role-gated stubs exist and are lazy-loaded
       (Home/first may be eager).
 - [ ] `src/config/navigation.ts` lists destinations with icon, label, route, and
-      role/visibility rule.
+      role/visibility rule. Icons are **Lucide** (`lucide-vue-next`) components
+      per `.rules` — no PrimeIcons/other sets.
 - [ ] Routes registered in `src/router/index.ts` with `props: true` where
       relevant.
 - [ ] At least one role's allowed set exceeds 5 to demonstrate the burger.

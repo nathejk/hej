@@ -279,12 +279,15 @@ available" reload mechanism and the plumbing to request and use the browser
   colors defined for the manifest and login screen.
 - **App shell:** `App.vue` = content + fixed bottom nav; content scrolls; nav
   respects safe-area insets. Only rendered when authenticated.
-- **Bottom nav:** horizontally distributed icons + small labels (PrimeIcons or
-  `components/icons/` SVGs). The five app roles are **spejder** and **bandit**
-  (main) plus **postmandskab**, **guide**, and **samarit**; each has its own
-  destination set. Suggested `spejder`/`bandit` set: Maps, Contacts, Rulebook,
-  Updates. Service roles (postmandskab / guide / samarit) may see more/different
-  entries — enough to exercise the "More" overflow. Active item emphasized.
+- **Icons:** all UI icons come from **Lucide** (`lucide-vue-next`) per the repo
+  convention in `.rules` — do not use PrimeIcons or other icon sets. Custom marks
+  live as SVG components under `components/icons/`.
+- **Bottom nav:** horizontally distributed Lucide icons + small labels. The five
+  app roles are **spejder** and **bandit** (main) plus **postmandskab**,
+  **guide**, and **samarit**; each has its own destination set. Suggested
+  `spejder`/`bandit` set: Maps, Contacts, Rulebook, Updates. Service roles
+  (postmandskab / guide / samarit) may see more/different entries — enough to
+  exercise the "More" overflow. Active item emphasized.
 - **Overflow ("More"):** 5th slot is a burger opening a bottom sheet of the
   remaining allowed destinations.
 - **Permission prompts:** soft in-app pre-prompt (why we want location /
