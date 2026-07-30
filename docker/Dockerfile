@@ -85,6 +85,8 @@ COPY --from=build /hej-api /hej-api
 COPY --from=ui-builder /app/dist /www
 ENV ENV=production
 ENV WEB_ROOT=/www
-ENV PORT=4000
-EXPOSE 4000
+# Serve HTTP on the default port 80 (overridable via PORT). Traefik's docker
+# provider discovers the service via this exposed port.
+ENV PORT=80
+EXPOSE 80
 ENTRYPOINT ["/hej-api"]
