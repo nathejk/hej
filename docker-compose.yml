@@ -1,0 +1,93 @@
+name: hej
+
+# Dev stack for the Hej Nathejk app. See .agents/skills/docker-dev-stack.
+#
+# `ui` (Vue) is browser-facing over HTTPS via Traefik; `api` (Go BFF) and `db`
+# are internal-only (the api is reached through the Vite dev proxy at /api).
+# Full `up` requires the org infra repo's external `traefik` network and local
+# DNS for *.local.nathejk.dk.
+#
+# Real secrets / per-developer overrides go in docker-compose.override.yml
+# (gitignored) — never in this file.
+
+services:
+  ui:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: ui-dev
+    environment:
+      CYPRESS_INSTALL_BINARY: "0"
+    volumes:
+      - ./vue:/app
+      - ui-node_modules:/app/node_modules
+    networks:
+      - local
+      - traefik
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: traefik
+      # HTTPS via redirect so the SPA runs in a browser secure context
+      # (service workers, geolocation, notifications).
+      traefik.http.routers.hej.rule: Host(`hej.local.nathejk.dk`)
+      traefik.http.routers.hej.entrypoints: web
+      traefik.http.routers.hej.middlewares: redirect-to-https
+      traefik.http.routers.hej-secure.rule: Host(`hej.local.nathejk.dk`)
+      traefik.http.routers.hej-secure.entrypoints: websecure
+      traefik.http.routers.hej-secure.tls.certresolver: desec
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: base
+    environment:
+      PORT: "4000"
+      ENV: development
+      WEB_ROOT: ./www
+      GOCACHE: /go/.cache/go-build
+      # GO_BUILD_FLAGS: "-race"   # uncomment for the race detector
+    volumes:
+      - ./go:/app
+      - api:/go
+    networks:
+      - local
+
+  db:
+    image: mariadb:10.8
+    environment:
+      MARIADB_ROOT_PASSWORD: secret
+      MARIADB_DATABASE: hej
+      MARIADB_USER: hej
+      MARIADB_PASSWORD: hej
+    volumes:
+      - db:/var/lib/mysql
+    networks:
+      - local
+
+  phpmyadmin:
+    image: phpmyadmin
+    environment:
+      PMA_HOST: db
+    networks:
+      - local
+      - traefik
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: traefik
+      traefik.http.routers.hej-sql.rule: Host(`sql.hej.local.nathejk.dk`)
+    depends_on:
+      - db
+
+networks:
+  local:
+  # External networks are owned by the org infra repo — never redefined here.
+  traefik:
+    external: true
+
+volumes:
+  api:
+  db:
+  ui-node_modules:

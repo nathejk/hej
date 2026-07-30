@@ -1,0 +1,47 @@
+#!/bin/sh
+# Dev entrypoint for the `api` container: hot-reload loop for the Go BFF.
+#
+# On every *.go / *.sql change it re-runs the gates (test, vet, staticcheck,
+# build) and restarts the binary. gosec + govulncheck run once at startup,
+# report-only, so their findings/network fetch don't gate the loop.
+set -eu
+
+export GOCACHE="${GOCACHE:-/go/.cache/go-build}"
+
+echo "==> one-time security scans (report-only)"
+go tool gosec -quiet ./... || true
+go tool govulncheck ./... || true
+
+API_PID=""
+
+stop() {
+    if [ -n "$API_PID" ]; then
+        kill "$API_PID" 2>/dev/null || true
+        wait "$API_PID" 2>/dev/null || true
+        API_PID=""
+    fi
+}
+
+start() {
+    echo "==> gates: get / test / vet / staticcheck / build"
+    if go get -v ./... \
+        && go test -timeout 10s ./... \
+        && go vet ./... \
+        && go tool staticcheck ./... \
+        && go build ./...; then
+        echo "==> starting api"
+        # shellcheck disable=SC2086
+        go run ${GO_BUILD_FLAGS:-} nathejk.dk/cmd/api &
+        API_PID=$!
+    else
+        echo "==> build failed; waiting for changes"
+    fi
+}
+
+trap 'stop; exit 0' INT TERM
+
+start
+while inotifywait -qq -r -e modify,create,delete,move --include '.*\.(go|sql)$' /app; do
+    stop
+    start
+done

@@ -1,4 +1,4 @@
-# Tilmelding — Agent Rules
+# Hej Nathejk — Agent Rules
 
 ## Org conventions
 Read `.agents/rules/rules.md` for org-wide conventions before proceeding.
@@ -8,14 +8,14 @@ Everything in that file applies here unless explicitly overridden below.
 
 ## This repo
 
-**Purpose:** Nathejk tilmelding, user facing frontend with dedicated api (backend for frontend style)
+**Purpose:** Nathejk "Hej Nathejk" — in-event companion app (maps, contacts, rulebook, event updates), user-facing frontend with a dedicated api (backend-for-frontend style)
 **Group:** Core
 
 ### Services
 
 | Service | Technology | Dev target | Local URL |
 |---|---|---|---|
-| frontend | Vue 3 (TS) | `ui-dev` | `https://tilmelding.local.nathejk.dk` |
+| frontend | Vue 3 (TS) | `ui-dev` | `https://hej.local.nathejk.dk` |
 | bff | Go | `base` | internal only |
 
 ### Key files

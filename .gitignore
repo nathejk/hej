@@ -1,0 +1,6 @@
+# Local secrets / per-developer Docker overrides (see docker-dev-stack skill).
+docker-compose.override.yml
+
+# Frontend dependencies (installed into a named volume in dev).
+vue/node_modules/
+vue/dist/

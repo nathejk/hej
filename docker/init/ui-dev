@@ -1,0 +1,10 @@
+#!/bin/sh
+# Dev entrypoint for the `ui` container: install deps then start Vite (HMR).
+#
+# --no-audit --no-fund keep `npm ci` from stalling on registry calls at every
+# container start. CYPRESS_INSTALL_BINARY=0 (set in compose) skips the large
+# Cypress download; e2e runs separately, not in this container.
+set -eu
+
+npm ci --no-audit --no-fund
+npm run dev
