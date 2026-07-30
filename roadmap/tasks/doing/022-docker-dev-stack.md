@@ -1,10 +1,10 @@
 # 022 — Docker dev stack (Dockerfile + docker-compose + Traefik)
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-07-30
-**Picked up by:**
-**Started:**
+**Picked up by:** agent (opus-4.8)
+**Started:** 2026-07-30
 **Completed:**
 
 ## Description
@@ -59,3 +59,4 @@ References:
 <!-- Append entries here — never edit or delete existing entries -->
 
 - 2026-07-30 14:10 — Task created. Surfaced during task 002 (Go BFF scaffold): no Docker dev stack exists yet, which blocks container-based frontend build/run and conventional BFF runs. Also lets tasks 004+ swap stdlib mux for httprouter and register `go tool` linters once module-proxy/network is available in-container.
+- 2026-07-30 15:00 — Picked up. Plan: multistage `docker/Dockerfile` (api-dev→base→build, ui-dev→ui-builder, prod), `docker-compose.yml` (ui, api, db, phpmyadmin), `docker/init/{api-dev,ui-dev}`, root `.gitignore` for `docker-compose.override.yml`. Decisions to make: app dev host = `hej.local.nathejk.dk` (repo-scoped router prefix `hej`, avoids colliding with the real tilmelding repo on shared Traefik) — will update `.rules`. No shared-go/go.work (this repo doesn't use shared-go). No `mail`/`jetstream` (app uses SMS not SMTP, no NATS yet). Verify what's possible here: `docker compose config` + build the dev stages; note full `up` needs the infra repo's external `traefik` network + local DNS.
