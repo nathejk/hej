@@ -1,10 +1,10 @@
 # 002 — Scaffold Go BFF (`go/cmd/api`)
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-07-30
-**Picked up by:**
-**Started:**
+**Picked up by:** agent (opus-4.8)
+**Started:** 2026-07-30
 **Completed:**
 
 ## Description
@@ -35,3 +35,4 @@ and facade stubs that later tasks (auth, push) hang off.
 ## Progress Log
 
 - 2026-07-30 13:12 — Task created.
+- 2026-07-30 13:40 — Picked up. Plan: `go mod init nathejk.dk`; create `cmd/api` (main/routes/env), `cmd/api/app` transport helpers, `internal/data` + `internal/commands` stubs, `www/` placeholder + SPA fallback, healthcheck. Verify with `go build/vet/test`. Env note: no `ui`/`api` container or Docker dev stack exists yet, so I'll run Go on the host to verify (documented deviation from the container-only convention).
