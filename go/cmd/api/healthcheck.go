@@ -5,10 +5,17 @@ import "net/http"
 // healthcheckHandler reports basic liveness and environment info. Used by
 // container/orchestration health probes.
 //
-// NOTE: per repo rules all product endpoints must carry OpenAPI annotations.
-// The annotation tool/convention is not yet chosen for this greenfield repo
-// (tracked as a follow-up); healthcheck is infrastructure, and the product
-// endpoints (auth, push) will be annotated once the convention is set.
+// OpenAPI annotations use swaggo/swag (registered as a `go tool`); regenerate
+// the spec with:
+//
+//	go tool swag init -g cmd/api/main.go -o cmd/api/docs
+//
+// @Summary      Health check
+// @Description  Reports API liveness and the running environment.
+// @Tags         system
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Router       /healthcheck [get]
 func (app *application) healthcheckHandler(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"status": "available",

@@ -19,6 +19,10 @@ type application struct {
 	commands commands.Commands
 }
 
+// @title        Hej Nathejk API
+// @version      0.1.0
+// @description  Backend-for-frontend API for the Hej Nathejk event app.
+// @BasePath     /api
 func main() {
 	cfg := loadConfig()
 

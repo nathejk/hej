@@ -4,27 +4,33 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/julienschmidt/httprouter"
 )
 
-// routes registers all HTTP handlers. API routes live under /api; everything
-// else falls through to the SPA handler so the Vue app's client-side router can
-// take over. New resource handlers (auth, push, …) are added here, grouped with
-// related routes, as the API grows.
+// routes registers all HTTP handlers on an httprouter. API routes live under
+// /api; everything else falls through to the SPA handler so the Vue app's
+// client-side router can take over. New resource handlers (auth, push, …) are
+// added here, grouped with related routes, as the API grows.
 func (app *application) routes() http.Handler {
-	mux := http.NewServeMux()
+	router := httprouter.New()
+
+	// Unknown routes: /api/* → JSON 404; anything else → SPA fallback so a hard
+	// reload on a client-side route still returns index.html.
+	router.NotFound = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			app.notFoundAPIHandler(w, r)
+			return
+		}
+		app.spaHandler().ServeHTTP(w, r)
+	})
+	router.MethodNotAllowed = http.HandlerFunc(app.MethodNotAllowedResponse)
 
 	// API routes (JSON).
-	mux.HandleFunc("GET /api/healthcheck", app.healthcheckHandler)
+	router.HandlerFunc(http.MethodGet, "/api/healthcheck", app.healthcheckHandler)
 
-	// Any other /api/* path that isn't matched above is a JSON 404 rather than
-	// falling through to the SPA.
-	mux.HandleFunc("/api/", app.notFoundAPIHandler)
-
-	// SPA fallback: serve static assets from the web root; unknown non-API
-	// paths return index.html so client-side routing works after a hard reload.
-	mux.Handle("/", app.spaHandler())
-
-	return mux
+	return router
 }
 
 // spaHandler serves the built single-page app from the configured web root. In

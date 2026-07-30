@@ -1,0 +1,6 @@
+# Generated OpenAPI spec (swaggo/swag). Regenerate with:
+#   go tool swag init -g cmd/api/main.go -o cmd/api/docs
+cmd/api/docs/
+
+# Built SPA bundle copied in for prod (dev uses go/www placeholder).
+# (The prod Docker stage populates the web root; nothing to commit here.)
