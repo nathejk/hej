@@ -52,10 +52,14 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 
 # ui-dev: the image the `ui` compose service runs. Source + node_modules are
 # provided via volumes; the entrypoint runs `npm ci && npm run dev` (Vite HMR).
+# Vite's dev server listens on :80, so EXPOSE it — Traefik's docker provider
+# uses the exposed port to discover the service (no loadbalancer port label
+# needed since it's the default 80).
 FROM node:20-alpine AS ui-dev
 WORKDIR /app
 COPY docker/init/ui-dev /usr/local/bin/ui-dev
 RUN chmod +x /usr/local/bin/ui-dev
+EXPOSE 80
 ENTRYPOINT ["ui-dev"]
 
 # ui-builder: prod-only. Installs deps and builds the SPA to /app/dist.
