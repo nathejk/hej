@@ -1,0 +1,32 @@
+# Tilmelding — Agent Rules
+
+## Org conventions
+Read `.agents/rules/rules.md` for org-wide conventions before proceeding.
+Everything in that file applies here unless explicitly overridden below.
+
+---
+
+## This repo
+
+**Purpose:** Nathejk tilmelding, user facing frontend with dedicated api (backend for frontend style)
+**Group:** Core
+
+### Services
+
+| Service | Technology | Dev target | Local URL |
+|---|---|---|---|
+| frontend | Vue 3 (TS) | `ui-dev` | `https://tilmelding.local.nathejk.dk` |
+| bff | Go | `base` | internal only |
+
+### Key files
+- `docker/Dockerfile` — multistage build (dev targets: `ui-dev`, `base`; prod target: `prod`)
+- `docker-compose.yml` — dev environment
+- `roadmap/tasks/TASKS.md` — task board conventions
+- `roadmap/prd/` — Product Requirements Documents (see `roadmap/prd/README.md`)
+
+---
+
+## Repo-specific conventions
+
+- All endpoints must have OpenAPI annotations
+- New features and significant changes require a PRD (`prd` skill) before implementation
