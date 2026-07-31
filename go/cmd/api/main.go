@@ -10,6 +10,7 @@ import (
 	"nathejk.dk/internal/data"
 	"nathejk.dk/internal/pin"
 	"nathejk.dk/internal/ratelimit"
+	"nathejk.dk/internal/session"
 	"nathejk.dk/internal/sms"
 	"nathejk.dk/internal/users"
 )
@@ -26,6 +27,7 @@ type application struct {
 	// Auth infrastructure.
 	pins              *pin.Store
 	sms               sms.Sender
+	sessions          *session.Manager
 	requestPinLimiter *ratelimit.Limiter
 }
 
@@ -46,6 +48,11 @@ func main() {
 
 		pins: pin.NewStore(),
 		sms:  sms.LogSender{Logger: logger},
+		sessions: session.NewManager(
+			[]byte(cfg.sessionSecret),
+			7*24*time.Hour, // ≥ 7-day session per PRD
+			cfg.sessionSecure,
+		),
 		// Allow a modest burst of PIN requests per IP per minute.
 		requestPinLimiter: ratelimit.New(5, time.Minute),
 	}

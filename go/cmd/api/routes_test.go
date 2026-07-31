@@ -16,6 +16,7 @@ import (
 	"nathejk.dk/internal/data"
 	"nathejk.dk/internal/pin"
 	"nathejk.dk/internal/ratelimit"
+	"nathejk.dk/internal/session"
 	"nathejk.dk/internal/sms"
 	"nathejk.dk/internal/users"
 )
@@ -37,6 +38,7 @@ func newTestApp(t *testing.T) *application {
 
 		pins:              pin.NewStore(),
 		sms:               sms.LogSender{Logger: logger},
+		sessions:          session.NewManager([]byte("test-secret"), time.Hour, false),
 		requestPinLimiter: ratelimit.New(100, time.Minute),
 	}
 }

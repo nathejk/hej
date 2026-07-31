@@ -43,3 +43,8 @@ func (a *JsonApi) BadRequestResponse(w http.ResponseWriter, r *http.Request, err
 func (a *JsonApi) RateLimitResponse(w http.ResponseWriter, r *http.Request) {
 	a.errorResponse(w, r, http.StatusTooManyRequests, "rate limit exceeded; please try again later")
 }
+
+// InvalidCredentialsResponse returns a 401 JSON error for a failed auth attempt.
+func (a *JsonApi) InvalidCredentialsResponse(w http.ResponseWriter, r *http.Request) {
+	a.errorResponse(w, r, http.StatusUnauthorized, "invalid phone number or PIN")
+}

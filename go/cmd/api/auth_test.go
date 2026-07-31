@@ -134,3 +134,79 @@ func TestRequestPin_RateLimited(t *testing.T) {
 		t.Fatalf("second status = %d, want 429", second.StatusCode)
 	}
 }
+
+func hasSessionCookie(resp *http.Response) bool {
+	for _, c := range resp.Cookies() {
+		if c.Name == "hej_session" && c.Value != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func TestVerifyPin_SuccessSetsSession(t *testing.T) {
+	app := newTestApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	// Issue a PIN directly so the test knows the code.
+	code, err := app.pins.Issue("+4530000001")
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+
+	resp := postJSON(t, srv.URL+"/api/auth/verify", `{"phone":"30000001","pin":"`+code+`"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if !hasSessionCookie(resp) {
+		t.Fatal("expected a session cookie to be set")
+	}
+
+	var id struct {
+		UserID string `json:"user_id"`
+		Role   string `json:"role"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&id); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if id.Role != "spejder" {
+		t.Errorf("role = %q, want spejder", id.Role)
+	}
+	if id.UserID == "" {
+		t.Error("user_id must not be empty")
+	}
+}
+
+func TestVerifyPin_WrongPINIs401NoSession(t *testing.T) {
+	app := newTestApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	if _, err := app.pins.Issue("+4530000001"); err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+
+	resp := postJSON(t, srv.URL+"/api/auth/verify", `{"phone":"30000001","pin":"000000"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", resp.StatusCode)
+	}
+	if hasSessionCookie(resp) {
+		t.Fatal("no session cookie should be set on failure")
+	}
+}
+
+func TestVerifyPin_NoPINForNumberIs401(t *testing.T) {
+	app := newTestApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	// No PIN ever issued for this recognized number.
+	resp := postJSON(t, srv.URL+"/api/auth/verify", `{"phone":"30000002","pin":"123456"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", resp.StatusCode)
+	}
+}

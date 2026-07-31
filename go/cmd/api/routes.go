@@ -30,6 +30,7 @@ func (app *application) routes() http.Handler {
 	// API routes (JSON).
 	router.HandlerFunc(http.MethodGet, "/api/healthcheck", app.healthcheckHandler)
 	router.HandlerFunc(http.MethodPost, "/api/auth/request-pin", app.requestPinHandler)
+	router.HandlerFunc(http.MethodPost, "/api/auth/verify", app.verifyPinHandler)
 
 	return router
 }

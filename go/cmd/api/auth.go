@@ -80,3 +80,65 @@ func (app *application) requestPinHandler(w http.ResponseWriter, r *http.Request
 func pinMessage(code string) string {
 	return fmt.Sprintf("Din Hej Nathejk kode er: %s", code)
 }
+
+type verifyPinRequest struct {
+	Phone string `json:"phone"`
+	Pin   string `json:"pin"`
+}
+
+type identityResponse struct {
+	UserID string `json:"user_id"`
+	Role   string `json:"role"`
+}
+
+// verifyPinHandler completes phone login: it verifies the submitted PIN and, on
+// success, establishes a session cookie and returns the user's identity + role.
+//
+// @Summary      Verify a login PIN
+// @Description  Verifies the SMS PIN for a phone number; on success sets a session cookie and returns identity + role.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request  body      verifyPinRequest  true  "Phone number and PIN"
+// @Success      200      {object}  identityResponse
+// @Failure      400      {object}  map[string]string
+// @Failure      401      {object}  map[string]string
+// @Failure      429      {object}  map[string]string
+// @Router       /auth/verify [post]
+func (app *application) verifyPinHandler(w http.ResponseWriter, r *http.Request) {
+	var input verifyPinRequest
+	if err := app.ReadJSON(w, r, &input); err != nil {
+		app.BadRequestResponse(w, r, err)
+		return
+	}
+
+	normalized, err := phone.Normalize(input.Phone)
+	if err != nil {
+		app.BadRequestResponse(w, r, err)
+		return
+	}
+
+	if err := app.pins.Verify(normalized, input.Pin); err != nil {
+		if errors.Is(err, pin.ErrTooManyAttempts) {
+			app.RateLimitResponse(w, r)
+			return
+		}
+		// ErrNoPIN / ErrExpired / ErrMismatch all map to the same 401 so the
+		// response never distinguishes an unknown number from a wrong PIN.
+		app.InvalidCredentialsResponse(w, r)
+		return
+	}
+
+	// A PIN only ever exists for a recognized number, so lookup succeeds here.
+	user, ok := app.models.Users.Lookup(normalized)
+	if !ok {
+		app.InvalidCredentialsResponse(w, r)
+		return
+	}
+
+	app.sessions.Issue(w, user.ID, string(user.Role))
+
+	if err := app.WriteJSON(w, http.StatusOK, identityResponse{UserID: user.ID, Role: string(user.Role)}, nil); err != nil {
+		app.ServerErrorResponse(w, r, err)
+	}
+}
