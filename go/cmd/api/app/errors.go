@@ -48,3 +48,8 @@ func (a *JsonApi) RateLimitResponse(w http.ResponseWriter, r *http.Request) {
 func (a *JsonApi) InvalidCredentialsResponse(w http.ResponseWriter, r *http.Request) {
 	a.errorResponse(w, r, http.StatusUnauthorized, "invalid phone number or PIN")
 }
+
+// AuthenticationRequiredResponse returns a 401 for a missing/invalid session.
+func (a *JsonApi) AuthenticationRequiredResponse(w http.ResponseWriter, r *http.Request) {
+	a.errorResponse(w, r, http.StatusUnauthorized, "you must be authenticated to access this resource")
+}

@@ -210,3 +210,77 @@ func TestVerifyPin_NoPINForNumberIs401(t *testing.T) {
 		t.Fatalf("status = %d, want 401", resp.StatusCode)
 	}
 }
+
+func TestMe_RequiresAuth(t *testing.T) {
+	app := newTestApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/me")
+	if err != nil {
+		t.Fatalf("GET /api/me: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestMe_WithSession(t *testing.T) {
+	app := newTestApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	code, err := app.pins.Issue("+4530000001")
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	verify := postJSON(t, srv.URL+"/api/auth/verify", `{"phone":"30000001","pin":"`+code+`"}`)
+	cookies := verify.Cookies()
+	io.Copy(io.Discard, verify.Body)
+	verify.Body.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/me", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/me: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var id struct {
+		UserID string `json:"user_id"`
+		Role   string `json:"role"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&id); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if id.Role != "spejder" || id.UserID == "" {
+		t.Fatalf("identity = %+v, want role spejder + non-empty id", id)
+	}
+}
+
+func TestLogout_ClearsCookie(t *testing.T) {
+	app := newTestApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	resp := postJSON(t, srv.URL+"/api/auth/logout", ``)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	cleared := false
+	for _, c := range resp.Cookies() {
+		if c.Name == "hej_session" && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatal("expected the session cookie to be cleared (MaxAge < 0)")
+	}
+}

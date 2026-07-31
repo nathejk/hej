@@ -142,3 +142,40 @@ func (app *application) verifyPinHandler(w http.ResponseWriter, r *http.Request)
 		app.ServerErrorResponse(w, r, err)
 	}
 }
+
+// meHandler returns the current session identity + role. It runs behind
+// requireAuth, so reaching it means a valid session exists.
+//
+// @Summary      Current identity
+// @Description  Returns the signed-in user's id + role. 401 when not signed in.
+// @Tags         auth
+// @Produce      json
+// @Success      200  {object}  identityResponse
+// @Failure      401  {object}  map[string]string
+// @Router       /me [get]
+func (app *application) meHandler(w http.ResponseWriter, r *http.Request) {
+	s, ok := contextGetSession(r)
+	if !ok {
+		app.AuthenticationRequiredResponse(w, r)
+		return
+	}
+	if err := app.WriteJSON(w, http.StatusOK, identityResponse{UserID: s.UserID, Role: s.Role}, nil); err != nil {
+		app.ServerErrorResponse(w, r, err)
+	}
+}
+
+// logoutHandler clears the session cookie. It is idempotent and safe to call
+// without an active session.
+//
+// @Summary      Sign out
+// @Description  Clears the session cookie.
+// @Tags         auth
+// @Produce      json
+// @Success      200  {object}  map[string]string
+// @Router       /auth/logout [post]
+func (app *application) logoutHandler(w http.ResponseWriter, r *http.Request) {
+	app.sessions.Clear(w)
+	if err := app.WriteJSON(w, http.StatusOK, map[string]string{"message": "signed out"}, nil); err != nil {
+		app.ServerErrorResponse(w, r, err)
+	}
+}

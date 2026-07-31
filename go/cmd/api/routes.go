@@ -31,6 +31,8 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodGet, "/api/healthcheck", app.healthcheckHandler)
 	router.HandlerFunc(http.MethodPost, "/api/auth/request-pin", app.requestPinHandler)
 	router.HandlerFunc(http.MethodPost, "/api/auth/verify", app.verifyPinHandler)
+	router.HandlerFunc(http.MethodPost, "/api/auth/logout", app.logoutHandler)
+	router.HandlerFunc(http.MethodGet, "/api/me", app.requireAuth(app.meHandler))
 
 	return router
 }
