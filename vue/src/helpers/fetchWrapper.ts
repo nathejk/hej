@@ -6,6 +6,18 @@
 
 type Json = Record<string, unknown> | unknown[] | null
 
+// HttpError carries the HTTP status so callers (e.g. the session store) can
+// treat 401 as "not authenticated" rather than a hard failure.
+export class HttpError extends Error {
+  readonly status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'HttpError'
+    this.status = status
+  }
+}
+
 async function request<T = Json>(method: string, url: string, body?: unknown): Promise<T> {
   const options: RequestInit = {
     method,
@@ -27,7 +39,7 @@ async function request<T = Json>(method: string, url: string, body?: unknown): P
       data && typeof data === 'object' && 'error' in data
         ? String((data as Record<string, unknown>).error)
         : response.statusText
-    return Promise.reject(new Error(message))
+    throw new HttpError(response.status, message)
   }
 
   return data as T

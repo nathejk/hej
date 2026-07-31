@@ -1,1 +1,1 @@
-export { fetchWrapper } from '@/helpers/fetchWrapper'
+export { fetchWrapper, HttpError } from '@/helpers/fetchWrapper'
