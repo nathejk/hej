@@ -9,10 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	bff "nathejk.dk/cmd/api/app"
 	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/data"
+	"nathejk.dk/internal/pin"
+	"nathejk.dk/internal/ratelimit"
+	"nathejk.dk/internal/sms"
 	"nathejk.dk/internal/users"
 )
 
@@ -24,11 +28,16 @@ func newTestApp(t *testing.T) *application {
 		t.Fatalf("writing test index.html: %v", err)
 	}
 
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return &application{
-		JsonApi:  bff.JsonApi{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))},
+		JsonApi:  bff.JsonApi{Logger: logger},
 		config:   config{env: "testing", webRoot: webRoot},
 		models:   data.NewModels(users.NewMockDirectory()),
 		commands: commands.New(),
+
+		pins:              pin.NewStore(),
+		sms:               sms.LogSender{Logger: logger},
+		requestPinLimiter: ratelimit.New(100, time.Minute),
 	}
 }
 

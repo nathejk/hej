@@ -3,10 +3,14 @@ package main
 import (
 	"log/slog"
 	"os"
+	"time"
 
 	bff "nathejk.dk/cmd/api/app"
 	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/data"
+	"nathejk.dk/internal/pin"
+	"nathejk.dk/internal/ratelimit"
+	"nathejk.dk/internal/sms"
 	"nathejk.dk/internal/users"
 )
 
@@ -18,6 +22,11 @@ type application struct {
 	config   config
 	models   data.Models
 	commands commands.Commands
+
+	// Auth infrastructure.
+	pins              *pin.Store
+	sms               sms.Sender
+	requestPinLimiter *ratelimit.Limiter
 }
 
 // @title        Hej Nathejk API
@@ -34,6 +43,11 @@ func main() {
 		config:   cfg,
 		models:   data.NewModels(users.NewMockDirectory()),
 		commands: commands.New(),
+
+		pins: pin.NewStore(),
+		sms:  sms.LogSender{Logger: logger},
+		// Allow a modest burst of PIN requests per IP per minute.
+		requestPinLimiter: ratelimit.New(5, time.Minute),
 	}
 
 	logger.Info("configuration loaded", "env", cfg.env, "port", cfg.port, "web_root", cfg.webRoot)

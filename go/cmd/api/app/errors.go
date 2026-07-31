@@ -38,3 +38,8 @@ func (a *JsonApi) MethodNotAllowedResponse(w http.ResponseWriter, r *http.Reques
 func (a *JsonApi) BadRequestResponse(w http.ResponseWriter, r *http.Request, err error) {
 	a.errorResponse(w, r, http.StatusBadRequest, err.Error())
 }
+
+// RateLimitResponse returns a 429 JSON error.
+func (a *JsonApi) RateLimitResponse(w http.ResponseWriter, r *http.Request) {
+	a.errorResponse(w, r, http.StatusTooManyRequests, "rate limit exceeded; please try again later")
+}

@@ -2,7 +2,10 @@ module nathejk.dk
 
 go 1.25.8
 
-require github.com/julienschmidt/httprouter v1.3.0
+require (
+	github.com/julienschmidt/httprouter v1.3.0
+	golang.org/x/crypto v0.54.0
+)
 
 require (
 	cloud.google.com/go v0.123.0 // indirect
@@ -55,7 +58,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.6 // indirect
-	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20231108232855-2478ac86f678 // indirect
 	golang.org/x/mod v0.38.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
