@@ -13,6 +13,7 @@ import (
 	bff "nathejk.dk/cmd/api/app"
 	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/data"
+	"nathejk.dk/internal/users"
 )
 
 func newTestApp(t *testing.T) *application {
@@ -26,7 +27,7 @@ func newTestApp(t *testing.T) *application {
 	return &application{
 		JsonApi:  bff.JsonApi{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))},
 		config:   config{env: "testing", webRoot: webRoot},
-		models:   data.NewModels(),
+		models:   data.NewModels(users.NewMockDirectory()),
 		commands: commands.New(),
 	}
 }

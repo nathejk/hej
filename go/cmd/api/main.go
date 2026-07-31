@@ -7,6 +7,7 @@ import (
 	bff "nathejk.dk/cmd/api/app"
 	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/data"
+	"nathejk.dk/internal/users"
 )
 
 // application is the root dependency container for the API binary. It embeds
@@ -31,7 +32,7 @@ func main() {
 	app := &application{
 		JsonApi:  bff.JsonApi{Logger: logger},
 		config:   cfg,
-		models:   data.NewModels(),
+		models:   data.NewModels(users.NewMockDirectory()),
 		commands: commands.New(),
 	}
 
