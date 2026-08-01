@@ -66,7 +66,9 @@ async function submitPin() {
   busy.value = true
   try {
     await session.verify(phone.value, pin.value)
-    await router.replace({ name: 'home' })
+    // Landing is defined by the router (/ → maps); routing to '/' keeps this
+    // decoupled from the concrete first-destination name.
+    await router.replace({ path: '/' })
   } catch (err) {
     if (err instanceof HttpError && err.status === 401) {
       error.value = 'Koden passer ikke. Prøv igen.'
