@@ -9,6 +9,7 @@ import (
 	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/data"
 	"nathejk.dk/internal/pin"
+	"nathejk.dk/internal/push"
 	"nathejk.dk/internal/ratelimit"
 	"nathejk.dk/internal/session"
 	"nathejk.dk/internal/sms"
@@ -29,6 +30,9 @@ type application struct {
 	sms               sms.Sender
 	sessions          *session.Manager
 	requestPinLimiter *ratelimit.Limiter
+
+	// Push subscription storage.
+	pushStore push.Store
 }
 
 // @title        Hej Nathejk API
@@ -55,6 +59,8 @@ func main() {
 		),
 		// Allow a modest burst of PIN requests per IP per minute.
 		requestPinLimiter: ratelimit.New(5, time.Minute),
+
+		pushStore: push.NewMemoryStore(),
 	}
 
 	logger.Info("configuration loaded", "env", cfg.env, "port", cfg.port, "web_root", cfg.webRoot)
