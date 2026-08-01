@@ -57,6 +57,8 @@ export default defineConfig({
     // Vite dev server listens on :80 inside the container (Traefik/EXPOSE 80).
     host: true,
     port: 80,
+    // Accept the proxied hostname(s) — Vite 5.4+ blocks unknown Host headers.
+    allowedHosts: ['.local.nathejk.dk'],
     // In dev, proxy the API to the Go BFF container. In prod the Go binary
     // serves both the API and the SPA from the same origin, so no proxy.
     proxy: {

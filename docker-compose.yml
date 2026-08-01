@@ -28,13 +28,18 @@ services:
       traefik.enable: "true"
       traefik.docker.network: traefik
       # HTTPS via redirect so the SPA runs in a browser secure context
-      # (service workers, geolocation, notifications).
+      # (service workers, geolocation, notifications). The redirect middleware
+      # is defined locally (repo-scoped) so routing doesn't depend on a
+      # middleware defined elsewhere in the shared Traefik config.
+      traefik.http.middlewares.hej-redirect-https.redirectscheme.scheme: https
       traefik.http.routers.hej.rule: Host(`hej.local.nathejk.dk`)
       traefik.http.routers.hej.entrypoints: web
-      traefik.http.routers.hej.middlewares: redirect-to-https
+      traefik.http.routers.hej.middlewares: hej-redirect-https
       traefik.http.routers.hej-secure.rule: Host(`hej.local.nathejk.dk`)
       traefik.http.routers.hej-secure.entrypoints: websecure
       traefik.http.routers.hej-secure.tls.certresolver: desec
+      # Traefik should route to Vite's dev port.
+      traefik.http.services.hej.loadbalancer.server.port: "80"
     depends_on:
       - api
 
