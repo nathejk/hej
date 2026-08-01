@@ -4,6 +4,7 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import Components from 'unplugin-vue-components/vite'
 import { PrimeVueResolver } from '@primevue/auto-import-resolver'
+import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -13,6 +14,30 @@ export default defineConfig({
     Components({
       resolvers: [PrimeVueResolver()],
       dts: 'src/components.d.ts',
+    }),
+    // PWA: installable to the home screen, standalone display. registerType
+    // 'prompt' surfaces a "new version" event the app turns into an update
+    // prompt (see @/helpers/pwa + task 020). Manifest values mirror
+    // @/config/brand.
+    VitePWA({
+      registerType: 'prompt',
+      injectRegister: false, // we register manually in @/helpers/pwa
+      includeAssets: ['favicon.svg', 'logo.svg'],
+      manifest: {
+        name: 'Hej Nathejk',
+        short_name: 'Hej Nathejk',
+        description: 'Nathejk in-event companion — maps, contacts, rulebook and updates.',
+        theme_color: '#0f172a',
+        background_color: '#ffffff',
+        display: 'standalone',
+        start_url: '/',
+        scope: '/',
+        lang: 'da',
+        icons: [
+          { src: '/logo.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          { src: '/logo.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+        ],
+      },
     }),
   ],
   resolve: {
