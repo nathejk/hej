@@ -35,10 +35,13 @@ services:
       traefik.http.routers.hej.rule: Host(`hej.local.nathejk.dk`)
       traefik.http.routers.hej.entrypoints: web
       traefik.http.routers.hej.middlewares: hej-redirect-https
+      traefik.http.routers.hej.service: hej
       traefik.http.routers.hej-secure.rule: Host(`hej.local.nathejk.dk`)
       traefik.http.routers.hej-secure.entrypoints: websecure
       traefik.http.routers.hej-secure.tls.certresolver: desec
-      # Traefik should route to Vite's dev port.
+      traefik.http.routers.hej-secure.service: hej
+      # Vite's dev port. Required because Traefik can't otherwise infer the
+      # port ("port is missing") — both routers bind to this service.
       traefik.http.services.hej.loadbalancer.server.port: "80"
     depends_on:
       - api
@@ -67,6 +70,10 @@ services:
       - api:/go
     networks:
       - local
+    labels:
+      # Internal-only (reached via the Vite dev proxy); keep it off Traefik.
+      # Needed because this Traefik has exposedByDefault=true.
+      traefik.enable: "false"
 
   db:
     image: mariadb:10.8
@@ -79,6 +86,8 @@ services:
       - db:/var/lib/mysql
     networks:
       - local
+    labels:
+      traefik.enable: "false"
 
   phpmyadmin:
     image: phpmyadmin
