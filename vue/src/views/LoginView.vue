@@ -5,6 +5,7 @@ import { KeyRound, Phone, ArrowLeft } from 'lucide-vue-next'
 import { HttpError } from '@/helpers'
 import { useSessionStore } from '@/stores/session.store'
 import { NODTELEFON, NODTELEFON_DISPLAY } from '@/config/contact'
+import { APP_NAME } from '@/config/brand'
 
 // Two-step phone login: phone → PIN → session. Passwordless: the only secret is
 // the one-time SMS PIN. The PIN step always follows the phone step regardless
@@ -95,7 +96,7 @@ function changeNumber() {
       <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-white">
         <KeyRound class="h-7 w-7" />
       </div>
-      <h1 class="text-2xl font-bold">Hej Nathejk</h1>
+      <h1 class="text-2xl font-bold">{{ APP_NAME }}</h1>
       <p class="text-sm text-slate-500">Log ind med dit telefonnummer</p>
     </header>
 

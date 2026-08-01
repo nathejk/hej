@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { LogOut } from 'lucide-vue-next'
 import { useSessionStore } from '@/stores/session.store'
 import BottomNav from '@/components/BottomNav.vue'
+import { APP_NAME } from '@/config/brand'
 
 const session = useSessionStore()
 const route = useRoute()
@@ -25,7 +26,7 @@ async function signOut() {
       class="flex items-center justify-between border-b border-slate-200 bg-white px-4 pb-3"
       style="padding-top: calc(env(safe-area-inset-top) + 0.75rem)"
     >
-      <span class="font-bold">Hej Nathejk</span>
+      <span class="font-bold">{{ APP_NAME }}</span>
       <button
         type="button"
         class="flex items-center gap-1 text-sm text-slate-500"
