@@ -38,6 +38,10 @@ export default defineConfig({
           { src: '/logo.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
         ],
       },
+      workbox: {
+        // Pull in custom push / notificationclick handlers (public/push-sw.js).
+        importScripts: ['push-sw.js'],
+      },
     }),
   ],
   resolve: {
