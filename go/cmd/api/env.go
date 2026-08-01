@@ -19,6 +19,12 @@ type config struct {
 	// intentionally insecure. sessionSecure toggles the cookie Secure attribute.
 	sessionSecret string
 	sessionSecure bool
+
+	// Web Push VAPID keys. The public key is served to the client; the private
+	// key is a secret used to sign push messages (delivery is a later PRD).
+	// Empty by default — push is simply unavailable until they are set.
+	vapidPublicKey  string
+	vapidPrivateKey string
 }
 
 func loadConfig() config {
@@ -28,6 +34,8 @@ func loadConfig() config {
 	flag.StringVar(&cfg.webRoot, "web-root", envStr("WEB_ROOT", "./www"), "Directory containing the built SPA")
 	flag.StringVar(&cfg.sessionSecret, "session-secret", envStr("SESSION_SECRET", "dev-insecure-secret-change-me"), "HMAC secret for signing session cookies")
 	flag.BoolVar(&cfg.sessionSecure, "session-secure", envBool("SESSION_SECURE", true), "Set the Secure flag on the session cookie (true behind HTTPS)")
+	flag.StringVar(&cfg.vapidPublicKey, "vapid-public-key", envStr("VAPID_PUBLIC_KEY", ""), "Web Push VAPID public key (served to clients)")
+	flag.StringVar(&cfg.vapidPrivateKey, "vapid-private-key", envStr("VAPID_PRIVATE_KEY", ""), "Web Push VAPID private key (secret)")
 	flag.Parse()
 	return cfg
 }

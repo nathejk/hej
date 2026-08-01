@@ -48,6 +48,14 @@ services:
       ENV: development
       WEB_ROOT: ./www
       GOCACHE: /go/.cache/go-build
+      # Session cookie signing secret — OVERRIDE in docker-compose.override.yml.
+      SESSION_SECRET: dev-insecure-secret-change-me
+      SESSION_SECURE: "true"
+      # Web Push VAPID keys. Generate a pair (e.g. `npx web-push generate-vapid-keys`
+      # or any VAPID generator) and put them here for dev; the PRIVATE key is a
+      # secret and belongs in docker-compose.override.yml, never committed.
+      VAPID_PUBLIC_KEY: ""
+      VAPID_PRIVATE_KEY: ""
       # GO_BUILD_FLAGS: "-race"   # uncomment for the race detector
     volumes:
       - ./go:/app

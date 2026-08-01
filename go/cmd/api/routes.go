@@ -33,6 +33,7 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodPost, "/api/auth/verify", app.verifyPinHandler)
 	router.HandlerFunc(http.MethodPost, "/api/auth/logout", app.logoutHandler)
 	router.HandlerFunc(http.MethodGet, "/api/me", app.requireAuth(app.meHandler))
+	router.HandlerFunc(http.MethodGet, "/api/push/public-key", app.pushPublicKeyHandler)
 
 	return router
 }
