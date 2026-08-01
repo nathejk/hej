@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { LogOut } from 'lucide-vue-next'
 import { useSessionStore } from '@/stores/session.store'
 import BottomNav from '@/components/BottomNav.vue'
+import UpdatePrompt from '@/components/UpdatePrompt.vue'
 import { APP_NAME } from '@/config/brand'
 
 const session = useSessionStore()
@@ -21,6 +22,8 @@ async function signOut() {
 </script>
 
 <template>
+  <UpdatePrompt />
+
   <div v-if="showShell" class="flex h-full flex-col">
     <header
       class="flex items-center justify-between border-b border-slate-200 bg-white px-4 pb-3"
