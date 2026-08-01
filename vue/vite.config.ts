@@ -8,6 +8,10 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  define: {
+    // Build/version id exposed to the app (npm sets npm_package_version).
+    __APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? 'dev'),
+  },
   plugins: [
     vue(),
     // Auto-import PrimeVue components (<Button>, <InputText>, …) — no manual imports.

@@ -1,6 +1,10 @@
 package main
 
-import "net/http"
+import (
+	"net/http"
+
+	"nathejk.dk/internal/vcs"
+)
 
 // healthcheckHandler reports basic liveness and environment info. Used by
 // container/orchestration health probes.
@@ -21,6 +25,7 @@ func (app *application) healthcheckHandler(w http.ResponseWriter, r *http.Reques
 		"status": "available",
 		"system_info": map[string]string{
 			"environment": app.config.env,
+			"version":     vcs.Version(),
 		},
 	}
 	if err := app.WriteJSON(w, http.StatusOK, data, nil); err != nil {

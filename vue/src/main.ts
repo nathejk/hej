@@ -32,6 +32,9 @@ app.use(ToastService)
 
 app.mount('#app')
 
+// eslint-disable-next-line no-console
+console.info(`Hej Nathejk v${__APP_VERSION__}`)
+
 // Register the service worker (installability + update detection). When a new
 // build is waiting, flag it on the app store; UpdatePrompt (task 020) shows the
 // reload affordance.

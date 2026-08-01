@@ -14,6 +14,7 @@ import (
 	"nathejk.dk/internal/session"
 	"nathejk.dk/internal/sms"
 	"nathejk.dk/internal/users"
+	"nathejk.dk/internal/vcs"
 )
 
 // application is the root dependency container for the API binary. It embeds
@@ -63,7 +64,7 @@ func main() {
 		pushStore: push.NewMemoryStore(),
 	}
 
-	logger.Info("configuration loaded", "env", cfg.env, "port", cfg.port, "web_root", cfg.webRoot)
+	logger.Info("configuration loaded", "env", cfg.env, "port", cfg.port, "web_root", cfg.webRoot, "version", vcs.Version())
 
 	if err := app.Serve(app.routes(), cfg.port); err != nil {
 		logger.Error("server error", "err", err)

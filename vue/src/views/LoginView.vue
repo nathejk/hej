@@ -15,6 +15,8 @@ const RESEND_COOLDOWN_SECONDS = 60
 const session = useSessionStore()
 const router = useRouter()
 
+const version = __APP_VERSION__
+
 const step = ref<'phone' | 'pin'>('phone')
 const phone = ref('')
 const pin = ref('')
@@ -170,5 +172,7 @@ function changeNumber() {
     </form>
 
     <p v-if="error" class="text-center text-sm text-red-600" role="alert">{{ error }}</p>
+
+    <p class="text-center text-xs text-slate-300">v{{ version }}</p>
   </main>
 </template>
