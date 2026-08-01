@@ -4,6 +4,7 @@ import { Menu } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
 import { useSessionStore } from '@/stores/session.store'
 import { visibleDestinations } from '@/config/navigation'
+import MoreMenu from '@/components/MoreMenu.vue'
 
 // Bottom navigation, filtered by the signed-in role. At most MAX_SLOTS slots:
 // when the role sees more than that, the last slot becomes a "More" (burger)
@@ -35,24 +36,8 @@ function closeOverflow() {
 
 <template>
   <div>
-    <!-- Overflow list (temporary inline panel; task 012 makes it a sheet). -->
-    <div
-      v-if="overflowOpen"
-      class="border-t border-slate-200 bg-white"
-      style="padding-bottom: env(safe-area-inset-bottom)"
-    >
-      <RouterLink
-        v-for="item in overflow"
-        :key="item.name"
-        :to="{ name: item.name }"
-        class="flex items-center gap-3 px-4 py-3 text-sm text-slate-600"
-        active-class="text-slate-900 font-medium"
-        @click="closeOverflow"
-      >
-        <component :is="item.icon" class="h-5 w-5" aria-hidden="true" />
-        <span>{{ item.label }}</span>
-      </RouterLink>
-    </div>
+    <!-- Overflow destinations live in a bottom sheet. -->
+    <MoreMenu :open="overflowOpen" :items="overflow" @close="closeOverflow" />
 
     <nav
       class="flex items-stretch border-t border-slate-200 bg-white"
