@@ -1,7 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import HomeView from '@/views/HomeView.vue'
+import type { Component } from 'vue'
+import type { RouteRecordRaw } from 'vue-router'
 import { useSessionStore } from '@/stores/session.store'
 import type { Role } from '@/stores/session.store'
+import { destinations } from '@/config/navigation'
 
 // Route meta used by the global guard.
 declare module 'vue-router' {
@@ -13,20 +15,37 @@ declare module 'vue-router' {
   }
 }
 
+// Lazy view loaders keyed by destination name (single source: navigation.ts
+// owns the label/icon/roles; the router owns the component + path).
+const viewLoaders: Record<string, () => Promise<Component>> = {
+  maps: () => import('@/views/MapsView.vue'),
+  contacts: () => import('@/views/ContactsView.vue'),
+  rulebook: () => import('@/views/RulebookView.vue'),
+  updates: () => import('@/views/UpdatesView.vue'),
+  schedule: () => import('@/views/ScheduleView.vue'),
+  sos: () => import('@/views/SosView.vue'),
+  faq: () => import('@/views/FaqView.vue'),
+}
+
+const destinationRoutes: RouteRecordRaw[] = destinations.map((d) => ({
+  path: d.path,
+  name: d.name,
+  component: viewLoaders[d.name],
+  meta: { roles: d.roles },
+}))
+
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
-    {
-      path: '/',
-      name: 'home',
-      component: HomeView,
-    },
+    // Landing → first destination.
+    { path: '/', redirect: { name: 'maps' } },
     {
       path: '/login',
       name: 'login',
       component: () => import('@/views/LoginView.vue'),
       meta: { public: true },
     },
+    ...destinationRoutes,
   ],
 })
 
@@ -42,10 +61,10 @@ router.beforeEach(async (to) => {
     return { name: 'login' }
   }
   if (to.name === 'login' && session.isAuthenticated) {
-    return { name: 'home' }
+    return { name: 'maps' }
   }
   if (to.meta.roles && session.role && !to.meta.roles.includes(session.role)) {
-    return { name: 'home' }
+    return { name: 'maps' }
   }
   return true
 })
