@@ -1,15 +1,21 @@
 ---
-name: vue3-spa-layout
+name: vue3-spa-layout-legacy
 description: >
-  Conventions and directory layout for the Vue 3 single-page-application
-  frontend used across Nathejk repos. Apply this skill when adding views,
-  components, routes, Pinia stores, PrimeVue presets, or API calls in the
-  `vue/` workspace. Trigger phrases: "add a page", "new view", "new route",
-  "new component", "Pinia store", "PrimeVue", "Tailwind", "frontend",
-  "SPA", "Vite config".
+  LEGACY — conventions and directory layout for the older PrimeVue-based Vue 3
+  SPA frontends in sibling Nathejk repos (JavaScript, PrimeVue unstyled + Lara
+  preset, PrimeIcons, Vitest/Cypress). Do NOT apply this skill to the `hej`
+  repo: its frontend uses Tailwind v4 + shadcn-vue — use `vue3-pwa-layout`
+  instead. Use this only when reading or maintaining a repo that still runs the
+  PrimeVue stack, or when porting patterns out of one.
 ---
 
-# Vue 3 SPA Layout
+> **Legacy.** This describes the *old* frontend stack. In `hej`, PrimeVue is
+> forbidden (see `.rules` and PRD 004) and the component library is
+> **shadcn-vue** with **Tailwind v4** — use the **`vue3-pwa-layout`** skill.
+> This file is kept because sibling repos still match it and because the routing,
+> Pinia, `fetchWrapper` and container conventions below are still shared.
+
+# Vue 3 SPA Layout (legacy, PrimeVue)
 
 The frontend is a Vue 3 SPA built with Vite, styled with Tailwind, and using
 PrimeVue (unstyled + Lara preset) for components. State is in Pinia. It is

@@ -24,12 +24,38 @@ Everything in that file applies here unless explicitly overridden below.
 - `roadmap/tasks/TASKS.md` — task board conventions
 - `roadmap/prd/` — Product Requirements Documents (see `roadmap/prd/README.md`)
 
+### Frontend skill
+Use **`vue3-pwa-layout`** for anything in `vue/`. The older
+`vue3-spa-layout-legacy` skill describes the PrimeVue-based sibling repos and
+must **not** be applied here.
+
 ---
 
 ## Repo-specific conventions
 
 - All endpoints must have OpenAPI annotations
 - New features and significant changes require a PRD (`prd` skill) before implementation
+- **Component library:** use [shadcn-vue](https://www.shadcn-vue.com/) for all UI
+  components (see the `vue3-pwa-layout` skill). **Prefer a standard shadcn-vue
+  component whenever one exists** — only hand-roll a component if nothing in the
+  catalogue fits, and note why in a comment. Generated primitives live in
+  `vue/src/components/ui/` and are owned source — edit them in place rather than
+  wrapping them to patch styling.
+  **Do not use PrimeVue.** It is being removed (see PRD 004) and must not be
+  reintroduced: no `primevue`, no `@primevue/*`, no Lara/theme presets, no
+  PrimeIcons.
+- **Styling:** Tailwind **v4**, configured CSS-first in `vue/src/assets/main.css`
+  (`@import "tailwindcss"`, `@theme`). Do not reintroduce `tailwind.config.js`.
+  *(Target state per PRD 004; the tree is still on 3.4 until that PRD ships — do
+  not build new work against the v3 config.)*
 - **Icons:** use [Lucide](https://lucide.dev/) for all icons across the project
   (frontend `lucide-vue-next`), unless a specific instruction says otherwise.
   Do not introduce other icon sets (e.g. PrimeIcons, Font Awesome) for UI icons.
+- **Browser baseline:** **iOS/iPadOS Safari 16.4+** and **Chrome 111+** (Android
+  equivalent). This is not a constraint we chose for tooling's sake — it is what
+  the product already requires: iOS only supports **Web Push for home-screen web
+  apps from 16.4**, and the app's core features (service worker, push,
+  geolocation, installability) need a modern engine and a secure context anyway.
+  Tailwind v4's requirement (Safari 16.4+ / Chrome 111+) lands on exactly the same
+  floor, so it costs us no reach. Don't add polyfills or fallbacks for older
+  engines; those users cannot use the app's primary features regardless.
