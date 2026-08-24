@@ -41,8 +41,10 @@ FROM base AS build
 ARG BUILD_VERSION=dev
 RUN go test -timeout 60s ./... \
     && go tool staticcheck ./...
+# The build context has no .git, so runtime/debug VCS stamping can't work —
+# inject the CI-supplied version through vcs.version instead.
 RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags "-s -w" \
+    -ldflags "-s -w -X nathejk.dk/internal/vcs.version=${BUILD_VERSION}" \
     -o /hej-api \
     nathejk.dk/cmd/api
 
