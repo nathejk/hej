@@ -1,14 +1,18 @@
-@layer tailwind-base, primevue, tailwind-utilities;
+@import 'tailwindcss';
 
-@layer tailwind-base {
-  @tailwind base;
-}
+/*
+  Class-based dark mode (`.dark` on an ancestor) rather than v4's default
+  `prefers-color-scheme`, because shadcn-vue's tokens assume it. No dark token
+  values are defined yet — see task 028 / PRD 004; shipping dark mode is a
+  separate PRD.
+*/
+@custom-variant dark (&:is(.dark *));
 
-@tailwind components;
-
-@layer tailwind-utilities {
-  @tailwind utilities;
-}
+/*
+  Design tokens (shadcn-vue CSS variables + `@theme`) land here in task 028.
+  Tailwind v4 is configured CSS-first: there is deliberately no
+  tailwind.config.js — do not reintroduce one (see .rules).
+*/
 
 :root {
   color-scheme: light dark;

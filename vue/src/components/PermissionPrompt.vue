@@ -9,7 +9,7 @@ const emit = defineEmits<{ accept: []; dismiss: [] }>()
 </script>
 
 <template>
-  <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+  <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
     <div class="flex items-start gap-3">
       <component :is="icon" v-if="icon" class="mt-0.5 h-5 w-5 shrink-0 text-slate-500" aria-hidden="true" />
       <div class="flex-1">

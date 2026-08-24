@@ -2,6 +2,7 @@ import { fileURLToPath, URL } from 'node:url'
 
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import tailwindcss from '@tailwindcss/vite'
 import Components from 'unplugin-vue-components/vite'
 import { PrimeVueResolver } from '@primevue/auto-import-resolver'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -14,6 +15,10 @@ export default defineConfig({
   },
   plugins: [
     vue(),
+    // Tailwind v4 via its Vite plugin. Configuration is CSS-first in
+    // @/assets/main.css (@import "tailwindcss", @theme) — there is no
+    // tailwind.config.js, and no PostCSS config is needed.
+    tailwindcss(),
     // Auto-import PrimeVue components (<Button>, <InputText>, …) — no manual imports.
     Components({
       resolvers: [PrimeVueResolver()],
