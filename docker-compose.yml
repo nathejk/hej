@@ -18,6 +18,11 @@ services:
       target: ui-dev
     environment:
       CYPRESS_INSTALL_BINARY: "0"
+      # Dataforsyningen token for the map's WMS base layers (PRD 002). A public
+      # quota key for a public service rather than a credential, but still not
+      # committed — set it in docker-compose.override.yml. Without it the map
+      # shows a "missing API key" notice instead of blank tiles.
+      VITE_DATAFORSYNINGEN_TOKEN: ""
     volumes:
       - ./vue:/app
       - ui-node_modules:/app/node_modules

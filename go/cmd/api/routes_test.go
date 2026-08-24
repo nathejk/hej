@@ -17,6 +17,7 @@ import (
 	"nathejk.dk/internal/pin"
 	"nathejk.dk/internal/push"
 	"nathejk.dk/internal/ratelimit"
+	"nathejk.dk/internal/scans"
 	"nathejk.dk/internal/session"
 	"nathejk.dk/internal/sms"
 	"nathejk.dk/internal/users"
@@ -34,7 +35,7 @@ func newTestApp(t *testing.T) *application {
 	return &application{
 		JsonApi:  bff.JsonApi{Logger: logger},
 		config:   config{env: "testing", webRoot: webRoot},
-		models:   data.NewModels(users.NewMockDirectory()),
+		models:   data.NewModels(users.NewMockDirectory(), scans.NewMockSource()),
 		commands: commands.New(),
 
 		pins:              pin.NewStore(),

@@ -12,6 +12,8 @@ declare module 'vue-router' {
     public?: boolean
     // when set, only these roles may enter the route.
     roles?: Role[]
+    // render edge-to-edge: no top bar, no scroll wrapper (see App.vue).
+    fullBleed?: boolean
   }
 }
 
@@ -31,7 +33,7 @@ const destinationRoutes: RouteRecordRaw[] = destinations.map((d) => ({
   path: d.path,
   name: d.name,
   component: viewLoaders[d.name],
-  meta: { roles: d.roles },
+  meta: { roles: d.roles, fullBleed: d.fullBleed },
 }))
 
 const router = createRouter({

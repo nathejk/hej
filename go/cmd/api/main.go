@@ -11,6 +11,7 @@ import (
 	"nathejk.dk/internal/pin"
 	"nathejk.dk/internal/push"
 	"nathejk.dk/internal/ratelimit"
+	"nathejk.dk/internal/scans"
 	"nathejk.dk/internal/session"
 	"nathejk.dk/internal/sms"
 	"nathejk.dk/internal/users"
@@ -48,7 +49,7 @@ func main() {
 	app := &application{
 		JsonApi:  bff.JsonApi{Logger: logger},
 		config:   cfg,
-		models:   data.NewModels(users.NewMockDirectory()),
+		models:   data.NewModels(users.NewMockDirectory(), scans.NewMockSource()),
 		commands: commands.New(),
 
 		pins: pin.NewStore(),

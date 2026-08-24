@@ -1,10 +1,10 @@
 # PRD 002 — Event Map (own position, Danish topo + aerial layers, patrol scan history)
 
-**Status:** draft
+**Status:** doing
 **Author:** agent session (Zed / Claude Opus 5)
 **Created:** 2026-08-24
 **Last updated:** 2026-08-24
-**Approved:**
+**Approved:** 2026-08-24
 **Shipped:**
 **Target users:** spejder (patrol members) primarily; bandit, postmandskab, guide, samarit secondarily
 
@@ -133,11 +133,18 @@ available both as map markers and as a chronological list.
 - [ ] `Kort` occupies the full viewport minus the bottom nav: no page header, no
       padding, no scroll container. Map controls float over the map and respect
       `env(safe-area-inset-*)`.
-- [ ] Three mutually exclusive base layers, selectable from an on-map control:
-      - `Topografisk 1:25.000` — Dataforsyningen WMS `dtk_25_DAF`, layer `DTK25`
-      - `Topografisk 1:50.000` — Dataforsyningen WMS (service/layer to be
-        confirmed — see Open Questions), presented identically
-      - `Luftfoto` — aerial imagery raster tiles
+- [ ] Three mutually exclusive base layers, selectable from an on-map control.
+      **All three are Dataforsyningen WMS services, verified against live
+      GetCapabilities + GetMap on 2026-08-24:**
+
+      | Label | Service | WMS layer |
+      |---|---|---|
+      | `Topografisk 1:25.000` | `https://api.dataforsyningen.dk/dtk_25_DAF` | `dtk25` |
+      | `Topografisk 1:50.000` | `https://api.dataforsyningen.dk/dtk_50_DAF` | `dtk_50` |
+      | `Luftfoto` | `https://api.dataforsyningen.dk/orto_foraar_DAF` | `orto_foraar` |
+
+      Layer names are **not** symmetric between services — `DTK50` returns a
+      `ServiceException`, only `dtk_50` works — so do not infer names by analogy.
 - [ ] The selected layer persists across navigation within the session and
       across reloads (`localStorage`, key namespaced `hej.map.*`).
 - [ ] Own position is shown as a distinct marker plus an accuracy circle, updated
@@ -379,31 +386,49 @@ Proposed tasks to create in `roadmap/tasks/open/`:
 
 ## 11. Open Questions
 
-- **DTK 1:50.000 service** — the sibling repo only defines 1:25.000 and aerial.
-  What is the exact Dataforsyningen service path and layer name for the 1:50.000
-  map (e.g. a `dtk_50*_DAF` WMS and its layer id), and is it covered by the same
-  token/subscription?
-- **Token handling** — proxy through the BFF, serve at runtime via
-  `GET /api/map/config`, or inject at build time? (Affects whether this PRD adds
-  a second endpoint.)
-- **Aerial source** — keep Esri World Imagery (as the sibling repo does) or
-  switch to the Danish orthophoto service for consistency, currency and terms of
-  use?
+**Resolved before approval (2026-08-24), by querying the live services:**
+
+- **DTK 1:50.000 service** — `https://api.dataforsyningen.dk/dtk_50_DAF`, layer
+  **`dtk_50`**, same token as DTK25. Confirmed via GetCapabilities + a GetMap that
+  returned a PNG. **Caveat to flag to the organizers:** the service states it is
+  *"opdateres ikke efter år 2017"* — the 1:50.000 raster is frozen at 2017 (newest
+  dated layer `dtk_50_2017`), so it will not show recent forest/road changes.
+  DTK25 is current and remains the default.
+- **Layer naming** — do not guess by analogy. `dtk_25_DAF` happily answers to
+  `DTK25`, `dtk25` and `dtk_25`, but `dtk_50_DAF` **rejects** `DTK50` with a
+  `ServiceException`. Use the names in the table in §6.
+- **Aerial source** — use the **Danish orthophoto** (`orto_foraar_DAF`, layer
+  `orto_foraar`) rather than the sibling repo's Esri World Imagery. Verified
+  working with the same token. It is 12.5 cm Danish imagery vs Esri's mixed global
+  basemap, it comes from the same provider under terms we already accept, and it
+  keeps every layer on one host (one token, one attribution, one failure mode).
+- **Token handling** — **build-time env var** (`VITE_DATAFORSYNINGEN_TOKEN`), no
+  BFF proxy and no `/api/map/config`. Rationale: the token is a public quota key
+  for an open public service, not a credential; a proxy would add latency and put
+  tile traffic through the BFF for no security gain; and the runtime-config option
+  buys nothing over build-time since the value ends up in the browser either way.
+  What matters is that it is **not committed** — it goes in the (gitignored)
+  `docker-compose.override.yml` for dev and the deploy environment for prod. The
+  map degrades with a clear notice when the token is missing.
+
+**Still open:**
+
 - **Default view** — what centre/zoom (and per-event bounds?) should the map open
-  with before a position is available? Is the event area known to the BFF, or
-  hard-coded per year in `src/config/map.ts`?
-- **Patrol identity** — how is a signed-in user's patrol resolved today? The mock
-  directory only maps phone → (user id, role). What is the intended shape once
-  the real Nathejk directory lands?
-- **Scan data source** — is there an existing event stream/projection of
-  checkpoint scans and bandit catches we can consume, and does it carry
-  coordinates, or only post ids we must join to post positions?
+  with before a position is available? Currently a Denmark-wide default; the event
+  area should replace it. Is it known to the BFF, or hard-coded per year in
+  `src/config/map.ts`?
+- **Patrol identity** — how is a signed-in user's patrol resolved once the real
+  Nathejk directory lands? `internal/users` is mocked and now carries a seeded
+  patrol id.
+- **Scan data source** — is there an existing event stream/projection of checkpoint
+  scans and bandit catches, and does it carry coordinates, or only post ids we must
+  join to post positions? Mocked for now.
 - **Bandit catches for the bandit role** — should a signed-in `bandit` see their
-  *own* catches (the patrols they caught) on this map, or is the registrations
-  view spejder-only?
+  *own* catches (the patrols they caught), or is the registrations view
+  spejder-only?
 - **Personnel view** — do `postmandskab` / `guide` / `samarit` need anything
   plotted (e.g. their own post), or just the base map?
-- **Own position marker semantics** — do we want heading/compass rotation, or is
-  a plain dot enough for a first version?
-- **Empty-patrol response** — should `GET /api/patrol/scans` return `200` with an
-  empty list or a `404` when the user has no patrol?
+- **Own position marker semantics** — heading/compass rotation, or is a plain dot
+  enough for a first version?
+- **Empty-patrol response** — `200` with an empty list or `404`? (Implementation
+  chose `200` + empty list; confirm.)

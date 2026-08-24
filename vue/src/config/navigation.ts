@@ -11,10 +11,16 @@ export interface NavDestination {
   label: string
   icon: Component
   roles?: Role[]
+  /**
+   * Render the page edge-to-edge: the shell hides its top bar and drops the
+   * scroll container, giving the view everything above the bottom nav. Used by
+   * the map (PRD 002).
+   */
+  fullBleed?: boolean
 }
 
 export const destinations: NavDestination[] = [
-  { name: 'maps', path: '/maps', label: 'Kort', icon: Map },
+  { name: 'maps', path: '/maps', label: 'Kort', icon: Map, fullBleed: true },
   { name: 'contacts', path: '/contacts', label: 'Kontakter', icon: Users },
   { name: 'rulebook', path: '/rulebook', label: 'Regler', icon: BookOpen },
   { name: 'updates', path: '/updates', label: 'Nyt', icon: Megaphone },

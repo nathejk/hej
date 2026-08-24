@@ -3,7 +3,10 @@
 // handlers never touch SQL directly.
 package data
 
-import "nathejk.dk/internal/users"
+import (
+	"nathejk.dk/internal/scans"
+	"nathejk.dk/internal/users"
+)
 
 // Models is the read-only facade passed to handlers.
 type Models struct {
@@ -11,10 +14,14 @@ type Models struct {
 	// implementation is injected in main.go; today that is a mock directory,
 	// later the real Nathejk-records lookup — handlers do not care which.
 	Users users.Directory
+
+	// Scans returns a patrol's event registrations (checkpoint scans, bandit
+	// catches). Mocked today; a jetstream-fed projection later.
+	Scans scans.Source
 }
 
-// NewModels constructs the read-side facade with the given user directory.
+// NewModels constructs the read-side facade with the given read sources.
 // Additional read models will be wired in here as aggregates are added.
-func NewModels(usersDir users.Directory) Models {
-	return Models{Users: usersDir}
+func NewModels(usersDir users.Directory, scanSource scans.Source) Models {
+	return Models{Users: usersDir, Scans: scanSource}
 }

@@ -15,6 +15,11 @@ const router = useRouter()
 // screen renders bare.
 const showShell = computed(() => session.isAuthenticated && route.name !== 'login')
 
+// Full-bleed routes (the map) get everything above the bottom nav: no top bar,
+// no scroll container. Sign-out stays reachable from every other page — and, once
+// PRD 003 lands, from the profile page.
+const fullBleed = computed(() => route.meta.fullBleed === true)
+
 async function signOut() {
   await session.logout()
   await router.replace({ name: 'login' })
@@ -26,10 +31,11 @@ async function signOut() {
 
   <div v-if="showShell" class="flex h-full flex-col">
     <header
+      v-if="!fullBleed"
       class="flex items-center justify-between border-b border-slate-200 bg-white px-4 pb-3"
       style="padding-top: calc(env(safe-area-inset-top) + 0.75rem)"
     >
-      <span class="font-bold">{{ APP_NAME }}</span>
+      <span class="font-nathejk text-lg tracking-wide">{{ APP_NAME }}</span>
       <button
         type="button"
         class="flex items-center gap-1 text-sm text-slate-500"
@@ -40,7 +46,7 @@ async function signOut() {
       </button>
     </header>
 
-    <main class="min-h-0 flex-1 overflow-y-auto">
+    <main :class="fullBleed ? 'relative min-h-0 flex-1' : 'min-h-0 flex-1 overflow-y-auto'">
       <RouterView />
     </main>
 
