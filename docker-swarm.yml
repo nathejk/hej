@@ -1,0 +1,116 @@
+# Production Swarm deployment for Hej Nathejk.
+#
+# Boots the image published by .github/workflows/build-and-publish.yml
+# (`nathejk/hej:latest` / `nathejk/hej:<branch>.<run_number>`). The `prod` stage
+# is a single container: the Go BFF serves /api/... and falls back to the built
+# SPA in /www, so there is no separate `ui` service here — unlike
+# docker-compose.yml, where `ui` is a Vite dev server.
+#
+# Usage:
+#   # one-time bootstrap on the swarm manager:
+#   docker network create --driver overlay traefik   # if not already present
+#
+#   # deploy / upgrade (pin the tag CI produced, don't drift on :latest):
+#   export SESSION_SECRET="$(openssl rand -hex 32)"
+#   export VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... DATAFORSYNINGEN_TOKEN=...
+#   HEJ_VERSION=main.42 docker stack deploy -c docker-swarm.yml hej
+#
+# Secrets: cmd/api/env.go reads configuration from the environment only — it has
+# no SECRETS_DIR / *_FILE support, so Docker secrets under /run/secrets cannot be
+# consumed as-is. The values below are therefore interpolated from the deploying
+# shell and deliberately have NO defaults: `${VAR:?msg}` makes `stack deploy`
+# fail loudly if one is missing. Never commit the values to this file.
+#
+# There is no `db` service on purpose: the API currently serves mock data
+# (data.NewModels(users.NewMockDirectory(), scans.NewMockSource()) in main.go)
+# and keeps PINs and push subscriptions in memory. The dev stack's mariadb /
+# phpmyadmin are dev conveniences with nothing behind them yet. Add a db service
+# here when the API actually grows a persistent store.
+
+version: "3.8"
+
+services:
+  hej:
+    image: nathejk/hej:${HEJ_VERSION:-latest}
+    environment:
+      ENV: production
+      # PORT (80) and WEB_ROOT (/www) are already baked into the prod image.
+      #
+      # Session cookies are HMAC-signed and stateless, so they survive task
+      # restarts and would work across replicas. The dev default secret is
+      # intentionally insecure — an unset value in production would mean
+      # forgeable sessions, hence the hard `:?` failure.
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET, e.g. openssl rand -hex 32}
+      # Always behind Traefik TLS here.
+      SESSION_SECURE: "true"
+      # Web Push. Push is simply unavailable while these are empty, so they are
+      # optional — but a missing private key silently disables notifications,
+      # which is a core feature of the app, so set them.
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      # Dataforsyningen quota key for the map's WMS base layers, handed to the
+      # SPA at runtime via GET /api/config. Deliberately runtime and not a build
+      # arg, so the same published image can be deployed with a different key.
+      # Empty means the map shows a "missing API key" notice.
+      DATAFORSYNINGEN_TOKEN: ${DATAFORSYNINGEN_TOKEN:-}
+    networks:
+      - traefik
+    # Traefik v3 with `providers.docker` reads top-level labels (NOT
+    # deploy.labels). If the swarm's Traefik uses `providers.swarm`, move these
+    # under deploy.labels instead.
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: traefik
+      # HTTPS is not optional for this app: service workers, push and
+      # geolocation all require a browser secure context. Plain HTTP only ever
+      # redirects. Router/service names are repo-scoped to avoid collisions with
+      # other repos on the shared Traefik.
+      traefik.http.middlewares.hej-redirect-https.redirectscheme.scheme: https
+      traefik.http.routers.hej.rule: Host(`hej.nathejk.dk`)
+      traefik.http.routers.hej.entrypoints: web
+      traefik.http.routers.hej.middlewares: hej-redirect-https
+      traefik.http.routers.hej.service: hej
+      traefik.http.routers.hej-secure.rule: Host(`hej.nathejk.dk`)
+      traefik.http.routers.hej-secure.entrypoints: websecure
+      traefik.http.routers.hej-secure.tls: "true"
+      # Public domain, so ACME/Let's Encrypt — not the `desec` DNS-challenge
+      # resolver the dev stack needs for *.local.nathejk.dk.
+      traefik.http.routers.hej-secure.tls.certresolver: le
+      traefik.http.services.hej.loadbalancer.server.port: "80"
+    healthcheck:
+      # busybox wget, present on the alpine prod image; no curl to rely on.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/api/healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      # Deliberately 1, not 2. The PIN store (pin.NewStore) and push
+      # subscriptions (push.NewMemoryStore) are per-process in-memory maps, so a
+      # second replica would round-robin a login between two processes: the PIN
+      # issued by task A would not verify on task B. Raise this only once both
+      # are backed by shared storage.
+      replicas: 1
+      update_config:
+        order: start-first
+        parallelism: 1
+        delay: 5s
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
+
+networks:
+  # Owned by the org infra repo — never redefined here. Assumes a Traefik
+  # reverse proxy is already running on this swarm.
+  traefik:
+    external: true
