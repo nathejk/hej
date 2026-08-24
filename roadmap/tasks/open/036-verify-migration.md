@@ -41,16 +41,30 @@ PRD: 004. Depends on: 024, 025, 026, 027, 028, 029, 030, 031, 032.
 
 ## Acceptance Criteria
 
-- [ ] `docker compose build ui` succeeds; `type-check` and `build` pass.
-- [ ] All eight routes plus the overflow sheet, pre-prompts and update prompt
+- [x] `docker compose build ui` succeeds; `type-check` and `build` pass.
+- [x] All eight routes plus the overflow sheet, pre-prompts and update prompt
       render with a clean console on a phone viewport.
-- [ ] The login flow completes end to end against the BFF.
+- [x] The login flow completes end to end against the BFF.
 - [ ] The service-worker update prompt is verified against a new build.
-- [ ] Before/after bundle sizes are recorded and the payload has not grown.
-- [ ] `grep -ri primevue vue/src vue/*.ts vue/*.json` (excluding the lockfile) is
+- [x] Before/after bundle sizes are recorded and the payload has not grown.
+- [x] `grep -ri primevue vue/src vue/*.ts vue/*.json` (excluding the lockfile) is
       empty, and no `tailwind.config.js` remains.
 - [ ] PRD 004 is moved to `roadmap/prd/done/` with `Status: done` and a `Shipped`
       date.
+
+### Remaining — needs a physical device / production build
+
+- [ ] iOS Safari **installed to the home screen** (standalone) and Android Chrome:
+      routes render, nav works, drawer opens.
+- [ ] `env(safe-area-inset-*)` on a notched device — the header top inset and the
+      bottom nav / drawer bottom inset. Desktop Chromium reports 0 insets, so this
+      could not be checked in the headless pass (task 025).
+- [ ] Touch **swipe-down-to-dismiss** on the drawer (only Escape, backdrop and
+      navigation were verifiable headlessly).
+- [ ] Service-worker update flow: build twice, load the app, deploy the second
+      build, confirm `UpdatePrompt` appears and one tap on "Reload" lands on the new
+      build. The Tailwind rewrite changed every asset hash, so this is exactly the
+      scenario the prompt exists for — do not assume it.
 
 ## Progress Log
 
@@ -74,3 +88,13 @@ PRD: 004. Depends on: 024, 025, 026, 027, 028, 029, 030, 031, 032.
 - 2026-08-24 02:46 — Everything else here still needs a browser/device: route
   click-through, the login flow against the BFF, and the service-worker update
   prompt. Left open.
+- 2026-08-24 11:55 — Most of it is now closed by the headless browser pass done
+  under task 025 (see its log for the method and full results): all routes render
+  with a clean console, the login flow completes end to end against the BFF through
+  Traefik + the Vite proxy, the drawer works, `grep -ri primevue` is empty and no
+  `tailwind.config.js` remains.
+- 2026-08-24 11:56 — Still open, and deliberately so — these need hardware or a
+  production deploy, not emulation: standalone-PWA behaviour on a real iOS/Android
+  device, `env(safe-area-inset-*)` on a notched screen, the drawer's touch
+  swipe-to-dismiss, and the service-worker update prompt across two production
+  builds. PRD 004 stays in `doing/` until these pass.
