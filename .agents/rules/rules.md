@@ -170,6 +170,13 @@ describes the full workflow.
 Commit message format: `task(<id>): <action> — <title>`
 Actions: `create` · `pick up` · `update` · `done` · `reopen`
 
+PRDs follow the same pattern in `roadmap/prd/{draft,doing,done}/`: the folder is
+the status, and the `Status` header must always agree with it. See
+`roadmap/prd/README.md` and the `prd` skill.
+
+Commit message format: `prd(<number>): <action> — <title>`
+Actions: `create` · `update` · `approve` · `done` · `reopen`
+
 ---
 
 ## Git conventions

@@ -1,10 +1,18 @@
 # PRD <NNN> — <Feature title>
 
-**Status:** draft | in-review | approved | shipped
+**Status:** draft | doing | done
 **Author:** <name or agent session>
 **Created:** YYYY-MM-DD
 **Last updated:** YYYY-MM-DD
+**Approved:** YYYY-MM-DD
+**Shipped:** YYYY-MM-DD
 **Target users:** <participant | team leader | organizer | ...>
+
+<!--
+Status must match the folder this file is in: draft/, doing/ or done/.
+Leave Approved blank until the PRD moves to doing/, and Shipped blank until it
+moves to done/. See roadmap/prd/README.md for the lifecycle.
+-->
 
 ---
 
