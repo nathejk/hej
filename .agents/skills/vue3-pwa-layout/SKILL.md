@@ -177,6 +177,16 @@ Routes live in `src/router/index.ts`. Conventions:
   `src/assets/main.css` (`@import "tailwindcss"`, `@theme`,
   `@custom-variant dark`) — there is no `tailwind.config.js`. Design tokens are
   CSS variables; change colour centrally there, not per component.
+- **Typography: major headlines use the Nathejk face.** `--font-nathejk`
+  (Impact, with a narrow-bold fallback chain) is defined in `main.css`'s `@theme`
+  and aliased as `--font-heading`. Apply it with the `font-nathejk` utility to
+  every major headline — page `<h1>`s, section headings that act as titles, and
+  the app bar wordmark — usually together with `tracking-wide`, since Impact is
+  tightly set. shadcn title slots (`CardTitle`, `DialogTitle`, `DrawerTitle`) get
+  it automatically through the `cn-font-heading` utility. Body copy, labels,
+  buttons and form controls stay on the system sans stack. Don't hardcode a font
+  family in a component, and don't add a webfont for it: Impact is a system font
+  across our browser baseline.
 - Prefer utility classes. Reach for `<style scoped>` only for what Tailwind
   genuinely cannot express.
 - **`cn()`** from `@/helpers` merges conditional class lists (clsx +

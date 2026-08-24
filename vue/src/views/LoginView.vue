@@ -100,7 +100,7 @@ function changeNumber() {
       <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-white">
         <KeyRound class="h-7 w-7" />
       </div>
-      <h1 class="text-2xl font-bold">{{ APP_NAME }}</h1>
+      <h1 class="font-nathejk text-3xl tracking-wide">{{ APP_NAME }}</h1>
       <p class="text-sm text-slate-500">Log ind med dit telefonnummer</p>
     </header>
 

@@ -48,6 +48,11 @@ must **not** be applied here.
   (`@import "tailwindcss"`, `@theme`). Do not reintroduce `tailwind.config.js`.
   *(Target state per PRD 004; the tree is still on 3.4 until that PRD ships — do
   not build new work against the v3 config.)*
+- **Typography:** all **major headlines use the Nathejk font** — the
+  `font-nathejk` utility, backed by `--font-nathejk` (Impact + narrow-bold
+  fallbacks) in `vue/src/assets/main.css`. That covers page `<h1>`s, title-level
+  section headings and the app bar wordmark; body text and controls stay on the
+  system sans stack. Never set a font family in a component.
 - **Icons:** use [Lucide](https://lucide.dev/) for all icons across the project
   (frontend `@lucide/vue`), unless a specific instruction says otherwise.
   Do not introduce other icon sets (e.g. PrimeIcons, Font Awesome) for UI icons.
