@@ -4,13 +4,12 @@
 // Injected by Vite `define` (see vite.config.ts).
 declare const __APP_VERSION__: string
 
+// No VITE_* app config here on purpose: runtime configuration comes from the BFF
+// via GET /api/config (see src/config/runtime.ts), so one built image can be
+// deployed with different values. Anything added to ImportMetaEnv is frozen into
+// the bundle at build time.
 interface ImportMetaEnv {
-  /**
-   * Dataforsyningen API token for the WMS base layers (PRD 002). A public quota
-   * key rather than a credential, but still not committed: set it in
-   * docker-compose.override.yml for dev and in the deploy env for prod.
-   */
-  readonly VITE_DATAFORSYNINGEN_TOKEN?: string
+  readonly MODE: string
 }
 
 interface ImportMeta {

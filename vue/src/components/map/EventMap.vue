@@ -4,7 +4,6 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import {
   baseLayers,
-  DATAFORSYNINGEN_TOKEN,
   FALLBACK_BOUNDS,
   FALLBACK_CENTER,
   FALLBACK_ZOOM,
@@ -15,6 +14,7 @@ import {
   TILE_RETRY_LIMIT,
   type BaseLayerKey,
 } from '@/config/map'
+import { dataforsyningenToken } from '@/config/runtime'
 import type { Coords } from '@/stores/location.store'
 import type { Scan } from '@/stores/scans.store'
 
@@ -122,7 +122,7 @@ function buildBaseLayer(key: BaseLayerKey): L.TileLayer.WMS {
     format: 'image/png',
     transparent: false,
     attribution: cfg.attribution,
-    token: DATAFORSYNINGEN_TOKEN,
+    token: dataforsyningenToken.value,
     maxZoom: MAX_ZOOM,
   } as L.WMSOptions)
   attachTileRetry(layer)

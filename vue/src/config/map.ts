@@ -18,11 +18,10 @@ export interface BaseLayerConfig {
   note?: string
 }
 
-// The Dataforsyningen token is a public quota key for a public service, not a
-// credential — but it is still not committed. Set VITE_DATAFORSYNINGEN_TOKEN in
-// docker-compose.override.yml for dev and in the deploy environment for prod.
-// When it is missing the map reports it instead of silently showing grey tiles.
-export const DATAFORSYNINGEN_TOKEN = import.meta.env.VITE_DATAFORSYNINGEN_TOKEN ?? ''
+// The Dataforsyningen token is not inlined here: it is fetched at runtime from
+// GET /api/config (see config/runtime.ts) so the same built image can be
+// deployed with a different key. When it is missing the map reports it instead
+// of silently showing grey tiles.
 
 const DATAFORSYNINGEN_ATTRIBUTION =
   '&copy; <a target="_blank" rel="noopener" href="https://dataforsyningen.dk/">Styrelsen for Dataforsyning og Infrastruktur</a>'

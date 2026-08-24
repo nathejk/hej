@@ -18,11 +18,6 @@ services:
       target: ui-dev
     environment:
       CYPRESS_INSTALL_BINARY: "0"
-      # Dataforsyningen token for the map's WMS base layers (PRD 002). A public
-      # quota key for a public service rather than a credential, but still not
-      # committed — set it in docker-compose.override.yml. Without it the map
-      # shows a "missing API key" notice instead of blank tiles.
-      VITE_DATAFORSYNINGEN_TOKEN: ""
     volumes:
       - ./vue:/app
       - ui-node_modules:/app/node_modules
@@ -69,6 +64,13 @@ services:
       # secret and belongs in docker-compose.override.yml, never committed.
       VAPID_PUBLIC_KEY: ""
       VAPID_PRIVATE_KEY: ""
+      # Dataforsyningen token for the map's WMS base layers (PRD 002). Served to
+      # the SPA at runtime via GET /api/config — it lives on the api service, not
+      # ui, because it is no longer baked into the bundle. A public quota key
+      # rather than a credential, but still not committed: set it in
+      # docker-compose.override.yml. Without it the map shows a "missing API key"
+      # notice instead of blank tiles.
+      DATAFORSYNINGEN_TOKEN: ""
       # GO_BUILD_FLAGS: "-race"   # uncomment for the race detector
     volumes:
       - ./go:/app

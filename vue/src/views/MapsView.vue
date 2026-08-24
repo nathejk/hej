@@ -10,10 +10,10 @@ import { useScansStore } from '@/stores/scans.store'
 import {
   BASE_LAYER_STORAGE_KEY,
   baseLayers,
-  DATAFORSYNINGEN_TOKEN,
   DEFAULT_BASE_LAYER,
   type BaseLayerKey,
 } from '@/config/map'
+import { dataforsyningenToken, loadRuntimeConfig } from '@/config/runtime'
 
 // Leaflet is a sizeable dependency and only this page needs it, so the map is
 // loaded on demand rather than from the app-shell bundle.
@@ -39,6 +39,11 @@ const dismissed = ref(localStorage.getItem(DISMISS_KEY) === '1')
 const tileError = ref(false)
 const listOpen = ref(false)
 
+// Leaflet reads the WMS token once, when it builds the base layer, so the map
+// must not mount before /api/config has answered — otherwise the first tiles go
+// out unauthenticated.
+const configLoaded = ref(false)
+
 // Show the soft prompt only when we could still gain permission and the user
 // hasn't dismissed it before.
 const showPrompt = computed(
@@ -48,7 +53,9 @@ const showPrompt = computed(
     (location.permission === 'unknown' || location.permission === 'prompt'),
 )
 
-const missingToken = computed(() => DATAFORSYNINGEN_TOKEN === '')
+// Only a genuinely absent key is worth reporting; don't flash the notice while
+// the config request is still in flight.
+const missingToken = computed(() => configLoaded.value && dataforsyningenToken.value === '')
 
 async function accept() {
   const coords = await location.request()
@@ -91,6 +98,12 @@ function onVisibilityChange() {
 }
 
 onMounted(async () => {
+  // Deliberately not awaited alongside the geolocation work below: the map
+  // should appear as soon as the config lands, independent of the permission
+  // round-trip.
+  void loadRuntimeConfig().then(() => {
+    configLoaded.value = true
+  })
   await location.syncPermission()
   if (location.permission === 'granted') {
     location.watch()
@@ -110,6 +123,7 @@ onBeforeUnmount(() => {
        (route meta `fullBleed`), so the map fills it and controls float on top. -->
   <div class="absolute inset-0 overflow-hidden">
     <EventMap
+      v-if="configLoaded"
       ref="mapRef"
       :base-layer="baseLayer"
       :position="location.position"
@@ -158,7 +172,7 @@ onBeforeUnmount(() => {
         v-if="missingToken"
         class="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 shadow-xs ring-1 ring-amber-200"
       >
-        Kortlag mangler en API-nøgle (<code>VITE_DATAFORSYNINGEN_TOKEN</code>).
+        Kortlag mangler en API-nøgle (<code>DATAFORSYNINGEN_TOKEN</code>).
       </p>
       <p
         v-else-if="tileError"

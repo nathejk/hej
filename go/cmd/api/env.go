@@ -25,6 +25,12 @@ type config struct {
 	// Empty by default — push is simply unavailable until they are set.
 	vapidPublicKey  string
 	vapidPrivateKey string
+
+	// Dataforsyningen quota key for the map's WMS base layers, served to the
+	// client at runtime via /api/config. Not a credential — it reaches the
+	// browser either way — but kept out of the bundle so the same image can be
+	// deployed with a different key, and out of git so our quota isn't shared.
+	dataforsyningenToken string
 }
 
 func loadConfig() config {
@@ -36,6 +42,7 @@ func loadConfig() config {
 	flag.BoolVar(&cfg.sessionSecure, "session-secure", envBool("SESSION_SECURE", true), "Set the Secure flag on the session cookie (true behind HTTPS)")
 	flag.StringVar(&cfg.vapidPublicKey, "vapid-public-key", envStr("VAPID_PUBLIC_KEY", ""), "Web Push VAPID public key (served to clients)")
 	flag.StringVar(&cfg.vapidPrivateKey, "vapid-private-key", envStr("VAPID_PRIVATE_KEY", ""), "Web Push VAPID private key (secret)")
+	flag.StringVar(&cfg.dataforsyningenToken, "dataforsyningen-token", envStr("DATAFORSYNINGEN_TOKEN", ""), "Dataforsyningen API token for the map's WMS base layers")
 	flag.Parse()
 	return cfg
 }
