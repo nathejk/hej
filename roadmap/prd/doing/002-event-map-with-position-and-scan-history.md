@@ -147,6 +147,14 @@ available both as map markers and as a chronological list.
       `ServiceException`, only `dtk_50` works — so do not infer names by analogy.
 - [ ] The selected layer persists across navigation within the session and
       across reloads (`localStorage`, key namespaced `hej.map.*`).
+- [ ] **Opening view:** centred on the user's own position when available,
+      otherwise framed on **Sjælland**. The event area is deliberately *not* used
+      as a default — it is not fully known to participants and the map must not
+      reveal it.
+- [ ] **Failed tiles are retried** with exponential backoff and jitter (Leaflet has
+      no built-in retry; one failed request otherwise leaves a permanently grey
+      tile). The failure notice appears only after retries are exhausted, and clears
+      itself when tiles load again.
 - [ ] Own position is shown as a distinct marker plus an accuracy circle, updated
       continuously while the page is visible and permission is granted.
 - [ ] A locate/recentre button recentres and re-enables follow mode; manual
@@ -413,10 +421,14 @@ Proposed tasks to create in `roadmap/tasks/open/`:
 
 **Still open:**
 
-- **Default view** — what centre/zoom (and per-event bounds?) should the map open
-  with before a position is available? Currently a Denmark-wide default; the event
-  area should replace it. Is it known to the BFF, or hard-coded per year in
-  `src/config/map.ts`?
+- **Default view** — *resolved 2026-08-24*: centre on the user's own position, and
+  when unavailable frame **Sjælland**. The event area is deliberately not used as a
+  default, because it is not fully known to participants. See task 049.
+- **Overview-zoom rendering** — at national zoom the DTK25 raster looks speckled (a
+  508 DPI 1:25.000 map downsampled far past its design scale).
+  `topo_skaermkort_DAF` (layer `topo_skaermkort`, verified working with the same
+  token) is Dataforsyningen's on-screen map and renders correctly there. Add it as a
+  fourth layer, auto-swap to it below ~zoom 11, or accept the speckle?
 - **Patrol identity** — how is a signed-in user's patrol resolved once the real
   Nathejk directory lands? `internal/users` is mocked and now carries a seeded
   patrol id.

@@ -61,11 +61,29 @@ export const DEFAULT_BASE_LAYER: BaseLayerKey = 'dtk25'
 /** localStorage key for the user's base-layer choice. */
 export const BASE_LAYER_STORAGE_KEY = 'hej.map.baseLayer'
 
-// Opening view used until we have a position. Central Jutland — replace with the
-// actual event area per year (PRD 002 §11 open question).
-export const DEFAULT_CENTER: [number, number] = [56.18, 9.47]
-export const DEFAULT_ZOOM = 11
+// Opening view: see FALLBACK_BOUNDS below — the map centres on the user when a
+// position is available.
 export const MIN_ZOOM = 7
 export const MAX_ZOOM = 19
 /** Zoom used when recentring on the user's own position. */
 export const LOCATE_ZOOM = 15
+
+// Fallback view when we have no position yet: Sjælland. The event area is not
+// fully known to participants, so we deliberately do not reveal it — the map
+// opens on the user's own location when it can, and on Sjælland when it cannot.
+// Bounds rather than a centre+zoom so it frames sensibly on any screen shape.
+export const FALLBACK_BOUNDS: [[number, number], [number, number]] = [
+  [55.05, 10.95],
+  [56.2, 12.75],
+]
+
+// Only used for the initial map construction, before FALLBACK_BOUNDS is applied.
+export const FALLBACK_CENTER: [number, number] = [55.6, 11.85]
+export const FALLBACK_ZOOM = 8
+
+// Tile retry policy. Leaflet has no built-in retry: a single failed image request
+// leaves that tile grey until the user pans away and back. On patchy rural mobile
+// data that is the normal case, not the exception, so failed tiles are retried
+// with backoff before we admit defeat.
+export const TILE_RETRY_LIMIT = 3
+export const TILE_RETRY_BASE_DELAY_MS = 400

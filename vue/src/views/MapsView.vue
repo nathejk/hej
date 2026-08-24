@@ -117,6 +117,7 @@ onBeforeUnmount(() => {
       :scans="scans.scans"
       @user-interacted="location.setFollowing(false)"
       @tile-error="tileError = true"
+      @tiles-ok="tileError = false"
     />
 
     <!-- Controls, top-right, clear of the notch. z-10 keeps them above the map
