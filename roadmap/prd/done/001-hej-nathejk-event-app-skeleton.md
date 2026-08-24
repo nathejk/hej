@@ -1,9 +1,11 @@
 # PRD 001 — "Hej Nathejk" Event App Skeleton (PWA shell + phone login)
 
-**Status:** in-review
+**Status:** done
 **Author:** agent session
 **Created:** 2026-07-30
-**Last updated:** 2026-07-30
+**Last updated:** 2026-08-10
+**Approved:** 2026-07-30
+**Shipped:** 2026-07-30
 **Target users:** every event user must sign in. App roles: **spejder** and **bandit** (the two main roles), plus **postmandskab**, **guide**, and **samarit**. Each role sees its own navigation set.
 
 ---
