@@ -3,8 +3,6 @@ import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
-import Components from 'unplugin-vue-components/vite'
-import { PrimeVueResolver } from '@primevue/auto-import-resolver'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
@@ -19,11 +17,6 @@ export default defineConfig({
     // @/assets/main.css (@import "tailwindcss", @theme) — there is no
     // tailwind.config.js, and no PostCSS config is needed.
     tailwindcss(),
-    // Auto-import PrimeVue components (<Button>, <InputText>, …) — no manual imports.
-    Components({
-      resolvers: [PrimeVueResolver()],
-      dts: 'src/components.d.ts',
-    }),
     // PWA: installable to the home screen, standalone display. registerType
     // 'prompt' surfaces a "new version" event the app turns into an update
     // prompt (see @/helpers/pwa + task 020). Manifest values mirror

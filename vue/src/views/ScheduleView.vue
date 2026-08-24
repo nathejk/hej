@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CalendarDays } from 'lucide-vue-next'
+import { CalendarDays } from '@lucide/vue'
 import PagePlaceholder from '@/components/PagePlaceholder.vue'
 </script>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Siren } from 'lucide-vue-next'
+import { Siren } from '@lucide/vue'
 import PagePlaceholder from '@/components/PagePlaceholder.vue'
 </script>
 

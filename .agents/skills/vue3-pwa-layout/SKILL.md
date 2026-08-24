@@ -62,6 +62,21 @@ Rationale: shadcn primitives are Reka-UI based, so they bring correct keyboard
 handling, focus management, ARIA wiring and scroll-locking that hand-rolled
 markup silently lacks. Reinventing them is how a PWA ends up inaccessible.
 
+### Already generated
+
+`button`, `input`, `dialog`, `drawer`, `card`, `separator` — use them; don't
+re-add them.
+
+**`Drawer` is the standard overlay for anything substantial** (bottom sheet,
+lists, pickers). `Sheet` was deliberately *not* kept: on a phone the Drawer's
+touch-first behaviour (drag handle, swipe-to-dismiss, `swipeDirection` defaults
+to `"down"`) is what we always want, and keeping both would leave "which one?"
+unanswered. `Dialog` is for short centred confirmations only.
+
+Generated components carry `LOCAL DEVIATION FROM UPSTREAM` comments where we
+have changed them — mostly touch-target sizes. Read those before re-running the
+CLI with `--overwrite`, or you will silently undo them.
+
 ---
 
 ## Top-level layout
@@ -167,10 +182,11 @@ Routes live in `src/router/index.ts`. Conventions:
 - **`cn()`** from `@/helpers` merges conditional class lists (clsx +
   tailwind-merge). Use it instead of template-string concatenation when classes
   are conditional.
-- **Icons: Lucide only** (`lucide-vue-next`), imported as components:
-  `import { MapPin } from 'lucide-vue-next'`. Custom brand marks go in
+- **Icons: Lucide only** (`@lucide/vue`), imported as components:
+  `import { MapPin } from '@lucide/vue'`. Custom brand marks go in
   `src/components/icons/` as SVG components. No other icon set — no PrimeIcons,
-  no Font Awesome.
+  no Font Awesome, and **not** the deprecated `lucide-vue-next` (removed in task
+  037; generated shadcn components import from `@lucide/vue` too).
 - **Component naming:** PascalCase filenames, one component per file. Views end in
   `View.vue`; reusable pieces don't.
 - Components are **explicitly imported**. There is no global auto-registration.
@@ -264,7 +280,7 @@ docker compose build ui
 docker compose logs -f ui
 ```
 
-The image is `node:20-alpine` with **no Python or C toolchain**, so any tool that
+The image is `node:22-alpine` with **no Python or C toolchain**, so any tool that
 pulls a native module (e.g. `@tailwindcss/upgrade`, which needs
 `tree-sitter-javascript`) dies with an opaque `gyp ERR! find Python`. Install
 build deps in the throwaway container first, and use `--no-save` so nothing leaks

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Map, MapPin } from 'lucide-vue-next'
+import { Map, MapPin } from '@lucide/vue'
 import PagePlaceholder from '@/components/PagePlaceholder.vue'
 import PermissionPrompt from '@/components/PermissionPrompt.vue'
 import { useLocationStore } from '@/stores/location.store'

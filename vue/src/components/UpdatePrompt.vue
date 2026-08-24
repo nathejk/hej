@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { RefreshCw } from 'lucide-vue-next'
+import { RefreshCw } from '@lucide/vue'
 import { useAppStore } from '@/stores/app.store'
 import { applyUpdate } from '@/helpers/pwa'
 

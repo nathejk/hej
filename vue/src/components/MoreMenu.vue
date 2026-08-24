@@ -1,65 +1,49 @@
 <script setup lang="ts">
 import type { NavDestination } from '@/config/navigation'
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 
-// Bottom sheet listing the overflow destinations (the ones beyond the 4 primary
-// nav slots). Controlled by BottomNav via `open`; emits `close` on backdrop tap
+// Bottom sheet listing the overflow destinations (the ones beyond the primary
+// nav slots). Controlled by BottomNav via `open`; emits `close` when dismissed
 // or after navigation.
+//
+// Built on the shadcn-vue Drawer (Reka UI) rather than hand-rolled markup, per
+// the standard-component-first rule in .rules — that gives us focus trapping,
+// escape/outside-press dismissal, scroll locking and swipe-to-dismiss, none of
+// which the previous hand-rolled version had. The drawer's default
+// `swipeDirection` is "down", i.e. a bottom sheet, which is what we want.
 defineProps<{ open: boolean; items: NavDestination[] }>()
 const emit = defineEmits<{ close: [] }>()
+
+function onOpenChange(value: boolean) {
+  if (!value) {
+    emit('close')
+  }
+}
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="fade">
-      <div
-        v-if="open"
-        class="fixed inset-0 z-40 bg-black/40"
-        aria-hidden="true"
-        @click="emit('close')"
-      />
-    </Transition>
+  <Drawer :open="open" @update:open="onOpenChange">
+    <!-- pb keeps the last row clear of the iOS home indicator. -->
+    <DrawerContent class="pb-[env(safe-area-inset-bottom)]">
+      <!-- Visually hidden: the sheet is self-evident, but it still needs an
+           accessible name, and Drawer requires a title for that. -->
+      <DrawerHeader class="sr-only">
+        <DrawerTitle>Flere sider</DrawerTitle>
+      </DrawerHeader>
 
-    <Transition name="slide-up">
-      <div
-        v-if="open"
-        class="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl bg-white pb-[env(safe-area-inset-bottom)] shadow-2xl"
-        role="dialog"
-        aria-label="Flere sider"
-      >
-        <div class="mx-auto my-3 h-1 w-10 rounded-full bg-slate-300" />
-        <nav class="pb-2">
-          <RouterLink
-            v-for="item in items"
-            :key="item.name"
-            :to="{ name: item.name }"
-            class="flex items-center gap-3 px-5 py-3 text-slate-700"
-            active-class="font-medium text-slate-900"
-            @click="emit('close')"
-          >
-            <component :is="item.icon" class="h-5 w-5" aria-hidden="true" />
-            <span>{{ item.label }}</span>
-          </RouterLink>
-        </nav>
-      </div>
-    </Transition>
-  </Teleport>
+      <nav class="pb-2" aria-label="Flere sider">
+        <RouterLink
+          v-for="item in items"
+          :key="item.name"
+          :to="{ name: item.name }"
+          class="flex min-h-[3.25rem] items-center gap-3 px-5 py-3 text-slate-700"
+          active-class="font-medium text-slate-900"
+          @click="emit('close')"
+        >
+          <component :is="item.icon" class="h-5 w-5" aria-hidden="true" />
+          <span>{{ item.label }}</span>
+        </RouterLink>
+      </nav>
+    </DrawerContent>
+  </Drawer>
 </template>
-
-<style scoped>
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-.slide-up-enter-active,
-.slide-up-leave-active {
-  transition: transform 0.2s ease;
-}
-.slide-up-enter-from,
-.slide-up-leave-to {
-  transform: translateY(100%);
-}
-</style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { HelpCircle } from 'lucide-vue-next'
+import { HelpCircle } from '@lucide/vue'
 import PagePlaceholder from '@/components/PagePlaceholder.vue'
 </script>
 

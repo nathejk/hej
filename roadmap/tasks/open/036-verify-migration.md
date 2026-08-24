@@ -55,3 +55,22 @@ PRD: 004. Depends on: 024, 025, 026, 027, 028, 029, 030, 031, 032.
 ## Progress Log
 
 - 2026-08-24 00:00 — Task created from PRD 004.
+- 2026-08-24 02:45 — Partial progress: **the bundle comparison is done**, so that
+  criterion can be closed on sight. Built the pre-migration commit (98360fd) in a
+  throwaway git worktree to get a real baseline instead of guessing:
+
+  | | baseline (TW3 + PrimeVue) | now (TW4 + shadcn, no PrimeVue) |
+  |---|---|---|
+  | CSS | 11.33 kB (gzip 3.13) | 41.66 kB (gzip 8.02) |
+  | shell JS | 266.15 kB (gzip 74.08) | 125.46 kB (gzip 48.46) |
+  | initial total (gzip) | **77.21 kB** | **56.48 kB (−26.9%)** |
+  | lazy `MoreMenu` chunk | — | 77.15 kB (gzip 24.98), on demand |
+  | precache | — | 19 entries, 258.98 KiB |
+
+  CSS grew ~4.9 kB gzip (v4's token block + `tw-animate-css` ≈ 1.7 kB; the
+  generated-but-not-yet-used primitives ≈ 3.8 kB, measured by temporarily removing
+  `src/components/ui/`). The JS win more than pays for it. PRD 004's "payload must
+  not grow" criterion is met on the initial payload.
+- 2026-08-24 02:46 — Everything else here still needs a browser/device: route
+  click-through, the login flow against the BFF, and the service-worker update
+  prompt. Left open.

@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { Menu } from 'lucide-vue-next'
+import { computed, defineAsyncComponent, ref } from 'vue'
+import { Menu } from '@lucide/vue'
 import { useRoute } from 'vue-router'
 import { useSessionStore } from '@/stores/session.store'
 import { visibleDestinations } from '@/config/navigation'
-import MoreMenu from '@/components/MoreMenu.vue'
+
+// MoreMenu is loaded on demand: it pulls in the Reka UI Drawer, which is a
+// meaningful chunk, and most sessions never open the overflow sheet. Keeping it
+// out of the app-shell bundle matters on mobile data.
+const MoreMenu = defineAsyncComponent(() => import('@/components/MoreMenu.vue'))
 
 // Bottom navigation, filtered by the signed-in role. At most MAX_SLOTS slots:
 // when the role sees more than that, the last slot becomes a "More" (burger)
@@ -24,10 +28,16 @@ const primary = computed(() =>
 const overflow = computed(() => (hasOverflow.value ? all.value.slice(MAX_SLOTS - 1) : []))
 
 const overflowOpen = ref(false)
+// Stays true after the first open so the drawer keeps its close animation
+// instead of being unmounted mid-transition.
+const overflowMounted = ref(false)
 const overflowActive = computed(() => overflow.value.some((d) => d.name === route.name))
 
 function toggleOverflow() {
   overflowOpen.value = !overflowOpen.value
+  if (overflowOpen.value) {
+    overflowMounted.value = true
+  }
 }
 function closeOverflow() {
   overflowOpen.value = false
@@ -36,8 +46,13 @@ function closeOverflow() {
 
 <template>
   <div>
-    <!-- Overflow destinations live in a bottom sheet. -->
-    <MoreMenu :open="overflowOpen" :items="overflow" @close="closeOverflow" />
+    <!-- Overflow destinations live in a bottom sheet (lazy: see above). -->
+    <MoreMenu
+      v-if="overflowMounted"
+      :open="overflowOpen"
+      :items="overflow"
+      @close="closeOverflow"
+    />
 
     <nav
       class="flex items-stretch border-t border-slate-200 bg-white"

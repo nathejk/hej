@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { KeyRound, Phone, ArrowLeft } from 'lucide-vue-next'
+import { KeyRound, Phone, ArrowLeft } from '@lucide/vue'
 import { HttpError } from '@/helpers'
 import { useSessionStore } from '@/stores/session.store'
 import { NODTELEFON, NODTELEFON_DISPLAY } from '@/config/contact'

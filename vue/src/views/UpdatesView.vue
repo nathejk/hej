@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Megaphone, Bell } from 'lucide-vue-next'
+import { Megaphone, Bell } from '@lucide/vue'
 import PagePlaceholder from '@/components/PagePlaceholder.vue'
 import PermissionPrompt from '@/components/PermissionPrompt.vue'
 import { useNotificationsStore } from '@/stores/notifications.store'

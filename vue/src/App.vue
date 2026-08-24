@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { LogOut } from 'lucide-vue-next'
+import { LogOut } from '@lucide/vue'
 import { useSessionStore } from '@/stores/session.store'
 import BottomNav from '@/components/BottomNav.vue'
 import UpdatePrompt from '@/components/UpdatePrompt.vue'

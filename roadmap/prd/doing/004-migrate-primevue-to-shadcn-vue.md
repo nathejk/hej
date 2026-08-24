@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed / Claude Opus 5)
 **Created:** 2026-08-24
-**Last updated:** 2026-08-24
+**Last updated:** 2026-08-24 (implementation notes + resolved questions)
 **Approved:** 2026-08-24
 **Shipped:**
 **Target users:** none directly — developer-facing foundation change; all app roles benefit indirectly
@@ -435,37 +435,60 @@ Proposed tasks to create in `roadmap/tasks/open/`:
 
 ## 11. Open Questions
 
-- **Toasts** — `ToastService` is registered today but never used. Drop toast
-  capability entirely for now, or install `vue-sonner` (the shadcn-vue idiom) so
-  PRD 002's tile-failure notice and PRD 003's upload errors have a home? The
-  existing `UpdatePrompt.vue` is a hand-rolled banner and could set the pattern
-  instead.
-- **`unplugin-vue-components`** — remove it (explicit imports everywhere, which is
-  the shadcn convention and better for readability) or keep it for the app's own
-  components? Removing it is the recommendation; it needs a pass over every
-  template to add imports.
-- **Sheet vs Drawer** — shadcn-vue offers both (`Sheet`, and a Vaul-based
-  `Drawer` with mobile drag-to-dismiss). For a mobile-first PWA the drawer may be
-  the better fit for `MoreMenu` and PRD 002's registrations list. Which do we
-  standardise on?
-- **Token palette** — do we map the shadcn tokens onto the current slate/Tailwind
-  defaults to guarantee zero visual change, or take the opportunity to encode the
-  Nathejk brand colours from `@/config/brand` as the token source of truth?
-- **Dark mode** — install the `.dark` token block now (cheap, unused) or leave it
-  out until a dark-mode PRD exists? The app currently sets
-  `color-scheme: light dark`, which is arguably already a half-promise.
-- **Sequencing against PRD 002/003** — block their UI tasks until this lands, or
-  let them proceed on hand-rolled Tailwind and adopt primitives afterwards?
-- **Tailwind v4 config style** — go fully CSS-first (delete `tailwind.config.js`,
-  everything in `@theme`) as v4 intends, or keep a thin JS config for familiarity?
-  Recommendation: fully CSS-first, since shadcn-vue's v4 output assumes it.
-- **`@tailwindcss/vite` vs `@tailwindcss/postcss`** — the Vite plugin is faster and
-  lets us delete `postcss.config.js` entirely; any reason to keep the PostCSS path?
-- **Browser baseline** — Tailwind v4 requires Safari 16.4+ / Chrome 111+ (roughly
-  iOS 16.4+, spring 2023). Is that acceptable for event participants' phones, or do
-  we need to stay on v3 for reach? This is the one question that could invalidate
-  the Tailwind half of this PRD.
-- **Other repos** — this rule change is scoped to `hej`, and the legacy skill is
-  being renamed rather than deleted precisely because sibling repos still match it.
-  Do those repos move to shadcn + Tailwind 4 too, or does `hej` deliberately
-  diverge as the modern reference?
+**Resolved during implementation (2026-08-24):**
+
+- **Browser baseline** — *accepted* (task 026). Safari 16.4+ / Chrome 111+. iOS
+  shipped Web Push for home-screen apps in exactly 16.4, so the product already
+  required this floor; Tailwind v4 costs zero reach.
+- **Tailwind v4 config style** — *fully CSS-first*. `tailwind.config.js` deleted.
+- **`@tailwindcss/vite` vs `@tailwindcss/postcss`** — *the Vite plugin*;
+  `postcss.config.js` and `autoprefixer` deleted with it.
+- **`unplugin-vue-components`** — *removed* (task 031). Every app component was
+  already explicitly imported everywhere it was used, so this was a no-op rather
+  than the risky sweep the PRD anticipated.
+- **Sheet vs Drawer** — *Drawer, and `sheet` was dropped entirely* (task 029). It
+  is the touch-first primitive, its default `swipeDirection` is a bottom sheet, and
+  keeping both would leave "which one?" unanswered. `MoreMenu` now composes it
+  (task 032).
+- **Token palette** — *zinc*, not the app's slate: the shadcn registry no longer
+  offers `slate` as a base colour. Harmless, because app components keep their
+  explicit `slate-*` utilities. Unifying the two greys is a branding decision,
+  left out of scope.
+- **Dark mode** — *`.dark` token block kept* (unused, ~1 kB). Separately,
+  `color-scheme` was corrected from `light dark` to `light`: the old value claimed
+  dark support we do not have, so a phone in dark mode painted a dark canvas behind
+  white surfaces.
+
+**Discovered during implementation — not anticipated by this PRD:**
+
+- **Node 22 was a hard prerequisite** (task 038). The shadcn-vue CLI crashes on
+  Node 20 inside `undici`; the `ui` image was `node:20-alpine`, and Node 20 is
+  EOL. Both `ui` stages were bumped.
+- **Two Lucide packages** (task 037). `shadcn-vue init` installs `@lucide/vue`,
+  while the app was on the deprecated `lucide-vue-next`. Migrated all 12 import
+  sites and removed the old package rather than ship both.
+- **The CLI adds a Google Fonts `@import`** for Inter. Removed — a blocking
+  third-party font request is wrong for an app used on rural mobile data, and it
+  would have been a visual change this PRD rules out.
+- **The Tailwind codemod is not sufficient on its own.** It reported "0 files
+  changed" for templates and was wrong: v4's `shadow-xs` is v3's `shadow-sm`, so
+  `PermissionPrompt.vue` needed a manual fix. Conversely its border-colour compat
+  shim was unnecessary here. A manual audit is mandatory, not optional.
+- **Reka UI's Drawer is heavy** (~25 kB gzip). Importing it into the shell ate
+  almost the entire PrimeVue saving, so `MoreMenu` is now lazily loaded.
+
+**Still open:**
+
+- **Toasts** — `ToastService` is gone and nothing replaced it. Drop toast
+  capability entirely, or install `vue-sonner` (the shadcn-vue idiom) when PRD 002's
+  tile-failure notice or PRD 003's upload errors need it? `UpdatePrompt.vue` is a
+  hand-rolled banner and could set the pattern instead. **Deferred to the first
+  feature that actually needs it.**
+- **Other repos** — this rule change is scoped to `hej`, and the legacy skill was
+  renamed rather than deleted precisely because sibling repos still match it. Do
+  those repos move to shadcn + Tailwind 4 too, or does `hej` deliberately diverge
+  as the modern reference?
+- **Trimming unused primitives** — `dialog`, `card` and `separator` are generated
+  but not yet used, costing ~3.8 kB gzip of CSS because Tailwind v4 scans source
+  files rather than the import graph. Fine if PRD 002/003 consume them soon;
+  revisit if they don't.

@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import { Map, Users, BookOpen, Megaphone, CalendarDays, Siren, HelpCircle } from 'lucide-vue-next'
+import { Map, Users, BookOpen, Megaphone, CalendarDays, Siren, HelpCircle } from '@lucide/vue'
 import type { Role } from '@/stores/session.store'
 
 // A single declarative destination drives both routing and the bottom nav.

@@ -49,7 +49,7 @@ must **not** be applied here.
   *(Target state per PRD 004; the tree is still on 3.4 until that PRD ships — do
   not build new work against the v3 config.)*
 - **Icons:** use [Lucide](https://lucide.dev/) for all icons across the project
-  (frontend `lucide-vue-next`), unless a specific instruction says otherwise.
+  (frontend `@lucide/vue`), unless a specific instruction says otherwise.
   Do not introduce other icon sets (e.g. PrimeIcons, Font Awesome) for UI icons.
 - **Browser baseline:** **iOS/iPadOS Safari 16.4+** and **Chrome 111+** (Android
   equivalent). This is not a constraint we chose for tooling's sake — it is what

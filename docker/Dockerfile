@@ -4,7 +4,7 @@
 #
 #   golang:1.25 ──► api-dev ──► base ──► build ─┐
 #                                               │
-#   node:20-alpine ──► ui-dev ──► ui-builder ───┤
+#   node:22-alpine ──► ui-dev ──► ui-builder ───┤
 #                                               ▼
 #                                     alpine ──► prod
 #
@@ -55,15 +55,20 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Vite's dev server listens on :80, so EXPOSE it — Traefik's docker provider
 # uses the exposed port to discover the service (no loadbalancer port label
 # needed since it's the default 80).
-FROM node:20-alpine AS ui-dev
+#
+# Node 22 (not 20): the shadcn-vue CLI's `undici` dependency requires >=22, and
+# Node 20 is end-of-life. See task 038.
+FROM node:22-alpine AS ui-dev
 WORKDIR /app
 COPY docker/init/ui-dev /usr/local/bin/ui-dev
 RUN chmod +x /usr/local/bin/ui-dev
 EXPOSE 80
 ENTRYPOINT ["ui-dev"]
 
-# ui-builder: prod-only. Installs deps and builds the SPA to /app/dist.
-FROM node:20-alpine AS ui-builder
+# ui-builder: prod-only. Installs deps and builds the SPA to /app/dist. Kept on
+# the same Node major as ui-dev deliberately — a dev/prod split is a debugging
+# trap.
+FROM node:22-alpine AS ui-builder
 WORKDIR /app
 COPY vue/package.json vue/package-lock.json ./
 RUN npm ci --no-audit --no-fund
