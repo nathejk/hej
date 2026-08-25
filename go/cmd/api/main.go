@@ -19,6 +19,7 @@ import (
 
 	bff "nathejk.dk/cmd/api/app"
 	"nathejk.dk/internal/blob"
+	"nathejk.dk/internal/choice"
 	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/data"
 	"nathejk.dk/internal/pin"
@@ -46,6 +47,9 @@ type application struct {
 	sms               sms.Sender
 	sessions          *session.Manager
 	requestPinLimiter *ratelimit.Limiter
+	// choices issues the short-lived token that carries a user from "PIN verified" to
+	// "which of you is this?" when a phone number is shared (task 079).
+	choices *choice.Manager
 
 	// Push subscription storage.
 	pushStore push.Store
@@ -215,6 +219,10 @@ func run(logger *slog.Logger) error {
 			7*24*time.Hour, // ≥ 7-day session per PRD
 			cfg.sessionSecure,
 		),
+		// Same secret as the session manager on purpose: both are server-side signing
+		// keys with the same blast radius, and a second secret to configure is a second
+		// secret to forget to set in production.
+		choices: choice.NewManager([]byte(cfg.sessionSecret), choice.DefaultTTL),
 		// Allow a modest burst of PIN requests per IP per minute.
 		requestPinLimiter: ratelimit.New(5, time.Minute),
 

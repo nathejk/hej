@@ -87,6 +87,13 @@ type User struct {
 	ID   string
 	Role Role
 
+	// Name is the person's display name. It exists for one specific job: when a phone
+	// number is shared, the disambiguation prompt (PRD 006 §11, task 079) shows the
+	// candidates' names so the holder can pick themselves. It is the *minimum* that
+	// makes that possible — a first name and maybe a team — and deliberately not a
+	// fuller profile, since one person is being shown another's details.
+	Name string
+
 	// PatrolID identifies the patrol (patrulje/banditgruppe) the user belongs
 	// to, or "" for personnel roles that have none. Consumers must treat the
 	// empty value as "no patrol" rather than an error: personnel are legitimate

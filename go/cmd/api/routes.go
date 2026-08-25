@@ -32,6 +32,10 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodGet, "/api/config", app.runtimeConfigHandler)
 	router.HandlerFunc(http.MethodPost, "/api/auth/request-pin", app.requestPinHandler)
 	router.HandlerFunc(http.MethodPost, "/api/auth/verify", app.verifyPinHandler)
+	// Second half of login for a phone number shared by several people (task 079).
+	// Public like the rest of /auth: it is authorised by the short-lived choice token
+	// from /auth/verify, not by a session — there is no session yet.
+	router.HandlerFunc(http.MethodPost, "/api/auth/choose", app.chooseHandler)
 	router.HandlerFunc(http.MethodPost, "/api/auth/logout", app.logoutHandler)
 	router.HandlerFunc(http.MethodGet, "/api/me", app.requireAuth(app.meHandler))
 	router.HandlerFunc(http.MethodGet, "/api/patrol/scans", app.requireAuth(app.listPatrolScansHandler))

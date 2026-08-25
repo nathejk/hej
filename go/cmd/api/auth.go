@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"nathejk.dk/internal/phone"
 	"nathejk.dk/internal/pin"
@@ -96,16 +97,62 @@ type identityResponse struct {
 	Role   string `json:"role"`
 }
 
+// candidate is one owner of a shared phone number, as shown in the chooser.
+//
+// The payload is deliberately thin. Disambiguation necessarily shows one person
+// something about the others on their number — defensible, since whoever holds the
+// phone already shares a household with them — but it is a disclosure, so it carries
+// only what is needed to recognise yourself: a first name and the team. No surname, no
+// address, no birthday, no role.
+type candidate struct {
+	UserID string `json:"user_id"`
+	Name   string `json:"name"`
+	Team   string `json:"team,omitempty"`
+}
+
+// chooseRequiredResponse is returned when the verified number belongs to several
+// people.
+//
+// It is a 200, not an error: verification *succeeded*. The client branches on the
+// presence of `choice_token` rather than on a status code, so a shared number is a
+// different shape of success rather than a failure to interpret.
+type chooseRequiredResponse struct {
+	ChoiceToken string      `json:"choice_token"`
+	Candidates  []candidate `json:"candidates"`
+}
+
+type chooseRequest struct {
+	Token  string `json:"token"`
+	UserID string `json:"user_id"`
+}
+
+// firstName reduces a display name to its first word.
+//
+// Used for the chooser only. "Freja" is enough for a sibling to recognise themselves;
+// "Freja Mikkelsen" hands the holder of the phone a fuller identifier for someone who
+// is not them, for no added benefit.
+func firstName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if i := strings.IndexByte(name, ' '); i > 0 {
+		return name[:i]
+	}
+	return name
+}
+
 // verifyPinHandler completes phone login: it verifies the submitted PIN and, on
-// success, establishes a session cookie and returns the user's identity + role.
+// success, either establishes a session or — when the number belongs to several
+// people — returns a choice token and the candidates to pick from.
 //
 // @Summary      Verify a login PIN
-// @Description  Verifies the SMS PIN for a phone number; on success sets a session cookie and returns identity + role.
+// @Description  Verifies the SMS PIN for a phone number. On success, normally sets a session cookie and returns identity + role. When the number is registered to several people, returns 200 with a short-lived choice_token and the candidates instead; the client then calls /auth/choose. Both are successes — branch on the presence of choice_token, not on the status code.
 // @Tags         auth
 // @Accept       json
 // @Produce      json
 // @Param        request  body      verifyPinRequest  true  "Phone number and PIN"
-// @Success      200      {object}  identityResponse
+// @Success      200      {object}  identityResponse  "Signed in (single owner)"
 // @Failure      400      {object}  map[string]string
 // @Failure      401      {object}  map[string]string
 // @Failure      429      {object}  map[string]string
@@ -134,37 +181,113 @@ func (app *application) verifyPinHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// A PIN only ever exists for a recognized number, so there is at least one
-	// match here.
-	//
-	// Lookup returns not-found for a **shared** number (see users.Directory): the
-	// PIN proves control of the phone, not which of its owners is holding it, so
-	// establishing a session for one of them would be a guess — and a wrong guess
-	// means one sibling reading the other's profile.
-	//
-	// The agreed answer is to disambiguate after verification (PRD 006 §11 Q1). That
-	// flow is not built yet, so for now a shared number gets a refused login rather
-	// than a wrong one: visible and fixable, instead of silently wrong. Task 079
-	// implements the chooser.
+	// A PIN only ever exists for a recognized number, so there is normally at least
+	// one match. LookupAll rather than Lookup, because Lookup deliberately reports
+	// not-found for a shared number (see users.Directory).
 	matches := app.models.Users.LookupAll(normalized)
-	if len(matches) > 1 {
-		app.Logger.Warn("login blocked: phone number is shared by several people",
+	switch len(matches) {
+	case 0:
+		app.InvalidCredentialsResponse(w, r)
+		return
+
+	case 1:
+		user := matches[0]
+		app.sessions.Issue(w, user.ID, string(user.Role))
+		if err := app.WriteJSON(w, http.StatusOK, identityResponse{UserID: user.ID, Role: string(user.Role)}, nil); err != nil {
+			app.ServerErrorResponse(w, r, err)
+		}
+		return
+
+	default:
+		// A shared number. The PIN proved control of the phone, not which of its
+		// owners is holding it, so no session is issued here — picking one would be a
+		// guess, and a wrong guess means one sibling reading the other's profile.
+		//
+		// Logged because it is also a data signal: 213 numbers in the real event data
+		// are shared, and an organizer may want to correct some of them upstream.
+		app.Logger.Info("shared phone number: asking the user to disambiguate",
 			"candidates", len(matches),
 		)
-		app.InvalidCredentialsResponse(w, r)
+
+		candidates := make([]candidate, 0, len(matches))
+		for _, u := range matches {
+			candidates = append(candidates, candidate{
+				UserID: u.ID,
+				Name:   firstName(u.Name),
+				Team:   u.PatrolName,
+			})
+		}
+
+		resp := chooseRequiredResponse{
+			ChoiceToken: app.choices.Issue(normalized),
+			Candidates:  candidates,
+		}
+		if err := app.WriteJSON(w, http.StatusOK, resp, nil); err != nil {
+			app.ServerErrorResponse(w, r, err)
+		}
 		return
 	}
-	user, ok := app.models.Users.Lookup(normalized)
-	if !ok {
+}
+
+// chooseHandler exchanges a choice token plus a chosen user id for a session.
+//
+// It is the second half of login for a shared phone number. Three things make it safe
+// to expose, and all three are load-bearing:
+//
+//  1. The token is only minted after a successful PIN verification, so this endpoint
+//     cannot be used to enumerate anything a caller had not already proven access to.
+//  2. The token is bound to the verified phone number, so it cannot be redeemed
+//     against a different number's owners.
+//  3. The chosen user must be one of *that* number's current owners, re-checked here
+//     against the directory rather than trusted from the request. Skipping this would
+//     turn a verified PIN for any number into a session as any user in the system.
+//
+// @Summary      Choose an account after PIN verification
+// @Description  Completes login for a phone number shared by several people. Exchanges the short-lived choice_token from /auth/verify, plus the chosen user_id, for a session cookie. The chosen user must be a current owner of the verified number.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request  body      chooseRequest  true  "Choice token and chosen user id"
+// @Success      200      {object}  identityResponse
+// @Failure      400      {object}  map[string]string
+// @Failure      401      {object}  map[string]string  "Invalid or expired token, or a user who does not own the verified number"
+// @Router       /auth/choose [post]
+func (app *application) chooseHandler(w http.ResponseWriter, r *http.Request) {
+	var input chooseRequest
+	if err := app.ReadJSON(w, r, &input); err != nil {
+		app.BadRequestResponse(w, r, err)
+		return
+	}
+
+	normalized, err := app.choices.Verify(input.Token)
+	if err != nil {
+		// Expired and invalid both return 401. The client's remedy is the same in
+		// either case — start again with a new PIN — and distinguishing them would tell
+		// a forger that their signature was accepted.
 		app.InvalidCredentialsResponse(w, r)
 		return
 	}
 
-	app.sessions.Issue(w, user.ID, string(user.Role))
-
-	if err := app.WriteJSON(w, http.StatusOK, identityResponse{UserID: user.ID, Role: string(user.Role)}, nil); err != nil {
-		app.ServerErrorResponse(w, r, err)
+	// Re-resolve the owners now. Using the token's phone number rather than anything
+	// in the request is what binds the choice to the verification; re-reading the
+	// directory rather than trusting a list the client was given earlier is what stops
+	// a stale or tampered candidate being accepted.
+	for _, u := range app.models.Users.LookupAll(normalized) {
+		if u.ID != input.UserID {
+			continue
+		}
+		app.sessions.Issue(w, u.ID, string(u.Role))
+		if err := app.WriteJSON(w, http.StatusOK, identityResponse{UserID: u.ID, Role: string(u.Role)}, nil); err != nil {
+			app.ServerErrorResponse(w, r, err)
+		}
+		return
 	}
+
+	// A valid token but a user who does not own that number: either a stale candidate
+	// list or someone trying their luck. Worth a warning — it should not happen in
+	// normal use.
+	app.Logger.Warn("choice rejected: user is not an owner of the verified number")
+	app.InvalidCredentialsResponse(w, r)
 }
 
 // meHandler returns the current session identity + role. It runs behind

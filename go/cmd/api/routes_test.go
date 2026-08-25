@@ -12,6 +12,7 @@ import (
 	"time"
 
 	bff "nathejk.dk/cmd/api/app"
+	"nathejk.dk/internal/choice"
 	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/data"
 	"nathejk.dk/internal/pin"
@@ -41,6 +42,7 @@ func newTestApp(t *testing.T) *application {
 		pins:              pin.NewStore(),
 		sms:               sms.LogSender{Logger: logger},
 		sessions:          session.NewManager([]byte("test-secret"), time.Hour, false),
+		choices:           choice.NewManager([]byte("test-secret"), choice.DefaultTTL),
 		requestPinLimiter: ratelimit.New(100, time.Minute),
 		pushStore:         push.NewMemoryStore(),
 	}

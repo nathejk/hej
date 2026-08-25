@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { KeyRound, Phone, ArrowLeft } from '@lucide/vue'
+import { KeyRound, Phone, ArrowLeft, ChevronRight } from '@lucide/vue'
 import { HttpError } from '@/helpers'
 import { useSessionStore } from '@/stores/session.store'
 import { NODTELEFON, NODTELEFON_DISPLAY } from '@/config/contact'
 import { APP_NAME } from '@/config/brand'
 
-// Two-step phone login: phone → PIN → session. Passwordless: the only secret is
-// the one-time SMS PIN. The PIN step always follows the phone step regardless
+// Three-step phone login: phone → PIN → session, with a `choose` step in between for
+// the ~1 in 8 numbers that belong to more than one person (task 079). Passwordless:
+// the only secret is the one-time SMS PIN. The PIN step always follows the phone step
+// regardless
 // of whether the number is recognized (anti-enumeration).
 const RESEND_COOLDOWN_SECONDS = 60
 
@@ -17,7 +19,7 @@ const router = useRouter()
 
 const version = __APP_VERSION__
 
-const step = ref<'phone' | 'pin'>('phone')
+const step = ref<'phone' | 'pin' | 'choose'>('phone')
 const phone = ref('')
 const pin = ref('')
 const error = ref('')
@@ -65,7 +67,13 @@ async function submitPin() {
   error.value = ''
   busy.value = true
   try {
-    await session.verify(phone.value, pin.value)
+    const identity = await session.verify(phone.value, pin.value)
+    if (identity === null) {
+      // Verification succeeded, but the number belongs to several people. Ask which
+      // one rather than guessing — a wrong guess would sign someone in as a sibling.
+      step.value = 'choose'
+      return
+    }
     // Landing is defined by the router (/ → maps); routing to '/' keeps this
     // decoupled from the concrete first-destination name.
     await router.replace({ path: '/' })
@@ -82,12 +90,33 @@ async function submitPin() {
   }
 }
 
+async function choose(userId: string) {
+  error.value = ''
+  busy.value = true
+  try {
+    await session.choose(userId)
+    await router.replace({ path: '/' })
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 401) {
+      // The token lives about a minute, so this is most often simply too slow.
+      error.value = 'Login udløb. Bed om en ny kode.'
+      step.value = 'phone'
+      session.clearChoice()
+    } else {
+      error.value = err instanceof Error ? err.message : 'Noget gik galt. Prøv igen.'
+    }
+  } finally {
+    busy.value = false
+  }
+}
+
 function changeNumber() {
   step.value = 'phone'
   pin.value = ''
   error.value = ''
   cooldown.value = 0
   clearInterval(cooldownTimer)
+  session.clearChoice()
 }
 </script>
 
@@ -127,7 +156,7 @@ function changeNumber() {
     </form>
 
     <!-- Step 2: PIN -->
-    <form v-else class="flex flex-col gap-3" @submit.prevent="submitPin">
+    <form v-else-if="step === 'pin'" class="flex flex-col gap-3" @submit.prevent="submitPin">
       <label class="text-sm font-medium" for="pin">Kode fra SMS</label>
       <input
         id="pin"
@@ -172,6 +201,45 @@ function changeNumber() {
         >.
       </p>
     </form>
+
+    <!-- Step 3: who are you? Only for a phone number shared by several people. -->
+    <div v-else class="flex flex-col gap-3">
+      <p class="text-sm text-slate-600">
+        Nummeret er registreret til flere. Hvem er du?
+      </p>
+
+      <button
+        v-for="c in session.choiceCandidates"
+        :key="c.user_id"
+        type="button"
+        :disabled="busy"
+        class="flex items-center justify-between rounded-lg border border-slate-300 px-4 py-3 text-left transition disabled:opacity-50"
+        @click="choose(c.user_id)"
+      >
+        <span>
+          <span class="font-medium">{{ c.name }}</span>
+          <span v-if="c.team" class="block text-sm text-slate-500">{{ c.team }}</span>
+        </span>
+        <ChevronRight class="h-4 w-4 shrink-0 text-slate-400" />
+      </button>
+
+      <button
+        type="button"
+        class="mt-1 flex items-center gap-1 self-start text-sm text-slate-500"
+        @click="changeNumber"
+      >
+        <ArrowLeft class="h-4 w-4" />
+        Skift nummer
+      </button>
+
+      <p class="mt-2 text-center text-xs leading-relaxed text-slate-500">
+        Står du ikke på listen, så
+        <a :href="`tel:${NODTELEFON}`" class="inline-flex items-center gap-1 font-medium text-slate-700 underline">
+          <Phone class="h-3.5 w-3.5" />
+          ring til nødtelefonen ({{ NODTELEFON_DISPLAY }})</a
+        >.
+      </p>
+    </div>
 
     <p v-if="error" class="text-center text-sm text-red-600" role="alert">{{ error }}</p>
 

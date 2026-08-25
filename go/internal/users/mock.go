@@ -43,8 +43,8 @@ func NewMockDirectory() Directory {
 	}
 	// Two siblings on one phone.
 	entries[MockSharedPhone] = []User{
-		{ID: "mock-sibling-a", Role: RoleSpejder, PatrolID: MockSpejderPatrolID, PatrolName: "Patrulje Ravnene"},
-		{ID: "mock-sibling-b", Role: RoleSpejder, PatrolID: MockSpejderPatrolID, PatrolName: "Patrulje Ravnene"},
+		{ID: "mock-sibling-a", Name: "Freja Mikkelsen", Role: RoleSpejder, PatrolID: MockSpejderPatrolID, PatrolName: "Patrulje Ravnene"},
+		{ID: "mock-sibling-b", Name: "Villads Mikkelsen", Role: RoleSpejder, PatrolID: MockSpejderPatrolID, PatrolName: "Patrulje Ravnene"},
 	}
 
 	// Second index so a session (which carries only the user id) resolves
