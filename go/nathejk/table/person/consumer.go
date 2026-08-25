@@ -10,7 +10,8 @@ import (
 // crewmember/section, gøgler). This file lands the shape so the mux registration in
 // cmd/api is real from the start rather than being retrofitted.
 type consumer struct {
-	w cqrs.Writer
+	w          cqrs.Writer
+	normalizer PhoneNormalizer
 }
 
 // Consumes lists the subjects this projection subscribes to.

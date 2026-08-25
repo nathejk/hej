@@ -44,19 +44,23 @@ type Person struct {
 //
 // Lookup returns a slice rather than a single Person on purpose: two people can
 // share a phone number, and an interface returning one value would bake a
-// collision policy into the type signature where nobody can see it. Task 071 owns
-// the policy; this shape lets it be a decision rather than an accident.
+// collision policy into the type signature where nobody can see it. The policy is
+// "disambiguate after PIN verification" (task 071); this shape is what lets the
+// caller apply it.
 type Queries interface {
-	// Lookup returns every person in the given year whose normalized phone number
-	// matches. Empty slice, not an error, when nothing matches.
-	Lookup(year, normalizedPhone string) ([]Person, error)
+	// Lookup returns every person in the given year registered with the given phone
+	// number. The input is normalized here, so callers may pass either raw or
+	// canonical form and cannot get it wrong. Empty slice, not an error, when nothing
+	// matches.
+	Lookup(year, phone string) ([]Person, error)
 
 	// Get resolves a person by id, scoped to a year.
 	Get(year, personID string) (Person, bool, error)
 }
 
 type querier struct {
-	db cqrs.Reader
+	db         cqrs.Reader
+	normalizer PhoneNormalizer
 }
 
 const personColumns = `
@@ -67,16 +71,23 @@ const personColumns = `
 	memberStatus, armNumber,
 	verifiedAt, acknowledgedPhone, portraitRef`
 
-// Lookup finds people by normalized phone number.
+// Lookup finds people by phone number.
+//
+// The input is normalized here rather than being assumed already-canonical. That is
+// the difference between an interface a caller can misuse and one they cannot: the
+// projector and this lookup now provably fold numbers the same way, because it is
+// literally the same injected implementation (see interfaces.go).
 //
 // Soft-deleted rows are excluded here rather than at the call site: a deleted member
 // must lose their login, and leaving that filter to every caller is how one of them
 // eventually forgets (task 076).
-func (q querier) Lookup(year, normalizedPhone string) ([]Person, error) {
+func (q querier) Lookup(year, phoneInput string) ([]Person, error) {
+	normalized := normalizeOrEmpty(q.normalizer, phoneInput)
+
 	// Guard against an empty phone matching the column default. Without this, any
-	// row that has no phone recorded would answer a lookup for "" — which is what a
-	// caller passes when normalization fails.
-	if normalizedPhone == "" {
+	// row that has no phone recorded would answer a lookup for "" — which is what an
+	// unparseable input normalizes to.
+	if normalized == "" {
 		return nil, nil
 	}
 
@@ -84,7 +95,7 @@ func (q querier) Lookup(year, normalizedPhone string) ([]Person, error) {
 		SELECT `+personColumns+`
 		FROM person
 		WHERE year = ? AND phone = ? AND deleted = 0
-		ORDER BY personId`, year, normalizedPhone)
+		ORDER BY personId`, year, normalized)
 	if err != nil {
 		return nil, err
 	}

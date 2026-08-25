@@ -135,7 +135,11 @@ func run(logger *slog.Logger) error {
 			// doing that only once there is a broker keeps a database-only run from
 			// creating tables nothing will ever fill.
 			var projections []cqrs.Consumer
-			persons, perr := person.New(ev.publisherOrNil(), ev.writer, ev.reader)
+			// phoneNormalizer adapts internal/phone to the interface the projection
+			// declares. Passing the same implementation the login handler uses is the
+			// point: a second implementation, or the same rules re-typed, would make
+			// lookups silently miss (PRD 006 §2).
+			persons, perr := person.New(ev.publisherOrNil(), ev.writer, ev.reader, phoneNormalizer{})
 			if perr != nil {
 				// Not fatal: the API still serves reads from the mock directory. A
 				// schema failure here is a bug to fix, not a reason to take the app

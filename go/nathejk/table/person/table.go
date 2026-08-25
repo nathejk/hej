@@ -56,7 +56,17 @@ type Table struct {
 // It is in the signature because every shared-go entity has it, and because
 // invalidating a verification on a guardian-number change (task 076) may need to
 // publish. Keeping the shape consistent is worth more than dropping one parameter.
-func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
+//
+// The normalizer is required: the projector must fold phone numbers with the *same*
+// implementation the login handler uses, or lookups silently miss (see
+// interfaces.go).
+func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer) (*Table, error) {
+	if n == nil {
+		// Failing here rather than defaulting to "store the raw input" is deliberate:
+		// the degraded version of this mistake is a directory that looks populated and
+		// never matches a login.
+		return nil, fmt.Errorf("person: a PhoneNormalizer is required")
+	}
 	if err := w.Consume(tableSchema); err != nil {
 		return nil, fmt.Errorf("person: create table: %w", err)
 	}
@@ -73,8 +83,8 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
 	//		`portraitRef VARCHAR(64) NOT NULL DEFAULT ""`); err != nil { ... }
 
 	return &Table{
-		consumer: consumer{w: w},
-		querier:  querier{db: r},
+		consumer: consumer{w: w, normalizer: n},
+		querier:  querier{db: r, normalizer: n},
 	}, nil
 }
 
