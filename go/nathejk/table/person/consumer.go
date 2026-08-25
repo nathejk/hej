@@ -16,6 +16,22 @@ import (
 type consumer struct {
 	w          cqrs.Writer
 	normalizer PhoneNormalizer
+	// unmapped reports a section slug Classify does not recognise. It is a callback
+	// and not a logger because this package must stay free of the application's
+	// logging (see the package doc: it is bound for shared-go). nil is a valid value
+	// and means "do not report".
+	unmapped func(slug string)
+}
+
+// reportUnmappedSlug surfaces a section slug the classifier does not know.
+//
+// Nil-safe on purpose: tests and any future caller that has nothing to log with must
+// not have to supply a sink to use the projection.
+func (c consumer) reportUnmappedSlug(slug string) {
+	if c.unmapped == nil {
+		return
+	}
+	c.unmapped(slug)
 }
 
 // Consumes lists the subjects this projection subscribes to.
@@ -42,6 +58,21 @@ func (c consumer) Consumes() []cqrs.Subject {
 		// Klan: the team name for a bandit, the counterpart of patrulje below.
 		cqrs.SubjectFromStr("NATHEJK:*.klan.*.signedup"),
 		cqrs.SubjectFromStr("NATHEJK:*.klan.*.updated"),
+		// Crew: the person, plus the section they are assigned to and the section's
+		// label. All three are needed because the label arrives on a different event
+		// from the assignment, in either order.
+		cqrs.SubjectFromStr("NATHEJK.*.crewmember.*.registered"),
+		cqrs.SubjectFromStr("NATHEJK.*.crewmember.*.updated"),
+		cqrs.SubjectFromStr("NATHEJK.*.crewmember.*.deleted"),
+		cqrs.SubjectFromStr("NATHEJK.*.crewmember.*.section.assigned"),
+		cqrs.SubjectFromStr("NATHEJK.*.section.*.added"),
+		cqrs.SubjectFromStr("NATHEJK.*.section.*.moved"),
+		// Deliberately NOT subscribed: NATHEJK.*.crew.*.signedup. It was in PRD 006's
+		// first list, and checking it against the stream showed it is a strict subset of
+		// crewmember.*.updated — same person, same name/phone/email, one published
+		// moments after the other, and its body keys the person as `teamId` rather than
+		// `userId`. Consuming it would add a second spelling of the primary key for no
+		// extra field.
 		// Patrulje: the team name shown alongside them, and the team they belong to.
 		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.signedup"),
 		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.updated"),
@@ -55,14 +86,28 @@ func (c consumer) Consumes() []cqrs.Subject {
 //
 // An unrecognised subject returns nil rather than an error: a projection that errors
 // on messages it does not care about would dead-letter half the stream.
+//
+// Every returned error is annotated with the subject. That is not cosmetic: the stream
+// library logs a handler error and *drops the message* rather than dead-lettering it
+// (jetstream.Stream.Consume), so the log line is the only trace it ever existed. A bare
+// "unexpected end of JSON input" from a decode is then unattributable to any of the
+// ~30k messages in a replay — which is precisely what happened while implementing task
+// 074.
 func (c consumer) HandleMessage(msg cqrs.Message) error {
 	subject := msg.Subject()
+	if err := c.handleMessage(msg, subject); err != nil {
+		return fmt.Errorf("person: %s: %w", subject.Subject(), err)
+	}
+	return nil
+}
+
+func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 	year := subjectYear(subject)
 	if year == "" {
 		// Without a year there is no primary key to write. Dropping it silently
 		// would be wrong, but so would failing the replay: report it as a
 		// dead-letter-worthy statement instead of guessing a year.
-		return fmt.Errorf("person: no year in subject %q", subject.Subject())
+		return fmt.Errorf("no year in subject")
 	}
 
 	switch {
@@ -74,6 +119,17 @@ func (c consumer) HandleMessage(msg cqrs.Message) error {
 	// Five-part subject, so it must be matched before the four-part senior patterns.
 	case subject.Match("nathejk.*.bandit.*.armNumber.assigned"):
 		return c.handleArmNumberAssigned(msg, year)
+	// Also five parts, and likewise before the four-part crewmember patterns.
+	case subject.Match("nathejk.*.crewmember.*.section.assigned"):
+		return c.handleSectionAssigned(msg, year)
+	case subject.Match("nathejk.*.section.*.added"),
+		subject.Match("nathejk.*.section.*.moved"):
+		return c.handleSectionAdded(msg, year)
+	case subject.Match("nathejk.*.crewmember.*.registered"),
+		subject.Match("nathejk.*.crewmember.*.updated"):
+		return c.handleCrewMemberUpdated(msg, year)
+	case subject.Match("nathejk.*.crewmember.*.deleted"):
+		return c.handleCrewMemberDeleted(msg, year)
 	case subject.Match("nathejk.*.spejder.*.updated"):
 		return c.handleSpejderUpdated(msg, year)
 	case subject.Match("nathejk.*.senior.*.updated"):
@@ -224,6 +280,159 @@ func (c consumer) handleArmNumberAssigned(msg cqrs.Message, year string) error {
 	return c.w.Consume(fmt.Sprintf(
 		"UPDATE person SET armNumber=%s WHERE personId=%s AND year=%s",
 		quote(body.ArmNumber), quote(parts[3]), quote(year),
+	))
+}
+
+// handleCrewMemberUpdated writes a crew member's own details.
+//
+// Crew are keyed by `userId`, not `memberId`, and carry **no guardian number** and no
+// team — their affiliation is a section, which arrives separately.
+//
+// The app role is `crew` (the least-privileged fallback) until a section assignment
+// says otherwise. That is the correct starting point rather than a placeholder: a crew
+// member genuinely has no known function until they are assigned one, and
+// handleSectionAssigned re-classifies them when that happens.
+func (c consumer) handleCrewMemberUpdated(msg cqrs.Message, year string) error {
+	var body messages.NathejkCrewMemberUpdated
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+	userID := string(body.UserID)
+	if userID == "" {
+		userID = subjectEntityID(msg.Subject())
+	}
+	if userID == "" {
+		return fmt.Errorf("person: crewmember event with no userId")
+	}
+
+	role, _ := Classify(PopulationCrew, "")
+
+	cols := map[string]string{
+		"personId":    quote(userID),
+		"year":        quote(year),
+		"name":        quote(body.Name),
+		"phone":       quote(normalizeOrEmpty(c.normalizer, string(body.Phone))),
+		"phoneParent": "NULL",
+		"email":       quote(string(body.Email)),
+		"deleted":     boolInt(false),
+	}
+
+	// appRole is written only on insert, never on update: a later `registered` or
+	// `updated` event must not demote a crew member whose section has already been
+	// classified. VALUES() would overwrite `samarit` with `crew` on every replay of
+	// their details, silently taking the SOS page away from them.
+	cols["appRole"] = quote(role)
+	return c.w.Consume(upsertKeepingRole(cols))
+}
+
+func (c consumer) handleCrewMemberDeleted(msg cqrs.Message, year string) error {
+	var body messages.NathejkCrewMemberUpdated
+	_ = msg.Body(&body)
+	userID := string(body.UserID)
+	if userID == "" {
+		userID = subjectEntityID(msg.Subject())
+	}
+	if userID == "" {
+		return fmt.Errorf("person: crewmember delete with no userId")
+	}
+	return c.w.Consume(fmt.Sprintf(
+		"UPDATE person SET deleted=1 WHERE personId=%s AND year=%s",
+		quote(userID), quote(year),
+	))
+}
+
+// handleSectionAdded records a section's label and back-fills anyone already assigned
+// to it.
+//
+// The back-fill is what makes the "assignment arrived first" order converge.
+func (c consumer) handleSectionAdded(msg cqrs.Message, year string) error {
+	var body messages.NathejkSectionAdded
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+	slug := string(body.Slug)
+	if slug == "" {
+		slug = subjectEntityID(msg.Subject())
+	}
+	if slug == "" || body.Label == "" {
+		// A move with no label carries nothing this projection wants. Not an error:
+		// section events carry parent/sort/type fields that are none of its business.
+		return nil
+	}
+
+	if err := c.w.Consume(fmt.Sprintf(
+		"INSERT INTO person_section (year, slug, label) VALUES (%s, %s, %s) "+
+			"ON DUPLICATE KEY UPDATE label=VALUES(label)",
+		quote(year), quote(slug), quote(body.Label),
+	)); err != nil {
+		return err
+	}
+
+	// Back-fill: anyone already assigned to this slug gets the label now.
+	return c.w.Consume(fmt.Sprintf(
+		"UPDATE person SET sectionName=%s WHERE year=%s AND sectionSlug=%s",
+		quote(body.Label), quote(year), quote(slug),
+	))
+}
+
+// handleSectionAssigned records which section a crew member belongs to, re-classifies
+// their app role from it, and resolves the section's label.
+//
+// Three statements rather than one, and the order matters:
+//
+//  1. write the slug and the role derived from it
+//  2. resolve the label by joining person_section — which reads the slug written in
+//     step 1, so a JOIN in step 1 would have used the *old* slug
+//
+// Step 2 is what makes the "section arrived first" order converge;
+// handleSectionAdded's back-fill covers the other order.
+func (c consumer) handleSectionAssigned(msg cqrs.Message, year string) error {
+	var body messages.NathejkCrewMemberSectionAssigned
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+	userID := string(body.UserID)
+	if userID == "" {
+		// Five-part subject: NATHEJK.<year>.crewmember.<userId>.section.assigned.
+		if parts := msg.Subject().Parts(); len(parts) >= 4 {
+			userID = parts[3]
+		}
+	}
+	if userID == "" {
+		return fmt.Errorf("person: section assigned with no userId")
+	}
+
+	slug := string(body.SectionSlug)
+	role, ok := Classify(PopulationCrew, slug)
+	if !ok && slug != "" {
+		// An unrecognised slug is a routine data condition, not an error: organizers
+		// rename sections and nothing validates the values. The member keeps the
+		// least-privileged role and the slug is recorded, so task 078 can find it.
+		// Reported through the writer's log rather than swallowed silently.
+		c.reportUnmappedSlug(slug)
+	}
+
+	// An INSERT rather than an UPDATE: the assignment can arrive before the crew
+	// member's own details do, and an UPDATE would then affect zero rows and lose the
+	// role for good — nothing re-publishes an assignment. The stub row carries only the
+	// key and the section; handleCrewMemberUpdated fills in the rest when it lands, and
+	// leaves appRole alone when it does (upsertKeepingRole).
+	if err := c.w.Consume(upsert(map[string]string{
+		"personId":    quote(userID),
+		"year":        quote(year),
+		"sectionSlug": quote(slug),
+		"appRole":     quote(role),
+	})); err != nil {
+		return err
+	}
+
+	// Resolve the label from whatever sections are known. LEFT JOIN with COALESCE so an
+	// assignment to a section we have not seen yet clears the name rather than leaving a
+	// stale one from a previous assignment.
+	return c.w.Consume(fmt.Sprintf(
+		"UPDATE person p LEFT JOIN person_section s ON s.year=p.year AND s.slug=p.sectionSlug "+
+			"SET p.sectionName=COALESCE(s.label, '') WHERE p.personId=%s AND p.year=%s",
+		quote(userID), quote(year),
 	))
 }
 

@@ -42,15 +42,25 @@ const (
 // NathejkSectionAdded message already carries and the shared-go projector currently
 // drops (PRD 006 §11 Q2). Until that happens, extend this map — and task 078 exists
 // to check it against the organizers' real section names before an event.
+//
+// The 2026 section tree, read off the stream while implementing task 074, is:
+// bandit, goeglerledelse, guides, hoensegaard, hq, koekken, noedtelefon, postmand,
+// postmandskab, pr, rover, samarit, team. Only the checkpoint, guide and medic ones
+// map to a capability the app grants; the rest correctly fall back to RoleCrew,
+// because "works in the kitchen" is not something the app needs to know.
+// `goeglerledelse` is deliberately *not* mapped to RoleGoegler: that role is for the
+// performers (task 075), and the people running them are crew.
 var crewFunctionBySlug = map[string]string{
 	// Checkpoint staff.
 	"postmandskab": RolePostmandskab,
+	"postmand":     RolePostmandskab, // observed in the real 2026 section tree
 	"post":         RolePostmandskab,
 	"poster":       RolePostmandskab,
 	"postmandskb":  RolePostmandskab, // observed misspelling; harmless to accept
 
 	// Guides.
 	"guide":  RoleGuide,
+	"guides": RoleGuide, // observed in the real 2026 section tree
 	"guider": RoleGuide,
 
 	// Medics.

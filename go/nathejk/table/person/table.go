@@ -39,6 +39,21 @@ import (
 //go:embed table.sql
 var tableSchema string
 
+// person_section is a slug → label lookup, kept alongside the person table.
+//
+// It exists to make section events **order-independent**. A crew member's section can
+// be assigned before the event that names that section arrives, or after; the
+// projection has to converge either way, and a projector cannot read the database
+// (cqrs.Writer takes statements, not queries). Holding the labels in a table lets the
+// assignment handler resolve a name with a JOIN instead of a Go-side read.
+//
+// It is deliberately not shared-go's `section` entity: this needs two columns, and
+// consuming the same events into a two-column table is cheaper than depending on a
+// projection this package would then have to be given.
+//
+//go:embed section.sql
+var sectionSchema string
+
 // Table is the person projection: a cqrs.Consumer that folds member events into the
 // read model, and the querier the app reads through.
 type Table struct {
@@ -60,7 +75,7 @@ type Table struct {
 // The normalizer is required: the projector must fold phone numbers with the *same*
 // implementation the login handler uses, or lookups silently miss (see
 // interfaces.go).
-func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer) (*Table, error) {
+func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer, opts ...Option) (*Table, error) {
 	if n == nil {
 		// Failing here rather than defaulting to "store the raw input" is deliberate:
 		// the degraded version of this mistake is a directory that looks populated and
@@ -69,6 +84,9 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer) (*Ta
 	}
 	if err := w.Consume(tableSchema); err != nil {
 		return nil, fmt.Errorf("person: create table: %w", err)
+	}
+	if err := w.Consume(sectionSchema); err != nil {
+		return nil, fmt.Errorf("person: create section table: %w", err)
 	}
 
 	// Additive drift only. Every column here is also in table.sql — the duplication
@@ -92,10 +110,32 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer) (*Ta
 		return nil, fmt.Errorf("person: ensure index year_section: %w", err)
 	}
 
-	return &Table{
+	t := &Table{
 		consumer: consumer{w: w, normalizer: n},
 		querier:  querier{db: r, normalizer: n},
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(t)
+	}
+	return t, nil
+}
+
+// Option configures the projection.
+//
+// Options exist so the package can report a condition the application cares about
+// without importing the application's logger — see the package doc.
+type Option func(*Table)
+
+// ReportUnmappedSlug installs a sink for crew section slugs the classifier does not
+// recognise.
+//
+// This is not an error path. Sections are organizer-authored free text validated by
+// nothing (PRD 006 §2), so a slug this package has no rule for is expected: the member
+// keeps the least-privileged role and the slug is still recorded. But it is exactly the
+// signal that says "the classification table is out of date", which is invisible unless
+// something says so out loud.
+func ReportUnmappedSlug(report func(slug string)) Option {
+	return func(t *Table) { t.consumer.unmapped = report }
 }
 
 // CreateTableSql exposes the schema, matching the shared-go entities' shape.

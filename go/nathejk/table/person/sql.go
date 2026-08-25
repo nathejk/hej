@@ -100,6 +100,51 @@ func upsert(cols map[string]string) string {
 	)
 }
 
+// upsertKeepingRole is upsert, except that appRole is written on insert only.
+//
+// The distinction exists for exactly one column and for a concrete failure. A crew
+// member's app role is derived from their *section assignment*, which arrives on a
+// different event from their personal details — and their details are re-published
+// whenever an organizer edits them, and re-delivered on every replay. With a plain
+// upsert, `crewmember.updated` would set appRole back to the generic "crew" fallback
+// that handleCrewMemberUpdated has to supply for a person whose section it does not
+// know. For a samarit that silently removes their SOS page: no error, no dead letter,
+// just a member who quietly loses a capability some time after someone corrected a
+// typo in their email.
+//
+// Insert-only is safe in the other direction because the assignment handler writes
+// appRole with an unconditional UPDATE, so it always wins regardless of which event
+// lands first.
+func upsertKeepingRole(cols map[string]string) string {
+	statement := upsert(cols)
+	if statement == "" {
+		return ""
+	}
+	// Rewrite rather than parameterise upsert: this keeps the common path — the one
+	// every other handler uses — free of a flag that would need explaining at each
+	// call site.
+	const marker = " ON DUPLICATE KEY UPDATE "
+	idx := strings.Index(statement, marker)
+	if idx < 0 {
+		// An INSERT IGNORE (key-only upsert) already writes nothing on conflict.
+		return statement
+	}
+
+	kept := make([]string, 0)
+	for _, assignment := range strings.Split(statement[idx+len(marker):], ", ") {
+		if strings.HasPrefix(assignment, "appRole=") {
+			continue
+		}
+		kept = append(kept, assignment)
+	}
+	if len(kept) == 0 {
+		// Nothing left to update: degrade to insert-if-absent rather than emit a
+		// syntactically invalid empty update list.
+		return strings.Replace(statement[:idx], "INSERT INTO", "INSERT IGNORE INTO", 1)
+	}
+	return statement[:idx] + marker + strings.Join(kept, ", ")
+}
+
 // sortStrings is a tiny insertion sort, to keep this file free of imports beyond
 // fmt/strings — the package is bound for shared-go and every dependency it carries is
 // one the move has to justify.

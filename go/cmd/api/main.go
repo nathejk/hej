@@ -150,7 +150,15 @@ func run(logger *slog.Logger) error {
 			// declares. Passing the same implementation the login handler uses is the
 			// point: a second implementation, or the same rules re-typed, would make
 			// lookups silently miss (PRD 006 §2).
-			persons, perr := person.New(ev.publisherOrNil(), ev.writer, ev.reader, phoneNormalizer{})
+			persons, perr := person.New(ev.publisherOrNil(), ev.writer, ev.reader, phoneNormalizer{},
+				// Warn, not error: an unrecognised section slug is a routine data
+				// condition (organizers rename sections and nothing validates the
+				// values), but it means a crew member is stuck on the generic role, so
+				// it has to be visible somewhere other than a SQL query.
+				person.ReportUnmappedSlug(func(slug string) {
+					logger.Warn("unmapped crew section slug", "slug", slug)
+				}),
+			)
 			if perr != nil {
 				// Not fatal: the API still serves reads from the mock directory. A
 				// schema failure here is a bug to fix, not a reason to take the app
