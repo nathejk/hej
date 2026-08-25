@@ -218,7 +218,11 @@ function changeNumber() {
       >
         <span>
           <span class="font-medium">{{ c.name }}</span>
-          <span v-if="c.team" class="block text-sm text-slate-500">{{ c.team }}</span>
+          <!-- Affiliation is what actually disambiguates: two siblings share a
+               patrulje but not a name, two crew may share a name but not a section. -->
+          <span v-if="c.team || c.section" class="block text-sm text-slate-500">
+            {{ c.team || c.section }}
+          </span>
         </span>
         <ChevronRight class="h-4 w-4 shrink-0 text-slate-400" />
       </button>

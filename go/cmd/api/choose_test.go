@@ -112,6 +112,57 @@ func TestVerifySharedNumberAsksToChoose(t *testing.T) {
 	}
 }
 
+// Crew have no patrulje or klan, so the section is what tells two of them apart. The
+// seeded pair share a first name on purpose: without the section the chooser would
+// offer two identical rows.
+func TestVerifySharedCrewNumberShowsSections(t *testing.T) {
+	app := newTestApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body, _ := verifyFor(t, app, srv, users.MockSharedCrewPhone)
+
+	candidates, ok := body["candidates"].([]any)
+	if !ok || len(candidates) != 2 {
+		t.Fatalf("want 2 crew candidates, got %v", body["candidates"])
+	}
+
+	sections := map[string]bool{}
+	for _, raw := range candidates {
+		c := raw.(map[string]any)
+		section, _ := c["section"].(string)
+		if section == "" {
+			t.Fatalf("a crew candidate must carry a section: %v", c)
+		}
+		if _, hasTeam := c["team"]; hasTeam {
+			t.Errorf("crew have no patrulje/klan, so team must be omitted: %v", c)
+		}
+		sections[section] = true
+	}
+	if len(sections) != 2 {
+		t.Fatalf("the two candidates must be distinguishable by section, got %v", sections)
+	}
+}
+
+// The mirror case: a spejder/bandit candidate carries a team and no section.
+func TestSharedPatrolCandidatesCarryTeamNotSection(t *testing.T) {
+	app := newTestApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body, _ := verifyFor(t, app, srv, users.MockSharedPhone)
+
+	for _, raw := range body["candidates"].([]any) {
+		c := raw.(map[string]any)
+		if team, _ := c["team"].(string); team == "" {
+			t.Fatalf("a spejder candidate must carry their patrulje: %v", c)
+		}
+		if _, hasSection := c["section"]; hasSection {
+			t.Errorf("a spejder has no section, so it must be omitted: %v", c)
+		}
+	}
+}
+
 // The happy path for a shared number: choose, get a session.
 func TestChooseCompletesLogin(t *testing.T) {
 	app := newTestApp(t)

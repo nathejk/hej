@@ -28,8 +28,21 @@ CREATE TABLE IF NOT EXISTS person (
     birthday DATE NULL DEFAULT NULL,
 
     -- Team identity for PRD 002's patrol-scoped reads.
+    --
+    -- For a spejder this is their patrulje and for a bandit their klan; crew and
+    -- gøglere have no team, which is why the section columns below exist. Both are
+    -- carried because the login chooser has to tell two people on one phone apart,
+    -- and "which patrulje" or "which section" is often the only difference between
+    -- them (task 079).
     teamId VARCHAR(99) NOT NULL DEFAULT "",
     teamName VARCHAR(199) NOT NULL DEFAULT "",
+
+    -- Crew affiliation. sectionSlug is the organizer-authored key the app classifies
+    -- a crew function from (see classify.go); sectionName is its human label, stored
+    -- denormalized for the same reason teamName is — the login path reads one row and
+    -- must not join.
+    sectionSlug VARCHAR(99) NOT NULL DEFAULT "",
+    sectionName VARCHAR(199) NOT NULL DEFAULT "",
 
     -- Where the member is in the event lifecycle (types.MemberStatus). PRD 005's
     -- skip rule reads it: `racing` onwards means they have started, so the
@@ -66,5 +79,6 @@ CREATE TABLE IF NOT EXISTS person (
     -- the collision policy decide. See task 071.
     KEY year_phone (year, phone),
     KEY year_team (year, teamId),
-    KEY year_role (year, appRole)
+    KEY year_role (year, appRole),
+    KEY year_section (year, sectionSlug)
 );

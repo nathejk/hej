@@ -32,6 +32,11 @@ type Person struct {
 	TeamID   string
 	TeamName string
 
+	// SectionSlug and SectionName are the crew affiliation. Empty for spejder,
+	// bandit and gøgler, who belong to a team instead — see TeamName.
+	SectionSlug string
+	SectionName string
+
 	MemberStatus string
 	ArmNumber    string
 
@@ -102,6 +107,7 @@ const personColumns = `
 	name, phone, phoneParent,
 	address, postalCode, city, email, birthday,
 	teamId, teamName,
+	sectionSlug, sectionName,
 	memberStatus, armNumber,
 	verifiedAt, acknowledgedPhone, portraitRef`
 
@@ -174,6 +180,7 @@ func scanPerson(s scanner) (Person, error) {
 		&p.Name, &p.Phone, &p.PhoneParent,
 		&p.Address, &p.PostalCode, &p.City, &p.Email, &p.Birthday,
 		&p.TeamID, &p.TeamName,
+		&p.SectionSlug, &p.SectionName,
 		&p.MemberStatus, &p.ArmNumber,
 		&p.VerifiedAt, &p.AcknowledgedPhone, &p.PortraitRef,
 	)

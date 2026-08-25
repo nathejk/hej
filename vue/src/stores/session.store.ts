@@ -38,7 +38,10 @@ interface IdentityResponse {
 export interface ChoiceCandidate {
   user_id: string
   name: string
+  /** Patrulje or klan, for a spejder or bandit. */
   team?: string
+  /** Crew section. Exactly one of team/section is normally set. */
+  section?: string
 }
 
 interface ChooseRequiredResponse {

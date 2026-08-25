@@ -117,3 +117,34 @@ not let the endpoint be reachable without a verified PIN.
   Task 077's swap is what makes the real ones reachable — and this task was the blocker
   on 077, so that is now unblocked.
 - 2026-08-25 — Moving to done.
+
+### Follow-up: affiliation added to the candidate payload (2026-08-25, later)
+
+- 2026-08-25 — Maintainer: the chooser also needs the **klan/patrulje name**, and for
+  crew **which section** the number belongs to. Implemented.
+- 2026-08-25 — This is a real gap in what I shipped, not a nicety. My original payload
+  was first name + team, and the seeded fixture had two siblings in the *same* patrol —
+  so the team added nothing and the name carried the whole decision. For crew there was
+  no affiliation at all: two crew members on one phone would have been offered as two
+  identical rows.
+- 2026-08-25 — `candidate` now carries `team` (patrulje/klan) **or** `section` (crew),
+  both `omitempty`, so the client renders whichever arrives without branching on role.
+  Still no surname, address, birthday or role — the disclosure grows by one affiliation
+  label, which is the minimum that makes the choice possible.
+- 2026-08-25 — Required data the projection did not carry: `person` had no section
+  columns. Added `sectionSlug` + `sectionName` (denormalized for the same reason
+  `teamName` is — the login path reads one row and must not join) plus a `year_section`
+  index.
+- 2026-08-25 — **First real use of `EnsureColumn`/`EnsureIndex`**, which task 068 wired
+  in with a note saying there was nothing to migrate yet. The live table predated these
+  columns, so this exercised the additive-drift path for real: verified the running
+  database picked up both columns and the index **in place**, with the 1727 projected
+  rows intact and no dead letters.
+- 2026-08-25 — Seeded `MockSharedCrewPhone` with two crew in **different sections who
+  share a first name** — the case where only the section disambiguates. Two new tests
+  assert crew candidates carry a section and no team, and spejder candidates the reverse.
+- 2026-08-25 — Note for **tasks 073/074**: the columns and the API shape exist, but the
+  *real* data does not yet. Klan names arrive with 073 (bandit) and section labels with
+  074 (crewmember + section). Until then the live chooser shows affiliations only for
+  mock users. Recorded in both task files.
+- 2026-08-25 — `vue-tsc` clean; full Go suite, vet, staticcheck and gofmt green.

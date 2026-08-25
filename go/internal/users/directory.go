@@ -99,8 +99,18 @@ type User struct {
 	// empty value as "no patrol" rather than an error: personnel are legitimate
 	// users, they simply have nothing patrol-scoped to show.
 	PatrolID string
-	// PatrolName is the human-readable patrol name, for display only.
+	// PatrolName is the human-readable patrol name, for display only. A patrulje for
+	// a spejder, a klan for a bandit.
 	PatrolName string
+
+	// Section is the crew affiliation, for display only — empty for everyone who
+	// belongs to a team instead.
+	//
+	// It exists for the same reason PatrolName is exposed: when a phone number is
+	// shared, "which patrulje" or "which section" is often the only thing that tells
+	// two candidates apart, and two siblings in the same patrol or two crew in the
+	// same section need something better than identical rows (task 079).
+	Section string
 }
 
 // Directory resolves users, either by their **normalized** phone number (login)

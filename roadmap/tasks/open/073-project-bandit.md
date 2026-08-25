@@ -28,6 +28,9 @@ Seniors have **no guardian phone**.
 - [ ] Classified as the `bandit` app role
 - [ ] Arm number carried (it is an identification mechanism that needs no photo)
 - [ ] Guardian phone explicitly "not applicable", not blank
+- [ ] **`teamName` populated with the klan name** — the login chooser shows it to tell
+      two people on one phone apart (task 079), and the column is currently empty for
+      bandits
 - [ ] Idempotent, tested with `cqrstest` fakes
 
 ## Progress Log

@@ -24,6 +24,9 @@ dropping the assignment.
 
 - [ ] Crewmember + crew + section subjects consumed
 - [ ] Function derived through task 069's classifier
+- [ ] **`sectionSlug` and `sectionName` populated** — the columns and the API shape
+      landed with task 079 (the login chooser shows the section to tell two crew on one
+      phone apart) but nothing fills them yet
 - [ ] Out-of-order section/assignment events converge
 - [ ] Unassigned crew classified as generic crew, not an error
 - [ ] `deleted` flag respected

@@ -102,12 +102,21 @@ type identityResponse struct {
 // The payload is deliberately thin. Disambiguation necessarily shows one person
 // something about the others on their number — defensible, since whoever holds the
 // phone already shares a household with them — but it is a disclosure, so it carries
-// only what is needed to recognise yourself: a first name and the team. No surname, no
-// address, no birthday, no role.
+// only what is needed to recognise yourself.
+//
+// That is a first name plus **the affiliation**: the patrulje or klan for a spejder or
+// bandit, the section for crew. Affiliation is not decoration — a first name alone is
+// often not enough (two siblings, or a parent and child with similar names), and
+// "Patrulje Ravnene" versus "Samarit" is usually the thing that makes the choice
+// obvious. Still no surname, address, birthday or role.
 type candidate struct {
 	UserID string `json:"user_id"`
 	Name   string `json:"name"`
-	Team   string `json:"team,omitempty"`
+	// Team is the patrulje or klan; Section is the crew affiliation. Exactly one is
+	// normally set, and both are omitted when empty so the client can render whichever
+	// arrives without branching on role.
+	Team    string `json:"team,omitempty"`
+	Section string `json:"section,omitempty"`
 }
 
 // chooseRequiredResponse is returned when the verified number belongs to several
@@ -212,9 +221,10 @@ func (app *application) verifyPinHandler(w http.ResponseWriter, r *http.Request)
 		candidates := make([]candidate, 0, len(matches))
 		for _, u := range matches {
 			candidates = append(candidates, candidate{
-				UserID: u.ID,
-				Name:   firstName(u.Name),
-				Team:   u.PatrolName,
+				UserID:  u.ID,
+				Name:    firstName(u.Name),
+				Team:    u.PatrolName,
+				Section: u.Section,
 			})
 		}
 

@@ -76,11 +76,21 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer) (*Ta
 	// these calls bring an existing one forward. Dropping or narrowing a column is
 	// not expressible this way and needs a real migration.
 	//
-	// Nothing to ensure yet: the table was introduced whole. Columns added in later
-	// tasks go here, e.g.
-	//
-	//	if err := cqrs.EnsureColumn(r, w, "person", "portraitRef",
-	//		`portraitRef VARCHAR(64) NOT NULL DEFAULT ""`); err != nil { ... }
+	// The section columns arrived after the table did (task 079 needed them so the
+	// login chooser can tell two crew members on one phone apart), so an existing
+	// deployment gets them here rather than by being recreated.
+	for _, col := range []struct{ name, ddl string }{
+		{"sectionSlug", `sectionSlug VARCHAR(99) NOT NULL DEFAULT ""`},
+		{"sectionName", `sectionName VARCHAR(199) NOT NULL DEFAULT ""`},
+	} {
+		if err := cqrs.EnsureColumn(r, w, "person", col.name, col.ddl); err != nil {
+			return nil, fmt.Errorf("person: ensure column %s: %w", col.name, err)
+		}
+	}
+	if err := cqrs.EnsureIndex(r, w, "person", "year_section",
+		"ALTER TABLE person ADD INDEX year_section (year, sectionSlug)"); err != nil {
+		return nil, fmt.Errorf("person: ensure index year_section: %w", err)
+	}
 
 	return &Table{
 		consumer: consumer{w: w, normalizer: n},
