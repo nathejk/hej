@@ -55,7 +55,12 @@ func (app *application) requestPinHandler(w http.ResponseWriter, r *http.Request
 
 	// Only recognized numbers get a PIN. Everything else falls through to the
 	// same success response below.
-	if _, ok := app.models.Users.Lookup(normalized); ok {
+	//
+	// LookupAll, not Lookup: a number shared by two people (siblings) is still a
+	// recognized number and must still receive a PIN. Lookup deliberately reports
+	// not-found for a shared number, so using it here would silently refuse to send
+	// an SMS to exactly the users who need the disambiguation flow.
+	if len(app.models.Users.LookupAll(normalized)) > 0 {
 		code, issueErr := app.pins.Issue(normalized)
 		switch {
 		case issueErr == nil:
@@ -129,7 +134,26 @@ func (app *application) verifyPinHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// A PIN only ever exists for a recognized number, so lookup succeeds here.
+	// A PIN only ever exists for a recognized number, so there is at least one
+	// match here.
+	//
+	// Lookup returns not-found for a **shared** number (see users.Directory): the
+	// PIN proves control of the phone, not which of its owners is holding it, so
+	// establishing a session for one of them would be a guess — and a wrong guess
+	// means one sibling reading the other's profile.
+	//
+	// The agreed answer is to disambiguate after verification (PRD 006 §11 Q1). That
+	// flow is not built yet, so for now a shared number gets a refused login rather
+	// than a wrong one: visible and fixable, instead of silently wrong. Task 079
+	// implements the chooser.
+	matches := app.models.Users.LookupAll(normalized)
+	if len(matches) > 1 {
+		app.Logger.Warn("login blocked: phone number is shared by several people",
+			"candidates", len(matches),
+		)
+		app.InvalidCredentialsResponse(w, r)
+		return
+	}
 	user, ok := app.models.Users.Lookup(normalized)
 	if !ok {
 		app.InvalidCredentialsResponse(w, r)

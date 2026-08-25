@@ -381,14 +381,28 @@ is why the two were approved together with 008 first.
 
 ## 11. Open Questions
 
-1. **Phone collisions.** What happens when two people share a number — siblings,
-   or a guardian's number entered as the scout's own? Options: refuse the login
-   (safe, but locks out a real participant), let the user disambiguate after PIN
-   verification (best UX, more work), or last-write-wins (silently wrong, and the
-   wrong person's data is exposed to whoever logs in). This needs deciding before
-   the unique key is chosen, and it is a **privacy** decision as much as a UX one.
-   How common is it in the real signup data? That is answerable today by querying
-   `tilmelding`.
+1. ~~**Phone collisions.**~~ *Answered 2026-08-25 (task 071): **disambiguate after
+   PIN verification.*** The PIN proves control of the *number*, not which of its
+   owners is holding it, so the flow verifies first and then asks "which of you is
+   this?". Refusing the login was rejected as locking out real participants;
+   last-write-wins was rejected outright, since it would show one sibling the
+   other's data.
+
+   Implemented in the directory contract rather than as a policy buried in a
+   handler: `LookupAll` returns every owner, and `Lookup` returns **not found** when
+   a number is shared. That asymmetry is the safety property — a caller who has not
+   thought about collisions gets a refused login (visible, fixable) instead of
+   silently authenticating someone as their sibling.
+
+   **Still to build:** the chooser itself (a short-lived post-verification token, a
+   candidate list, and the UI) is **task 079** and belongs to the auth/PRD 005
+   surface. Until it ships, a shared number cannot log in at all — which is why 079
+   must land before, or with, task 077's swap to the real projection. The schema
+   keeps `year_phone` non-unique so the projector never fails on this data (task
+   068).
+
+   How common it actually is remains unmeasured; task 078 counts it against real
+   data.
 2. **Is `section.Type` the right source for crew function**, and does it mean what
    the app needs? If yes, projecting it in shared-go beats a slug map in `hej`.
 3. **Are `postmandskab`/`guide`/`samarit` the right app roles at all?** They were

@@ -105,8 +105,33 @@ type User struct {
 // Keeping both lookups behind this one interface is deliberate: the real
 // Nathejk-records implementation can serve them from the same query, and
 // handlers never learn where the data came from.
+//
+// # Phone numbers are not unique
+//
+// One number can belong to several people: siblings sharing a phone, or a
+// guardian's number entered as the scout's own. That is ordinary data, not an
+// error, so the interface exposes both shapes:
+//
+//	LookupAll — every match, for the login flow that has to disambiguate
+//	Lookup    — the single match, and NOT FOUND when there is more than one
+//
+// Lookup's ambiguity rule is the important part. It is defined that way so a
+// caller that has not thought about collisions cannot silently log someone in as
+// the wrong person — the failure mode is a refused login (visible, fixable) rather
+// than one sibling reading the other's profile.
 type Directory interface {
+	// LookupAll returns every user registered with the given normalized phone
+	// number. An empty slice means the number is not recognized.
+	//
+	// Order is stable, so a disambiguation prompt does not reshuffle between
+	// requests.
+	LookupAll(phone string) []User
+
+	// Lookup returns the user for a normalized phone number when exactly one is
+	// registered with it. found=false covers both "unknown number" and
+	// "ambiguous" — see the note above on why those collapse.
 	Lookup(phone string) (user User, found bool)
+
 	// Get resolves the user behind an id carried by a session cookie.
 	Get(id string) (user User, found bool)
 }
