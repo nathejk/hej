@@ -71,12 +71,24 @@ services:
       # docker-compose.override.yml. Without it the map shows a "missing API key"
       # notice instead of blank tiles.
       DATAFORSYNINGEN_TOKEN: ""
+      # MariaDB connection (PRD 008). The db service below has existed since the
+      # repo was scaffolded but nothing used it; this is what connects the two.
+      # Credentials match the MARIADB_* values on that service. parseTime is
+      # required so DATETIME columns scan into time.Time rather than []byte.
+      #
+      # Same override convention as SESSION_SECRET: the dev value is deliberately
+      # boring and lives here, anything real goes in docker-compose.override.yml.
+      # An empty or unreachable DSN is non-fatal — the API logs it and runs on
+      # mocks (see cmd/api/database.go).
+      DB_DSN: "hej:hej@tcp(db:3306)/hej?parseTime=true"
       # GO_BUILD_FLAGS: "-race"   # uncomment for the race detector
     volumes:
       - ./go:/app
       - api:/go
     networks:
       - local
+    depends_on:
+      - db
     labels:
       # Internal-only (reached via the Vite dev proxy); keep it off Traefik.
       # Needed because this Traefik has exposedByDefault=true.
