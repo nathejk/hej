@@ -69,3 +69,16 @@ do not document a procedure that copies production personal data onto laptops.
 - 2026-08-25 (later) — Unchanged: the privacy constraint. Replaying the real stream onto
   a developer machine stays out of the question, so the seeder publishes **synthetic**
   events with obviously-fake names.
+- 2026-08-25 (later) — **This constraint is already being violated, and not by choice.**
+  The dev stack's `JETSTREAM_DSN` points at the *shared* broker, which holds real
+  historical events. Simply bringing the stack up therefore replays real data into the
+  local database: task 072's verification projected **1727 real people**, including
+  minors' names, addresses and guardian phone numbers, with no deliberate action.
+- 2026-08-25 (later) — So this task's scope has grown, and the seeding tool is now the
+  smaller half. The real question is **how a developer runs the stack without
+  production personal data**, e.g. a local broker for dev with the shared one opt-in, a
+  dev-only stream/subject prefix, or a year filter. Worth deciding with the maintainer
+  before building a seeder that only matters once the real data is *not* there.
+- 2026-08-25 (later) — Flagging rather than acting: switching the dev broker would
+  change how every developer's stack behaves and how the sibling repos interoperate,
+  which is not a call to make unilaterally mid-task.

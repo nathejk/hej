@@ -401,8 +401,12 @@ is why the two were approved together with 008 first.
    keeps `year_phone` non-unique so the projector never fails on this data (task
    068).
 
-   How common it actually is remains unmeasured; task 078 counts it against real
-   data.
+   How common it actually is is now **measured, and it is not rare**: a full replay of
+   the real event stream (2026-08-25, task 072) produced **213 phone numbers shared by
+   more than one person**, against ~1,610 members with a number at all — roughly one in
+   eight. That settles two things. The "refuse the login" option would have locked out
+   hundreds of members, so rejecting it was correct; and **task 079 is not optional
+   polish** — without the chooser, that whole cohort cannot log in.
 2. **Is `section.Type` the right source for crew function**, and does it mean what
    the app needs? If yes, projecting it in shared-go beats a slug map in `hej`.
 3. **Are `postmandskab`/`guide`/`samarit` the right app roles at all?** They were

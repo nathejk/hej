@@ -8,6 +8,13 @@ import (
 	"os"
 	"time"
 
+	// Embed the timezone database in the binary. The prod image is bare alpine with
+	// no system tzdata, and the person projection needs Europe/Copenhagen to convert
+	// upstream birthdays (stored as midnight-local expressed in UTC) to the right
+	// calendar date. Without this the conversion silently falls back to UTC and every
+	// such birthday lands a day early.
+	_ "time/tzdata"
+
 	"github.com/jrgensen/cqrs"
 
 	bff "nathejk.dk/cmd/api/app"
