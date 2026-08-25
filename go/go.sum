@@ -85,6 +85,10 @@ github.com/invopop/jsonschema v0.14.0 h1:MHQqLhvpNUZfw+hM3AZDYK7jxO8FZoQeQM77g8i
 github.com/invopop/jsonschema v0.14.0/go.mod h1:ygm6C2EaVNMBDPpaPlnOA2pFAxBnxGjFlMZABxm9n2I=
 github.com/josharian/intern v1.0.0 h1:vlS4z54oSdjm0bgjRigI+G1HpF+tI+9rE5LLzOg8HmY=
 github.com/josharian/intern v1.0.0/go.mod h1:5DoeVV0s6jJacbCEi61lwdGj/aVlrQvzHFFd8Hwg//Y=
+github.com/jrgensen/cqrs v0.1.0 h1:c1+jZ/1pL6ZQzP/S55RUM0qCbrRs843wutFtcNmvrjA=
+github.com/jrgensen/cqrs v0.1.0/go.mod h1:iEhgVzTdXjGkD3u0EIt4kD+/Y+SzBfhPaCumwJA1Y1Q=
+github.com/jrgensen/stream v0.1.2 h1:dGaTEychCOsFVTWDWEjoBIlMArPnv1vdUsNS5k/xJ5I=
+github.com/jrgensen/stream v0.1.2/go.mod h1:JxYchHK7RMIrdNM7E2VT1ZCcUccAz22ec+s/LyZ1yFw=
 github.com/julienschmidt/httprouter v1.3.0 h1:U0609e9tgbseu3rBINet9P48AI/D3oJs4dN7jwJOQ1U=
 github.com/julienschmidt/httprouter v1.3.0/go.mod h1:JR6WtHb+2LUe8TCKY3cZOxFyyO8IZAc4RVcycCCAKdM=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=
@@ -98,6 +102,8 @@ github.com/mailru/easyjson v0.0.0-20190614124828-94de47d64c63/go.mod h1:C1wdFJiN
 github.com/mailru/easyjson v0.0.0-20190626092158-b2ccc519800e/go.mod h1:C1wdFJiN94OJF2b5HbByQZoLdCWB1Yqtg26g4irojpc=
 github.com/mailru/easyjson v0.7.6 h1:8yTIVnZgCoiM1TgqoeTl+LfU5Jg6/xL3QhGQnimLYnA=
 github.com/mailru/easyjson v0.7.6/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJJLY9Nlc=
+github.com/nathejk/shared-go v0.0.0-20260815075712-35c10e0f6942 h1:EXY4uUygzl6BD1TtzOSWFc5gy0QIJfYZZH5c9sJiq+w=
+github.com/nathejk/shared-go v0.0.0-20260815075712-35c10e0f6942/go.mod h1:3mupoU3CegkDPSsKmmX+g1Ea4Xn9XB/x45hWdVi5DdU=
 github.com/niemeyer/pretty v0.0.0-20200227124842-a10e7caefd8e/go.mod h1:zD1mROLANZcx1PVRCS0qkT7pwLkGfwJo4zjcN/Tysno=
 github.com/onsi/ginkgo/v2 v2.32.0 h1:Hw7s2pVrQo/8Yz5N77qdnpHaoc+c6cC9WIV1Jce+J6E=
 github.com/onsi/ginkgo/v2 v2.32.0/go.mod h1:+aXOY+vzZ5mu2iI2HpTZUPmM//oQfsNFX6gU9kNcA44=

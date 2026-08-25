@@ -39,7 +39,10 @@ require (
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
+	github.com/jrgensen/cqrs v0.1.0 // indirect
+	github.com/jrgensen/stream v0.1.2 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
+	github.com/nathejk/shared-go v0.0.0-20260815075712-35c10e0f6942 // indirect
 	github.com/openai/openai-go/v3 v3.42.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/russross/blackfriday/v2 v2.0.1 // indirect

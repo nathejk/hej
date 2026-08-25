@@ -39,6 +39,11 @@ COPY go/ ./
 # CGO-free binary that runs on the bare alpine prod image.
 FROM base AS build
 ARG BUILD_VERSION=dev
+# Ignore go.work: CI and prod resolve shared-go from the module proxy at the
+# version pinned in go.mod, not from the sibling checkout that go.work points at
+# and that does not exist inside this image. This is also the gate that catches a
+# change which only builds with the dev workspace active.
+ENV GOWORK=off
 RUN go test -timeout 60s ./... \
     && go tool staticcheck ./...
 # The build context has no .git, so runtime/debug VCS stamping can't work —

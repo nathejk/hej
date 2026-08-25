@@ -85,6 +85,12 @@ services:
     volumes:
       - ./go:/app
       - api:/go
+      # Sibling checkout of github.com/nathejk/shared-go. The path inside the
+      # container matches what go/go.work expects (../../shared-go relative to
+      # /app resolves to /shared-go), so edits in that repo are picked up live
+      # without a commit/push/version-bump cycle. Prod builds with GOWORK=off and
+      # uses the version pinned in go.mod instead.
+      - ../shared-go:/shared-go
     networks:
       - local
     depends_on:

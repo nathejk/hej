@@ -1,0 +1,15 @@
+go 1.25.8
+
+// Dev-only workspace. Per go-bff-layout, shared-go resolves from the sibling
+// ../../shared-go checkout so edits there are picked up live without a
+// commit/push/version-bump cycle. CI and production build with GOWORK=off and
+// resolve the version pinned in go.mod instead, so a change that only builds
+// with this workspace active is a broken build — always verify both.
+//
+// cqrs and stream are deliberately NOT in the workspace: they resolve from the
+// module proxy at the pinned version in every environment. Changing them means
+// cutting a release there and bumping here.
+use (
+	.
+	../../shared-go
+)
