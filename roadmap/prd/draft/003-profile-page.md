@@ -3,7 +3,7 @@
 **Status:** draft
 **Author:** agent session (Zed / Claude Opus 5)
 **Created:** 2026-08-24
-**Last updated:** 2026-08-24
+**Last updated:** 2026-08-25
 **Approved:**
 **Shipped:**
 **Target users:** all signed-in roles (spejder, bandit, postmandskab, guide, samarit)
@@ -44,7 +44,8 @@ for the web app on this device — with a one-tap way to fix it when they are no
 - **Why now?** The permission plumbing already exists and is unused as a status
   surface: `vue/src/stores/notifications.store.ts` tracks
   `permission` / `subscribed` / `available`, and `location.store.ts` tracks
-  `permission` / `available`. `app.store.ts` handles PWA install. A profile page
+  `permission` / `available`. PWA install state lands in `install.store` (PRD 005;
+  `app.store.ts` holds only the update flag). A profile page
   is the natural home for all of it, and it becomes the place where every future
   user-level preference lands as the app is scoped out.
 - **Evidence.** Product request from the organizers; PRD 001 explicitly left
@@ -64,12 +65,23 @@ for the web app on this device — with a one-tap way to fix it when they are no
 
 ## 4. Non-Goals
 
+- **First-login profile confirmation** — the one-time, blocking "confirm your
+  details and contact number" step is owned by **PRD 005**, which has the
+  onboarding step machine. This page is the passive, re-entrant view of the same
+  data; PRD 005 consumes `GET /api/me/profile` and extends it with
+  `confirmation_required` / `verified_at`. Coordinate the two, but do not build
+  a second gate here.
 - **Editing personal details in the app.** Name, address and phone numbers are
   sourced from Nathejk records and are read-only here. Corrections go through the
   existing (out-of-app) channel.
-- **Viewing other people's profiles or photos.** Own profile only. Organizer/
-  personnel-facing photo browsing is a separate feature with its own consent and
-  access story.
+- **Viewing other people's profiles or photos.** Own profile only. **Note:** PRD
+  005 established (2026-08-25) that the portrait's purpose is identifying members
+  during the race, largely at night — which means a personnel-facing viewing
+  surface is no longer optional to the photo's value, it is the point of it. That
+  surface is specified in **PRD 007** (offline portrait identification), including
+  its access control and the rule that spejdere and banditter cannot see each
+  other. Still out of scope *here*, but now a known dependency rather than a
+  hypothetical future feature.
 - **Avatar editing** beyond what is needed for a usable portrait (see Open
   Questions on cropping) — no filters, stickers, or drawing.
 - **Uploading an existing photo from the camera roll** unless the platform gives
@@ -112,7 +124,7 @@ for the web app on this device — with a one-tap way to fix it when they are no
      "Slå til" action when actionable.
    - **Placering** — status with a "Slå til" action when actionable.
    - **Installeret som app** — whether the PWA is installed, with the install
-     action when available (reusing `app.store.ts`).
+     action when available (reusing `install.store` from PRD 005).
 7. Tapping "Slå til" runs the existing store flow
    (`notifications.enable()` / `location.request()`); the row updates immediately.
 
@@ -161,13 +173,17 @@ for the web app on this device — with a one-tap way to fix it when they are no
       - Push notifications — from `notifications.store` (`available`,
         `permission`, `subscribed`).
       - Location sharing — from `location.store` (`available`, `permission`).
-      - Installed as app — from `app.store`.
+      - Installed as app — from `install.store` (PRD 005).
+      - Kamera — whether the portrait camera is usable on this device, with
+        platform-aware guidance when blocked. Camera is the third permission the
+        app needs (PRD 005 requests it during onboarding) and had no status row
+        until this was added on 2026-08-25.
 - [ ] Permission states are re-synced whenever the page becomes visible, so a
       change made in browser settings is reflected on return.
 - [ ] Rows whose permission is blocked show platform-appropriate guidance instead
       of a non-functional button.
 - [ ] Sign-out is available from this page (it is the conventional place for it,
-      and PRD 002 removes the top bar on the map page).
+      and PRD 002 hides the top bar on the map page).
 - [ ] The section is structured so additional preferences can be appended without
       a redesign (a preferences list, not a bespoke layout).
 - [ ] All copy in Danish.
@@ -212,31 +228,43 @@ the full-bleed map.
 **Page structure** (scrolling, standard shell with top bar):
 
 1. **Header block** — portrait (circular, ~96–128px) centred or leading, with the
-   name beside/below it and the role as a subtle badge.
+   name beside/below it and the role as a subtle badge. The page `<h1>` and each
+   section heading use **`font-nathejk`** per `.rules`; body text and controls stay
+   on the system sans stack.
 2. **Mine oplysninger** — a read-only definition list: `Navn`, `Adresse`,
    `Telefon`, `Forælders telefon`. A footnote: how to get details corrected.
 3. **På denne enhed** — preference/status rows: icon, label, status text, and a
    trailing action or guidance. Uses the same visual language as
-   `PermissionPrompt.vue` but in a compact row form.
-4. **Log ud** — a low-emphasis destructive action at the bottom.
+   `PermissionPrompt.vue` (whose API is owned by PRD 005) but in a compact row form.
+4. **Offline-parathed** — PRD 009's readiness surface: which datasets are cached,
+   when they last synced, total storage used, and a manual sync/clear control.
+   Placement decided here 2026-08-25 so it is not left open in two documents.
+5. **Log ud** — a low-emphasis destructive action at the bottom.
 
 **Capture flow.** Tapping the portrait opens a full-screen capture surface: live
-camera preview, a shutter button, a camera-flip control if more than one camera
-exists, and cancel. After the shot: preview with "Brug billede" / "Tag igen".
-Upload shows inline progress on the portrait, not a modal spinner.
+camera preview with a **face-guide overlay** (a circular framing guide — the same
+guide PRD 005's onboarding portrait step relies on), a shutter button, a
+camera-flip control if more than one camera exists, and cancel. After the shot:
+preview with "Brug billede" / "Tag igen". Upload shows inline progress on the
+portrait, not a modal spinner. **This component is owned here** and reused by PRD
+005 — it must not be forked.
 
 **New / changed frontend files (in `vue/`):**
 
 - `src/views/ProfileView.vue` — the page.
 - `src/components/profile/ProfilePhoto.vue` — portrait + capture entry point +
-  upload state.
+  upload state. Composes the shadcn-vue `avatar` primitive (which must be
+  generated — it is not in `components/ui/` yet); PRD 007 composes the same
+  primitive for its thumbnails rather than reusing this component.
 - `src/components/profile/PhotoCapture.vue` — camera preview, shutter, preview/
   confirm, client-side downscale.
 - `src/components/profile/PreferenceRow.vue` — icon + label + status + action row.
 - `src/stores/profile.store.ts` — fetch details, upload/replace photo.
 - `src/config/navigation.ts` — new `profile` destination.
 - `src/router/index.ts` — `/profile` route (auth-guarded, all roles).
-- `src/App.vue` — sign-out relocated (or duplicated) if we go with option 1.
+- `src/App.vue` — sign-out relocated. Note **PRD 005 lands the shell rewrite**
+  (`showShell`, hidden chrome on onboarding routes); this change is a diff on top of
+  that, and there is exactly one sign-out action with one destination, named in 005.
 
 ## 8. Technical Considerations
 
@@ -263,32 +291,63 @@ Upload shows inline progress on the portrait, not a modal spinner.
   behind `app.requireAuth`, plus an `internal/data` facade for profile details
   and photo storage.
   - The current directory (`internal/users`) returns only `{ ID, Role }`. It must
-    be extended (interface + mock, same pattern as PRD 001) to carry name,
-    address, own phone and parent phone — or a second lookup added. PRD 002 also
-    needs the directory extended (patrol identity), so coordinate the two.
-  - The photo is *app-owned* data, not directory data: it is written by the app
-    and therefore needs real persistence (MariaDB row + blob on disk/object
-    store), unlike the mocked read-only details.
+    be extended to carry name, address, own phone and parent phone — **this is
+    now PRD 006's job** (member directory), which replaces the mock with a real
+    person-grained projection. Do not extend the mock here; depend on PRD 006.
+    Note its survey found `PhoneParent` exists **only** on `spejder`, so
+    `Forælders telefon` must render as "not applicable" rather than blank for
+    bandits, gøgler and crew.
+  - **The photo does not get written to the database by this handler.** Per the
+    architecture rule (PRD 008 §8: nothing writes directly to SQL), upload
+    **publishes a portrait event** carrying a content hash plus metadata, and the
+    bytes go to a **content-addressed blob store**. The SQL row is a *projection* of
+    that event. *(Rewritten 2026-08-25 — this section previously described a direct
+    MariaDB row + blob write, which predates the rule.)*
+  - The blob store is the one thing **not rebuildable from the log**, so it is the
+    entire backup scope (PRD 008 §8) and must stay clear of projection tables — a
+    replay must never be able to truncate portraits.
+  - The Go binary has no database or publisher today (dev provisions MariaDB but
+    nothing uses it; `commands.Commands` is an empty struct), so both arrive with
+    **PRD 008**.
+    Generate an identification **thumbnail** at upload time too — PRD 007 syncs
+    those to devices for offline use and needs one canonical small version. This PRD
+    owns thumbnail generation, since it owns upload.
   - Serve the photo through an authenticated handler rather than a static public
     path, so the URL is not a bearer-less capability.
 - **API endpoints (OpenAPI annotations mandatory, matching the style in
   `go/cmd/api/auth.go` and `push.go`):**
   - `GET /api/me/profile` — name, address, phone, parent phone, role, photo
-    presence/URL. `200` / `401`.
-  - `PUT /api/me/photo` — upload/replace the portrait (multipart). `200` / `400`
-    (bad type/too large) / `401` / `413`.
-  - `GET /api/me/photo` — return the caller's portrait (or `404`). Authenticated.
-  - `DELETE /api/me/photo` — only if removal is in scope (Open Questions).
+    presence/URL. `200` / `401`. **PRD 005 extends this response** with
+    `verified_at` and a `confirmation_required` flag plus a masked contact number
+    for its first-login confirmation step — design the payload with that in mind.
+    *(Field name aligned 2026-08-25: `verified_at` everywhere, not `confirmed_at`.)*
+    This field is **not owned here**: it is projected from PRD 005's verification
+    event onto PRD 006's person read model, and this endpoint only reads it.
+  - `PUT /api/me/photo` — upload/replace the portrait (multipart). Publishes the
+    portrait event and stores the bytes. `200` / `400` (bad type/too large) / `401`
+    / `413`.
+  - `GET /api/me/photo` — return the caller's **own** portrait at profile size (or
+    `404`). Authenticated. Note the overlap with PRD 007's
+    `GET /api/portraits/{personId}`: that endpoint serves *identification
+    thumbnails of other people* under 007's access matrix, and own-portrait requests
+    must **not** be routed through it — its `403`/`404` responses are deliberately
+    indistinguishable, which is wrong for "my own photo".
+  - `DELETE /api/me/photo` — only if removal is in scope (Open Questions). Must
+    publish a portrait-removed event, not delete a row.
 - **Data / storage:**
-  - New table, e.g. `user_photo` — `user_id` (PK), `content_type`, `bytes` or a
-    storage key, `width`, `height`, `created_at`, `updated_at`.
-  - Blob location: DB blob (simplest, given the small user count and short
-    retention) vs filesystem volume vs object storage — decision needed. In the
-    docker dev stack a filesystem path needs a volume; a DB blob avoids that.
-  - Read-only details are **not** persisted by us; they are read from the
-    directory (mock for now).
+  - A `portrait` **projection** keyed by person id: `content_hash`,
+    `content_type`, `width`, `height`, `updated_at`. **No `bytes` column** — bytes
+    never live in a row a replay would truncate (PRD 008 §8).
+  - Blob location: object store or mounted volume, content-addressed. **A DB blob
+    is not an option** under PRD 008's backup model. The decision is owned by PRD
+    008 §11 (infrastructure), not here.
+  - Read-only details are **not** written by us; they arrive as a projection of
+    the member stream owned by PRD 006 (mocked until then).
   - Retention/purge job for photos after the event, per the GDPR decision.
 - **Dependencies & risks:**
+  - **Blocked by PRD 006** (directory fields) for track (a), and by **PRD 006 +
+    PRD 008** (persistence, publisher, blob store) for track (b). Neither
+    dependency was listed here before 2026-08-25.
   - `getUserMedia` requires a secure context — satisfied by the Traefik dev setup
     and prod.
   - iOS Safari camera quirks (autoplay/`playsinline` requirements, permission
@@ -325,8 +384,9 @@ The GDPR/consent decision is a **blocker for (b)**, not for (a).
 
 Proposed tasks to create in `roadmap/tasks/open/`:
 
-- [ ] Task: Extend the user directory interface + mock with name, address, own
-      phone and parent phone (coordinate with PRD 002's patrol identity).
+- [ ] Task: Add name, address, own phone and parent phone to the
+      `users.Directory` **interface** (mock updated as a test double only) — PRD 006
+      supplies the real implementation. Do not grow the mock into a data source.
 - [ ] Task: BFF — `GET /api/me/profile` handler behind `requireAuth`. OpenAPI
       annotations.
 - [ ] Task: Frontend — `/profile` route, `profile` nav destination (Lucide),
@@ -334,15 +394,23 @@ Proposed tasks to create in `roadmap/tasks/open/`:
 - [ ] Task: Frontend — read-only details block (Danish labels, `tel:` links,
       "Ikke registreret" and hidden-row rules).
 - [ ] Task: Frontend — `PreferenceRow.vue` + "På denne enhed" section wired to
-      `notifications.store`, `location.store` and `app.store`, incl. re-sync on
-      `visibilitychange`.
+      `notifications.store`, `location.store`, `install.store` (PRD 005) and the
+      camera state, incl. re-sync on `visibilitychange`.
+- [ ] Task: Frontend — `notifications.store.syncSubscription()` reading the live
+      `PushSubscription`, so the push row is accurate after a reload (today
+      `subscribed` is only set inside `enable()`).
+- [ ] Task: Generate the shadcn-vue primitives this page needs (`avatar`, and
+      `alert`/`badge` if used) in `vue/src/components/ui/`.
 - [ ] Task: Frontend — platform-aware "blocked permission" guidance copy in one
       place.
 - [ ] Task: Move/duplicate sign-out onto the profile page.
 - [ ] Task: Decide + document photo consent, retention and access policy (GDPR
       blocker for the photo tasks).
-- [ ] Task: BFF — `user_photo` storage (table + blob strategy) via an
-      `internal/data` facade.
+- [ ] Task: BFF — portrait event + `portrait` projection + content-addressed blob
+      store write path via `commands.Commands` (read side exposed through
+      `data.Models`). No direct SQL write.
+- [ ] Task: BFF — server-side thumbnail generation at upload (EXIF-correct, fixed
+      size) for PRD 007's offline sync.
 - [ ] Task: BFF — `PUT /api/me/photo` (validate type/size, re-encode, strip EXIF)
       and `GET /api/me/photo` (authenticated). OpenAPI annotations.
 - [ ] Task: Frontend — `PhotoCapture.vue` (getUserMedia preview, shutter,
@@ -358,26 +426,41 @@ Proposed tasks to create in `roadmap/tasks/open/`:
 
 - **Consent & retention for portraits** — participants are frequently minors.
   What is the legal basis, is parental consent needed (and captured where?), how
-  long are photos kept, and who besides the user may see them? This must be
-  answered before the photo track is implemented.
-- **Photo purpose** — the request says "cover photo … to add to your profile".
-  Is it purely decorative/for the user, or is it intended for personnel to
-  identify people? The answer changes both the consent story and who can read it.
-- **Camera roll** — allow choosing an existing picture, or camera capture only
-  (to guarantee it is a current self-portrait)?
-- **Cropping** — is a fixed square/circle crop with a "fit the frame" guide
-  enough, or do we need a pinch-to-zoom crop step?
+  long are photos kept, and who besides the user may see them? **Escalated
+  2026-08-25:** PRD 005 makes the portrait operational (night-time identification)
+  and captures it during onboarding, and PRD 007 defines the audience — so this is
+  now blocking for three PRDs. "Who may see them" is answered by PRD 007's access
+  matrix; what is missing is the legal basis for that audience.
+- **Photo purpose** — **answered 2026-08-25:** identification of members during
+  the race, much of which happens at night when faces are hard to see. Not
+  decorative. This is why the consent question above is blocking, and why capture
+  moved into onboarding (PRD 005).
+- **Camera roll** — allow choosing an existing picture, or camera capture only?
+  Now that the purpose is identification (see above), a current camera capture is
+  clearly preferable to an arbitrary library photo; the `<input capture="user">`
+  fallback should stay a fallback.
+- **Cropping / framing** — *decided 2026-08-25*: a fixed circular crop with a
+  **face guide** overlay (the guide PRD 005's onboarding step assumes). Pinch-to-zoom
+  cropping stays out of scope unless testing shows the guide is not enough.
 - **Removal** — may a user delete their photo (`DELETE /api/me/photo`), or only
   replace it?
-- **Blob storage** — DB blob, mounted volume, or object storage? (Affects
-  `docker-compose.yml` and backup.)
+- **Blob storage** — object store vs mounted volume, content-addressed. *Owned by
+  PRD 008 §11 Q4*, tracked here only because it affects this page's upload path.
 - **Details source** — which Nathejk record fields map to `Adresse` and
-  `Forælders telefon`, and what happens when a participant has two guardians
-  registered?
-- **Editability** — confirmed non-editable for now; is there an intended
-  correction channel we should link to (a phone number, an email, the leader)?
-- **Nav placement** — profile as a nav destination (overflow sheet) vs an avatar
-  in the top bar? (Interacts with PRD 002's full-bleed map.)
+  `Forælders telefon`? Members currently have **one** contact on file (confirmed
+  2026-08-25, see PRD 005 §11), so the two-guardian case is not a concern today —
+  but the field naming should not assume it stays that way.
+- **Editability** — confirmed non-editable for now, though a few fields are
+  likely to open up later; is there an intended correction channel we should link
+  to (a phone number, an email, the leader)? **PRD 005 needs this answer too** —
+  its confirmation step must tell a user what to do when a number is wrong. If
+  editing does open up, a number change should invalidate PRD 005's confirmation.
+- **Nav placement** — *decided*: a nav destination landing in the overflow sheet
+  (§7 option 1), with sign-out moved onto the page. Kept here only as a note that
+  **no single PRD owns the per-role destination order**, which now matters: this page
+  plus PRD 007's identification view push service roles past the 5 visible slots.
+  PRD 001 §11 already lists per-role destination sets as open; this page is the
+  natural place to settle it.
 - **Other preferences** — the request anticipates more preferences once the app is
   fully scoped. Candidates to confirm: notification categories (event updates vs
   urgent only), quiet hours, language, text size, "share my position with my

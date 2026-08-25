@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed / Claude Opus 5)
 **Created:** 2026-08-24
-**Last updated:** 2026-08-24
+**Last updated:** 2026-08-25
 **Approved:** 2026-08-24
 **Shipped:**
 **Target users:** spejder (patrol members) primarily; bandit, postmandskab, guide, samarit secondarily
@@ -61,10 +61,16 @@ available both as map markers and as a chronological list.
 - **Live tracking of other patrols/personnel** on the map (no fan-out of other
   users' positions). Own position only.
 - **Continuous position reporting to the BFF** (breadcrumb trail / server-side
-  tracking). Out of scope; see PRD 003 for the location-sharing *preference*
-  surface and Open Questions here for the eventual tracking PRD.
-- **Offline map tiles / pre-caching of map areas.** Tiles come from the network;
-  the service worker must not attempt to precache them.
+  tracking). Out of scope **for this PRD's shipping scope**; see PRD 003 for the
+  location-sharing *preference* surface. **Note (2026-08-25):** §11.1 makes this PRD
+  the owner of the *design decision* for how a position track would be transported
+  (telemetry stream vs direct write) even though building it stays out of scope.
+  Deciding is in scope; implementing is not.
+- **Building offline tile caching.** Tiles are registered as a **PRD 009 dataset**
+  (cache-first, budgeted, priority-ordered) rather than cached ad hoc here; this PRD
+  must not add its own precache, runtime cache or storage policy for tile hosts.
+  *(Revised 2026-08-25 — previously this read "the service worker must not attempt
+  to precache them", which contradicted PRD 009. See §11.2.)*
 - **Routing, navigation instructions, distance-to-next-post calculations.**
 - **Drawing the course, post locations we have not yet visited, or zone
   boundaries.** Only *our own* registrations are plotted.
@@ -93,9 +99,11 @@ available both as map markers and as a chronological list.
 3. If location permission is already granted, a position marker with an accuracy
    circle appears and the map recentres on it; the map then follows the user
    until they pan manually.
-4. If permission is not yet granted, the existing soft `PermissionPrompt`
-   overlays the map ("Vis din placering"); accepting triggers the native prompt
-   via `location.store.request()`.
+4. If permission was **denied** earlier (or the user skipped it during
+   onboarding), a repair affordance overlays the map ("Vis din placering");
+   accepting triggers `location.store.request()`. The *first* request happens in
+   onboarding (PRD 005), not here — revised 2026-08-25, since PRD 005 owns
+   settling permissions up front rather than at 02:00 in a forest.
 5. The user taps the layer control and switches to `Luftfoto`; the position
    marker, scan markers and zoom level are preserved.
 6. Scan markers (checkpoint = one icon, bandit catch = another) are plotted;
@@ -159,8 +167,10 @@ available both as map markers and as a chronological list.
       continuously while the page is visible and permission is granted.
 - [ ] A locate/recentre button recentres and re-enables follow mode; manual
       panning disables follow mode.
-- [ ] The existing soft location pre-prompt behaviour from PRD 001 is preserved
-      (shown only when permission could still be gained and not dismissed).
+- [ ] A location **repair** affordance is available on the map when permission is
+      denied or unavailable, using the shared `PermissionPrompt` (PRD 005 owns that
+      component's API; this is a consumer). The initial permission *request* is
+      onboarding's, not the map's.
 - [ ] Patrol registrations are fetched from the BFF and consist of two kinds:
       **checkpoint scan** and **bandit catch**, each with a kind, a label
       (post/bandit name), a timestamp and optional coordinates.
@@ -180,7 +190,7 @@ available both as map markers and as a chronological list.
 
 - **Performance:** first meaningful map paint under 2s on a 4G connection; the
   map library must be lazily loaded so it does not weigh down the app shell
-  bundle. Tile requests must not be precached by the service worker.
+  bundle. This PRD adds no tile caching of its own; caching is PRD 009's (§11.2).
 - **Battery:** use a single `watchPosition` subscription owned by the store,
   suspended when the document is hidden.
 - **Accessibility:** controls are ≥44px touch targets with `aria-label`s; the
@@ -188,7 +198,9 @@ available both as map markers and as a chronological list.
   acknowledged as not fully accessible, so the list is the accessible equivalent.
 - **Night use:** avoid pure-white control chrome; markers must be legible on both
   topo and aerial backgrounds.
-- **Privacy:** the user's position is never sent to the BFF by this feature.
+- **Privacy:** the user's position is not transmitted by the features this PRD
+  ships — it is read locally to draw the marker. If §11.1 settles on a telemetry
+  stream, transmission arrives with that later work, not here.
 - **Security:** the Dataforsyningen API token must not be committed to the
   frontend source (see Technical Considerations).
 - **Data economy:** aerial tiles are heavy; do not preload layers the user has
@@ -257,41 +269,46 @@ Proposal: add an optional `meta: { fullBleed: true }` on the route and have
     subscription, ref-counted or page-owned) plus `visibilitychange` handling.
     The existing `request()` / `syncPermission()` / permission states are reused
     unchanged.
-  - Base-layer definitions, lifted from the sibling repo and to be
-    parameterised (see token handling below):
+  - Base-layer definitions. **Use the layer names from the §6 table and the
+    Danish orthophoto** — the snippet below was corrected on 2026-08-25; it
+    previously showed `layers: 'DTK25'` and an Esri World Imagery aerial layer,
+    both superseded by §11's resolutions. Do not infer layer names by analogy:
+    `dtk_50_DAF` rejects `DTK50`.
 
     ```ts
     'Topografisk 1:25.000': L.tileLayer.wms('https://api.dataforsyningen.dk/dtk_25_DAF', {
-      layers: 'DTK25',
+      layers: 'dtk25',
       format: 'image/png',
       transparent: true,
       attribution: '&copy; Styrelsen for Dataforsyning og Effektivisering',
-      token: '<token>',
+      token,            // from GET /api/config, see below
       maxZoom: 19,
     } as L.WMSOptions)
 
-    Luftfoto: L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      { attribution: '&copy; Esri — Esri, DigitalGlobe, Earthstar Geographics', maxZoom: 19 },
-    )
+    Luftfoto: L.tileLayer.wms('https://api.dataforsyningen.dk/orto_foraar_DAF', {
+      layers: 'orto_foraar',
+      format: 'image/png',
+      attribution: '&copy; Styrelsen for Dataforsyning og Effektivisering',
+      token,
+      maxZoom: 19,
+    } as L.WMSOptions)
     ```
 
-    The 1:50.000 layer follows the same WMS pattern against the corresponding
-    Dataforsyningen service; the exact service path and layer name must be
-    verified before implementation (Open Questions).
-- **Dataforsyningen token:** the sibling repo hard-codes the token in frontend
-  source. That is a leak we should not repeat verbatim. Options, in order of
-  preference:
-  1. BFF tile proxy — `GET /api/map/tiles/{layer}` forwards to Dataforsyningen
-     with a server-held token (best privacy/secret hygiene, adds latency and
-     load on the BFF).
-  2. BFF hands the token to authenticated clients at runtime
-     (`GET /api/map/config`), keeping it out of the git tree but not out of the
-     browser.
-  3. Build-time injection via a Vite `define`/env var (no secret in git, still
-     public in the bundle).
-  Since the token is a public-ish quota key for an open public service, option 2
-  or 3 is likely proportionate; a decision is needed (Open Questions).
+    The 1:50.000 layer follows the same WMS pattern against `dtk_50_DAF`, layer
+    `dtk_50` (resolved in §11).
+- **Dataforsyningen token — decided and shipped.** The token is delivered **at
+  runtime** by the BFF: env var `DATAFORSYNINGEN_TOKEN` on the `api` service,
+  served to the SPA through the **existing `GET /api/config`** endpoint. No BFF tile
+  proxy, no new `/api/map/config`, no build-time `VITE_` var.
+
+  *(Corrected 2026-08-25. §11 previously recorded a build-time env var
+  (`VITE_DATAFORSYNINGEN_TOKEN`) as the decision, and §8 listed three open options.
+  Both were contradicted by the code that actually shipped — see `go/cmd/api/env.go`,
+  `config.go`, `routes.go` and the comments in both compose files. The rationale for
+  what shipped: one published image runs in any environment, which a build-time var
+  cannot do.)* The token is a public quota key, not a credential, but it stays out
+  of git: `docker-compose.override.yml` in dev, deploy environment in prod. The map
+  degrades with a clear notice when it is missing.
 - **BFF (Go):** per `go-bff-layout` — a new handler file `go/cmd/api/scans.go`
   behind `app.requireAuth`, reading the patrol identity from the session, and a
   `Scans` facade on `internal/data` with an interface + **mock** implementation
@@ -299,19 +316,23 @@ Proposal: add an optional `meta: { fullBleed: true }` on the route and have
   `internal/users` was introduced in PRD 001. The real source (Nathejk records /
   jetstream projection of scan events) replaces the mock without touching the
   handler.
-  - Note: `session.Session` currently carries `UserID` + `Role` only. Resolving
-    a patrol needs either an extension of the user directory (`users.User` gains
-    a patrol id) or a lookup by user id. Prefer extending the directory, since
-    the same information is needed by PRD 003.
+  - Note: `session.Session` carries `UserID` + `Role`. **Landed 2026-08-25:**
+    `users.User` now carries `PatrolID` + `PatrolName`, so patrol resolution goes
+    through the directory as intended. PRD 006 replaces the seeded values with a
+    real projection.
 - **API endpoints (OpenAPI annotations mandatory, matching the style in
   `go/cmd/api/auth.go`):**
   - `GET /api/patrol/scans` — the signed-in user's patrol registrations
     (checkpoint scans + bandit catches), newest first. `200` with a list,
-    `401` unauthenticated, `404`/empty list when the user has no patrol
-    (decide which — see Open Questions).
-  - `GET /api/map/config` — *only if* token option 2 is chosen: base-layer
-    endpoints/token + default centre/zoom.
-- **Data / storage:** no new persistence owned by this feature. Registration
+    `401` unauthenticated, and `200` with an empty list when the user has no
+    patrol (**decided by implementation, 2026-08-25** — not `404`; personnel with
+    no patrol are legitimate users, per the `users.User` contract).
+  - `GET /api/config` — **already shipped**, and the delivery mechanism for the
+    Dataforsyningen token plus any other runtime frontend config. This PRD documents
+    it rather than introducing it; no `/api/map/config` is added.
+- **Data / storage:** no *domain* persistence owned by this feature. If §11.1
+  settles on a telemetry stream, the position track lands later as a projection of
+  that stream (PRD 008 §8), not as a direct write. Registration
   shape (BFF response, snake_case per existing handlers):
   `{ id, kind: "checkpoint" | "bandit", label, lat, lng, scanned_at }` with
   `lat`/`lng` nullable. Client-side, only the selected base layer is persisted
@@ -319,15 +340,19 @@ Proposal: add an optional `meta: { fullBleed: true }` on the route and have
 - **Dependencies & risks:**
   - New frontend dependency: `leaflet` (+ types, + CSS import). Bundle size
     mitigated by lazy loading.
-  - External services: `api.dataforsyningen.dk` (WMS, token, quota, uptime) and
-    the aerial tile provider. Both are third parties with terms of use and
-    attribution requirements; the aerial source (ArcGIS World Imagery) should be
-    confirmed as acceptable for this use, otherwise use the Danish orthophoto
-    service from Dataforsyningen.
+  - External services: `api.dataforsyningen.dk` — WMS, token, quota, uptime. A
+    third party with terms of use and attribution requirements. **Resolved:** the
+    aerial layer is the Danish orthophoto (`orto_foraar_DAF`) from the same
+    provider, not Esri World Imagery, so there is one host, one token and one
+    failure mode (§11).
   - WMS at night in rural areas with weak coverage: tiles may fail; the UI must
     degrade rather than break.
-  - Service-worker/Workbox config must exclude tile hosts from precaching and
-    from any runtime cache that could blow the storage quota.
+  - **Blocked by drafts for two sub-scopes only:** PRD 008 for the position
+    telemetry mechanism (§11.1) and PRD 009 for tile caching (§11.2). The map,
+    layers and scan history are unblocked and ship first — do not hold them.
+  - Tile fetching policy stays here (do not preload unselected layers); the
+    **storage budget and cache policy are PRD 009's**, so this PRD adds no Workbox
+    configuration of its own.
   - The scan data source is the real dependency risk: until the Nathejk scan
     projection is available, this ships against a mock and its usefulness during
     a real event is unproven.
@@ -362,39 +387,73 @@ endpoint (mock) → markers + list → polish/degradation states.
 
 Proposed tasks to create in `roadmap/tasks/open/`:
 
-- [ ] Task: Support `fullBleed` route meta in `App.vue` (hide top bar, no scroll
+**Already landed (ticked 2026-08-25 during a consistency pass — the code shipped
+ahead of the PRD's task list):**
+
+- [x] Task: Support `fullBleed` route meta in `App.vue` (hide top bar, no scroll
       wrapper) and apply it to `/maps`.
+- [x] Task: Extend `location.store.ts` with `watchPosition`, `following` state
+      and visibility-based suspend/resume.
+- [x] Task: BFF — `internal/data` `Scans` facade + interface + seeded mock
+      (checkpoint scans and bandit catches).
+- [x] Task: BFF — `GET /api/patrol/scans` handler behind `requireAuth`, resolving
+      the patrol from the session. OpenAPI annotations.
+- [x] Task: Extend the user directory/session to carry a patrol identity
+      (`users.User.PatrolID`/`PatrolName`; PRD 006 replaces the seed).
+- [x] Task: Frontend `scans.store.ts` (markers/UI still open below).
+
+**Open:**
+
 - [ ] Task: Add `leaflet` (+ `@types/leaflet`) via the `ui` container and create
       a lazily loaded `EventMap.vue` with a configurable base layer set in
       `src/config/map.ts`.
-- [ ] Task: Implement the three base layers (DTK 1:25.000, DTK 1:50.000,
-      Luftfoto) incl. attribution, max zoom and token handling per the decided
-      option.
+- [ ] Task: Implement the three base layers (DTK 1:25.000 `dtk25`, DTK 1:50.000
+      `dtk_50`, Luftfoto `orto_foraar`) incl. attribution, max zoom, and the token
+      from `GET /api/config`.
 - [ ] Task: Build `LayerSwitcher.vue` (touch-friendly, persists the choice in
       `localStorage`).
-- [ ] Task: Extend `location.store.ts` with `watchPosition`, `following` state
-      and visibility-based suspend/resume.
 - [ ] Task: Render own position marker + accuracy circle and `LocateButton.vue`
-      (follow / recentre / denied states); keep the soft permission pre-prompt as
-      an overlay.
-- [ ] Task: BFF — `internal/data` `Scans` facade + interface + seeded mock
-      (checkpoint scans and bandit catches).
-- [ ] Task: BFF — `GET /api/patrol/scans` handler behind `requireAuth`, resolving
-      the patrol from the session. OpenAPI annotations.
-- [ ] Task: Extend the user directory/session to carry a patrol identity (shared
-      with PRD 003).
-- [ ] Task: Frontend `scans.store.ts` + scan markers with kind-specific Lucide
-      icons and popups.
+      (follow / recentre / denied states). Keep only the **denied/repair**
+      affordance here — the first location *request* belongs to onboarding
+      (PRD 005), not to the map.
+- [ ] Task: Scan markers with kind-specific Lucide icons and popups.
 - [ ] Task: Build `ScanList.vue` bottom sheet (chronological list, empty state,
       row → pan/zoom + open popup).
 - [ ] Task: Degradation + polish — tile-failure notice, position timeout message,
       night-legible control styling, ≥44px targets, `aria-label`s.
-- [ ] Task: Ensure the service worker/Workbox config excludes map tile hosts from
-      caching.
+- [ ] Task: Register map tiles as a PRD 009 dataset + supply tile-set sizing
+      numbers to its storage budget (replaces the former "exclude tiles from
+      caching" task).
 
 ## 11. Open Questions
 
-**Resolved before approval (2026-08-24), by querying the live services:**
+### Reopened 2026-08-25 by architecture decisions taken in PRDs 008/009
+
+Two rules were established after this PRD was approved, and both land directly on
+it. Neither invalidates the agreement — the map, layers and scan history are
+unaffected — but the **position-reporting** and **tile-caching** designs need
+revisiting here before they are built.
+
+1. **Where does the position track go?** Architecture rule: *nothing writes
+   directly to the database; every state change is published as an event.* But, as
+   observed, **a new coordinate does not represent an event** — it is telemetry,
+   meaningful only in aggregate. The two statements collide, and this PRD owns the
+   resolution. PRD 008 §8 sets out the options and recommends a **separate
+   telemetry stream** with short, age-capped retention and its own subjects: the
+   no-direct-writes rule survives, domain replay stays clean, and retention comes
+   for free — which matters for a position track of identifiable minors. The
+   alternatives are a documented direct-write carve-out, or coordinates as domain
+   events (not recommended).
+2. **Do map tiles move onto the shared offline layer?** PRD 009 introduces one
+   sync engine, one storage budget and one readiness surface for everything
+   cacheable. Tiles are probably the **largest** cached dataset, so leaving them
+   outside that budget largely defeats it — portraits (PRD 007) and tiles otherwise
+   compete for the same per-origin quota with no agreed priority, and the OS decides
+   what to evict. Retrofitting is real work; doing it later is more.
+
+Both are flagged rather than resolved, because they are this PRD's calls to make.
+
+### Resolved before approval (2026-08-24), by querying the live services:
 
 - **DTK 1:50.000 service** — `https://api.dataforsyningen.dk/dtk_50_DAF`, layer
   **`dtk_50`**, same token as DTK25. Confirmed via GetCapabilities + a GetMap that
@@ -410,14 +469,15 @@ Proposed tasks to create in `roadmap/tasks/open/`:
   working with the same token. It is 12.5 cm Danish imagery vs Esri's mixed global
   basemap, it comes from the same provider under terms we already accept, and it
   keeps every layer on one host (one token, one attribution, one failure mode).
-- **Token handling** — **build-time env var** (`VITE_DATAFORSYNINGEN_TOKEN`), no
-  BFF proxy and no `/api/map/config`. Rationale: the token is a public quota key
-  for an open public service, not a credential; a proxy would add latency and put
-  tile traffic through the BFF for no security gain; and the runtime-config option
-  buys nothing over build-time since the value ends up in the browser either way.
-  What matters is that it is **not committed** — it goes in the (gitignored)
-  `docker-compose.override.yml` for dev and the deploy environment for prod. The
-  map degrades with a clear notice when the token is missing.
+- **Token handling** — ~~build-time env var (`VITE_DATAFORSYNINGEN_TOKEN`), no BFF
+  proxy and no `/api/map/config`~~. **Superseded 2026-08-25:** this recorded
+  decision was contradicted by the code that shipped. The token is delivered **at
+  runtime** via the existing `GET /api/config`, from `DATAFORSYNINGEN_TOKEN` on the
+  `api` service (see §8). The reasoning that changed the answer: a runtime value
+  lets one published image run in any environment, which a build-time var cannot.
+  Unchanged: no BFF tile proxy, no `/api/map/config`, and the token is never
+  committed — `docker-compose.override.yml` in dev, deploy environment in prod. The
+  map degrades with a clear notice when it is missing.
 
 **Still open:**
 
@@ -429,12 +489,12 @@ Proposed tasks to create in `roadmap/tasks/open/`:
   `topo_skaermkort_DAF` (layer `topo_skaermkort`, verified working with the same
   token) is Dataforsyningen's on-screen map and renders correctly there. Add it as a
   fourth layer, auto-swap to it below ~zoom 11, or accept the speckle?
-- **Patrol identity** — how is a signed-in user's patrol resolved once the real
-  Nathejk directory lands? `internal/users` is mocked and now carries a seeded
-  patrol id.
+- **Patrol identity** — *resolved by PRD 006*: `users.User` carries `PatrolID` /
+  `PatrolName`, seeded today, replaced by the real person projection there.
 - **Scan data source** — is there an existing event stream/projection of checkpoint
   scans and bandit catches, and does it carry coordinates, or only post ids we must
-  join to post positions? Mocked for now.
+  join to post positions? Mocked for now. Note PRD 008: the real source arrives as a
+  projection, not a direct read of another service.
 - **Bandit catches for the bandit role** — should a signed-in `bandit` see their
   *own* catches (the patrols they caught), or is the registrations view
   spejder-only?
@@ -442,5 +502,5 @@ Proposed tasks to create in `roadmap/tasks/open/`:
   plotted (e.g. their own post), or just the base map?
 - **Own position marker semantics** — heading/compass rotation, or is a plain dot
   enough for a first version?
-- **Empty-patrol response** — `200` with an empty list or `404`? (Implementation
-  chose `200` + empty list; confirm.)
+- **Empty-patrol response** — *resolved*: `200` with an empty list (not `404`).
+  Personnel legitimately have no patrol, per the `users.User` contract.

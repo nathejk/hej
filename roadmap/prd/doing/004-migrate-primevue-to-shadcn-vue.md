@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed / Claude Opus 5)
 **Created:** 2026-08-24
-**Last updated:** 2026-08-24 (implementation notes + resolved questions)
+**Last updated:** 2026-08-25 (Lucide package name corrected)
 **Approved:** 2026-08-24
 **Shipped:**
 **Target users:** none directly — developer-facing foundation change; all app roles benefit indirectly
@@ -220,7 +220,7 @@ skill.
       `class-variance-authority`, `clsx`, `tailwind-merge`, `tw-animate-css`
       (the v4 successor to `tailwindcss-animate`), a `cn()` utility, and the
       CSS-variable design tokens.
-- [ ] Lucide (`lucide-vue-next`, already a dependency) is the configured icon
+- [ ] Lucide (`@lucide/vue`) is the configured icon
       library for generated components — consistent with `.rules`.
 - [ ] The initial component set is generated into `vue/src/components/ui/`,
       scoped to what is needed now and by the in-flight PRDs: at minimum

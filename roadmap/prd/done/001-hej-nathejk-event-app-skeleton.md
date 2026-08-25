@@ -3,10 +3,28 @@
 **Status:** done
 **Author:** agent session
 **Created:** 2026-07-30
-**Last updated:** 2026-08-10
+**Last updated:** 2026-08-25 (superseded-in-part note only)
 **Approved:** 2026-07-30
 **Shipped:** 2026-07-30
 **Target users:** every event user must sign in. App roles: **spejder** and **bandit** (the two main roles), plus **postmandskab**, **guide**, and **samarit**. Each role sees its own navigation set.
+
+<!--
+SUPERSEDED IN PART (noted 2026-08-25). This PRD is shipped history and its body is
+left as written. Three things it describes have since been replaced:
+
+- **Component library / styling.** PrimeVue + the Lara preset and Tailwind v3 were
+  replaced by shadcn-vue + Tailwind v4 (PRD 004). The `vue3-spa-layout` skill it
+  references is now `vue3-spa-layout-legacy` and does NOT apply to this repo; use
+  `vue3-pwa-layout`. Icons come from `@lucide/vue`, not `lucide-vue-next`.
+- **Stores.** `permissions.store` was never built; the shipped equivalents are
+  `location.store` and `notifications.store`. PWA install state lands in
+  `install.store` (PRD 005), not `app.store`.
+- **The mock user directory** is replaced by a real projection in PRD 006, and the
+  "no persistence" posture by PRD 008.
+
+Offline scope is NOT superseded: this PRD deliberately cached only the app shell
+and deferred data caching, which is exactly the boundary PRD 009 assumes.
+-->
 
 ---
 

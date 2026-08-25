@@ -46,8 +46,6 @@ must **not** be applied here.
   PrimeIcons.
 - **Styling:** Tailwind **v4**, configured CSS-first in `vue/src/assets/main.css`
   (`@import "tailwindcss"`, `@theme`). Do not reintroduce `tailwind.config.js`.
-  *(Target state per PRD 004; the tree is still on 3.4 until that PRD ships — do
-  not build new work against the v3 config.)*
 - **Typography:** all **major headlines use the Nathejk font** — the
   `font-nathejk` utility, backed by `--font-nathejk` (Impact + narrow-bold
   fallbacks) in `vue/src/assets/main.css`. That covers page `<h1>`s, title-level
