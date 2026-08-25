@@ -262,6 +262,45 @@ func (ev *eventing) deadletterCount() (int, error) {
 	return ev.writer.Count()
 }
 
+// watchDeadletters logs a warning whenever captured statements are present.
+//
+// Three things already exist: the deadletter package logs each capture as it
+// happens, the count is in the healthcheck (task 059), and the rows are in the
+// table. This adds the one thing missing — a *recurring* signal. A capture that
+// happened during a replay at 02:00 scrolls out of view, and nobody polls a
+// healthcheck they have no reason to suspect. Repeating it means an operator who
+// looks at the log at any later point still learns that a projection is incomplete.
+//
+// Deliberately quiet when the count is zero, which is the normal case: a periodic
+// "everything is fine" line trains people to ignore the channel.
+func (ev *eventing) watchDeadletters(ctx context.Context, logger *slog.Logger, every time.Duration) {
+	if ev == nil || ev.writer == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(every)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				n, err := ev.deadletterCount()
+				if err != nil {
+					logger.Error("reading dead-letter count", "err", err)
+					continue
+				}
+				if n > 0 {
+					logger.Warn("dead-lettered statements present: a projection is incomplete",
+						"count", n,
+						"table", "deadletter",
+					)
+				}
+			}
+		}
+	}()
+}
+
 // publisherFor returns the holder to hand to the write facade. It is never nil, so
 // handlers work identically whether or not a broker has been reached yet — they see
 // ErrNoPublisher until one arrives.
@@ -284,4 +323,15 @@ func (ev *eventing) close() error {
 		return nil
 	}
 	return s.Close()
+}
+
+// connected reports whether a broker connection is currently established.
+// Informational only — the healthcheck must never fail readiness on it (task 059).
+func (ev *eventing) connected() bool {
+	if ev == nil {
+		return false
+	}
+	ev.mu.Lock()
+	defer ev.mu.Unlock()
+	return ev.publisher != nil
 }

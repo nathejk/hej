@@ -133,6 +133,20 @@ func run(logger *slog.Logger) error {
 			// Only arm the dead-letter writer once projections are running, so
 			// schema creation still fails loudly rather than being captured.
 			ev.arm()
+
+			// Report the count once, now: any rows still here after Reset() are
+			// from this run's replay, so this is the first honest reading.
+			if n, cerr := ev.deadletterCount(); cerr != nil {
+				logger.Error("reading dead-letter count", "err", cerr)
+			} else if n > 0 {
+				logger.Warn("replay produced dead-lettered statements", "count", n)
+			} else {
+				logger.Info("projections running, dead-letter queue empty")
+			}
+
+			// Keep reporting a non-zero count: a capture logged during a replay at
+			// 02:00 scrolls out of view otherwise.
+			ev.watchDeadletters(ctx, logger, 5*time.Minute)
 		})
 	}
 
