@@ -57,6 +57,13 @@ type config struct {
 	// app rather than taking it down (PRD 008 §5). Env var name matches the sibling
 	// repos so operators do not have to learn a second one.
 	jetstreamDSN string
+
+	// blobPath is the directory for content-addressed binary objects — portrait
+	// bytes today (PRDs 003/007). Empty keeps them in memory, which is fine for
+	// tests and for running the API before portraits exist, but means they do not
+	// survive a restart. The production choice between a mounted volume and object
+	// storage is still open (PRD 008 §11 Q4); this is the volume half.
+	blobPath string
 }
 
 func loadConfig() config {
@@ -75,6 +82,7 @@ func loadConfig() config {
 	flag.DurationVar(&cfg.dbConnMaxLifetime, "db-conn-max-lifetime", envDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute), "Maximum lifetime of a pooled database connection")
 	flag.DurationVar(&cfg.dbConnectTimeout, "db-connect-timeout", envDuration("DB_CONNECT_TIMEOUT", 10*time.Second), "How long to keep retrying the initial database ping")
 	flag.StringVar(&cfg.jetstreamDSN, "jetstream-dsn", envStr("JETSTREAM_DSN", ""), "NATS JetStream DSN (empty runs without a broker)")
+	flag.StringVar(&cfg.blobPath, "blob-path", envStr("BLOB_PATH", ""), "Directory for binary objects such as portraits (empty keeps them in memory)")
 	flag.Parse()
 	return cfg
 }

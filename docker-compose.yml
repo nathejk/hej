@@ -91,6 +91,7 @@ services:
       # Empty or unreachable is non-fatal: reads come from SQL projections, so the
       # API serves in a degraded state rather than not at all (PRD 008 §5).
       JETSTREAM_DSN: "nats://jetstream:4222"
+      BLOB_PATH: "/blobs"
       # GO_BUILD_FLAGS: "-race"   # uncomment for the race detector
     volumes:
       - ./go:/app
@@ -101,6 +102,11 @@ services:
       # without a commit/push/version-bump cycle. Prod builds with GOWORK=off and
       # uses the version pinned in go.mod instead.
       - ../shared-go:/shared-go
+      # Content-addressed binary objects (portrait bytes, PRDs 003/007). A named
+      # volume, not a bind mount: this is the one store that cannot be rebuilt by
+      # replaying the event log, so it should not be casually wiped along with a
+      # working tree.
+      - blobs:/blobs
     networks:
       - local
       - jetstream
@@ -153,4 +159,5 @@ networks:
 volumes:
   api:
   db:
+  blobs:
   ui-node_modules:

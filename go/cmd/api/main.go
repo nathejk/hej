@@ -9,6 +9,7 @@ import (
 	"time"
 
 	bff "nathejk.dk/cmd/api/app"
+	"nathejk.dk/internal/blob"
 	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/data"
 	"nathejk.dk/internal/pin"
@@ -49,6 +50,10 @@ type application struct {
 	// when there is no database. Held for the healthcheck and dead-letter
 	// reporting; handlers still go through models and commands.
 	eventing *eventing
+
+	// blobs stores binary objects that cannot be rebuilt from the event log —
+	// portrait bytes (PRDs 003/007). Never nil: it falls back to memory.
+	blobs blob.Store
 }
 
 // @title        Hej Nathejk API
@@ -150,6 +155,21 @@ func run(logger *slog.Logger) error {
 		})
 	}
 
+	// Binary objects. This is the one store whose contents cannot be rebuilt by
+	// replaying the log, so an in-memory fallback is a real limitation rather than
+	// a convenience — log it plainly instead of letting it look configured.
+	blobs := blob.Store(blob.NewMemoryStore())
+	if cfg.blobPath == "" {
+		logger.Warn("no BLOB_PATH configured: binary objects are in memory and will not survive a restart")
+	} else if fs, berr := blob.NewFileStore(cfg.blobPath); berr != nil {
+		// Not fatal: nothing writes blobs yet (PRD 003 is what starts), so refusing
+		// to boot would trade a working API for a feature that does not exist.
+		logger.Error("blob store unavailable, falling back to memory", "path", cfg.blobPath, "err", berr)
+	} else {
+		blobs = fs
+		logger.Info("blob store ready", "path", cfg.blobPath)
+	}
+
 	app := &application{
 		JsonApi:  bff.JsonApi{Logger: logger},
 		config:   cfg,
@@ -157,6 +177,7 @@ func run(logger *slog.Logger) error {
 		commands: commands.New(publisherFor(ev)),
 		db:       db,
 		eventing: ev,
+		blobs:    blobs,
 
 		pins: pin.NewStore(),
 		sms:  sms.LogSender{Logger: logger},
