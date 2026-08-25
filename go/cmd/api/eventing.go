@@ -177,6 +177,17 @@ func (ev *eventing) deadletterCount() (int, error) {
 	return ev.writer.Count()
 }
 
+// publisherFor returns the publisher to hand to the write facade, or nil when
+// there is no broker. It exists so main does not have to nil-check ev inline: a
+// typed nil inside the interface would make commands.Available() report true and
+// then panic on use, which is exactly the bug this avoids.
+func publisherFor(ev *eventing) cqrs.Publisher {
+	if ev == nil || ev.publisher == nil {
+		return nil
+	}
+	return ev.publisher
+}
+
 // close releases the broker connection. The database pool is owned by run().
 func (ev *eventing) close() error {
 	if ev == nil || ev.stream == nil {

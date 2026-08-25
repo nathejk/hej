@@ -135,7 +135,7 @@ func run(logger *slog.Logger) error {
 		JsonApi:  bff.JsonApi{Logger: logger},
 		config:   cfg,
 		models:   data.NewModels(users.NewMockDirectory(), scans.NewMockSource()),
-		commands: commands.New(),
+		commands: commands.New(publisherFor(ev)),
 		db:       db,
 		eventing: ev,
 
