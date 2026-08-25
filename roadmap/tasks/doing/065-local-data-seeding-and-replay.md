@@ -69,16 +69,20 @@ do not document a procedure that copies production personal data onto laptops.
 - 2026-08-25 (later) — Unchanged: the privacy constraint. Replaying the real stream onto
   a developer machine stays out of the question, so the seeder publishes **synthetic**
   events with obviously-fake names.
-- 2026-08-25 (later) — **This constraint is already being violated, and not by choice.**
-  The dev stack's `JETSTREAM_DSN` points at the *shared* broker, which holds real
-  historical events. Simply bringing the stack up therefore replays real data into the
-  local database: task 072's verification projected **1727 real people**, including
-  minors' names, addresses and guardian phone numbers, with no deliberate action.
-- 2026-08-25 (later) — So this task's scope has grown, and the seeding tool is now the
-  smaller half. The real question is **how a developer runs the stack without
-  production personal data**, e.g. a local broker for dev with the shared one opt-in, a
-  dev-only stream/subject prefix, or a year filter. Worth deciding with the maintainer
-  before building a seeder that only matters once the real data is *not* there.
-- 2026-08-25 (later) — Flagging rather than acting: switching the dev broker would
-  change how every developer's stack behaves and how the sibling repos interoperate,
-  which is not a call to make unilaterally mid-task.
+- 2026-08-25 (later) — **Correction from the maintainer: the stream data is constructed
+  to look real, not copied from production.** So the alarm I raised above was wrong and
+  is withdrawn — no production personal data reaches a developer machine, and nothing
+  needs changing about how the dev stack connects to the shared broker.
+- 2026-08-25 (later) — Worth keeping the episode on the record, because it makes a point
+  this task already predicted. My own earlier note said "realistic-looking fake personal
+  data has a habit of being mistaken for real and treated casually". I then did exactly
+  the inverse: saw plausible Danish names, addresses and guardian numbers, and reported
+  a privacy incident. Convincing fixtures cost something in either direction, and the
+  cheap mitigation is to make the fakeness legible — an obviously-synthetic marker
+  somewhere in the record, so neither a human nor an agent has to guess.
+- 2026-08-25 (later) — Net effect on this task: **scope shrinks back** to what it
+  originally was. There is already usable, realistic data in the shared stream, so a
+  seeder is no longer needed to make the projection testable — which was its main
+  justification. What remains genuinely useful is a way to seed **specific** cases on
+  demand: a shared phone number, an unmapped section slug, a member with no birthday.
+  Those are the paths that need to exist deliberately rather than by luck.

@@ -140,8 +140,9 @@ W4. User accepts; Chrome installs. The wall switches to "Åbn appen" / "Du kan n
 2. **Profile confirmation** (first login only, **spejder only**): the registered
    details are shown, with the **parent/guardian emergency contact number** masked
    to its last two digits (`11 22 33 **`). They type the two missing digits and
-   tick *"Dette nummer kan kontaktes i løbet af Nathejk"*. Skipped entirely for
-   users who have already started the event (see §11).
+   tick *"Dette nummer kan kontaktes i løbet af Nathejk"*. Skipped for users who
+   have already started the event (§11) — note that skipping **this** step does not
+   skip step 3.
 3. **Portrait**: explanation, then the camera. The photo is for identifying people
    during the race — much of which happens at night, when faces are hard to see.
    Captured via `getUserMedia` using PRD 003's capture component, confirmed by the
@@ -189,8 +190,12 @@ the app on the home screen onwards is the same.
   02:00 is worse than an unsubscribed push. This is **separate from** the
   "desktop version" link below; see §11.
 - **User already started the event.** Profile confirmation is skipped — starting
-  the event implies the data was verified. Location and notification steps still
-  run, because they are per-device and say nothing about the profile.
+  implies the data was already verified. **The portrait step still runs**, and so do
+  the location and notification steps: those are per-device facts and say nothing about
+  the profile, and a photo is missing whether or not the guardian number was confirmed
+  (clarified 2026-08-25). A member who started the event without a portrait is exactly
+  the person personnel will fail to identify at 03:00, so skipping the nudge for them
+  would remove it from the cohort that needs it most.
 - **The user is not a spejder.** Only spejder have a guardian number on file
   (confirmed by the shared-go survey — `PhoneParent` exists on `spejder` and on no
   other population). Bandits, gøgler and crew therefore **skip the guardian
@@ -262,7 +267,8 @@ the app on the home screen onwards is the same.
 - [ ] Profile confirmation applies to **spejder only** — they are the only
       population with a guardian number on file. Other roles skip it.
 - [ ] Profile confirmation is **skipped** when the user has already started the
-      event, or has confirmed previously.
+      event, or has confirmed previously. Skipping it must **not** skip the portrait
+      step — the two are independent (§11).
 - [ ] Confirmation state is **server-side, per user** — not `localStorage` — so it
       survives reinstalls, new devices and cleared site data.
 - [ ] The step offers non-punitive "nummeret er forkert" **and** "jeg kender ikke
@@ -274,6 +280,15 @@ the app on the home screen onwards is the same.
       explains that it is used to identify people during the race (largely at
       night), lets the user retake before uploading, and is **skippable** — with
       the profile page (PRD 003) as the place to add one later.
+- [ ] The portrait step runs for **every** user who has none, including those whose
+      profile confirmation was skipped because they had already started the event.
+      Verification status and portrait status are unrelated facts.
+- [ ] A user with no portrait is **nudged again after onboarding**, not asked once
+      and forgotten. Onboarding is a single moment and the step is skippable, so a
+      one-shot prompt means the members most likely to decline are exactly the ones
+      who stay unidentifiable. The nudge must be dismissible per session and must
+      stop permanently once a portrait exists — a prompt that cannot be silenced
+      trains people to ignore it.
 - [ ] Portrait capture reuses PRD 003's capture component and upload endpoint
       rather than implementing a second one.
 - [ ] Details are **read-only** at confirmation time; in-app editing is out of
@@ -544,6 +559,8 @@ Proposed tasks for `roadmap/tasks/open/`:
 - [ ] Task: BFF — project `verified_at` + `confirmation_required` onto the member read model
 - [ ] Task: BFF — `POST /api/me/profile/confirm` with server-side digit check and rate limiting
 - [ ] Task: WelcomeStepPortrait — camera capture, retake, skip, reuse PRD 003 upload
+- [ ] Task: portrait nudge — re-prompt after onboarding while no portrait exists
+      (dismissible per session, silenced permanently once one is uploaded)
 - [ ] Task: hq — surface verification on the check-in view. **Tracked on `hq`'s
       board, not this one**; listed here as a rollout dependency, since the check-in
       goal is not realised without it.
@@ -659,6 +676,19 @@ survives.
 - **2026-08-25 — Confirmation is skipped for users who have started the event.**
   Starting implies the data was already verified. Permissions are still requested,
   since they are per-device facts and say nothing about the profile.
+- **2026-08-25 — Skipping confirmation does NOT skip the portrait.** The two are
+  independent facts, and conflating them would have removed the photo nudge from the
+  cohort that needs it most: a member who has already started the event and has no
+  portrait is precisely the person personnel will fail to identify in the dark.
+  Verification says something about the *guardian number*; it says nothing about
+  whether there is a face on file.
+
+  It follows that the nudge cannot be a one-shot onboarding step either. The step is
+  skippable by design (only login is mandatory), so asking once means the members most
+  likely to decline are the ones who stay unidentifiable all event. A user with no
+  portrait is therefore re-prompted after onboarding — dismissible per session, and
+  silenced permanently the moment a portrait exists, because a prompt that cannot be
+  quieted is one people learn to ignore.
 - **2026-08-25 — Confirmation state is per-user and server-side.** Per-device
   `localStorage` would re-prompt a participant after a reinstall or a new phone,
   potentially mid-event. This is why the PRD acquired BFF scope (§8).

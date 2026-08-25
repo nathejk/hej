@@ -83,8 +83,9 @@ survey found `spejder.GetByID` is a stub returning `nil, nil` and `GetAll` joins
   comes from the `spejderstatus`/lifecycle subjects, which are a separate family. The
   column exists and stays empty; PRD 005's skip rule needs a follow-up task rather than
   a guess here. Criterion left unchecked rather than quietly claimed.
-- 2026-08-25 — Note for whoever runs the stack: replaying real events onto a dev
-  machine puts **real minors' names, addresses and guardian numbers** in the local
-  database automatically. That is a live privacy concern and it directly contradicts
-  task 065's constraint; raised there.
+- 2026-08-25 — Note for whoever runs the stack: replaying the shared stream populates
+  the local database with ~1700 members. **Correction (same day): this data is
+  constructed to look real, not copied from production** — I initially reported it as a
+  privacy incident, which was wrong. The retraction and what it teaches are recorded in
+  task 065.
 - 2026-08-25 — Moving to done.

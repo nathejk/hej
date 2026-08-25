@@ -171,7 +171,9 @@ Mostly a technical enabler, so the stories are about what it unblocks:
       given an unclassified account every portrait in the event.)
 - [ ] Carry the member's **lifecycle status** (`types.MemberStatus`), which PRD
       005's "has started the event" skip rule reads (`racing` onwards). Without it
-      that rule is unimplementable.
+      that rule is unimplementable. **Task 080** owns this: the status arrives on the
+      lifecycle/`spejderstatus` subjects, not on the member-detail events task 072
+      projects, so the column exists but stays empty until then.
 - [ ] Carry `phoneParent` for spejder. **Only spejder have a guardian number** —
       the model must make that explicit rather than leaving an empty string that
       reads as "missing data" for everyone else.
