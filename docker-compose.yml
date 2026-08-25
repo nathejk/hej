@@ -131,17 +131,30 @@ services:
     labels:
       traefik.enable: "false"
 
+  # phpMyAdmin is deliberately NOT on Traefik.
+  #
+  # It used to be routed at sql.hej.local.nathejk.dk, which was harmless against an
+  # empty database. From PRD 008 onwards this database holds members' names,
+  # addresses, guardian phone numbers and portrait references — personal data about
+  # minors — and phpMyAdmin in front of it is an unauthenticated browse-everything
+  # UI. A shared Traefik with exposedByDefault, a demo, a screen-share or a laptop on
+  # a conference network is then one hostname away from disclosing all of it.
+  #
+  # Decision (task 066): keep the tool, remove the ambient reachability. It is now
+  # published on loopback only, so it takes a deliberate step — open
+  # http://127.0.0.1:8081 — and is unreachable from anywhere but this machine.
+  # It appears in no production manifest — `docker-swarm.yml` defines no such
+  # service — and must not be added to one.
   phpmyadmin:
     image: phpmyadmin
     environment:
       PMA_HOST: db
+    ports:
+      - "127.0.0.1:8081:80"
     networks:
       - local
-      - traefik
     labels:
-      traefik.enable: "true"
-      traefik.docker.network: traefik
-      traefik.http.routers.hej-sql.rule: Host(`sql.hej.local.nathejk.dk`)
+      traefik.enable: "false"
     depends_on:
       - db
 

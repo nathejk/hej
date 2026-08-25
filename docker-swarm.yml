@@ -21,11 +21,20 @@
 # shell and deliberately have NO defaults: `${VAR:?msg}` makes `stack deploy`
 # fail loudly if one is missing. Never commit the values to this file.
 #
-# There is no `db` service on purpose: the API currently serves mock data
-# (data.NewModels(users.NewMockDirectory(), scans.NewMockSource()) in main.go)
-# and keeps PINs and push subscriptions in memory. The dev stack's mariadb /
-# phpmyadmin are dev conveniences with nothing behind them yet. Add a db service
-# here when the API actually grows a persistent store.
+# There is still no `db` service here, but the reason has changed and this is now
+# the gap that blocks a real deployment.
+#
+# As of PRD 008 (tasks 050-057) the API *does* have a persistent store: it opens a
+# pooled MariaDB connection from DB_DSN, projects read models from JetStream, and
+# writes portrait bytes to a content-addressed blob store. None of that is
+# configured below, so a task deployed from this file runs in its degraded mode:
+# no database, no broker, in-memory blobs, mock read models.
+#
+# Two decisions have to be made before this file is correct, both open in PRD 008
+# §11: whether production gets its own MariaDB service here or a shared/managed
+# instance owned by the infra repo (Q2, task 061), and whether the swarm can reach
+# the shared `jetstream` network (Q3, task 062). phpMyAdmin is dev-only and must not
+# be added here (task 066).
 
 version: "3.8"
 
