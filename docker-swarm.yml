@@ -46,9 +46,10 @@ services:
       # PORT (80) and WEB_ROOT (/www) are already baked into the prod image.
       #
       # Session cookies are HMAC-signed and stateless, so they survive task
-      # restarts and would work across replicas. The dev default secret is
-      # intentionally insecure — an unset value in production would mean
-      # forgeable sessions, hence the hard `:?` failure.
+      # restarts. They are NOT, however, the thing that decides whether this
+      # service can be replicated — see the `deploy.replicas: 1` constraint below.
+      # The dev default secret is intentionally insecure — an unset value in
+      # production would mean forgeable sessions, hence the hard `:?` failure.
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET, e.g. openssl rand -hex 32}
       # Always behind Traefik TLS here.
       SESSION_SECURE: "true"
@@ -94,14 +95,47 @@ services:
       retries: 5
       start_period: 10s
     deploy:
-      # Deliberately 1, not 2. The PIN store (pin.NewStore) and push
+      # SINGLE REPLICA — do not raise this without reading all of this comment.
+      #
+      # Original reason (PRD 001): the PIN store (pin.NewStore) and push
       # subscriptions (push.NewMemoryStore) are per-process in-memory maps, so a
-      # second replica would round-robin a login between two processes: the PIN
-      # issued by task A would not verify on task B. Raise this only once both
-      # are backed by shared storage.
+      # second replica would round-robin a login between two processes and the PIN
+      # issued by task A would not verify on task B.
+      #
+      # Second, stronger reason (task 064, PRD 008 §11 Q1): this service now runs
+      # projections. Subscriptions in `jrgensen/stream` are ephemeral ordered
+      # consumers with **no queue group**, so every process receives every message
+      # rather than sharing them out. Two replicas would both apply every event to
+      # the *same* read model in the *same* database — fine for a strictly
+      # idempotent projection, silently wrong for an unconditional `UPDATE`, an
+      # insert without a deterministic key, or a read-then-write. The result is a
+      # projection that is subtly wrong rather than obviously broken. `hq` reached
+      # the same conclusion independently and documents it in its main.go.
+      #
+      # It applies to the write side too: PRD 005 publishes a verification event,
+      # and a read-then-publish command has no compare-and-swap behind it, so two
+      # instances can both read the pre-state and both publish.
+      #
+      # So making the PIN and push stores shared is now necessary but NOT
+      # sufficient. To replicate later, the clean route is to split the projectors
+      # into their own single-instance process, leaving the API stateless and freely
+      # replicable. The alternatives — a distinct durable consumer plus a database
+      # per instance, or proving every projector and command idempotent under
+      # concurrent delivery and continuing to prove it for each new one — are how
+      # projections quietly rot.
       replicas: 1
       update_config:
-        order: start-first
+        # stop-first, not start-first: `start-first` boots the new task before
+        # stopping the old one, which is exactly the two-instance window the
+        # replicas: 1 comment above forbids. It is the right default for a
+        # stateless service and the wrong one here — during every deploy both
+        # processes would consume the same events and write the same read model.
+        #
+        # The cost is a brief gap in serving during a deploy instead of an overlap.
+        # For an in-event app that is the better trade: a few seconds of 502 is
+        # recoverable, a corrupted projection during the race is not. Deploys should
+        # not be happening mid-event anyway.
+        order: stop-first
         parallelism: 1
         delay: 5s
         failure_action: rollback

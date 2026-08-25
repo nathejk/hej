@@ -419,10 +419,23 @@ decision (§8), and this PRD provides whichever mechanism it settles on.
 
 ## 11. Open Questions
 
-1. **Replicas.** Pin `hej` to one replica, give each a distinct durable consumer,
-   or split the projector out of the API process? Cheapest correct answer now is
-   probably "one replica, documented as a constraint" — but it should be a
-   decision, since the swarm file currently reasons the opposite way.
+1. ~~**Replicas.**~~ *Answered 2026-08-25 (task 064): pinned to a **single
+   replica**, declared as `deploy.replicas: 1` in `docker-swarm.yml` with the
+   reasoning inline.* The constraint is not the HTTP layer but the projections:
+   `jrgensen/stream` subscriptions are ephemeral ordered consumers with **no queue
+   group**, so every process receives every message. Two replicas would both apply
+   every event to the same read model in the same database — fine for a strictly
+   idempotent projection, silently wrong for an unconditional `UPDATE`, a
+   non-deterministic insert, or a read-then-write. It also affects the write side,
+   since a read-then-publish command has no compare-and-swap behind it. `hq`
+   reached the same conclusion independently and documents it in its `main.go`.
+
+   To replicate later, the clean route is to **split the projectors into their own
+   single-instance process**, leaving the API stateless and freely replicable. The
+   alternatives (distinct durable consumers plus a database each; or proving every
+   projector and command idempotent under concurrent delivery, forever) are how
+   projections quietly rot. The stale "would work across replicas" comment on
+   `SESSION_SECRET` has been corrected.
 2. **Production database:** own MariaDB service in the stack, or a shared/managed
    instance owned by the infra repo? (§8)
 3. ~~**Which broker does `hej` connect to**~~ — *answered 2026-08-25 (task 053)*:
