@@ -31,6 +31,17 @@ func (c consumer) Consumes() []cqrs.Subject {
 		// Spejder: the person's own details, including the guardian number.
 		cqrs.SubjectFromStr("NATHEJK.*.spejder.*.updated"),
 		cqrs.SubjectFromStr("NATHEJK.*.spejder.*.deleted"),
+		// Senior: the same for the people the event calls banditter. "bandit" is not a
+		// field anywhere — it is the role a klan senior plays — and the subject
+		// vocabulary is the giveaway: the arm number, which is how a bandit is
+		// identified in the field, is published on a `bandit.*` subject and projected
+		// onto the senior.
+		cqrs.SubjectFromStr("NATHEJK.*.senior.*.updated"),
+		cqrs.SubjectFromStr("NATHEJK.*.senior.*.deleted"),
+		cqrs.SubjectFromStr("NATHEJK.*.bandit.*.armNumber.assigned"),
+		// Klan: the team name for a bandit, the counterpart of patrulje below.
+		cqrs.SubjectFromStr("NATHEJK:*.klan.*.signedup"),
+		cqrs.SubjectFromStr("NATHEJK:*.klan.*.updated"),
 		// Patrulje: the team name shown alongside them, and the team they belong to.
 		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.signedup"),
 		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.updated"),
@@ -60,12 +71,20 @@ func (c consumer) HandleMessage(msg cqrs.Message) error {
 	// codebase before, so specific-first is the house style.
 	case subject.Match("nathejk.*.patrulje.*.started"):
 		return c.handleTeamStarted(msg, year)
+	// Five-part subject, so it must be matched before the four-part senior patterns.
+	case subject.Match("nathejk.*.bandit.*.armNumber.assigned"):
+		return c.handleArmNumberAssigned(msg, year)
 	case subject.Match("nathejk.*.spejder.*.updated"):
 		return c.handleSpejderUpdated(msg, year)
-	case subject.Match("nathejk.*.spejder.*.deleted"):
+	case subject.Match("nathejk.*.senior.*.updated"):
+		return c.handleSeniorUpdated(msg, year)
+	case subject.Match("nathejk.*.spejder.*.deleted"),
+		subject.Match("nathejk.*.senior.*.deleted"):
 		return c.handleMemberDeleted(msg, year)
 	case subject.Match("nathejk.*.patrulje.*.signedup"),
-		subject.Match("nathejk.*.patrulje.*.updated"):
+		subject.Match("nathejk.*.patrulje.*.updated"),
+		subject.Match("nathejk.*.klan.*.signedup"),
+		subject.Match("nathejk.*.klan.*.updated"):
 		return c.handleTeamUpdated(msg, year)
 	}
 	return nil
@@ -126,6 +145,88 @@ func (c consumer) handleSpejderUpdated(msg cqrs.Message, year string) error {
 	return c.w.Consume(upsert(cols))
 }
 
+// handleSeniorUpdated writes a senior's own details, classified as a bandit.
+//
+// Seniors carry **no guardian number**: `NathejkSeniorUpdated` has no PhoneContact
+// field, and shared-go's `senior` table has no `phoneParent` column. So phoneParent is
+// written as NULL rather than left at a default — "this population does not have one"
+// has to stay distinguishable from "should have one and it is missing", because PRD
+// 005 skips its confirmation step for exactly this reason and PRD 003 renders the two
+// differently.
+func (c consumer) handleSeniorUpdated(msg cqrs.Message, year string) error {
+	var body messages.NathejkSeniorUpdated
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+	if body.MemberID == "" {
+		return fmt.Errorf("person: senior updated with no memberId")
+	}
+
+	role, _ := Classify(PopulationSenior, "")
+
+	cols := map[string]string{
+		"personId":    quote(string(body.MemberID)),
+		"year":        quote(year),
+		"appRole":     quote(role),
+		"name":        quote(body.Name),
+		"phone":       quote(normalizeOrEmpty(c.normalizer, string(body.Phone))),
+		"phoneParent": "NULL",
+		"address":     quote(body.Address),
+		"postalCode":  quote(body.PostalCode),
+		"city":        quote(body.City),
+		"email":       quote(string(body.Email)),
+		"deleted":     boolInt(false),
+	}
+
+	if bd, ok := parseBirthday(string(body.BirthDate)); ok {
+		cols["birthday"] = quote(bd)
+	}
+
+	// The team link arrives on the legacy shape carried by the same event, exactly as
+	// for spejder — shared-go's senior projector decodes both for this reason.
+	var legacy messages.NathejkMemberAdded
+	if err := msg.Body(&legacy); err == nil && legacy.TeamID != "" {
+		cols["teamId"] = quote(string(legacy.TeamID))
+	}
+
+	return c.w.Consume(upsert(cols))
+}
+
+// handleArmNumberAssigned records the arm number a bandit is identified by.
+//
+// Worth carrying even though this app has no bandit-facing feature yet: it is the
+// identification mechanism that needs **no photograph**, so it is the fallback when
+// PRD 007's portrait is missing, declined, or unreadable in the dark.
+//
+// The subject is `bandit.*`, not `senior.*`, and the member id therefore comes from the
+// subject rather than the body — `NathejkLokArmNumberAssigned` carries only the number
+// and a team type.
+func (c consumer) handleArmNumberAssigned(msg cqrs.Message, year string) error {
+	var body messages.NathejkLokArmNumberAssigned
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+	// Five-part subject: NATHEJK.<year>.bandit.<memberId>.armNumber.assigned, so the id
+	// is the fourth part rather than the second-to-last one subjectEntityID assumes.
+	parts := msg.Subject().Parts()
+	if len(parts) < 4 || parts[3] == "" {
+		return fmt.Errorf("person: arm number assigned with no member id in subject %q", msg.Subject().Subject())
+	}
+	if body.ArmNumber == "" {
+		// Nothing to record. Not an error — an empty assignment is a no-op, not a
+		// reason to dead-letter the event.
+		return nil
+	}
+
+	// UPDATE, not upsert: the arm number describes a senior whose details arrive on
+	// their own event. Inserting here would create a row with an arm number and no
+	// person attached.
+	return c.w.Consume(fmt.Sprintf(
+		"UPDATE person SET armNumber=%s WHERE personId=%s AND year=%s",
+		quote(body.ArmNumber), quote(parts[3]), quote(year),
+	))
+}
+
 // handleMemberDeleted soft-deletes a person.
 //
 // It does not INSERT: a delete for someone we never saw is a no-op, not a reason to
@@ -153,9 +254,16 @@ func (c consumer) handleMemberDeleted(msg cqrs.Message, year string) error {
 
 // handleTeamUpdated denormalizes the team name onto every member of that team.
 //
+// Serves **both** patrulje (spejder) and klan (bandit). One decode covers both because
+// `NathejkTeamUpdated` and `NathejkKlanUpdated` agree on the two fields used here —
+// `teamId` and `name` — and the klan message simply has fewer of the rest. Worth
+// stating, since it looks like the wrong type being used for a klan event.
+//
 // The name is stored per person rather than joined at read time because the login
 // path reads one row and must not fan out. The cost is this fan-out on write, which
-// happens rarely — a team is renamed far less often than a member logs in.
+// happens rarely — a team is renamed far less often than a member logs in. The login
+// chooser (task 079) is the other reader: for two people on one phone, "which klan" or
+// "which patrulje" is often the only thing that tells them apart.
 //
 // It is an UPDATE with no INSERT for the same reason as the delete: members arrive on
 // their own events, and a team event should not invent people.
