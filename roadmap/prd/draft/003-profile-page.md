@@ -239,7 +239,10 @@ the full-bleed map.
 4. **Offline-parathed** — PRD 009's readiness surface: which datasets are cached,
    when they last synced, total storage used, and a manual sync/clear control.
    Placement decided here 2026-08-25 so it is not left open in two documents.
-5. **Log ud** — a low-emphasis destructive action at the bottom.
+5. **Mine køretøjer** — the caller's registered vehicles, with edit, remove and add.
+   Owned by **PRD 010** (vehicle registration); shown only for the roles that may
+   bring a vehicle (bandit, gøgler, crew), so it is absent for spejder.
+6. **Log ud** — a low-emphasis destructive action at the bottom.
 
 **Capture flow.** Tapping the portrait opens a full-screen capture surface: live
 camera preview with a **face-guide overlay** (a circular framing guide — the same

@@ -157,6 +157,11 @@ W4. User accepts; Chrome installs. The wall switches to "Åbn appen" / "Du kan n
    open. *(Added 2026-08-25: PRD 009 placed a first-sync step inside this flow while
    this PRD's sequence did not contain one.)*
 
+A **vehicle step** also belongs in this flow, for bandit/gøgler/crew only — owned by
+PRD 010, which specifies it. It is not numbered here because its position depends on
+PRD 010's approval; when it lands it sits after the portrait and before the
+permissions, since it is another "about you" question rather than a device prompt.
+
 Onboarding then marks itself complete and redirects to `/maps`.
 
 ### Happy path — iPhone / Safari
