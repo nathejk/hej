@@ -1,10 +1,10 @@
 # PRD 006 — Member directory for the app (person lookup by phone, app roles)
 
-**Status:** draft
+**Status:** doing
 **Author:** agent session (Zed)
 **Created:** 2026-08-25
 **Last updated:** 2026-08-25
-**Approved:**
+**Approved:** 2026-08-25
 **Shipped:**
 **Target users:** indirectly all app users (spejder, bandit, gøgler, crew); directly the `hej` BFF
 
@@ -361,19 +361,23 @@ Sequence PRD 008's infrastructure first — nothing here can be tested without i
 then the projection, then classification, then the swap. Keep the mock swappable
 throughout so `hej` stays runnable at every step.
 
-Proposed tasks for `roadmap/tasks/open/`:
+Proposed tasks for `roadmap/tasks/open/` (created 2026-08-25 as tasks **067–078**):
 
-- [ ] Task: `nathejk/table/person` skeleton — schema, constructor, `EnsureColumn`
-- [ ] Task: project spejder (+ patrulje team names)
-- [ ] Task: project senior/klan as bandit (incl. armNumber subject)
-- [ ] Task: project crewmember + section
-- [ ] Task: project gøgler
-- [ ] Task: app-role classification + slug→function map with logged fallback
-- [ ] Task: `GetByPhone` / `GetByID` queriers + phone normalization consistency
-- [ ] Task: swap `users.Directory` to the projection; keep the mock as test double
-- [ ] Task: handle deletions and phone changes
-- [ ] Task: decide and implement the phone-collision policy (§11)
-- [ ] Task: backfill/replay verification against real event data
+- [ ] 067 — extend the app-role enum with `gøgler` + generic `crew`
+- [ ] 068 — `nathejk/table/person` skeleton: schema, constructor, `EnsureColumn`
+- [ ] 069 — app-role classification + slug→function map with logged fallback
+- [ ] 070 — `GetByPhone` / `GetByID` queriers + phone-normalization consistency
+- [ ] 071 — phone-collision policy (§11 Q1)
+- [ ] 072 — project spejder (+ patrulje team names)
+- [ ] 073 — project senior/klan as bandit (incl. armNumber subject)
+- [ ] 074 — project crewmember + section
+- [ ] 075 — project gøgler
+- [ ] 076 — handle deletions and phone changes
+- [ ] 077 — swap `users.Directory` to the projection; keep the mock as test double
+- [ ] 078 — backfill/replay verification against real event data
+
+Task 068's schema slice doubles as PRD 008's acceptance test (see PRD 008 §8), which
+is why the two were approved together with 008 first.
 
 ## 11. Open Questions
 
