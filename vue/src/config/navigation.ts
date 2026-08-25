@@ -5,6 +5,12 @@ import type { Role } from '@/stores/session.store'
 // A single declarative destination drives both routing and the bottom nav.
 // Icons are Lucide components (repo convention). `roles` gates visibility:
 // undefined means "all signed-in roles"; otherwise only the listed roles.
+//
+// Note what "all signed-in roles" now includes: `gøgler` and the least-privileged
+// `crew` fallback (PRD 006, task 067). Every destination without a `roles` list is
+// therefore visible to an account whose function could not be determined — which is
+// fine for the shared content pages below, and is why anything sensitive must gate
+// explicitly rather than relying on being unlisted.
 export interface NavDestination {
   name: string
   path: string
@@ -25,8 +31,13 @@ export const destinations: NavDestination[] = [
   { name: 'rulebook', path: '/rulebook', label: 'Regler', icon: BookOpen },
   { name: 'updates', path: '/updates', label: 'Nyt', icon: Megaphone },
   { name: 'schedule', path: '/schedule', label: 'Program', icon: CalendarDays },
-  // Role-gated example: only service roles see the SOS/samarit page. This pushes
-  // those roles past 5 destinations and exercises the "More" overflow.
+  // Role-gated: only the identified service functions see the SOS/samarit page.
+  //
+  // `gøgler` and `crew` are deliberately absent. Gøglere staff posts but are not
+  // part of the medical/guide response chain, and `crew` is the fallback for a crew
+  // member whose function could not be determined (PRD 006) — granting it the SOS
+  // page would mean an unrecognised section slug silently widens access, which is
+  // exactly what the least-privileged fallback exists to prevent.
   { name: 'sos', path: '/sos', label: 'SOS', icon: Siren, roles: ['samarit', 'guide', 'postmandskab'] },
   { name: 'faq', path: '/faq', label: 'FAQ', icon: HelpCircle },
 ]

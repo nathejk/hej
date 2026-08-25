@@ -15,6 +15,16 @@ func TestMockDirectory_SeedsAllRoles(t *testing.T) {
 		"+4530000003": users.RolePostmandskab,
 		"+4530000004": users.RoleGuide,
 		"+4530000005": users.RoleSamarit,
+		"+4530000006": users.RoleGoegler,
+		"+4530000007": users.RoleCrew,
+	}
+
+	// The name of this test claims "all roles", so hold it to that: a role added to
+	// users.AllRoles without a seed entry must fail here rather than leaving the test
+	// passing on a stale subset (which is what happened when gøgler and crew were
+	// added).
+	if len(seeded) != len(users.AllRoles) {
+		t.Fatalf("seeded %d roles but users.AllRoles has %d — add the missing seed entries", len(seeded), len(users.AllRoles))
 	}
 
 	for phone, wantRole := range seeded {

@@ -10,9 +10,8 @@ const (
 )
 
 // NewMockDirectory returns a Directory backed by an in-code phone → role map,
-// seeded with one entry per app role (spejder, bandit, postmandskab, guide,
-// samarit). Intended for dev/testing only; the real Nathejk-records lookup
-// will replace this behind the same interface.
+// seeded with one entry per app role. Intended for dev/testing only; PRD 006's
+// person projection replaces it behind the same interface.
 //
 // Only the two patrol-bearing roles get a patrol; the personnel roles are
 // seeded without one on purpose, so the "no patrol" path stays exercised.
@@ -25,6 +24,11 @@ func NewMockDirectory() Directory {
 		"+4530000003": {ID: "mock-postmandskab-1", Role: RolePostmandskab},
 		"+4530000004": {ID: "mock-guide-1", Role: RoleGuide},
 		"+4530000005": {ID: "mock-samarit-1", Role: RoleSamarit},
+		"+4530000006": {ID: "mock-goegler-1", Role: RoleGoegler},
+		// Unclassified crew: seeded so the least-privileged fallback path is
+		// exercised in dev rather than only appearing in production the first time an
+		// organizer renames a section.
+		"+4530000007": {ID: "mock-crew-1", Role: RoleCrew},
 	}
 
 	// Second index so a session (which carries only the user id) resolves

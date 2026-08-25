@@ -6,6 +6,13 @@ package users
 
 // Role is the app-level role a recognized user has. It drives which pages the
 // bottom navigation shows.
+//
+// These are *app* roles, not signup categories. The distinction matters because the
+// upstream data uses a different vocabulary: shared-go has `TeamType`
+// (patrulje/klan/crew/gøgler) and `UserType` (gøgler/crew), and neither lines up
+// one-to-one with this list — a klan senior is a `bandit` here, and `crew` splits
+// into three functions. PRD 006's person projection owns that translation, so this
+// enum stays the app's own vocabulary and nothing infers a role from a team type.
 type Role string
 
 const (
@@ -14,7 +21,63 @@ const (
 	RolePostmandskab Role = "postmandskab"
 	RoleGuide        Role = "guide"
 	RoleSamarit      Role = "samarit"
+	// RoleGoegler is the entertainers/jugglers ("gøglere") who staff posts. The
+	// constant name is ASCII while the value keeps the Danish spelling, because the
+	// value is what appears on the wire and in the upstream subjects
+	// (NATHEJK.*.gøgler.*).
+	RoleGoegler Role = "gøgler"
+	// RoleCrew is the fallback for a crew member whose function could not be
+	// determined.
+	//
+	// It exists because crew function comes from an organizer-authored section slug
+	// with nothing validating it (PRD 006 §8), so an unrecognised slug is a routine
+	// data condition rather than an error — and locking someone out of a safety app
+	// over a spelling is not acceptable.
+	//
+	// It must be treated as **least-privileged**, not as "generic crew with crew
+	// powers". An account lands here precisely because classification *failed*, so
+	// granting it what an identified samarit gets would mean a typo in a slug
+	// silently widens access — PRD 007's portrait access matrix depends on this
+	// distinction, since identified crew may see every portrait in the event.
+	RoleCrew Role = "crew"
 )
+
+// AllRoles is every role this app knows, in a stable order. Anything that has to
+// enumerate roles (tests, an access matrix, a nav audit) should use this rather than
+// its own list, which is how a newly added role gets silently missed.
+var AllRoles = []Role{
+	RoleSpejder,
+	RoleBandit,
+	RolePostmandskab,
+	RoleGuide,
+	RoleSamarit,
+	RoleGoegler,
+	RoleCrew,
+}
+
+// Valid reports whether r is a role this version of the code knows.
+func (r Role) Valid() bool {
+	for _, known := range AllRoles {
+		if r == known {
+			return true
+		}
+	}
+	return false
+}
+
+// IsCrew reports whether r is one of the crew functions, including the
+// unclassified fallback.
+//
+// Deliberately does **not** imply any privilege: callers that gate on "is crew"
+// for access decisions must check the specific function instead, because RoleCrew
+// means "we do not know what this person does".
+func (r Role) IsCrew() bool {
+	switch r {
+	case RolePostmandskab, RoleGuide, RoleSamarit, RoleCrew:
+		return true
+	}
+	return false
+}
 
 // User is what the directory returns for a recognized phone number. It is the
 // single place where per-user attributes accumulate, so a new consumer (a

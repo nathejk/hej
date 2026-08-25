@@ -1,8 +1,24 @@
 import { defineStore } from 'pinia'
 import { fetchWrapper, HttpError } from '@/helpers'
 
-// The five app roles (mirrors the BFF). Drives which pages the nav shows.
-export type Role = 'spejder' | 'bandit' | 'postmandskab' | 'guide' | 'samarit'
+// The app roles (mirrors the BFF's users.Role). Drives which pages the nav shows.
+//
+// These are *app* roles, not signup categories: the upstream data speaks in team
+// types (patrulje/klan/crew/gøgler), and PRD 006's person projection owns the
+// translation. Keep this list identical to `AllRoles` in
+// `go/internal/users/directory.go` — they are one enum expressed twice.
+//
+// `crew` is the least-privileged fallback for a crew member whose function could
+// not be determined from their section slug. It is not "crew with crew powers": an
+// account lands there because classification failed.
+export type Role =
+  | 'spejder'
+  | 'bandit'
+  | 'postmandskab'
+  | 'guide'
+  | 'samarit'
+  | 'gøgler'
+  | 'crew'
 
 export interface Identity {
   userId: string
