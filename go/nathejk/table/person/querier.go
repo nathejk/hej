@@ -40,6 +40,40 @@ type Person struct {
 	PortraitRef       string
 }
 
+// MemberStatusRacing is the one lifecycle value this projection writes.
+//
+// The string matches `types.MemberStatus`'s `racing` exactly, so a status here means
+// what it means in `hq` and in shared-go. It is duplicated rather than imported for
+// the usual reason (this package cannot depend on `internal/`, and keeping its imports
+// minimal keeps the shared-go lift cheap) — but note the value is a *persisted* one:
+// shared-go's own doc warns that changing these strings is a data migration, not a
+// rename.
+const MemberStatusRacing = "racing"
+
+// HasStarted reports whether the member has begun the event.
+//
+// PRD 005's confirmation step is skipped for these members: starting implies their
+// data was already checked at the counter. Exposed as a method so the rule is written
+// once here rather than as a string comparison at each call site — which is how a
+// second, subtly different definition of "started" gets born.
+//
+// It is deliberately NOT the signal for the portrait nudge. A member who started the
+// event without a photo must still be nudged (PRD 005, clarified 2026-08-25): having
+// verified a guardian number says nothing about whether there is a face on file. The
+// two live next to each other in the flow and are easy to wire to the same signal by
+// mistake, so keep them apart.
+func (p Person) HasStarted() bool {
+	return p.MemberStatus != ""
+}
+
+// NeedsPortrait reports whether this person should be nudged to add a photo.
+//
+// Driven only by the absence of a portrait, independent of verification or lifecycle
+// status — see HasStarted.
+func (p Person) NeedsPortrait() bool {
+	return p.PortraitRef == ""
+}
+
 // Queries is the read API handed to the application through data.Models.
 //
 // Lookup returns a slice rather than a single Person on purpose: two people can

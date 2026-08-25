@@ -34,6 +34,9 @@ func (c consumer) Consumes() []cqrs.Subject {
 		// Patrulje: the team name shown alongside them, and the team they belong to.
 		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.signedup"),
 		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.updated"),
+		// The one lifecycle transition this app needs: did the member actually start?
+		// PRD 005's confirmation step is skipped for members who have (task 080).
+		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.started"),
 	}
 }
 
@@ -52,6 +55,11 @@ func (c consumer) HandleMessage(msg cqrs.Message) error {
 	}
 
 	switch {
+	// Checked before the shorter patrulje patterns. Both orderings happen to work
+	// here, but hq's projectors carry a comment that the reverse has bitten this
+	// codebase before, so specific-first is the house style.
+	case subject.Match("nathejk.*.patrulje.*.started"):
+		return c.handleTeamStarted(msg, year)
 	case subject.Match("nathejk.*.spejder.*.updated"):
 		return c.handleSpejderUpdated(msg, year)
 	case subject.Match("nathejk.*.spejder.*.deleted"):
@@ -170,6 +178,53 @@ func (c consumer) handleTeamUpdated(msg cqrs.Message, year string) error {
 		"UPDATE person SET teamName=%s WHERE teamId=%s AND year=%s",
 		quote(body.Name), quote(teamID), quote(year),
 	))
+}
+
+// handleTeamStarted records that named members actually started the event.
+//
+// # Scope: this is not a lifecycle projection
+//
+// `hq` already projects the full member lifecycle (`spejderstatus`): withdrawals,
+// pickups, shelter placements, handovers, each with its own message types defined in
+// that repo. This projection deliberately does **not** mirror it. It consumes one
+// transition, because one is all this app needs — PRD 005 asks a single question,
+// "has this member started?", to decide whether to skip the profile-confirmation step.
+//
+// Duplicating the rest would mean a second, lagging notion of member status in a
+// second repo, disagreeing with `hq` in ways nobody would notice until an organizer
+// compared two screens. If this app ever needs the operational states, the answer is
+// to read `hq`'s projection or lift it to shared-go — not to grow a parallel one here.
+//
+// So `memberStatus` in this table is coarse by design: `racing` or empty. That is
+// still correct for the question being asked, because every state *after* racing also
+// implies the member started — a member who is now `waiting` or `sheltered` began the
+// event, and we never need to unset the flag.
+func (c consumer) handleTeamStarted(msg cqrs.Message, year string) error {
+	var body messages.NathejkTeamStarted
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+
+	// The event names exactly who started, which is better than marking the whole
+	// team: hq's projector notes that StartPatrulje publishes a separate `deleted` for
+	// every member who did *not* start, so a team-wide update would wrongly mark
+	// no-shows as racing.
+	for _, m := range body.Members {
+		if m.MemberID == "" {
+			continue
+		}
+		// UPDATE, not upsert: a start event must not invent a person whose details
+		// have not arrived. If the member is not here yet, the replay will apply their
+		// details event and then this one again in order.
+		stmt := fmt.Sprintf(
+			"UPDATE person SET memberStatus=%s WHERE personId=%s AND year=%s",
+			quote(MemberStatusRacing), quote(string(m.MemberID)), quote(year),
+		)
+		if err := c.w.Consume(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // subjectYear extracts the year from a subject like NATHEJK.2026.spejder.<id>.updated.
