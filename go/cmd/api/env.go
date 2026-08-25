@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"strconv"
+	"time"
 )
 
 // config holds all runtime configuration. Per go-bff-layout, configuration is
@@ -31,6 +32,23 @@ type config struct {
 	// browser either way — but kept out of the bundle so the same image can be
 	// deployed with a different key, and out of git so our quota isn't shared.
 	dataforsyningenToken string
+
+	// MariaDB connection. dbDSN is a go-sql-driver/mysql DSN; empty means "run
+	// without a database", which is a legitimate mode: everything served today
+	// comes from mocks (PRD 008 is what introduces persistence), so a missing DSN
+	// must degrade rather than refuse to boot.
+	//
+	// The pool bounds are deliberately explicit. Go's default MaxOpenConns is 0
+	// (unlimited) while MariaDB's default max_connections is 151, so an unbounded
+	// pool turns a traffic spike into "too many connections" for every other
+	// consumer of the same server.
+	dbDSN             string
+	dbMaxOpenConns    int
+	dbMaxIdleConns    int
+	dbConnMaxLifetime time.Duration
+	// dbConnectTimeout bounds the startup ping: we retry within this window and
+	// then give up rather than blocking forever. See openDB.
+	dbConnectTimeout time.Duration
 }
 
 func loadConfig() config {
@@ -43,6 +61,11 @@ func loadConfig() config {
 	flag.StringVar(&cfg.vapidPublicKey, "vapid-public-key", envStr("VAPID_PUBLIC_KEY", ""), "Web Push VAPID public key (served to clients)")
 	flag.StringVar(&cfg.vapidPrivateKey, "vapid-private-key", envStr("VAPID_PRIVATE_KEY", ""), "Web Push VAPID private key (secret)")
 	flag.StringVar(&cfg.dataforsyningenToken, "dataforsyningen-token", envStr("DATAFORSYNINGEN_TOKEN", ""), "Dataforsyningen API token for the map's WMS base layers")
+	flag.StringVar(&cfg.dbDSN, "db-dsn", envStr("DB_DSN", ""), "MariaDB DSN (empty runs without a database)")
+	flag.IntVar(&cfg.dbMaxOpenConns, "db-max-open-conns", envInt("DB_MAX_OPEN_CONNS", 25), "Maximum open database connections")
+	flag.IntVar(&cfg.dbMaxIdleConns, "db-max-idle-conns", envInt("DB_MAX_IDLE_CONNS", 25), "Maximum idle database connections")
+	flag.DurationVar(&cfg.dbConnMaxLifetime, "db-conn-max-lifetime", envDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute), "Maximum lifetime of a pooled database connection")
+	flag.DurationVar(&cfg.dbConnectTimeout, "db-connect-timeout", envDuration("DB_CONNECT_TIMEOUT", 10*time.Second), "How long to keep retrying the initial database ping")
 	flag.Parse()
 	return cfg
 }
@@ -67,6 +90,15 @@ func envBool(key string, fallback bool) bool {
 	if v, ok := os.LookupEnv(key); ok {
 		if b, err := strconv.ParseBool(v); err == nil {
 			return b
+		}
+	}
+	return fallback
+}
+
+func envDuration(key string, fallback time.Duration) time.Duration {
+	if v, ok := os.LookupEnv(key); ok {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
 		}
 	}
 	return fallback

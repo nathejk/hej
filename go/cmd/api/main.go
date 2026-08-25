@@ -1,6 +1,8 @@
 package main
 
 import (
+	"database/sql"
+	"errors"
 	"log/slog"
 	"os"
 	"time"
@@ -35,6 +37,12 @@ type application struct {
 
 	// Push subscription storage.
 	pushStore push.Store
+
+	// db is the MariaDB pool, or nil when no DSN is configured. Handlers must not
+	// use it directly — reads go through models, writes through commands (see
+	// go-bff-layout). It is held here so shutdown can close it and the healthcheck
+	// can report on it.
+	db *sql.DB
 }
 
 // @title        Hej Nathejk API
@@ -42,15 +50,49 @@ type application struct {
 // @description  Backend-for-frontend API for the Hej Nathejk event app.
 // @BasePath     /api
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+	// run() owns everything that needs cleanup, because os.Exit skips deferred
+	// calls — closing the database pool has to happen before we exit, not after.
+	if err := run(logger); err != nil {
+		logger.Error("server error", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run(logger *slog.Logger) error {
 	cfg := loadConfig()
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	// The database is optional today: every read model is still a mock, so a
+	// missing or unreachable DSN degrades to the previous behaviour instead of
+	// preventing startup. Once PRD 006's projection lands on the login path this
+	// becomes a real dependency — the healthcheck (task 059) is what makes the
+	// difference visible rather than silent.
+	db, err := openDB(cfg, logger)
+	switch {
+	case errors.Is(err, ErrNoDSN):
+		logger.Warn("no DB_DSN configured, running without a database")
+	case err != nil:
+		logger.Error("database unavailable, continuing without it", "err", err)
+		// db is nil here; openDB closed the pool it opened.
+	default:
+		logger.Info("database connected",
+			"max_open_conns", cfg.dbMaxOpenConns,
+			"conn_max_lifetime", cfg.dbConnMaxLifetime.String(),
+		)
+		defer func() {
+			if cerr := db.Close(); cerr != nil {
+				logger.Error("closing database", "err", cerr)
+			}
+		}()
+	}
 
 	app := &application{
 		JsonApi:  bff.JsonApi{Logger: logger},
 		config:   cfg,
 		models:   data.NewModels(users.NewMockDirectory(), scans.NewMockSource()),
 		commands: commands.New(),
+		db:       db,
 
 		pins: pin.NewStore(),
 		sms:  sms.LogSender{Logger: logger},
@@ -67,8 +109,5 @@ func main() {
 
 	logger.Info("configuration loaded", "env", cfg.env, "port", cfg.port, "web_root", cfg.webRoot, "version", vcs.Version())
 
-	if err := app.Serve(app.routes(), cfg.port); err != nil {
-		logger.Error("server error", "err", err)
-		os.Exit(1)
-	}
+	return app.Serve(app.routes(), cfg.port)
 }
