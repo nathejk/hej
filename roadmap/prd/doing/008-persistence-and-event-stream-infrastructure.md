@@ -1,10 +1,10 @@
 # PRD 008 — Persistence and event-stream infrastructure for `hej`
 
-**Status:** draft
+**Status:** doing
 **Author:** agent session (Zed)
 **Created:** 2026-08-25
 **Last updated:** 2026-08-25
-**Approved:**
+**Approved:** 2026-08-25
 **Shipped:**
 **Target users:** none directly — this is enabling infrastructure for PRDs 003, 005, 006 and 007
 
@@ -377,25 +377,28 @@ Sequence: database first (it unblocks 003/005 on its own), then the broker and t
 cqrs seam, then production. Keep the mock directory in place throughout so `hej`
 stays runnable and the app is never half-migrated on `main`.
 
-Proposed tasks for `roadmap/tasks/open/`:
+Proposed tasks for `roadmap/tasks/open/` (created 2026-08-25 as tasks **050–066**):
 
-- [ ] Task: add `DB_DSN` config + MariaDB driver + pooled connection with startup ping
-- [ ] Task: wire `db` into the `api` service env/`depends_on` in dev compose
-- [ ] Task: add shared-go to `go.mod` + `go.work`; prove `GOWORK=off` in CI
-- [ ] Task: add a JetStream-enabled `nats` service to dev compose with a volume
-- [ ] Task: construct the cqrs triple (`Reader`/`Writer` via `deadletter`+`sqlpersister`/`Publisher` via `metatagger`)
-- [ ] Task: `xstream.Mux` + the constructor → projections → models registration pattern
-- [ ] Task: make `commands.Commands` real for app-owned writes
-- [ ] Task: non-blocking broker startup + degraded-mode reads
-- [ ] Task: health/readiness reporting DB, broker and projection lag
-- [ ] Task: deadletter observability
-- [ ] Task: blob store for portrait bytes — content-addressed, dev + prod
-- [ ] Task: decide + implement the production database route (§8)
-- [ ] Task: production swarm changes — state, secrets, volumes
-- [ ] Task: backup + restore procedure for app-owned data, tested once
-- [ ] Task: decide + implement the replica strategy (§11)
-- [ ] Task: local data seeding / replay procedure for developers
-- [ ] Task: review the phpMyAdmin exposure now that real personal data lands
+- [ ] 050 — `DB_DSN` config + MariaDB driver + pooled connection with startup ping
+- [ ] 051 — wire `db` into the `api` service env/`depends_on` in dev compose
+- [ ] 052 — add shared-go + cqrs + stream to `go.mod`/`go.work`; prove `GOWORK=off`
+- [ ] 053 — JetStream-enabled `nats` service in dev compose with a volume
+- [ ] 054 — construct the cqrs triple
+- [ ] 055 — `xstream.Mux` + the projector registration pattern
+- [ ] 056 — real `commands.Commands` write facade (publisher-backed)
+- [ ] 057 — content-addressed blob store for portrait bytes
+- [ ] 058 — non-blocking broker startup + degraded-mode reads
+- [ ] 059 — health/readiness reporting DB, broker and projection lag
+- [ ] 060 — deadletter observability
+- [ ] 061 — decide + implement the production database route (§11 Q2)
+- [ ] 062 — production swarm changes: state, secrets, volumes
+- [ ] 063 — backup + restore for the blob store, tested once
+- [ ] 064 — decide + implement the replica strategy (§11 Q1)
+- [ ] 065 — local data seeding / replay procedure
+- [ ] 066 — review the phpMyAdmin exposure
+
+The position-telemetry mechanism is **not** a task here: PRD 002 owns that
+decision (§8), and this PRD provides whichever mechanism it settles on.
 
 ## 11. Open Questions
 
