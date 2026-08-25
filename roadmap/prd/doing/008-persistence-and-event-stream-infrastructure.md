@@ -157,8 +157,8 @@ No end users. The stories are developer- and operator-facing:
       startup ping with bounded retry.
 - [ ] `db` service added to the `api` service's environment and `depends_on` in
       dev compose (the service itself already exists).
-- [ ] A `nats` service with JetStream enabled in dev compose, with a persistent
-      volume.
+- [ ] The `api` service joins the **shared, org-level `jetstream` network** and is
+      given `JETSTREAM_DSN`. This repo does **not** run its own broker — see §8.
 - [ ] The cqrs triple wired in `main.go`: `cqrs.Reader` (`*sql.DB`), `cqrs.Writer`
       (`deadletter` wrapping `sqlpersister`), `cqrs.Publisher` (`metatagger` over
       JetStream).
@@ -325,6 +325,23 @@ rebuildable. The distinction that matters operationally is therefore not
 The blob store is the whole backup story. Keep it clear of projection tables so a
 rebuild cannot destroy it, and never join bytes into a row a replay would truncate.
 
+### The broker is shared, not ours
+
+*(Corrected 2026-08-25 during task 053, which had been written as "add a `nats`
+service to dev compose".)*
+
+The broker is an **org-level shared service**: the `nathejk` repo runs it
+(`nats:2.10-alpine`, `command: -js`) on a `jetstream` network it owns, and every
+consumer — `hq`, `tilmelding`, `skan` — declares that network `external: true` and
+connects with `JETSTREAM_DSN: nats://jetstream:4222`. `hej` follows the same
+pattern.
+
+Running a private broker here would have been actively harmful, not merely
+redundant: events `hej` publishes would land in a broker `hq` never reads, so PRD
+005's verification flag would never reach check-in. The failure would be silent —
+publishes succeed, nothing consumes them — which is the worst shape for this class
+of bug. That also **answers §11 Q3**.
+
 ### Sequencing and verification
 
 Infrastructure with no consumer is unverifiable, so this PRD should **not** be
@@ -408,9 +425,11 @@ decision (§8), and this PRD provides whichever mechanism it settles on.
    decision, since the swarm file currently reasons the opposite way.
 2. **Production database:** own MariaDB service in the stack, or a shared/managed
    instance owned by the infra repo? (§8)
-3. **Which broker does `hej` connect to** — the same JetStream cluster as `hq` and
-   `tilmelding`, and does that require credentials, a separate account, or network
-   changes owned by the infra repo?
+3. ~~**Which broker does `hej` connect to**~~ — *answered 2026-08-25 (task 053)*:
+   the shared org broker on the external `jetstream` network, same as `hq`,
+   `tilmelding` and `skan`, via `JETSTREAM_DSN`. `hej` runs no broker of its own.
+   Still open in production: whether the swarm stack can reach that network, and
+   whether credentials are needed (task 062).
 4. **Portrait bytes: object store or mounted volume?** §8 settles that the bytes
    stay off the stream and that the reference goes on it; where they land is open.
    An S3-compatible store is easier to back up and share between replicas; a volume

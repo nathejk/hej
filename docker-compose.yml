@@ -81,6 +81,16 @@ services:
       # An empty or unreachable DSN is non-fatal — the API logs it and runs on
       # mocks (see cmd/api/database.go).
       DB_DSN: "hej:hej@tcp(db:3306)/hej?parseTime=true"
+      # NATS JetStream (PRD 008). The broker is a shared, org-level service owned
+      # by the `nathejk` repo (nats:2.10-alpine with -js, on the external
+      # `jetstream` network). This repo deliberately does NOT run its own: every
+      # other consumer (hq, tilmelding, skan) joins the same broker, and a private
+      # one here would mean events hej publishes are invisible to hq — silently
+      # defeating the whole point of publishing them.
+      #
+      # Empty or unreachable is non-fatal: reads come from SQL projections, so the
+      # API serves in a degraded state rather than not at all (PRD 008 §5).
+      JETSTREAM_DSN: "nats://jetstream:4222"
       # GO_BUILD_FLAGS: "-race"   # uncomment for the race detector
     volumes:
       - ./go:/app
@@ -93,6 +103,7 @@ services:
       - ../shared-go:/shared-go
     networks:
       - local
+      - jetstream
     depends_on:
       - db
     labels:
@@ -132,6 +143,11 @@ networks:
   local:
   # External networks are owned by the org infra repo — never redefined here.
   traefik:
+    external: true
+  # The shared NATS JetStream network, created by the `nathejk` repo's stack.
+  # Consumers (hq, tilmelding, skan and now hej) attach to it; nobody else
+  # defines the broker.
+  jetstream:
     external: true
 
 volumes:

@@ -49,6 +49,14 @@ type config struct {
 	// dbConnectTimeout bounds the startup ping: we retry within this window and
 	// then give up rather than blocking forever. See openDB.
 	dbConnectTimeout time.Duration
+
+	// NATS JetStream DSN. The broker is a shared org-level service (owned by the
+	// `nathejk` repo, reachable on the external `jetstream` network), not something
+	// this repo runs. Empty means "run without a broker", which is deliberately
+	// survivable: reads come from SQL projections, so a broker outage degrades the
+	// app rather than taking it down (PRD 008 §5). Env var name matches the sibling
+	// repos so operators do not have to learn a second one.
+	jetstreamDSN string
 }
 
 func loadConfig() config {
@@ -66,6 +74,7 @@ func loadConfig() config {
 	flag.IntVar(&cfg.dbMaxIdleConns, "db-max-idle-conns", envInt("DB_MAX_IDLE_CONNS", 25), "Maximum idle database connections")
 	flag.DurationVar(&cfg.dbConnMaxLifetime, "db-conn-max-lifetime", envDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute), "Maximum lifetime of a pooled database connection")
 	flag.DurationVar(&cfg.dbConnectTimeout, "db-connect-timeout", envDuration("DB_CONNECT_TIMEOUT", 10*time.Second), "How long to keep retrying the initial database ping")
+	flag.StringVar(&cfg.jetstreamDSN, "jetstream-dsn", envStr("JETSTREAM_DSN", ""), "NATS JetStream DSN (empty runs without a broker)")
 	flag.Parse()
 	return cfg
 }
