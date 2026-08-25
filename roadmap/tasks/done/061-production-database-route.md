@@ -1,11 +1,11 @@
 # 061 — Decide and implement the production database route
 
-**Status:** doing
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-25
 **Picked up by:** agent session (Zed)
 **Started:** 2026-08-25
-**Completed:**
+**Completed:** 2026-08-25
 
 ## Description
 
@@ -28,10 +28,52 @@ cannot see). Do not guess: if unanswered, log the blocker and stop.
 
 ## Acceptance Criteria
 
-- [ ] Decision recorded in PRD 008 §11 Q2 with reasoning
-- [ ] Implemented in `docker-swarm.yml` (coordinated with task 062)
-- [ ] Credentials handled as secrets, never committed
-- [ ] Dev and prod use the same driver, schema mechanism and connection code
+- [x] Decision recorded in PRD 008 §11 Q2 with reasoning
+- [x] Implemented in `docker-swarm.yml` (coordinated with task 062)
+- [x] Credentials handled as secrets, never committed
+- [x] Dev and prod use the same driver, schema mechanism and connection code
+
+## Progress Log
+
+- 2026-08-25 — Task created from PRD 008.
+- 2026-08-25 — Picked up and investigated. Blocked pending a human decision; evidence
+  recorded (no sibling repo has a swarm manifest, so no precedent existed to copy).
+- 2026-08-25 — **Decision received from the maintainer: `hej` runs its own database.**
+  Option 1 of the three. Unblocked.
+- 2026-08-25 — Implemented a `db` service in `docker-swarm.yml`: `mariadb:10.8`
+  (matching dev, so "works in dev" means something), database/user `hej`, credentials
+  from `${DB_PASSWORD}` / `${DB_ROOT_PASSWORD}` with no defaults so `stack deploy`
+  fails loudly rather than deploying something guessable.
+- 2026-08-25 — Root and application passwords are kept **distinct**. The API only ever
+  uses the `hej` user; a leak of the application credential should not also hand over
+  root on the server.
+- 2026-08-25 — The database is on a new **stack-private `internal` overlay network**
+  only — no `traefik` network, no published ports. Nothing outside the stack has any
+  business reaching it, and phpMyAdmin is deliberately not replicated here (task 066).
+- 2026-08-25 — The consequence that needed thinking about, not just configuring:
+  MariaDB's data lives in a **node-local volume**, so the task is pinned with
+  `node.labels.hej.storage == true`. Without a constraint Swarm may reschedule onto
+  another node and find an empty volume. For this service that is recoverable — every
+  table is a projection and rebuilds from the log — but it would mean a full replay at
+  the worst possible moment, and it is unrecoverable for the portrait bind mount on
+  the same node (task 062). A node label rather than `node.role == manager` so the
+  data node can be moved without editing the file.
+- 2026-08-25 — `update_config.order: stop-first` here too, and more strictly than for
+  the API: two MariaDB tasks briefly sharing one volume risks corruption, not just
+  contention.
+- 2026-08-25 — Added a `mariadb-admin ping` healthcheck. It goes green when the server
+  accepts connections, which is exactly what the API's retrying startup ping (task
+  050) is waiting for.
+- 2026-08-25 — Same driver, same schema mechanism, same connection code as dev: the
+  DSN differs only in host and credentials, and carries the same `parseTime` and
+  `multiStatements` flags (see `fix(051)`).
+- 2026-08-25 — ✅ All criteria complete. Validated by interpolating the variables and
+  parsing the YAML, asserting on the resolved values.
+- 2026-08-25 — Verification caveat: **Docker daemon not responding**, so no
+  `stack deploy` was attempted. The bootstrap steps this now requires (create the
+  `jetstream` overlay network if absent, label the storage node, create
+  `/srv/hej/blobs`) are documented in the file header but **unrehearsed**.
+- 2026-08-25 — Moving to done.
 
 ## Progress Log
 

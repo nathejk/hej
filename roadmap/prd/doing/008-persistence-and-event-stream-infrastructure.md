@@ -436,19 +436,20 @@ decision (§8), and this PRD provides whichever mechanism it settles on.
    projector and command idempotent under concurrent delivery, forever) are how
    projections quietly rot. The stale "would work across replicas" comment on
    `SESSION_SECRET` has been corrected.
-2. **Production database:** own MariaDB service in the stack, or a shared/managed
-   instance owned by the infra repo? (§8)
+2. ~~**Production database:**~~ *Answered 2026-08-25 (task 061): **`hej` runs its
+   own MariaDB** in the swarm stack — option 1. Implemented as a `db` service on a
+   stack-private `internal` overlay network, with a node-local volume and a
+   placement constraint pinning it to the storage node.*
+4. ~~**Portrait bytes: object store or mounted volume?**~~ *Answered 2026-08-25
+   (task 062): a **bind mount** at `/srv/hej/blobs`, so the bytes are visible on the
+   host for backup without going through a container. Consequence: the API task is
+   pinned to that node, because an unpinned reschedule would find an empty directory
+   and keep serving while every portrait was silently gone.*
 3. ~~**Which broker does `hej` connect to**~~ — *answered 2026-08-25 (task 053)*:
    the shared org broker on the external `jetstream` network, same as `hq`,
    `tilmelding` and `skan`, via `JETSTREAM_DSN`. `hej` runs no broker of its own.
    Still open in production: whether the swarm stack can reach that network, and
    whether credentials are needed (task 062).
-4. **Portrait bytes: object store or mounted volume?** §8 settles that the bytes
-   stay off the stream and that the reference goes on it; where they land is open.
-   An S3-compatible store is easier to back up and share between replicas; a volume
-   is one less component. Does the org already run object storage? **This PRD owns
-   the decision** (it is infrastructure); PRD 003 links here rather than deciding it
-   too.
 5. **Position telemetry — separate stream or documented carve-out?** §8 recommends a
    separate short-retention stream. **Owned by PRD 002**, which is in `doing/` and
    was written before this rule existed; it needs revisiting there.

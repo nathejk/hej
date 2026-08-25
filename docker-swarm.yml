@@ -8,10 +8,16 @@
 #
 # Usage:
 #   # one-time bootstrap on the swarm manager:
-#   docker network create --driver overlay traefik   # if not already present
+#   docker network create --driver overlay traefik    # if not already present
+#   docker network create --driver overlay jetstream  # if not already present
+#
+#   # the blob directory is a BIND MOUNT, so it must exist on the pinned node
+#   # (see the placement constraints below) before the first deploy:
+#   sudo install -d -m 700 -o 1000 -g 1000 /srv/hej/blobs
 #
 #   # deploy / upgrade (pin the tag CI produced, don't drift on :latest):
 #   export SESSION_SECRET="$(openssl rand -hex 32)"
+#   export DB_PASSWORD="$(openssl rand -hex 24)" DB_ROOT_PASSWORD="$(openssl rand -hex 24)"
 #   export VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... DATAFORSYNINGEN_TOKEN=...
 #   HEJ_VERSION=main.42 docker stack deploy -c docker-swarm.yml hej
 #
@@ -21,20 +27,23 @@
 # shell and deliberately have NO defaults: `${VAR:?msg}` makes `stack deploy`
 # fail loudly if one is missing. Never commit the values to this file.
 #
-# There is still no `db` service here, but the reason has changed and this is now
-# the gap that blocks a real deployment.
+# STATE (PRD 008, tasks 061/062). This stack is stateful, and the state is
+# **node-local**:
 #
-# As of PRD 008 (tasks 050-057) the API *does* have a persistent store: it opens a
-# pooled MariaDB connection from DB_DSN, projects read models from JetStream, and
-# writes portrait bytes to a content-addressed blob store. None of that is
-# configured below, so a task deployed from this file runs in its degraded mode:
-# no database, no broker, in-memory blobs, mock read models.
+#   * `db` keeps MariaDB's data directory in a named volume
+#   * `hej` keeps portrait bytes in a bind mount at /srv/hej/blobs
 #
-# Two decisions have to be made before this file is correct, both open in PRD 008
-# §11: whether production gets its own MariaDB service here or a shared/managed
-# instance owned by the infra repo (Q2, task 061), and whether the swarm can reach
-# the shared `jetstream` network (Q3, task 062). phpMyAdmin is dev-only and must not
-# be added here (task 066).
+# Neither is shared storage, so both services are pinned with a placement
+# constraint. Swarm will otherwise happily reschedule a task onto another node,
+# where it finds an empty volume or an empty directory and carries on as if the data
+# had never existed — a projection would silently rebuild from the log, which looks
+# like recovery, while every portrait would be gone for good. Portraits are the one
+# thing here that cannot be rebuilt (task 063 backs up exactly that directory).
+#
+# If this ever needs to survive losing a node, that is a move to real shared or
+# replicated storage, not a bigger replica count — see the note on `deploy.replicas`.
+#
+# phpMyAdmin is dev-only and must not be added here (task 066).
 
 version: "3.8"
 
@@ -63,8 +72,37 @@ services:
       # arg, so the same published image can be deployed with a different key.
       # Empty means the map shows a "missing API key" notice.
       DATAFORSYNINGEN_TOKEN: ${DATAFORSYNINGEN_TOKEN:-}
+      # MariaDB (task 061: hej runs its own). Reaches the `db` service below over
+      # the internal overlay network, so this credential never leaves the stack.
+      # multiStatements is required by some shared-go schemas; parseTime keeps
+      # DATETIME columns scanning into time.Time. See docker-compose.yml for the
+      # longer note on both, including the injection trade-off multiStatements
+      # carries.
+      DB_DSN: hej:${DB_PASSWORD:?set DB_PASSWORD, e.g. openssl rand -hex 24}@tcp(db:3306)/hej?parseTime=true&multiStatements=true
+      # The shared org broker (task 053), reached over the external `jetstream`
+      # overlay network. Same host and port the sibling services use, so there is
+      # one broker and one event log rather than a per-service island.
+      #
+      # Unreachable is survivable by design: reads come from SQL projections, so a
+      # broker outage costs fresh projections and writes, not availability.
+      JETSTREAM_DSN: ${JETSTREAM_DSN:-nats://jetstream:4222}
+      # Portrait bytes (task 057). A bind mount, so this path must exist on the
+      # pinned node before the first deploy — see the header. This is the only
+      # state here that cannot be rebuilt from the event log, and therefore the
+      # entire backup scope (task 063).
+      BLOB_PATH: /blobs
+    volumes:
+      # Bind mount rather than a named volume: chosen so the bytes are visible on
+      # the host for backup (task 063) without going through a container. The
+      # consequence is that this task is pinned to one node — see the placement
+      # constraint below.
+      - type: bind
+        source: /srv/hej/blobs
+        target: /blobs
     networks:
       - traefik
+      - internal
+      - jetstream
     # Traefik v3 with `providers.docker` reads top-level labels (NOT
     # deploy.labels). If the swarm's Traefik uses `providers.swarm`, move these
     # under deploy.labels instead.
@@ -124,6 +162,19 @@ services:
       # concurrent delivery and continuing to prove it for each new one — are how
       # projections quietly rot.
       replicas: 1
+      placement:
+        constraints:
+          # Pinned because this task's portrait directory is a node-local bind
+          # mount. Without this, Swarm may reschedule onto another node, find an
+          # empty /srv/hej/blobs, and serve happily with every portrait gone — the
+          # projections would rebuild from the log and hide the fact that anything
+          # was lost. Set `hej.storage=true` on the node that holds the data:
+          #
+          #   docker node update --label-add hej.storage=true <node>
+          #
+          # A label rather than `node.role == manager` so the data node can be
+          # moved without editing this file.
+          - node.labels.hej.storage == true
       update_config:
         # stop-first, not start-first: `start-first` boots the new task before
         # stopping the old one, which is exactly the two-instance window the
@@ -152,8 +203,88 @@ services:
         reservations:
           memory: 64M
 
+  # MariaDB (task 061: hej runs its own rather than sharing a managed instance).
+  # Mirrors the dev stack's image and database name so "works in dev" means
+  # something.
+  db:
+    image: mariadb:10.8
+    environment:
+      MARIADB_DATABASE: hej
+      MARIADB_USER: hej
+      MARIADB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD, e.g. openssl rand -hex 24}
+      # A root password is required by the image even though the API never uses
+      # root. Kept distinct from the application password: an application
+      # credential leak should not also hand over every other schema on the server.
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD, e.g. openssl rand -hex 24}
+    volumes:
+      - db-data:/var/lib/mysql
+    networks:
+      # Internal only. No traefik network, no published ports: nothing outside this
+      # stack should be able to reach the database, and the dev stack's phpMyAdmin
+      # is deliberately not replicated here (task 066).
+      - internal
+    labels:
+      traefik.enable: "false"
+    healthcheck:
+      # mariadb-admin ping succeeds as soon as the server accepts connections,
+      # which is what the API's own retrying ping is waiting for.
+      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-u", "root", "-p$$MARIADB_ROOT_PASSWORD"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      # One replica, and it must be one: this is a single MariaDB instance with a
+      # node-local volume, not a cluster. Two tasks would mean two divergent
+      # databases behind one service name.
+      replicas: 1
+      placement:
+        constraints:
+          # Same node as the API's blob directory, and for the same reason: a
+          # local volume does not follow a rescheduled task. Rescheduling here is
+          # less destructive than for portraits — projections rebuild from the log —
+          # but it would still mean an empty database and a full replay at the worst
+          # possible moment.
+          - node.labels.hej.storage == true
+      update_config:
+        # stop-first for the same reason as the API, more strictly: two MariaDB
+        # tasks briefly sharing one volume risks corruption, not just contention.
+        order: stop-first
+        parallelism: 1
+        delay: 5s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
 networks:
   # Owned by the org infra repo — never redefined here. Assumes a Traefik
   # reverse proxy is already running on this swarm.
   traefik:
     external: true
+  # The shared NATS JetStream overlay network. Also external and also not ours: the
+  # broker is one org-level service that every consumer attaches to (task 053). A
+  # per-service broker would mean events this service publishes are invisible to hq,
+  # which is how PRD 005's check-in goal would fail silently.
+  jetstream:
+    external: true
+  # Stack-private overlay for API-to-database traffic. Defined here rather than
+  # external because it belongs to this stack and nothing outside it has any business
+  # reaching the database.
+  internal:
+    driver: overlay
+
+volumes:
+  # MariaDB's data directory. A local volume, so it lives on whichever node the db
+  # task runs on — hence the placement constraint on that service.
+  #
+  # Deliberately NOT in the backup scope: every table in this database is a
+  # projection of the event log and rebuilds from it (PRD 008 §8). What must be
+  # backed up is the portrait bind mount, which cannot (task 063).
+  db-data:
