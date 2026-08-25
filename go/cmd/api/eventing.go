@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
+	"time"
 
 	"github.com/jrgensen/cqrs"
 	"github.com/jrgensen/cqrs/deadletter"
@@ -16,6 +18,7 @@ import (
 	"github.com/jrgensen/stream/xstream"
 	"github.com/nathejk/shared-go/messages"
 
+	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/vcs"
 )
 
@@ -42,13 +45,19 @@ const producerName = "hej-api"
 // Entity constructors take these interfaces and never a *sql.DB or a concrete
 // stream, which is what keeps a projection liftable to shared-go later (PRD 006).
 type eventing struct {
+	// mu guards the fields the background connector installs.
+	mu        sync.Mutex
 	stream    stream.Stream
 	publisher cqrs.Publisher
-	writer    *deadletter.Writer
-	reader    cqrs.Reader
 
-	// mux fans subjects out to the registered projectors. Nil when there is no
-	// broker.
+	writer *deadletter.Writer
+	reader cqrs.Reader
+
+	// holder is what handlers see. It exists so the publisher can arrive after
+	// handlers are wired (task 058) without re-wiring them.
+	holder *commands.PublisherHolder
+
+	// mux fans subjects out to the registered projectors. Nil until connected.
 	mux interface {
 		AddConsumer(...stream.Consumer)
 		Run(ctx context.Context) error
@@ -86,15 +95,22 @@ func openEventing(cfg config, db *sql.DB, logger *slog.Logger) (*eventing, error
 	ev := &eventing{
 		writer: writer,
 		reader: db,
+		holder: commands.NewPublisherHolder(),
 	}
 
 	if cfg.jetstreamDSN == "" {
 		return ev, ErrNoJetstreamDSN
 	}
 
+	return ev, nil
+}
+
+// connect establishes the broker connection, installs the publisher and returns
+// the mux to register projections on.
+func (ev *eventing) connect(cfg config, logger *slog.Logger) error {
 	js, err := jetstream.New(cfg.jetstreamDSN)
 	if err != nil {
-		return ev, fmt.Errorf("connect jetstream: %w", err)
+		return fmt.Errorf("connect jetstream: %w", err)
 	}
 
 	publisher, err := metatagger.New(js, messages.Metadata{
@@ -102,15 +118,71 @@ func openEventing(cfg config, db *sql.DB, logger *slog.Logger) (*eventing, error
 		Version:  vcs.Version(),
 	})
 	if err != nil {
-		return ev, fmt.Errorf("create publisher: %w", err)
+		_ = js.Close()
+		return fmt.Errorf("create publisher: %w", err)
 	}
 
+	ev.mu.Lock()
 	ev.stream = js
 	ev.publisher = publisher
 	ev.mux = xstream.NewMux(js)
+	ev.mu.Unlock()
+
+	// Handlers reach the publisher through the holder, so this is the moment writes
+	// start succeeding — no re-wiring needed.
+	ev.holder.Set(publisher)
 
 	logger.Info("jetstream connected", "producer", producerName)
-	return ev, nil
+	return nil
+}
+
+// connectInBackground keeps trying to reach the broker, with capped exponential
+// backoff, until it succeeds or ctx is cancelled.
+//
+// This is what makes "startup does not block on the broker" true in the case that
+// actually matters: not "the broker is missing forever" (that degrades fine) but
+// "the broker comes up thirty seconds after we do", which is the normal case when a
+// whole stack starts at once. Without the retry the API would run publish-less
+// until someone restarted it.
+//
+// onConnect runs once, after a successful connection, so the caller can register
+// projections and arm the dead-letter writer at the right moment.
+func (ev *eventing) connectInBackground(ctx context.Context, cfg config, logger *slog.Logger, onConnect func()) {
+	go func() {
+		const (
+			initialDelay = time.Second
+			maxDelay     = 30 * time.Second
+		)
+		delay := initialDelay
+
+		for attempt := 1; ; attempt++ {
+			if err := ev.connect(cfg, logger); err == nil {
+				if onConnect != nil {
+					onConnect()
+				}
+				return
+			} else if attempt == 1 {
+				// Log the first failure at warning level and the rest at debug: a
+				// broker that is down for an hour should not produce an hour of
+				// identical error lines that bury everything else.
+				logger.Warn("broker unreachable, retrying in the background", "err", err)
+			} else {
+				logger.Debug("broker still unreachable", "attempt", attempt, "err", err)
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(delay):
+			}
+			if delay < maxDelay {
+				delay *= 2
+				if delay > maxDelay {
+					delay = maxDelay
+				}
+			}
+		}
+	}()
 }
 
 // registerProjections wires the projectors onto the mux.
@@ -128,7 +200,14 @@ func openEventing(cfg config, db *sql.DB, logger *slog.Logger) (*eventing, error
 //
 // The set is empty today; PRD 006's person projection is the first member.
 func (ev *eventing) registerProjections(logger *slog.Logger, projections ...cqrs.Consumer) {
-	if ev == nil || ev.mux == nil {
+	if ev == nil {
+		return
+	}
+	ev.mu.Lock()
+	mux := ev.mux
+	ev.mu.Unlock()
+
+	if mux == nil {
 		if len(projections) > 0 {
 			logger.Warn("no broker: projections registered but will not receive events",
 				"count", len(projections))
@@ -140,7 +219,7 @@ func (ev *eventing) registerProjections(logger *slog.Logger, projections ...cqrs
 	for _, p := range projections {
 		consumers = append(consumers, p)
 	}
-	ev.mux.AddConsumer(consumers...)
+	mux.AddConsumer(consumers...)
 	logger.Info("projections registered", "count", len(projections))
 }
 
@@ -148,10 +227,16 @@ func (ev *eventing) registerProjections(logger *slog.Logger, projections ...cqrs
 // the subscriptions are established — it does not block — so the caller can go on
 // to serve HTTP.
 func (ev *eventing) run(ctx context.Context) error {
-	if ev == nil || ev.mux == nil {
+	if ev == nil {
 		return nil
 	}
-	return ev.mux.Run(ctx)
+	ev.mu.Lock()
+	mux := ev.mux
+	ev.mu.Unlock()
+	if mux == nil {
+		return nil
+	}
+	return mux.Run(ctx)
 }
 
 // arm switches the dead-letter writer from pass-through to capturing.
@@ -177,21 +262,26 @@ func (ev *eventing) deadletterCount() (int, error) {
 	return ev.writer.Count()
 }
 
-// publisherFor returns the publisher to hand to the write facade, or nil when
-// there is no broker. It exists so main does not have to nil-check ev inline: a
-// typed nil inside the interface would make commands.Available() report true and
-// then panic on use, which is exactly the bug this avoids.
-func publisherFor(ev *eventing) cqrs.Publisher {
-	if ev == nil || ev.publisher == nil {
-		return nil
+// publisherFor returns the holder to hand to the write facade. It is never nil, so
+// handlers work identically whether or not a broker has been reached yet — they see
+// ErrNoPublisher until one arrives.
+func publisherFor(ev *eventing) *commands.PublisherHolder {
+	if ev == nil {
+		return commands.NewPublisherHolder()
 	}
-	return ev.publisher
+	return ev.holder
 }
 
 // close releases the broker connection. The database pool is owned by run().
 func (ev *eventing) close() error {
-	if ev == nil || ev.stream == nil {
+	if ev == nil {
 		return nil
 	}
-	return ev.stream.Close()
+	ev.mu.Lock()
+	s := ev.stream
+	ev.mu.Unlock()
+	if s == nil {
+		return nil
+	}
+	return s.Close()
 }

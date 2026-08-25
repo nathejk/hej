@@ -21,7 +21,7 @@ const (
 // asymmetry PRD 008 §5 draws: reads survive a broker outage, writes must not
 // pretend to.
 func TestPublishWithoutPublisher(t *testing.T) {
-	c := New(nil)
+	c := New(NewPublisherHolder())
 
 	if c.Available() {
 		t.Fatal("want Available() == false with no publisher")
@@ -32,9 +32,55 @@ func TestPublishWithoutPublisher(t *testing.T) {
 	}
 }
 
+// A nil holder must behave like an empty one rather than panic: it is what a
+// handler ends up with when the service runs with no database at all.
+func TestPublishWithNilHolder(t *testing.T) {
+	c := New(nil)
+
+	if c.Available() {
+		t.Fatal("want Available() == false with a nil holder")
+	}
+	if err := c.Publish(cqrs.SubjectFromStr(testSubject), struct{}{}); !errors.Is(err, ErrNoPublisher) {
+		t.Fatalf("want ErrNoPublisher, got %v", err)
+	}
+}
+
+// The point of the holder: a publisher installed *after* handlers were wired must
+// start working without re-wiring. This is the broker-comes-up-late case that task
+// 058's background connect creates.
+func TestPublisherArrivingLate(t *testing.T) {
+	holder := NewPublisherHolder()
+	c := New(holder)
+
+	if err := c.Publish(cqrs.SubjectFromStr(testSubject), struct{}{}); !errors.Is(err, ErrNoPublisher) {
+		t.Fatalf("want ErrNoPublisher before connect, got %v", err)
+	}
+
+	pub := &cqrstest.Publisher{}
+	holder.Set(pub)
+
+	if !c.Available() {
+		t.Fatal("want Available() == true once a publisher is installed")
+	}
+	if err := c.Publish(cqrs.SubjectFromStr(testSubject), struct{}{}); err != nil {
+		t.Fatalf("Publish after late connect: %v", err)
+	}
+	if len(pub.Messages) != 1 {
+		t.Fatalf("want 1 message, got %d", len(pub.Messages))
+	}
+
+	// Clearing must return to refusing, not keep a stale publisher.
+	holder.Set(nil)
+	if c.Available() {
+		t.Fatal("want Available() == false after the holder is cleared")
+	}
+}
+
 func TestPublishSendsOneMessageOnTheGivenSubject(t *testing.T) {
 	pub := &cqrstest.Publisher{}
-	c := New(pub)
+	holder := NewPublisherHolder()
+	holder.Set(pub)
+	c := New(holder)
 
 	if !c.Available() {
 		t.Fatal("want Available() == true with a publisher")
@@ -59,7 +105,9 @@ func TestPublishSendsOneMessageOnTheGivenSubject(t *testing.T) {
 func TestPublishPropagatesPublisherError(t *testing.T) {
 	wantErr := errors.New("broker gone")
 	pub := &cqrstest.Publisher{Err: wantErr}
-	c := New(pub)
+	holder := NewPublisherHolder()
+	holder.Set(pub)
+	c := New(holder)
 
 	if err := c.Publish(cqrs.SubjectFromStr(testSubject), struct{}{}); !errors.Is(err, wantErr) {
 		t.Fatalf("want the publisher error, got %v", err)
@@ -70,7 +118,9 @@ func TestPublishPropagatesPublisherError(t *testing.T) {
 // a subscriber cannot distinguish that from one with no fields set.
 func TestPublishRejectsUnmarshallableBody(t *testing.T) {
 	pub := &cqrstest.Publisher{}
-	c := New(pub)
+	holder := NewPublisherHolder()
+	holder.Set(pub)
+	c := New(holder)
 
 	// Channels cannot be JSON-encoded.
 	err := c.Publish(cqrs.SubjectFromStr(testSubject), make(chan int))

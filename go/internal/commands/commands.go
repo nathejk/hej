@@ -32,19 +32,22 @@ var ErrNoPublisher = errors.New("no event publisher configured")
 
 // Commands is the write-side facade passed to handlers.
 type Commands struct {
-	// publisher is nil when the service runs without a broker.
-	publisher cqrs.Publisher
+	// holder carries the publisher. It is a holder rather than a publisher because
+	// the broker is connected in the background, so one may not exist yet when
+	// handlers are wired (PRD 008 §6, task 058).
+	holder *PublisherHolder
 }
 
-// New constructs the write-side facade. A nil publisher is allowed: the service
-// still starts and serves reads, and commands fail with ErrNoPublisher.
-func New(publisher cqrs.Publisher) Commands {
-	return Commands{publisher: publisher}
+// New constructs the write-side facade around a publisher holder. An empty or nil
+// holder is allowed: the service still starts and serves reads, and commands fail
+// with ErrNoPublisher until a publisher arrives.
+func New(holder *PublisherHolder) Commands {
+	return Commands{holder: holder}
 }
 
 // Available reports whether commands can currently be published. Handlers can use
 // it to fail fast with a clearer message than a mid-request error.
-func (c Commands) Available() bool { return c.publisher != nil }
+func (c Commands) Available() bool { return c.holder.Get() != nil }
 
 // Publish sends one event.
 //
@@ -55,15 +58,16 @@ func (c Commands) Available() bool { return c.publisher != nil }
 // vocabulary next to the command that uses it rather than centralised in a
 // registry that drifts from reality.
 func (c Commands) Publish(subject cqrs.Subject, body any) error {
-	if c.publisher == nil {
+	publisher := c.holder.Get()
+	if publisher == nil {
 		return ErrNoPublisher
 	}
-	msg := c.publisher.MessageFunc()(subject)
+	msg := publisher.MessageFunc()(subject)
 	if err := msg.SetBody(body); err != nil {
 		// Marshalling failed, so there is nothing worth publishing. Returning here
 		// rather than publishing an empty body matters: a subscriber cannot tell an
 		// event with a missing body from one that legitimately has no fields set.
 		return fmt.Errorf("set event body: %w", err)
 	}
-	return c.publisher.Publish(msg)
+	return publisher.Publish(msg)
 }

@@ -105,30 +105,35 @@ func run(logger *slog.Logger) error {
 	case errors.Is(err, ErrNoJetstreamDSN):
 		logger.Warn("no JETSTREAM_DSN configured: running without a broker, reads served from existing projections")
 	case err != nil:
-		logger.Error("event stream unavailable, continuing without it", "err", err)
+		logger.Error("event stream setup failed, continuing without it", "err", err)
 	default:
 		defer func() {
 			if cerr := ev.close(); cerr != nil {
 				logger.Error("closing event stream", "err", cerr)
 			}
 		}()
-	}
 
-	if ev != nil {
-		// Step 2 of the three-way registration described in eventing.go. Empty
-		// today; PRD 006's person projection is the first member.
-		ev.registerProjections(logger)
+		// Connect in the background so a broker that is slow or not yet up cannot
+		// delay the API. Projections are registered and the dead-letter writer armed
+		// from the callback, i.e. only once there is something to consume from.
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-		// Run subscribes the registered consumers and returns; it does not block.
-		if rerr := ev.run(context.Background()); rerr != nil {
-			// Not fatal, for the same reason the connection is not: a broker
-			// problem must not stop the API from serving reads during an event.
-			logger.Error("starting projections", "err", rerr)
-		} else {
+		ev.connectInBackground(ctx, cfg, logger, func() {
+			// Step 2 of the three-way registration described in eventing.go. Empty
+			// today; PRD 006's person projection is the first member.
+			ev.registerProjections(logger)
+
+			if rerr := ev.run(ctx); rerr != nil {
+				// Not fatal, for the same reason the connection is not: a broker
+				// problem must not stop the API serving reads during an event.
+				logger.Error("starting projections", "err", rerr)
+				return
+			}
 			// Only arm the dead-letter writer once projections are running, so
-			// schema creation above still fails loudly rather than being captured.
+			// schema creation still fails loudly rather than being captured.
 			ev.arm()
-		}
+		})
 	}
 
 	app := &application{

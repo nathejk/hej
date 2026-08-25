@@ -36,7 +36,7 @@ func newTestApp(t *testing.T) *application {
 		JsonApi:  bff.JsonApi{Logger: logger},
 		config:   config{env: "testing", webRoot: webRoot},
 		models:   data.NewModels(users.NewMockDirectory(), scans.NewMockSource()),
-		commands: commands.New(nil),
+		commands: commands.New(commands.NewPublisherHolder()),
 
 		pins:              pin.NewStore(),
 		sms:               sms.LogSender{Logger: logger},
