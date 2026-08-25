@@ -64,3 +64,27 @@ Endpoint changes need OpenAPI annotations per `.rules`.
   That is the one branch I would want to see exercised for real before trusting it in
   production.
 - 2026-08-25 — Moving to done.
+
+### Verified against real infrastructure (2026-08-25, later)
+
+- 2026-08-25 — Docker became available. The endpoint was exercised against a real
+  MariaDB and a real broker and reported both `up` correctly, with `status: available`.
+- 2026-08-25 — It also showed the payload was **lying about projections**. With the
+  person projection registered and running, the response still said
+  `"reason": "no projections registered yet"` — because I had hardcoded that string
+  when there genuinely were none, and never revisited it when one arrived.
+- 2026-08-25 — The distinction matters: "nothing registered" and "registered but
+  consuming no subjects" are different states, and only the second is expected right
+  now (tasks 072-075 add the subjects). Conflating them would have made a genuinely
+  broken wiring look identical to the intended interim state.
+- 2026-08-25 — Fixed by reporting `registered` and `subjects` counts from
+  `eventing.projectionStats()` and choosing the reason from them. Live output now:
+  `{registered: 1, subjects: 0, lag: "unknown", reason: "projections registered but
+  consuming no subjects yet"}`.
+- 2026-08-25 — Added a test for that state specifically. Note it was found by *reading
+  the live response*, not by a test — the original assertions checked `lag` and
+  `dead_letters` but never the explanatory string, which is precisely the field a human
+  reads during an incident.
+- 2026-08-25 — Still unverified: the **database-down → 503** branch. The database was up
+  throughout, and deliberately breaking it mid-run was not worth destabilising the
+  stack for while other tasks are in flight.

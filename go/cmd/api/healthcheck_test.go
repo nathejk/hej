@@ -78,7 +78,7 @@ func TestHealthcheckBrokerAbsentWhenNotConfigured(t *testing.T) {
 }
 
 // Projection lag is reported as "unknown" rather than a fabricated zero while no
-// projections exist. A false zero would read as "fully caught up".
+// projection consumes subjects. A false zero would read as "fully caught up".
 func TestHealthcheckReportsUnknownProjectionLag(t *testing.T) {
 	app := &application{config: config{env: "test"}}
 
@@ -89,5 +89,30 @@ func TestHealthcheckReportsUnknownProjectionLag(t *testing.T) {
 	}
 	if got := projections["dead_letters"]; got != float64(0) {
 		t.Fatalf("want 0 dead letters with no writer, got %v", got)
+	}
+	if got := projections["registered"]; got != float64(0) {
+		t.Fatalf("want 0 registered projections, got %v", got)
+	}
+	if got := projections["reason"]; got != "no projections registered" {
+		t.Fatalf("unexpected reason: %v", got)
+	}
+}
+
+// "Registered but consuming nothing" must be distinguishable from "nothing
+// registered". Conflating them made the healthcheck claim no projection existed while
+// one was wired up and running — caught by reading the live output, not by a test.
+func TestHealthcheckDistinguishesRegisteredFromConsuming(t *testing.T) {
+	app := &application{
+		config:   config{env: "test"},
+		eventing: &eventing{registered: 1, subjects: 0},
+	}
+
+	_, body := healthcheckBody(t, app)
+	projections := dependency(t, body, "projections")
+	if got := projections["registered"]; got != float64(1) {
+		t.Fatalf("want 1 registered projection, got %v", got)
+	}
+	if got := projections["reason"]; got != "projections registered but consuming no subjects yet" {
+		t.Fatalf("unexpected reason: %v", got)
 	}
 }

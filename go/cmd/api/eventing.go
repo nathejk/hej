@@ -57,6 +57,13 @@ type eventing struct {
 	// handlers are wired (task 058) without re-wiring them.
 	holder *commands.PublisherHolder
 
+	// registered counts the projections handed to the mux, and subjects counts how
+	// many subjects they collectively consume. Both are reported by the healthcheck:
+	// "1 projection registered, consuming 0 subjects" is a meaningfully different
+	// state from "none registered", and conflating them hid the difference.
+	registered int
+	subjects   int
+
 	// mux fans subjects out to the registered projectors. Nil until connected.
 	mux interface {
 		AddConsumer(...stream.Consumer)
@@ -216,11 +223,30 @@ func (ev *eventing) registerProjections(logger *slog.Logger, projections ...cqrs
 	}
 
 	consumers := make([]stream.Consumer, 0, len(projections))
+	subjects := 0
 	for _, p := range projections {
 		consumers = append(consumers, p)
+		subjects += len(p.Consumes())
 	}
 	mux.AddConsumer(consumers...)
-	logger.Info("projections registered", "count", len(projections))
+
+	ev.mu.Lock()
+	ev.registered = len(projections)
+	ev.subjects = subjects
+	ev.mu.Unlock()
+
+	logger.Info("projections registered", "count", len(projections), "subjects", subjects)
+}
+
+// projectionStats reports how many projections are registered and how many subjects
+// they consume between them.
+func (ev *eventing) projectionStats() (registered, subjects int) {
+	if ev == nil {
+		return 0, 0
+	}
+	ev.mu.Lock()
+	defer ev.mu.Unlock()
+	return ev.registered, ev.subjects
 }
 
 // run subscribes the registered consumers to the stream. It returns as soon as

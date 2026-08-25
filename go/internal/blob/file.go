@@ -19,6 +19,14 @@ type FileStore struct {
 
 // NewFileStore creates the root directory if needed and returns a store rooted
 // there.
+//
+// It also *enforces* the directory mode rather than only setting it at creation.
+// That distinction was found the hard way: when the root is a Docker volume or bind
+// mount, the directory already exists before this code runs, so `MkdirAll` is a
+// no-op and leaves whatever mode the container runtime chose — in practice 0755,
+// world-readable. Portraits of identifiable minors were therefore readable by any
+// process or user on the host that could reach the volume, despite the 0600 on each
+// file.
 func NewFileStore(root string) (*FileStore, error) {
 	if root == "" {
 		return nil, errors.New("blob: empty root directory")
@@ -29,6 +37,13 @@ func NewFileStore(root string) (*FileStore, error) {
 	// never noticed until it matters.
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, fmt.Errorf("blob: create root: %w", err)
+	}
+	// Failing here rather than warning is deliberate: if the directory cannot be made
+	// private, the right outcome is not to store minors' photographs in it. main
+	// treats this as "blob store unavailable" and falls back to memory, which loses
+	// persistence but does not quietly expose anything.
+	if err := os.Chmod(root, 0o700); err != nil {
+		return nil, fmt.Errorf("blob: secure root %s: %w", root, err)
 	}
 	return &FileStore{root: root}, nil
 }

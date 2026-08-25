@@ -83,3 +83,29 @@ id, team name, member status, `verifiedAt`, acknowledged number, portrait ref.
   acceptance test ("PRD 006's first projection persists and rebuilds"), so **PRD 008
   cannot be closed on this evidence alone**.
 - 2026-08-25 — Moving to done.
+
+### Verified against real infrastructure (2026-08-25, later)
+
+- 2026-08-25 — Docker became available, closing this task's main caveat: the schema had
+  never been executed. It **is** valid — `SHOW CREATE TABLE person` against MariaDB
+  10.8 matches the intent exactly, with no syntax errors and no surprising coercions.
+- 2026-08-25 — The three deliberate schema decisions survived the round trip, which is
+  what actually needed proving:
+  - `phoneParent varchar(99) DEFAULT NULL` — nullable, so "not applicable" stays
+    distinguishable from "missing"
+  - `KEY year_phone (year, phone)` — present and **not** unique, so the projector
+    cannot fail on two people sharing a number
+  - `deleted tinyint(1) NOT NULL DEFAULT 0` plus `updatedAt` with
+    `ON UPDATE current_timestamp()`
+- 2026-08-25 — Also confirmed the wiring end to end from the API logs: `database
+  connected` → `jetstream connected` → `projections registered {count: 1}` →
+  `projections running, dead-letter queue empty`. So `New` runs, the writer applies the
+  DDL, and the projection reaches the mux.
+- 2026-08-25 — **PRD 008's acceptance condition is now met.** Its done condition was
+  "PRD 006's first projection persists, survives a restart, and rebuilds from an empty
+  volume". Tested by destroying the `hej_db` volume outright and restarting: both
+  `person` and `deadletter` were recreated from nothing, with no manual steps and no
+  errors.
+- 2026-08-25 — One thing not exercised: the startup retry loop (task 050) never fired,
+  because the database was ready on the first ping. The retry remains untested in
+  anger — it would need the two containers started simultaneously from cold.

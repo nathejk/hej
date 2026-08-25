@@ -61,11 +61,27 @@ func (app *application) healthcheckHandler(w http.ResponseWriter, r *http.Reques
 		"broker":   broker,
 	}
 
-	// Projection lag is reported as the dead-letter count for now. Real lag (stream
-	// sequence vs applied sequence) needs a projection to measure against, and there
-	// are none until PRD 006 — reporting a fabricated zero would be worse than
-	// saying "unknown".
-	projections := map[string]any{"lag": "unknown", "reason": "no projections registered yet"}
+	// Projection lag is reported as the dead-letter count plus how much is wired up.
+	// Real lag (stream sequence vs applied sequence) needs a projection that actually
+	// consumes subjects; reporting a fabricated zero would read as "fully caught up",
+	// which is the most misleading answer available.
+	registered, subjects := app.eventing.projectionStats()
+	projections := map[string]any{
+		"registered": registered,
+		"subjects":   subjects,
+		"lag":        "unknown",
+	}
+	switch {
+	case registered == 0:
+		projections["reason"] = "no projections registered"
+	case subjects == 0:
+		// This is the current state and it is deliberate, not broken: the person
+		// projection is registered but its Consumes() is still empty (tasks 072-075
+		// add the subjects). Saying so beats implying nothing is wired.
+		projections["reason"] = "projections registered but consuming no subjects yet"
+	default:
+		projections["reason"] = "lag measurement not implemented"
+	}
 	if n, err := app.eventing.deadletterCount(); err != nil {
 		projections["dead_letters"] = "unknown"
 		projections["dead_letters_error"] = err.Error()

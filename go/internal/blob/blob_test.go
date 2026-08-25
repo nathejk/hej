@@ -181,6 +181,35 @@ func TestFileStorePermissions(t *testing.T) {
 	}
 }
 
+// The case a Docker volume actually produces: the root already exists, and it is
+// world-readable. MkdirAll is a no-op on an existing directory, so without an
+// explicit chmod the 0700 intent is silently lost — which is exactly what happened
+// with the /blobs volume mount (mode 0755) until this was fixed.
+func TestFileStoreTightensAnExistingWorldReadableRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "preexisting")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("pre-create root: %v", err)
+	}
+	// Confirm the premise, so this test cannot pass for the wrong reason.
+	if info, err := os.Stat(root); err != nil {
+		t.Fatalf("Stat: %v", err)
+	} else if info.Mode().Perm() != 0o755 {
+		t.Fatalf("setup failed: root is %o, wanted 0755", info.Mode().Perm())
+	}
+
+	if _, err := NewFileStore(root); err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Fatalf("an existing root must be tightened to 0700, got %o", perm)
+	}
+}
+
 // No temp files should survive a successful Put: a leaked .tmp-* in the bucket
 // would be an object nothing references and nothing cleans up.
 func TestFileStoreLeavesNoTempFiles(t *testing.T) {

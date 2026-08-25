@@ -56,3 +56,16 @@ do not document a procedure that copies production personal data onto laptops.
   has a habit of being mistaken for real and treated casually.
 - 2026-08-25 — **Blocked on:** PRD 006's first projection (for the event shapes), and
   a working Docker daemon.
+- 2026-08-25 (later) — **Both blockers are gone**, so this is ready to pick up:
+  - Docker is running again, and the dev stack comes up clean (db + api + the shared
+    `jetstream` broker), so "works from an empty volume" is now testable — and has in
+    fact already been demonstrated for the schema (see task 068).
+  - PRD 006's `person` projection exists. Its subjects are still empty until tasks
+    072-075, though, so the event *shapes* a seeder must publish are still not fixed.
+- 2026-08-25 (later) — Revised sequencing: this should follow **task 072** rather than
+  wait for all four projectors. Once spejder is projected there is one real subject and
+  one real body shape to seed against, which is enough to build the tool and prove the
+  round trip; the remaining populations are then additive.
+- 2026-08-25 (later) — Unchanged: the privacy constraint. Replaying the real stream onto
+  a developer machine stays out of the question, so the seeder publishes **synthetic**
+  events with obviously-fake names.

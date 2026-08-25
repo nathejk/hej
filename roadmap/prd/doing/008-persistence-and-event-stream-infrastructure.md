@@ -360,6 +360,19 @@ cycle (clarified 2026-08-25):
 So the two are approved together, 008 sequenced first, with a thin slice of 006
 riding along as the proof.
 
+**Acceptance condition met 2026-08-25.** Verified against the running dev stack once
+Docker became available: the `person` and `deadletter` tables are created by the
+projection's own DDL, survive an API restart, and are **rebuilt from an empty volume**
+(tested by destroying `hej_db` and restarting — no manual steps, no errors). The full
+chain logs cleanly: `database connected` → `jetstream connected` →
+`projections registered {count: 1}` → `projections running, dead-letter queue empty`.
+
+What that run also found, which is the argument for having done it before closing
+anything: two real bugs invisible to unit tests — a world-readable portrait directory
+(the volume mount pre-creates the mount point, so `MkdirAll`'s mode never applied) and
+a healthcheck that reported "no projections registered" while one was registered and
+running. Both fixed, both now covered by tests.
+
 ### Dependencies & risks
 
 - **Risk: this is the schedule.** It is larger than any of the four PRDs waiting on

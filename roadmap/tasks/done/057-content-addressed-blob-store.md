@@ -76,3 +76,27 @@ a filesystem-backed implementation for dev.
 - 2026-08-25 — Verification caveat: **Docker daemon not responding**, so the `/blobs`
   volume mount was validated by parsing the compose file, not by running it.
 - 2026-08-25 — Moving to done.
+
+### Verified against real infrastructure (2026-08-25, later)
+
+- 2026-08-25 — Docker became available, so the caveat above was closed — and it found
+  a **real bug**. `/blobs` in the running container was mode **0755, root-owned**, not
+  the 0700 this task claimed to enforce.
+- 2026-08-25 — Cause: `os.MkdirAll(root, 0o700)` only applies its mode when it
+  *creates* the directory. A Docker named volume or bind mount pre-creates the mount
+  point, so `MkdirAll` was a no-op and left the runtime's default 0755. Every portrait
+  would have been readable by any process or user able to reach the volume, despite
+  the correct 0600 on each file — and the unit test passed throughout, because it
+  always created the directory itself.
+- 2026-08-25 — Fixed by *enforcing* the mode with an explicit `os.Chmod` after
+  `MkdirAll`, and by **failing** rather than warning if it cannot be applied: if the
+  directory cannot be made private, the right outcome is not to store minors'
+  photographs in it. `main` treats that as "blob store unavailable" and falls back to
+  memory, which loses persistence but exposes nothing.
+- 2026-08-25 — Added `TestFileStoreTightensAnExistingWorldReadableRoot`, which
+  pre-creates the root at 0755 and asserts the premise before checking the fix — so it
+  cannot pass for the wrong reason. This is the case a volume mount actually produces
+  and the one the original test missed.
+- 2026-08-25 — Re-verified in the container: `stat` now reports `700 root /blobs`.
+- 2026-08-25 — Worth stating plainly: a unit test that constructs its own fixture
+  cannot see this class of bug. It needed the real deployment shape.
