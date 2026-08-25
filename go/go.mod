@@ -3,7 +3,11 @@ module nathejk.dk
 go 1.25.8
 
 require (
+	github.com/go-sql-driver/mysql v1.9.3
+	github.com/jrgensen/cqrs v0.1.0
+	github.com/jrgensen/stream v0.1.2
 	github.com/julienschmidt/httprouter v1.3.0
+	github.com/nathejk/shared-go v0.0.0-20260815075712-35c10e0f6942
 	golang.org/x/crypto v0.54.0
 )
 
@@ -29,7 +33,6 @@ require (
 	github.com/go-openapi/jsonreference v0.19.6 // indirect
 	github.com/go-openapi/spec v0.20.4 // indirect
 	github.com/go-openapi/swag v0.19.15 // indirect
-	github.com/go-sql-driver/mysql v1.9.3 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -39,12 +42,14 @@ require (
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
-	github.com/jrgensen/cqrs v0.1.0 // indirect
-	github.com/jrgensen/stream v0.1.2 // indirect
+	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
-	github.com/nathejk/shared-go v0.0.0-20260815075712-35c10e0f6942 // indirect
+	github.com/nats-io/nats.go v1.52.0 // indirect
+	github.com/nats-io/nkeys v0.4.15 // indirect
+	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/openai/openai-go/v3 v3.42.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	github.com/russross/blackfriday/v2 v2.0.1 // indirect
 	github.com/securego/gosec/v2 v2.28.0 // indirect
 	github.com/shurcooL/sanitized_anchor_name v1.0.0 // indirect

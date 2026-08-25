@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"log/slog"
@@ -43,6 +44,11 @@ type application struct {
 	// go-bff-layout). It is held here so shutdown can close it and the healthcheck
 	// can report on it.
 	db *sql.DB
+
+	// eventing is the CQRS seam (reader/writer/publisher + projection mux), or nil
+	// when there is no database. Held for the healthcheck and dead-letter
+	// reporting; handlers still go through models and commands.
+	eventing *eventing
 }
 
 // @title        Hej Nathejk API
@@ -87,12 +93,51 @@ func run(logger *slog.Logger) error {
 		}()
 	}
 
+	// The CQRS seam. Both degraded modes are deliberate and distinct:
+	//
+	//   no database — nothing to project into, so no eventing at all
+	//   no broker   — reader/writer still usable, so handlers keep serving
+	//                 whatever the last run projected (PRD 008 §5)
+	ev, err := openEventing(cfg, db, logger)
+	switch {
+	case errors.Is(err, ErrNoDSN):
+		logger.Warn("no database: skipping event stream wiring")
+	case errors.Is(err, ErrNoJetstreamDSN):
+		logger.Warn("no JETSTREAM_DSN configured: running without a broker, reads served from existing projections")
+	case err != nil:
+		logger.Error("event stream unavailable, continuing without it", "err", err)
+	default:
+		defer func() {
+			if cerr := ev.close(); cerr != nil {
+				logger.Error("closing event stream", "err", cerr)
+			}
+		}()
+	}
+
+	if ev != nil {
+		// Step 2 of the three-way registration described in eventing.go. Empty
+		// today; PRD 006's person projection is the first member.
+		ev.registerProjections(logger)
+
+		// Run subscribes the registered consumers and returns; it does not block.
+		if rerr := ev.run(context.Background()); rerr != nil {
+			// Not fatal, for the same reason the connection is not: a broker
+			// problem must not stop the API from serving reads during an event.
+			logger.Error("starting projections", "err", rerr)
+		} else {
+			// Only arm the dead-letter writer once projections are running, so
+			// schema creation above still fails loudly rather than being captured.
+			ev.arm()
+		}
+	}
+
 	app := &application{
 		JsonApi:  bff.JsonApi{Logger: logger},
 		config:   cfg,
 		models:   data.NewModels(users.NewMockDirectory(), scans.NewMockSource()),
 		commands: commands.New(),
 		db:       db,
+		eventing: ev,
 
 		pins: pin.NewStore(),
 		sms:  sms.LogSender{Logger: logger},
