@@ -8,6 +8,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/jrgensen/cqrs"
+
 	bff "nathejk.dk/cmd/api/app"
 	"nathejk.dk/internal/blob"
 	"nathejk.dk/internal/commands"
@@ -20,6 +22,7 @@ import (
 	"nathejk.dk/internal/sms"
 	"nathejk.dk/internal/users"
 	"nathejk.dk/internal/vcs"
+	"nathejk.dk/nathejk/table/person"
 )
 
 // application is the root dependency container for the API binary. It embeds
@@ -125,9 +128,24 @@ func run(logger *slog.Logger) error {
 		defer cancel()
 
 		ev.connectInBackground(ctx, cfg, logger, func() {
-			// Step 2 of the three-way registration described in eventing.go. Empty
-			// today; PRD 006's person projection is the first member.
-			ev.registerProjections(logger)
+			// Step 2 of the three-way registration described in eventing.go.
+			//
+			// The person projection (PRD 006) is constructed here rather than before
+			// the connect because it creates its table through the cqrs.Writer, and
+			// doing that only once there is a broker keeps a database-only run from
+			// creating tables nothing will ever fill.
+			var projections []cqrs.Consumer
+			persons, perr := person.New(ev.publisherOrNil(), ev.writer, ev.reader)
+			if perr != nil {
+				// Not fatal: the API still serves reads from the mock directory. A
+				// schema failure here is a bug to fix, not a reason to take the app
+				// down mid-event.
+				logger.Error("person projection unavailable", "err", perr)
+			} else {
+				projections = append(projections, persons)
+			}
+
+			ev.registerProjections(logger, projections...)
 
 			if rerr := ev.run(ctx); rerr != nil {
 				// Not fatal, for the same reason the connection is not: a broker

@@ -325,6 +325,21 @@ func (ev *eventing) close() error {
 	return s.Close()
 }
 
+// publisherOrNil returns the publisher, or nil if none is connected. Entity
+// constructors take a cqrs.Publisher, and handing them a typed nil would give them
+// something that looks live and panics on use.
+func (ev *eventing) publisherOrNil() cqrs.Publisher {
+	if ev == nil {
+		return nil
+	}
+	ev.mu.Lock()
+	defer ev.mu.Unlock()
+	if ev.publisher == nil {
+		return nil
+	}
+	return ev.publisher
+}
+
 // connected reports whether a broker connection is currently established.
 // Informational only — the healthcheck must never fail readiness on it (task 059).
 func (ev *eventing) connected() bool {
