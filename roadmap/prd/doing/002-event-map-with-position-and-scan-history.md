@@ -227,10 +227,14 @@ available both as map markers and as a chronological list.
   a telemetry stream. That is a material change in what the app does with a minor's
   location, and three things follow from it rather than being optional:
 
-  - **The consent copy must say so.** PRD 005's location pre-prompt was written for "we
-    use your location to show you on the map". It must now also say the track is recorded
-    and sent to the organizers, and roughly why. Asking for a permission under a narrower
-    description than the actual use is the thing to avoid here.
+  - **The consent copy must say so.** *Done 2026-08-26 (task 085):* the pre-prompt now says
+    the route is recorded and sent to the organizers, and links to a fuller `/privatliv`
+    page covering location, portrait, profile data and retention. Backed by an educational
+    talk in the start area — reinforcement rather than the consent mechanism, since the
+    permission is granted during onboarding, before anyone gets there. Note the talk reaches
+    participants, not parents: for a minor's location track kept without an end date,
+    `/privatliv` is the only account a parent will see. **Wording still needs maintainer
+    review.**
   - **Per-person subjects**, so that erasure is expressible later (§11.1).
   - **The track is only shown to its own team**, never across teams — the same race
     dynamic that keeps portraits from crossing populations in PRD 007.
@@ -498,7 +502,7 @@ These were written as "open" but had in fact shipped as tasks 040, 041, 042, 045
 - [ ] 082 — Client-side track recording into IndexedDB, survives reload/kill
 - [ ] 083 — Batched upload every 2 minutes when changed, with offline backlog
 - [ ] 084 — BFF `POST /api/track` publishing to the telemetry stream
-- [ ] 085 — Location consent copy updated to cover recording and upload
+- [x] 085 — Location consent copy updated to cover recording and upload (+ /privatliv page)
 - [ ] 086 — Post-race team track view (`GET /api/team/track` + rendering)
 
 **Tile caching — created 2026-08-26 from §11.2:**

@@ -27,6 +27,7 @@ const viewLoaders: Record<string, () => Promise<Component>> = {
   schedule: () => import('@/views/ScheduleView.vue'),
   sos: () => import('@/views/SosView.vue'),
   faq: () => import('@/views/FaqView.vue'),
+  privacy: () => import('@/views/PrivacyView.vue'),
 }
 
 const destinationRoutes: RouteRecordRaw[] = destinations.map((d) => ({

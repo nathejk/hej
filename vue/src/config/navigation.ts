@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import { Map, Users, BookOpen, Megaphone, CalendarDays, Siren, HelpCircle } from '@lucide/vue'
+import { Map, Users, BookOpen, Megaphone, CalendarDays, Siren, HelpCircle, ShieldCheck } from '@lucide/vue'
 import type { Role } from '@/stores/session.store'
 
 // A single declarative destination drives both routing and the bottom nav.
@@ -40,6 +40,13 @@ export const destinations: NavDestination[] = [
   // exactly what the least-privileged fallback exists to prevent.
   { name: 'sos', path: '/sos', label: 'SOS', icon: Siren, roles: ['samarit', 'guide', 'postmandskab'] },
   { name: 'faq', path: '/faq', label: 'FAQ', icon: HelpCircle },
+  // Data and privacy (PRD 002 §11.1, task 085). Listed in navigation, not only linked
+  // from the location pre-prompt: a page reachable *only* from a prompt becomes
+  // unreachable the moment someone dismisses it, and this is the page a participant or a
+  // parent goes looking for afterwards. It belongs on the profile page too once PRD 003
+  // lands — that is where the maintainer asked for it — but the profile does not exist
+  // yet, and the copy should not wait for it.
+  { name: 'privacy', path: '/privatliv', label: 'Data og privatliv', icon: ShieldCheck },
 ]
 
 // visibleDestinations returns the destinations the given role may see, in order.

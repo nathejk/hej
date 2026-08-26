@@ -161,9 +161,11 @@ onBeforeUnmount(() => {
       <PermissionPrompt
         v-if="showPrompt"
         title="Vis din placering"
-        message="Vi bruger din placering til at vise dig på kortet under løbet. Du kan altid slå det fra igen."
+        message="Appen viser dig på kortet og gemmer din rute, som sendes til arrangørerne. Du kan altid slå det fra igen."
         cta="Slå placering til"
         :icon="MapPin"
+        :more-to="{ name: 'privacy' }"
+        more-label="Hvad gemmer I?"
         @accept="accept"
         @dismiss="dismiss"
       />
