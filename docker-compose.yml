@@ -104,6 +104,11 @@ services:
       # API serves in a degraded state rather than not at all (PRD 008 §5).
       JETSTREAM_DSN: "nats://jetstream:4222"
       BLOB_PATH: "/blobs"
+      # Which event year the member directory reads (PRD 006 §11 Q7). Pinned in dev
+      # rather than left to the clock, because the dev broker's realistic dataset is
+      # 2026 and a machine whose clock says otherwise would show an empty directory
+      # and look like a broken projection.
+      EVENT_YEAR: "2026"
       # GO_BUILD_FLAGS: "-race"   # uncomment for the race detector
     volumes:
       - ./go:/app

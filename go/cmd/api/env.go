@@ -64,6 +64,17 @@ type config struct {
 	// survive a restart. The production choice between a mounted volume and object
 	// storage is still open (PRD 008 §11 Q4); this is the volume half.
 	blobPath string
+
+	// eventYear selects which event the directory reads. The person projection is
+	// keyed per year, so this decides whose phone numbers can log in.
+	//
+	// Configurable rather than derived from time.Now(), which is what `hq` does. The
+	// clock is wrong for this in two ordinary situations: a test event held outside its
+	// nominal year, and the days around new year, when the app would stop recognising
+	// every participant of an event that has not happened yet. Defaulting to the current
+	// year keeps the common case zero-config while leaving an override that does not
+	// require a code change (PRD 006 §11 Q7).
+	eventYear string
 }
 
 func loadConfig() config {
@@ -83,8 +94,17 @@ func loadConfig() config {
 	flag.DurationVar(&cfg.dbConnectTimeout, "db-connect-timeout", envDuration("DB_CONNECT_TIMEOUT", 10*time.Second), "How long to keep retrying the initial database ping")
 	flag.StringVar(&cfg.jetstreamDSN, "jetstream-dsn", envStr("JETSTREAM_DSN", ""), "NATS JetStream DSN (empty runs without a broker)")
 	flag.StringVar(&cfg.blobPath, "blob-path", envStr("BLOB_PATH", ""), "Directory for binary objects such as portraits (empty keeps them in memory)")
+	flag.StringVar(&cfg.eventYear, "event-year", envStr("EVENT_YEAR", currentYear()), "Event year the member directory reads (defaults to the current year)")
 	flag.Parse()
 	return cfg
+}
+
+// currentYear is the default event year.
+//
+// A function rather than a constant so the default follows the clock, and separated from
+// the flag definition so a test can reason about the fallback without reparsing flags.
+func currentYear() string {
+	return strconv.Itoa(time.Now().Year())
 }
 
 func envStr(key, fallback string) string {

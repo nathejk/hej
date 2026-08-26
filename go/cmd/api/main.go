@@ -112,6 +112,13 @@ func run(logger *slog.Logger) error {
 		}()
 	}
 
+	// The member directory. Starts on the mock and moves to the real projection once
+	// that exists, which happens in a background callback below — see
+	// switchableDirectory for why the indirection is unavoidable rather than merely
+	// convenient. A run with no database or no broker simply stays on the mock, which is
+	// the documented degraded mode (PRD 006 §6) and keeps `hej` runnable at every step.
+	directory := newSwitchableDirectory(users.NewMockDirectory())
+
 	// The CQRS seam. Both degraded modes are deliberate and distinct:
 	//
 	//   no database — nothing to project into, so no eventing at all
@@ -188,6 +195,23 @@ func run(logger *slog.Logger) error {
 			// schema creation still fails loudly rather than being captured.
 			ev.arm()
 
+			// Step 3 of the three-way registration: expose the projection's read API.
+			//
+			// Installed as soon as the projections are running, not after the replay
+			// finishes, and that is safe for a specific reason: nothing truncates the
+			// person table on boot. A restart therefore serves the *previous* run's rows
+			// while the replay re-upserts them, so there is no window in which the
+			// directory is empty and a member is wrongly told their number is unknown.
+			// This is PRD 008 §5's "reads served from existing projections" in practice.
+			//
+			// If a future change ever does truncate on boot, this must move behind a
+			// caught-up signal — the stream library has one (CatchupListener).
+			if persons != nil {
+				directory.set(newPersonDirectory(persons, cfg.eventYear, logger))
+				logger.Info("member directory now reading the person projection",
+					"year", cfg.eventYear)
+			}
+
 			// Report the count once, now: any rows still here after Reset() are
 			// from this run's replay, so this is the first honest reading.
 			if n, cerr := ev.deadletterCount(); cerr != nil {
@@ -222,7 +246,7 @@ func run(logger *slog.Logger) error {
 	app := &application{
 		JsonApi:  bff.JsonApi{Logger: logger},
 		config:   cfg,
-		models:   data.NewModels(users.NewMockDirectory(), scans.NewMockSource()),
+		models:   data.NewModels(directory, scans.NewMockSource()),
 		commands: commands.New(publisherFor(ev)),
 		db:       db,
 		eventing: ev,

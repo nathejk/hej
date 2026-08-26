@@ -375,7 +375,7 @@ Proposed tasks for `roadmap/tasks/open/` (created 2026-08-25 as tasks **067–07
 - [x] 074 — project crewmember + section
 - [x] 075 — project gøgler
 - [x] 076 — handle deletions and phone changes
-- [ ] 077 — swap `users.Directory` to the projection; keep the mock as test double
+- [x] 077 — swap `users.Directory` to the projection; keep the mock as test double
 - [ ] 078 — backfill/replay verification against real event data
 
 Task 068's schema slice doubles as PRD 008's acceptance test (see PRD 008 §8), which
@@ -445,9 +445,14 @@ is why the two were approved together with 008 first.
 6. **Does `hej` need the full member set or only the current year's
    participants?** Affects table size and the definition of "recognized number"
    for someone who attended last year but not this one.
-7. **Which year does the app read?** `hq` derives it from
-   `time.Now().Year()`; is that acceptable for `hej`, including in the days
-   around new year and for a test event?
+7. ~~**Which year does the app read?**~~ *Answered 2026-08-26 (task 077): **configurable,
+   defaulting to the current year.*** `EVENT_YEAR` in `cmd/api/env.go`, pinned to `2026`
+   in the dev compose file. Not derived from `time.Now()` the way `hq` does it, because
+   the clock is wrong for this in two ordinary situations: a test event held outside its
+   nominal year, and the days around new year, when the app would stop recognising every
+   participant of an event that has not happened yet. The year is fixed once at directory
+   construction rather than read per call, so every lookup within a request agrees about
+   which event is running.
 8. **Portrait reference:** does the directory carry it, or does the app own a
    separate table keyed by person id? The latter keeps app-owned data out of a
    projection that will be rebuilt from events — and a rebuild must not drop
