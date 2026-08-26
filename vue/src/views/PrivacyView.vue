@@ -10,10 +10,15 @@
 // legalese: a text nobody reads is not consent, and this is the only written account most
 // parents will see, since the start-area briefing reaches the participants and not them.
 import { MapPin, Camera, ShieldCheck, Clock } from '@lucide/vue'
+// TEMPORARY: layout diagnostic for task 036's bottom-spacing issue. Remove with the
+// component once resolved.
+import LayoutDebug from '@/components/LayoutDebug.vue'
 </script>
 
 <template>
   <div class="space-y-6 pb-4">
+    <LayoutDebug />
+
     <header>
       <h1 class="font-nathejk text-2xl text-slate-900">Data og privatliv</h1>
       <p class="mt-1 text-sm text-slate-500">
