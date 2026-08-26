@@ -68,6 +68,28 @@ PRD: 004. Depends on: 024, 025, 026, 027, 028, 029, 030, 031, 032.
 
 ## Progress Log
 
+- 2026-08-26 — **Maintainer clicked through the app and confirms all pages are working.**
+
+  Recorded rather than ticked, pending one detail: the first remaining criterion is
+  specifically about **standalone mode** (installed to the home screen), which is a different
+  display context from a browser tab — no browser chrome, `display-mode: standalone` media
+  queries active, and `env(safe-area-inset-*)` actually non-zero. A pass in a phone browser
+  does not exercise those. If it was installed to the home screen, this criterion is met.
+
+  Independently useful: the pass includes `/privatliv`, added the same day for task 085, so
+  that page is confirmed working too.
+
+  The other three remaining items are ones clicking through would not reveal, which is worth
+  stating so they do not look like nagging:
+
+  - **Safe-area insets** are invisible unless looked for — the symptom is the header sliding
+    under the notch or the bottom nav under the home indicator, and on a device where the
+    insets *are* applied everything simply looks right.
+  - **Swipe-down-to-dismiss** on the drawer needs a finger; Escape, backdrop and navigation
+    were already verified headlessly.
+  - **The service-worker update flow** needs two production builds, so it cannot happen
+    incidentally.
+
 - 2026-08-24 00:00 — Task created from PRD 004.
 - 2026-08-24 02:45 — Partial progress: **the bundle comparison is done**, so that
   criterion can be closed on sight. Built the pre-migration commit (98360fd) in a
