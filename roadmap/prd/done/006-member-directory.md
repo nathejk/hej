@@ -1,11 +1,11 @@
 # PRD 006 — Member directory for the app (person lookup by phone, app roles)
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed)
 **Created:** 2026-08-25
-**Last updated:** 2026-08-25
+**Last updated:** 2026-08-26
 **Approved:** 2026-08-25
-**Shipped:**
+**Shipped:** 2026-08-26
 **Target users:** indirectly all app users (spejder, bandit, gøgler, crew); directly the `hej` BFF
 
 <!--
@@ -348,14 +348,33 @@ stream instead.
 
 ## 9. Success Metrics
 
-- Every registered participant across all four populations can log in with their
+Status as of 2026-08-26, after tasks 067–080. Measured against a from-scratch replay of
+the real event stream, not estimated.
+
+- ⚠️ **Every registered participant across all four populations can log in with their
   registered number; zero "unrecognized number" support reports traceable to the
-  directory.
-- Login lookup is a single indexed query (verified by inspection, not timing).
-- Crew members see the pages matching their function, with zero unmapped-slug
-  fallbacks in the final pre-event data.
-- PRDs 002, 003 and 005 ship against real data, with no seeded fallbacks left in
-  production code.
+  directory.** Partially met, and the shortfall is now a deliberate product position
+  rather than a defect: **734 of 827 live 2026 participants (89%) can log in**. The other
+  93 have no phone number on file, and a participant is not required to bring a phone —
+  without one they have no number and no app (§11 Q11/Q13). No support report can be
+  traced to the directory *mechanism*: lookups are provably normalized on both sides by
+  one injected implementation, and 0 dead letters means no member was dropped by a
+  projection failure.
+- ✅ **Login lookup is a single indexed query.** Verified by `EXPLAIN`, not by timing:
+  the phone lookup is `type=ref key=year_phone rows=1`, and the session-id lookup is
+  `type=const key=PRIMARY rows=1`. No scans, no joins on the login path.
+- ⚠️ **Crew members see the pages matching their function, with zero unmapped-slug
+  fallbacks in the final pre-event data.** The measurable half is met — **0 unmapped-slug
+  warnings** on a full replay, after §11 Q2's finding forced the map to cover the whole
+  section tree. The other half is untestable today for a reason that matters more than
+  the metric: **no crew member has a function**. All 20 are generic `crew`, because no
+  2026 assignment points at a capability section. See §11 Q3.
+- ⏳ **PRDs 002, 003 and 005 ship against real data, with no seeded fallbacks left in
+  production code.** Not met, and not this PRD's to complete — those PRDs have not
+  shipped. What this PRD owed them is done: the directory is live on the login path and
+  `users.NewMockDirectory()` is retained only as a test double and as the no-database
+  degraded fallback (task 077), never as a data source. Removing the fallback is a
+  decision for whichever PRD last depends on it.
 
 ## 10. Rollout / Task Breakdown
 
@@ -382,6 +401,10 @@ Task 068's schema slice doubles as PRD 008's acceptance test (see PRD 008 §8), 
 is why the two were approved together with 008 first.
 
 ## 11. Open Questions
+
+Five remain open after the PRD shipped. They are recorded here rather than dropped
+because each one is a live decision someone still has to make — **Q3 blocks PRD 007** —
+and because the answered ones are the record of why the design is what it is.
 
 1. ~~**Phone collisions.**~~ *Answered 2026-08-25 (task 071): **disambiguate after
    PIN verification.*** The PIN proves control of the *number*, not which of its
