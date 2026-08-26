@@ -1,4 +1,4 @@
-# 087 — Cache map tiles within a 10 km radius, under a byte cap
+# 087 — Cache map tiles within an 8 km radius, with eviction
 
 **Status:** open
 **Priority:** medium
@@ -9,88 +9,119 @@
 
 ## Description
 
-PRD 002 §11.2, decided 2026-08-26: cache map tiles **within a 10 km radius of the current
-location**, on PRD 009's shared offline layer. Replaces the earlier placeholder task of
-"supply tile-set sizing numbers", since the sizing is now measured.
+PRD 002 §11.2. Cache map tiles **within an 8 km radius of the current location**, on
+PRD 009's shared offline layer, and **evict stale tiles** so the cache stays bounded.
+
+A corridor along the route was considered and ruled out: the race area is known, but **the
+route a given team will follow is not**, so there is no corridor to draw.
 
 ## Measured cost
 
-A 10 km radius is 314 km². Real tile sizes from the live service (256 px tiles, central
+An 8 km radius is 201 km². Real tile sizes from the live service (256 px tiles, central
 Zealand):
 
 | zoom ceiling | topo | + aerial (JPEG) | total |
 |---|---|---|---|
-| z12–15 | 64 MB | 11 MB | **74 MB** |
-| **z12–16 (recommended)** | 152 MB | 36 MB | **188 MB** |
-| z12–17 | 365 MB | 133 MB | 498 MB |
+| **z12–16 (recommended)** | 100 MB | 24 MB | **124 MB** |
+| z12–17 | 262 MB | 63 MB | 325 MB |
 
 Rule of thumb for any shape: **0.45 MB/km²** topo z12–16, plus **0.11 MB/km²** aerial.
 
 **Cap the topo at z16.** DTK25 is a 1:25.000 map; its tiles shrink with zoom (140 kB at
-z12 → 20 kB at z17) because they are the same cartography upsampled. z17 costs ~310 MB more
-and contains no additional map information. The aerial layer is 12.5 cm native imagery, so
-it can justify going deeper if wanted — but it is the layer nobody navigates by at night.
+z12 → 20 kB at z17) because they are the same cartography upsampled. z17 costs ~200 MB more
+and contains no additional map information.
 
-## Two things "within 10 km of current location" hides
+**Cache the aerial layer as JPEG** (see `fix(040)`) — as PNG it costs ~15× for the same
+imagery.
 
-Both need designing for, and neither is obvious from the phrasing.
+## Eviction: the part that needs care
 
-**1. A radius that follows the walker sweeps a capsule, not a circle.** The union of every
-10 km circle along a route is `2·R·L + πR²`:
+A radius that follows the walker sweeps a capsule, not a circle. The union of every 8 km
+circle along a route is `2·R·L + πR²`:
 
 | route walked | area | total at z12–16 |
 |---|---|---|
-| 0 km (static) | 314 km² | 188 MB |
-| 40 km | 1,114 km² | **626 MB** |
-| 60 km | 1,514 km² | **842 MB** |
+| 0 km (static) | 201 km² | 124 MB |
+| 20 km | 521 km² | 303 MB |
+| 40 km | 841 km² | 478 MB |
+| 60 km | 1,161 km² | 651 MB |
 
-842 MB would consume the ~1 GB iOS 16 ceiling on its own, before portraits, the directory,
-the app shell and the unshipped position track. So a radius alone is not a bound: this
-needs a **byte cap with LRU eviction**, evicting tiles furthest behind the walker first.
+So the radius is a *fetch* policy and the bound has to come from eviction under a byte cap.
 
-**2. A follow-me radius cannot deliver offline coverage.** Filling it needs network *where
-you already are* — but where there is coverage the cache is not needed, and in a dead spot
-it cannot be filled. Taken alone it is a cache-warming policy, not offline preparation.
+**The safety property that matters more than the policy: eviction is irreversible until
+coverage returns.** Discarding a tile in a dead spot means it cannot be re-fetched — the
+cache exists precisely because the network is not there. Consequences:
 
-So the useful shape is **two mechanisms**:
+- Never evict tiles near the current position, whatever the cap says.
+- Prefer evicting what is furthest behind the walker, then least recently used.
+- If a pre-cached region exists (see below), treat it as **protected** and only evict from
+  the opportunistic top-up. A two-tier cache — protected floor, evictable margin — is
+  simpler to reason about than one LRU pool where the guaranteed coverage can be evicted by
+  ordinary movement.
 
-- **Pre-race sync of a fixed region while the participant still has coverage** — this is
-  what actually delivers offline. A 10 km radius around the assembly point needs no route
-  knowledge (188 MB at z16).
-- **Opportunistic top-up within 10 km of the current position while online**, under the LRU
-  byte cap.
+Post-event cleanup is a separate need: reclaiming a few hundred MB once the race is over.
+PRD 009 §11.5 already asks whether a purge can be made reliable when the service worker may
+never run again; the honest answer is that it cannot be guaranteed, so purge on next launch
+rather than promising it happens at a time.
 
-If the route turns out to be known in advance, a corridor is far cheaper for better
-coverage: a **2 km corridor along a 40 km route is 173 km² / 108 MB**, about a sixth of the
-swept radius, and all of it is fetchable before the start. Worth revisiting with the
-maintainer if the route becomes available.
+## First, one decision that may remove most of this work
+
+**If the race area is known — and it is — pre-caching the whole area is strictly better than
+a moving radius**, and probably cheaper. The route being unknown is exactly why a fixed area
+works where a corridor does not.
+
+| known race area | total (z12–16) | vs. 8 km radius |
+|---|---|---|
+| 10×10 km | 66 MB | cheaper than the static radius |
+| 15×15 km | 138 MB | ≈ the static radius (124 MB) |
+| 20×20 km | 236 MB | cheaper than the radius swept over 20 km (303 MB) |
+| 30×30 km | 510 MB | dearer — the radius starts to pay |
+
+An 8 km radius is 201 km², about a **14×14 km square**. So if the race area is near that
+size, the radius and the area are nearly the same set of tiles, and the radius is machinery
+for no gain.
+
+Caching the whole area also wins on properties, not just bytes: complete coverage instead of
+a window, no eviction logic, deterministic contents, and **all of it fetchable before the
+start while the participant still has coverage**. A follow-me radius can only be filled
+where there is network — which is exactly where the cache is not needed.
+
+**So: get the race area's size before building the radius.** At ~20×20 km or smaller, cache
+the area and drop the radius. Larger, and the radius plus eviction earns its complexity. The
+two compose if needed: pre-cache the area, use the radius only beyond it.
 
 ## Acceptance Criteria
 
-- [ ] Tiles are cached for a 10 km radius, topo capped at z16
-- [ ] A **total byte cap** is enforced with LRU eviction, so a long route cannot grow the
-      cache without bound — verified by simulating a swept route, not just a static radius
-- [ ] A pre-race sync populates a fixed region while online, so the cache is useful in a
-      dead spot rather than only where it was never needed
-- [ ] Cached tiles are served when offline, and the map degrades with a clear notice for
-      areas outside the cache rather than showing blank grey
-- [ ] Registered as a dataset on PRD 009's shared layer, drawing on the global budget
-      rather than its own — tiles are the largest dataset, so keeping them outside the
-      budget would defeat it
-- [ ] Actual usage is reported through `navigator.storage.estimate()` in the readiness view
-      rather than estimated from tile counts
-- [ ] `QuotaExceededError` is handled: the cache stops growing and says so, rather than
+- [ ] Race area size established, and the choice between "whole area" and "8 km radius"
+      made on that basis and recorded here
+- [ ] Tiles cached for the chosen region, topo capped at z16, aerial as JPEG
+- [ ] A **total byte cap** is enforced with eviction, verified by simulating a swept route
+      rather than only a static radius
+- [ ] Eviction never removes tiles near the current position, and any pre-cached region is
+      protected from it
+- [ ] A pre-race sync populates the region while online, so the cache is useful in a dead
+      spot rather than only where it was never needed
+- [ ] Cached tiles are served when offline; areas outside the cache degrade with a clear
+      notice rather than blank grey
+- [ ] Registered as a dataset on PRD 009's shared layer, drawing on the global budget —
+      tiles are the largest dataset, so keeping them outside it would defeat the budget
+- [ ] Actual usage reported via `navigator.storage.estimate()` in the readiness view, not
+      estimated from tile counts
+- [ ] `QuotaExceededError` handled: the cache stops growing and says so, rather than
       failing writes silently
-- [ ] The aerial layer is cached as **JPEG** (see `fix(040)`) — caching it as PNG would
-      cost ~15× for the same imagery
+- [ ] Post-event purge implemented on next launch, with its unreliability documented rather
+      than papered over
 
 ## Depends on
 
 PRD 009's shared offline layer (still in `draft/`). If 009 has not landed when this is
-picked up, decide deliberately whether to wait or build map-local caching and migrate —
-the PRD warns that retrofitting is real work.
+picked up, decide deliberately whether to wait or build map-local caching and migrate — the
+PRD warns that retrofitting is real work.
 
 ## Progress Log
 
-- 2026-08-26 — Task created from PRD 002 §11.2, with sizing measured against the live
-  service rather than estimated.
+- 2026-08-26 — Task created from PRD 002 §11.2, sizing measured against the live service.
+- 2026-08-26 — Radius reduced 10 km → 8 km (124 MB static, down from 188 MB) and eviction
+  added as a requirement, per the maintainer. Corridor ruled out: the route a team takes is
+  not known even though the area is. Recorded the open question of whether a known race area
+  removes the need for a radius at all, since that decision could delete most of this task.

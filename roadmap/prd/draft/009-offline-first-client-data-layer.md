@@ -325,9 +325,29 @@ Proposed tasks for `roadmap/tasks/open/`:
    | 14 | 1.38 km | 99 kB | 11 kB |
    | 16 | 0.35 km | 32 kB | 9 kB |
 
-   Cumulative for a square race area, topo z12–16: **~0.46 MB/km²**, plus ~0.11 MB/km² for
-   the aerial layer. So 10×10 km ≈ **51 MB**, 20×20 km ≈ **184 MB**, 30×30 km ≈ **400 MB**
-   (topo only).
+   Cumulative for a square race area, topo z12–16: **~0.45 MB/km²**, plus ~0.11 MB/km² for
+   the aerial layer. So 10×10 km ≈ **66 MB**, 20×20 km ≈ **236 MB**, 30×30 km ≈ **510 MB**
+   (both layers).
+
+   **The tile scope decided in PRD 002 §11.2 is an 8 km radius of the current location** —
+   201 km², **124 MB** at z12–16 — with eviction, because a radius that follows a walker
+   sweeps a capsule and reaches 478 MB over a 40 km route. A corridor was ruled out: the
+   race area is known but a given team's route is not.
+
+   Two things that fall to this PRD from that:
+
+   - **Tiles are the largest dataset and the only one with a movement-driven growth rate.**
+     Every other registered dataset has a size set by the data; this one grows as the user
+     walks. The budget needs to express a *cap*, not just a size.
+   - **Eviction here is irreversible in the field.** Discarding a tile in a dead spot means
+     it cannot be re-fetched. So the eviction policy cannot be a single global LRU pool — a
+     protected floor around the user (and around any pre-cached region) has to survive
+     pressure from other datasets, or ordinary movement will evict the coverage the cache
+     exists to provide.
+
+   Still worth settling in PRD 002: whether the **whole known race area** should be
+   pre-cached instead, which at ≤20×20 km is both cheaper than the swept radius and
+   complete. That would remove the movement-driven growth from this budget entirely.
 
    Two findings that change the shape of the budget:
 
@@ -345,9 +365,11 @@ Proposed tasks for `roadmap/tasks/open/`:
    here. Tiles are probably the largest dataset, so leaving them out defeats the
    shared budget — but retrofitting is real work.
 
-   **Partially answered 2026-08-26:** tiles *are* to be cached, scoped to a specified race
-   area and possibly a restricted zoom range (maintainer). The presumption is now this
-   shared layer rather than something map-local, but the mechanism remains this PRD's call.
+   **Partially answered 2026-08-26:** tiles *are* to be cached, on this shared layer, scoped
+   to an **8 km radius of the current location** with eviction (PRD 002 §11.2). The
+   presumption is now this shared engine rather than something map-local. Task 087 carries
+   it, and flags one decision that could simplify it substantially — pre-caching the whole
+   known race area instead of a moving window.
 3. **Where does the readiness view live** — *decided*: the profile page (PRD 003
    §7). Listed only because 003 must actually carry it.
 4. **Is the member directory cached in full, or only the user's own team?** Full

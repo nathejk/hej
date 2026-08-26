@@ -503,7 +503,7 @@ These were written as "open" but had in fact shipped as tasks 040, 041, 042, 045
 
 **Tile caching — created 2026-08-26 from §11.2:**
 
-- [ ] 087 — Cache tiles within a 10 km radius, topo capped at z16, under an LRU byte cap
+- [ ] 087 — Cache tiles within an 8 km radius, topo capped at z16, with eviction
 
 ## 11. Open Questions
 
@@ -636,43 +636,67 @@ revisiting here before they are built.
    compete for the same per-origin quota with no agreed priority, and the OS decides
    what to evict. Retrofitting is real work; doing it later is more.
 
-   **Scope decided 2026-08-26: cache tiles within a 10 km radius of the current
-   location**, on the shared layer. Measured cost for a 314 km² circle, using real tile
-   sizes:
+   **Scope decided 2026-08-26, refined the same day: cache tiles within an 8 km radius of
+   the current location**, on the shared layer, with eviction of stale tiles. A corridor
+   along the route was considered and **ruled out: the race area is known, but the route a
+   given team will follow is not**, so there is no corridor to draw.
+
+   Measured cost for an 8 km radius (201 km²), using real tile sizes:
 
    | zoom ceiling | topo | + aerial (JPEG) | total |
    |---|---|---|---|
-   | z12–15 | 64 MB | 11 MB | **74 MB** |
-   | **z12–16** | 152 MB | 36 MB | **188 MB** |
-   | z12–17 | 365 MB | 133 MB | 498 MB |
+   | **z12–16 (recommended)** | 100 MB | 24 MB | **124 MB** |
+   | z12–17 | 262 MB | 63 MB | 325 MB |
 
-   **Recommend capping the topo at z16.** DTK25 is a 1:25.000 map and its tiles *shrink*
-   with zoom (140 kB at z12 → 20 kB at z17) because they are the same cartography
-   upsampled; z17 costs an extra ~310 MB and carries **no additional map information**. The
-   aerial layer is different — 12.5 cm native imagery — so it can justify going deeper if
-   anyone wants it.
+   For comparison, a 10 km radius is 188 MB at z12–16, so shrinking to 8 km saves ~34%.
 
-   **Two properties of "of the current location" that need designing for**, because the
-   phrase hides them:
+   **Cap the topo at z16.** DTK25 is a 1:25.000 map and its tiles *shrink* with zoom
+   (140 kB at z12 → 20 kB at z17) because they are the same cartography upsampled; z17
+   costs ~200 MB more and carries **no additional map information**. The aerial layer is
+   12.5 cm native imagery and could justify going deeper, but it is not the layer anyone
+   navigates by at night.
 
-   - **A radius that follows the walker sweeps a capsule, not a circle.** The union of every
-     10 km circle along a route is `2·R·L + πR²`: over a 40 km route that is 1,114 km² and
-     **626 MB** at z12–16; over 60 km, **842 MB**. That alone would consume the ~1 GB iOS
-     16 ceiling before portraits, the directory and the app shell. So the cache needs a
-     **byte cap with LRU eviction** (tiles behind the walker go first), not just a radius.
-   - **A follow-me radius cannot deliver offline coverage.** Filling it requires network
-     *where you already are* — but where there is coverage the cache is not needed, and in a
-     dead spot it cannot be filled. It is a cache-warming policy, not offline preparation.
+   **Eviction is required, not optional.** A radius that follows the walker sweeps a
+   capsule, not a circle — the union of every 8 km circle along a route is `2·R·L + πR²`:
 
-   What actually delivers the offline promise is a **pre-race sync of a fixed region while
-   the participant still has coverage**. A 10 km radius around the assembly point needs no
-   route knowledge and costs 188 MB. If the route is known, a corridor is far cheaper for
-   better coverage: a **2 km corridor along a 40 km route is 173 km² / 108 MB**, about a
-   sixth of the swept radius, and all of it is fetchable before the start.
+   | route walked | area | total at z12–16 |
+   |---|---|---|
+   | 0 km (static) | 201 km² | 124 MB |
+   | 20 km | 521 km² | 303 MB |
+   | 40 km | 841 km² | 478 MB |
+   | 60 km | 1,161 km² | 651 MB |
 
-   Recommended shape, pending the maintainer's call on whether the route is known in
-   advance: pre-cache a fixed region at first sync, then top up within 10 km of the current
-   position opportunistically while online, under an LRU byte cap.
+   So the radius is a *fetch* policy; the *bound* comes from a byte cap with eviction
+   ("clean out old cache", maintainer). One safety property matters more than the policy
+   itself: **eviction is irreversible until coverage returns.** Discarding a tile in a dead
+   spot means it cannot be re-fetched, so eviction must never reach tiles near the current
+   position, and should prefer what is furthest behind.
+
+   **A known race area probably makes the radius unnecessary — worth one decision before
+   building it.** The route being unknown is exactly why a *fixed area* works where a
+   corridor does not, and pre-caching the whole known area is strictly better than a moving
+   radius: complete coverage instead of a window, no eviction logic, deterministic contents,
+   and — decisively — all of it fetchable **before the start while the participant still
+   has coverage**. A follow-me radius can only be filled where there is network, which is
+   precisely where the cache is not needed.
+
+   And it is not more expensive. At z12–16, topo + aerial:
+
+   | known race area | total | vs. 8 km radius |
+   |---|---|---|
+   | 10×10 km | 66 MB | cheaper than the static radius |
+   | 15×15 km | 138 MB | ≈ the static radius (124 MB) |
+   | 20×20 km | 236 MB | cheaper than the radius swept over 20 km (303 MB) |
+   | 30×30 km | 510 MB | dearer; radius starts to pay |
+
+   An 8 km radius is 201 km² — about a **14×14 km square**. So if the race area is anywhere
+   near that size, the radius and the area are nearly the same set of tiles and the radius
+   is pure machinery.
+
+   **Outstanding input: the size of the race area.** At roughly 20×20 km or smaller,
+   recommend caching the whole area at first sync and dropping the radius entirely. Larger
+   than that, the radius plus eviction earns its complexity. The two also compose: pre-cache
+   the area if it fits, and use the radius only for opportunistic top-up beyond it.
 
    Rule of thumb for any shape: **0.45 MB/km²** for topo z12–16, plus **0.11 MB/km²** for
    aerial JPEG.
