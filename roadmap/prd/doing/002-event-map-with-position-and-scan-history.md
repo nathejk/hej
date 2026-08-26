@@ -613,23 +613,26 @@ revisiting here before they are built.
    `document.hidden` and on unmount, so today recording would also stop simply by
    navigating away from the map.
 
-   Consequences to accept or design around, rather than discover after an event:
+   **Accepted 2026-08-26 (maintainer): "fine with fragmented trace, just track as much as
+   possible."** So this is a known limitation to work within, not a blocker, and the goal is
+   coverage rather than continuity. Consequences:
 
    1. **The recorder must not live in the map view.** It belongs at app level — running
-      while signed in and permission is granted — so leaving `/maps` does not stop it.
-      Drawing the live marker and recording the track are different concerns that happen
-      to share a data source (task 082).
-   2. **"The team's entire track" (below) cannot be promised** as literally entire. What is
-      deliverable is "everywhere you were while the app was open". Task 086 should say so
-      in the UI rather than presenting gaps as if the member stood still.
+      while signed in and permission is granted — so leaving `/maps` does not stop it. This
+      is the single change that most increases coverage, since "as much as possible" means
+      recording whenever the app is foregrounded at all, not only on the map page. Drawing
+      the live marker and recording the track are different concerns that happen to share a
+      data source (task 082).
+   2. **"The team's entire track" cannot be promised** as literally entire. What is
+      deliverable is "everywhere you were while the app was open". Task 086 should say so in
+      the UI rather than presenting gaps as if the member stood still.
    3. **Concept validation still works** — the pipeline, the batching, the retention and
-      the post-race view can all be proven on fragmentary data. It is the completeness of
-      the route that is limited, not the ability to learn whether this is worth doing.
-   4. If a genuinely continuous track is a requirement rather than a nice-to-have, it needs
-      something other than a PWA for the recording half. Worth knowing before, not after.
+      the post-race view can all be proven on fragmentary data.
+   4. If a genuinely continuous track ever becomes a requirement, it needs something other
+      than a PWA for the recording half.
 
-   Verifying the exact background behaviour on a real device is task 082's first job, since
-   it determines what the rest is worth building.
+   Task 082 should still measure the real behaviour on a device, not to decide whether to
+   build it, but to know what coverage to expect and to catch anything worse than predicted.
 2. **Do map tiles move onto the shared offline layer?** PRD 009 introduces one
    sync engine, one storage budget and one readiness surface for everything
    cacheable. Tiles are probably the **largest** cached dataset, so leaving them
@@ -706,10 +709,47 @@ revisiting here before they are built.
    | 600 km² | 446 MB | 175 MB |
    | 700 km² | 517 MB | 202 MB |
 
-   So **plan for ~450 MB and expect ~325 MB** at z12–16. Even a year 60% larger than 2026
-   stays inside the ~1 GB iOS 16 floor with room for portraits, the directory and the app
-   shell — and capping the topo at z15 is the release valve, taking any plausible year under
-   200 MB.
+   So **plan for ~450 MB and expect ~325 MB** at z12–16, which fits inside the ~1 GB iOS 16
+   floor with room for portraits, the directory and the app shell.
+
+   **How it is downloaded matters as much as how big it is** *(maintainer, 2026-08-26: "we
+   should be aware if we start downloading several 100 MB on a mobile connection — at least
+   we should cache if relevant map is being browsed")*. 325 MB pulled silently over rural
+   mobile data is a real cost to a participant, possibly against a data cap, on a battery
+   that has to last the night.
+
+   **The platform will not help us decide.** The Network Information API
+   (`navigator.connection`) is **not available in Safari**, so on iOS — the primary platform
+   — the app cannot tell WiFi from cellular. "Download only on WiFi" is not implementable.
+   `navigator.onLine` distinguishes only online from offline. So the decision has to be the
+   user's, made with the size in front of them.
+
+   Three tiers, in increasing cost:
+
+   | tier | tiles | size | when |
+   |---|---|---|---|
+   | **cache while browsing** | — | **free** | always on |
+   | z12–14 (orientation) | 404 | 56 MB | candidate for automatic |
+   | z15 (+detail) | 1,026 | +73 MB | explicit opt-in |
+   | z16 (native scale) | 3,861 | +195 MB | explicit opt-in |
+
+   1. **Cache tiles as they are browsed.** Every tile fetched to draw the map is stored.
+      This costs *nothing extra* — the bytes are already being downloaded — and it means a
+      participant who looks at the map around the assembly area arrives with that area
+      cached without being asked. This is the "at least" and should be unconditional.
+   2. **z12–14 is 56 MB** and buys whole-area orientation at 5.4 m/px. Small enough to
+      consider downloading without ceremony, though still worth announcing.
+   3. **z15–z16 is the expensive 268 MB** and should be an explicit, user-initiated
+      download with the size stated and progress shown — ideally prompted before the event
+      while the participant is at home on WiFi (PRD 009 §11.7 already proposes a "prepare
+      for offline" push a few hours before the start; this is exactly what it is for).
+
+   **Correction to earlier advice in this section:** capping the topo at z15 was described as
+   a cheap release valve. It is not cheap. DTK25 is a 508 DPI 1:25.000 product, so its native
+   resolution is **1.25 m/px** — which is **z16** (1.34 m/px). z15 is half the linear
+   resolution of the source map, a real loss of detail rather than a free saving, and z17 is
+   2× oversampled, which is why its tiles shrink and carry no new information. **z16 is the
+   correct ceiling**; dropping to z15 is a fidelity decision, not a housekeeping one.
 
    Rule of thumb for other shapes, using race-area tile sizes: **0.73 MB/km²** at z12–16,
    **0.28 MB/km²** at z12–15 (both layers, aerial as JPEG).

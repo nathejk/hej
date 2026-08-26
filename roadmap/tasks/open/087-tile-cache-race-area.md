@@ -52,31 +52,66 @@ up to 43% larger there.
 
 Plan for **~450 MB** to leave headroom for a larger year (600 km² is 446 MB); expect ~325 MB.
 
-Per-zoom, z16 alone is 3,861 tiles and 195 MB — **60% of the total**. Two levers if budget
-pressure appears later:
+Per-zoom, z16 alone is 3,861 tiles and 195 MB — **60% of the total**.
 
-- Cap the topo at **z15** (which is the app's own `LOCATE_ZOOM`): whole area drops to 129 MB,
-  and any plausible race area stays under 200 MB.
-- Cap the **aerial** at z14 while keeping topo at z16: ~270 MB. Nobody navigates by aerial
-  imagery at night, so this is the cheaper thing to give up first.
-
-Neither is needed to fit. Start at z12–16.
+**Do not treat z15 as a cheap saving.** DTK25 is a 508 DPI 1:25.000 product, so its native
+resolution is **1.25 m/px**, which is **z16** (1.34 m/px). z15 is *half* the linear
+resolution of the source map — a real loss of detail. z17, by contrast, is 2× oversampled,
+which is why its tiles shrink and carry no new information. So **z16 is the correct ceiling**
+and dropping to z15 is a fidelity decision, not housekeeping.
 
 **Cache the aerial layer as JPEG** (see `fix(040)`) — as PNG it costs ~15× for the same
 imagery.
+
+## How it downloads matters as much as how big it is
+
+Maintainer, 2026-08-26: *"we should be aware if we start downloading several 100 MB on a
+mobile connection — at least we should cache if relevant map is being browsed."* 325 MB
+pulled silently over rural mobile data is a real cost to a participant, possibly against a
+data cap, on a battery that has to last the night.
+
+**The platform will not help decide.** The Network Information API (`navigator.connection`)
+is **not available in Safari**, so on iOS — the primary platform — the app cannot tell WiFi
+from cellular. "Download only on WiFi" is not implementable; `navigator.onLine` distinguishes
+only online from offline. The decision therefore has to be the user's, made with the size in
+front of them.
+
+Three tiers:
+
+| tier | tiles | size | when |
+|---|---|---|---|
+| **cache while browsing** | — | **free** | always on, unconditional |
+| z12–14 (orientation, 5.4 m/px) | 404 | 56 MB | candidate for automatic |
+| z15 (+detail) | 1,026 | +73 MB | explicit opt-in |
+| z16 (native scale) | 3,861 | +195 MB | explicit opt-in |
+
+**Cache-while-browsing is the important one and the cheapest to build.** Every tile fetched
+to draw the map gets stored; the bytes are already being downloaded, so it costs nothing
+extra. A participant who looks at the map around the assembly area arrives with that area
+cached without being asked. Build this first — it delivers most of the practical benefit
+before any bulk download exists.
+
+The expensive 268 MB of z15–z16 should be user-initiated, with the size stated and progress
+shown, and ideally prompted while the participant is at home on WiFi. PRD 009 §11.7 already
+proposes a "prepare for offline" push a few hours before the start; this is what it is for.
 
 **Do not cache z17.** DTK25 is a 1:25.000 map; its tiles are the same cartography upsampled
 past its design scale, so z17 adds bytes and no map information.
 
 ## Acceptance Criteria
 
-- [ ] Tiles cached for the area supplied by task 088, topo z12–16, aerial as JPEG
-- [ ] Pre-cached during the first sync, while the participant has coverage — the cache must
-      be useful in a dead spot, not only where it was never needed
-- [ ] Progress is visible during the sync: 5,291 tiles over rural mobile data is minutes,
-      not seconds, and a silent multi-minute download is indistinguishable from a hang
-- [ ] Resumable: a sync interrupted at 60% continues rather than restarting
-- [ ] Cached tiles are served when offline; areas outside the race area degrade with a clear
+- [ ] **Tiles are cached as they are browsed**, unconditionally and with no bulk download —
+      this alone must give useful offline coverage for wherever the user has looked
+- [ ] Bulk download of the race area (from task 088), topo z12–16, aerial as JPEG
+- [ ] The bulk download is **user-initiated, with the size stated before it starts** — not
+      triggered silently, since on iOS the app cannot tell WiFi from cellular
+- [ ] Progress is visible: 5,291 tiles over rural mobile data is minutes, not seconds, and a
+      silent multi-minute download is indistinguishable from a hang
+- [ ] The download is **resumable**: interrupted at 60% it continues rather than restarting
+- [ ] The download can be **cancelled**, and cancelling keeps what has already been fetched
+- [ ] Zoom tiers are separable, so z12–14 (56 MB) can be offered independently of z15–16
+      (268 MB)
+- [ ] Cached tiles are served when offline; areas outside the cache degrade with a clear
       notice rather than blank grey
 - [ ] Registered as a dataset on PRD 009's shared layer, drawing on the global budget —
       tiles are the largest dataset, so keeping them outside it would defeat the budget
@@ -114,3 +149,9 @@ re-fetched.
   problem, the incomplete-coverage problem, and the "can only be filled where it is not
   needed" problem together. Also re-measured tile sizes inside the actual race area rather
   than reusing the rural sample, which turned out to matter: +43% at z15.
+- 2026-08-26 — Download strategy added as the task's centre of gravity, per the maintainer's
+  concern about pulling several hundred MB over a mobile connection. Cache-while-browsing is
+  unconditional and free; the bulk download is user-initiated with the size shown, because
+  `navigator.connection` is unavailable in Safari so the app cannot detect WiFi on iOS.
+  Also corrected earlier advice in this file: z15 is *not* a cheap saving — z16 is DTK25's
+  native 1.25 m/px scale, so z15 halves the source map's resolution.

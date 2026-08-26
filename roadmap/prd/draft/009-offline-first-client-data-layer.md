@@ -357,8 +357,35 @@ Proposed tasks for `roadmap/tasks/open/`:
      irreversible in the field**, since a tile discarded in a dead spot cannot be re-fetched
      — are recorded in PRD 002 §11.2 and task 087.
 
-   Note z16 alone is ~60% of the total, so capping the topo at z15 is the release valve: it
-   takes any plausible race area under 200 MB.
+   Note z16 alone is ~60% of the total. It is **not** a candidate for trimming: DTK25 is a
+   508 DPI 1:25.000 product whose native resolution is 1.25 m/px, which is z16 (1.34 m/px),
+   so z15 halves the source map's resolution. z17 is 2× oversampled and carries no new
+   information, which is why its tiles shrink.
+
+   **A third thing this PRD now owns: how a large dataset is downloaded, not just how big it
+   is.** Maintainer, 2026-08-26: *"we should be aware if we start downloading several 100 MB
+   on a mobile connection — at least we should cache if relevant map is being browsed."*
+
+   That is a general requirement for this layer, not a tile-specific one — portraits will
+   raise it too. Three parts:
+
+   - **The platform cannot tell us the connection type.** `navigator.connection` is not
+     available in Safari, so on iOS the app cannot distinguish WiFi from cellular.
+     "Sync only on WiFi" is not implementable, and `navigator.onLine` only says online or
+     offline. So the sync engine cannot make this decision on the user's behalf — the size
+     has to be shown and the choice left to them. That is a constraint on §6's sync UX, and
+     it makes §11.6's "how prominently should a skipped first sync be re-surfaced?" more
+     important, since skipping will be a reasonable thing for a user on cellular to do.
+   - **Opportunistic caching should be unconditional.** Anything fetched to display should be
+     stored on the way past. It costs nothing extra and it means a user who browses before the
+     event arrives partly prepared without having agreed to anything. For tiles this is the
+     "at least" the maintainer asked for.
+   - **Datasets should be separable into tiers**, so a cheap tier can be automatic and an
+     expensive one opt-in. Tiles divide naturally by zoom: z12–14 is 56 MB, z15–z16 is
+     268 MB.
+
+   §11.7's proposed "prepare for offline" push a few hours before the start is the right
+   vehicle for the expensive tier — it catches people at home, on WiFi, before it matters.
 
    Two findings that change the shape of the budget:
 

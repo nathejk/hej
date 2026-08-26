@@ -58,17 +58,23 @@ for web apps on any platform. Two apparent escape routes that are not:
   workers have no Geolocation API. Dead end even on Android.
 
 So the realistic deliverable is a track covering **everywhere the member was while the app
-was open**, not a continuous route. That is enough to validate the concept and the whole
-pipeline; it is not enough to call it "the entire track" (see task 086).
+was open**, not a continuous route.
 
-### Consequence for where this code lives
+**Accepted 2026-08-26 (maintainer): "fine with fragmented trace, just track as much as
+possible."** So the goal is coverage, not continuity — which makes the device check below a
+measurement rather than a go/no-go, and makes the next section the highest-value part of this
+task.
+
+### Consequence for where this code lives — the highest-value part of this task
 
 `MapsView.vue` currently calls `location.stopWatch()` on `document.hidden` and on unmount.
 That is correct for a map marker and wrong for a track recorder: as it stands, recording
 would stop merely by navigating away from `/maps`.
 
 **The recorder belongs at app level** — running while signed in and permission is granted —
-not in the map view. Drawing the live marker and recording the track are separate concerns
+not in the map view. Given the goal is "as much as possible", this single change is what most
+increases coverage: it turns "recorded while looking at the map" into "recorded whenever the
+app is open at all". Drawing the live marker and recording the track are separate concerns
 that happen to share a data source. Keep the map's visibility-suspend behaviour for the
 marker; do not let it govern the track.
 
@@ -80,9 +86,10 @@ so there is no reason to be clever about compaction.
 
 ## Acceptance Criteria
 
-- [ ] **Verified on a real device**: what happens to recording when the app is
-      backgrounded, when the screen locks, and when the user switches apps. Result recorded
-      here before the rest is built
+- [ ] **Measured on a real device**: what happens to recording when the app is backgrounded,
+      when the screen locks, and when the user switches apps. Recorded here — not as a
+      go/no-go (fragmented is accepted) but so the expected coverage is known and anything
+      worse than predicted is caught
 - [ ] Positions are appended to IndexedDB as they arrive, while permission is granted
 - [ ] Recording is **not** tied to the map view's lifecycle — navigating away from `/maps`
       does not stop it

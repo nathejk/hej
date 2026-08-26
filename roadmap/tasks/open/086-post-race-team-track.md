@@ -37,16 +37,20 @@ response or client-side before rendering, and record which.
 ## The track will have gaps, and the UI must not lie about them
 
 A web app cannot record while backgrounded (task 082 — no background geolocation on any
-platform, and Screen Wake Lock is released when the document goes inactive). So the
-recorded track covers **everywhere the member was while the app was open**, not a
-continuous route. On a night hike with the phone in a pocket, that means gaps — possibly
-large ones.
+platform, and Screen Wake Lock is released when the document goes inactive). Fragmented
+tracks are **accepted** (maintainer, 2026-08-26), so the recorded track covers everywhere the
+member was while the app was open — on a night hike with the phone in a pocket, that means
+gaps, possibly large ones.
 
-This matters for this view specifically, because the obvious rendering is wrong: joining
-two points either side of a two-hour gap draws a straight line through terrain the member
-never walked, and it looks authoritative. Options: break the polyline where the time delta
-exceeds some multiple of the sampling interval, render gaps distinctly, or state the
-coverage plainly. Whatever is chosen, do not present a gap as if it were a route.
+Accepting the gaps does not mean rendering them carelessly, and this view is where it shows.
+The obvious rendering is wrong: joining two points either side of a two-hour gap draws a
+straight line through terrain the member never walked, and it looks authoritative. Options:
+break the polyline where the time delta exceeds some multiple of the sampling interval, render
+gaps distinctly, or state the coverage plainly. Whatever is chosen, do not present a gap as if
+it were a route.
+
+The PRD's phrase "the team's entire track" cannot be delivered literally; what is deliverable
+is honest coverage of when the app was open.
 
 The PRD's phrase "the team's entire track" cannot be delivered literally; what is
 deliverable is honest coverage of when the app was open.
