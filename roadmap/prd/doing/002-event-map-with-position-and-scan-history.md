@@ -186,6 +186,29 @@ available both as map markers and as a chronological list.
       refresh action; no aggressive polling.
 - [ ] All map UI copy is Danish, consistent with the rest of the app.
 
+#### Position track (added 2026-08-26, §11.1)
+
+- [ ] While location permission is granted, the app records the user's position into
+      **local persistent storage** as it is collected, independently of connectivity.
+- [ ] The recorded track survives a page reload, the app being backgrounded, and the app
+      being killed — an unshipped track is the one thing here that cannot be recovered
+      from the server, so it must not live only in memory.
+- [ ] Every **2 minutes**, and **only when the track has new points**, the pending points
+      are uploaded in one batch.
+- [ ] Upload failure is not data loss: points stay pending and are retried on the next
+      interval. A member who is offline for hours ships the backlog when they reconnect.
+- [ ] Points already accepted by the server are not uploaded again, and a retried batch
+      does not duplicate points — each point is identified by (person, timestamp) so
+      duplicates are detectable rather than merely unlikely.
+- [ ] The BFF accepts a batch from the signed-in user, resolves the person from the
+      session (never from the request body), and **publishes** it to the telemetry
+      stream. It writes no SQL.
+- [ ] Subjects are addressable **per person**, so a retention or erasure policy can be
+      applied to one individual later.
+- [ ] A team can see its **own** whole track after the race, and no other team's.
+- [ ] The location consent copy states that the track is recorded and sent to the
+      organizers (see Non-Functional → Privacy).
+
 ### Non-Functional
 
 - **Performance:** first meaningful map paint under 2s on a 4G connection; the
@@ -198,13 +221,27 @@ available both as map markers and as a chronological list.
   acknowledged as not fully accessible, so the list is the accessible equivalent.
 - **Night use:** avoid pure-white control chrome; markers must be legible on both
   topo and aerial backgrounds.
-- **Privacy:** the user's position is not transmitted by the features this PRD
-  ships — it is read locally to draw the marker. If §11.1 settles on a telemetry
-  stream, transmission arrives with that later work, not here.
+- **Privacy:** ~~the user's position is not transmitted by the features this PRD
+  ships~~ **— superseded 2026-08-26 (§11.1).** The position *is* now transmitted: recorded
+  locally and uploaded every 2 minutes when it has changed, then retained indefinitely on
+  a telemetry stream. That is a material change in what the app does with a minor's
+  location, and three things follow from it rather than being optional:
+
+  - **The consent copy must say so.** PRD 005's location pre-prompt was written for "we
+    use your location to show you on the map". It must now also say the track is recorded
+    and sent to the organizers, and roughly why. Asking for a permission under a narrower
+    description than the actual use is the thing to avoid here.
+  - **Per-person subjects**, so that erasure is expressible later (§11.1).
+  - **The track is only shown to its own team**, never across teams — the same race
+    dynamic that keeps portraits from crossing populations in PRD 007.
 - **Security:** the Dataforsyningen API token must not be committed to the
   frontend source (see Technical Considerations).
 - **Data economy:** aerial tiles are heavy; do not preload layers the user has
-  not selected.
+  not selected. The aerial layer is requested as JPEG rather than PNG for this reason —
+  measured at ~9–14 kB/tile against ~137–154 kB as PNG.
+- **Battery vs. fidelity:** the track's sampling interval is a battery decision as much
+  as a data one, over a 12-hour night in which the phone is also a torch and a comms
+  device. Must be measured on a real device, not assumed (§11.1).
 
 ## 7. UX / UI Notes
 
@@ -330,13 +367,37 @@ Proposal: add an optional `meta: { fullBleed: true }` on the route and have
   - `GET /api/config` — **already shipped**, and the delivery mechanism for the
     Dataforsyningen token plus any other runtime frontend config. This PRD documents
     it rather than introducing it; no `/api/map/config` is added.
-- **Data / storage:** no *domain* persistence owned by this feature. If §11.1
-  settles on a telemetry stream, the position track lands later as a projection of
-  that stream (PRD 008 §8), not as a direct write. Registration
+  - `POST /api/track` — accepts one batch of position points from the signed-in user and
+    publishes it to the telemetry stream. The person is resolved from the **session**,
+    never from the body, so a member cannot report a track as somebody else. `202` on
+    accept, `401` unauthenticated, `413`/`400` on an oversized or malformed batch. Rate
+    limited: a 2-minute cadence needs nothing like the login limiter's headroom, and an
+    unbounded ingest endpoint is the one place a client bug becomes a broker problem.
+  - `GET /api/team/track` — the signed-in user's **own team's** track, for the post-race
+    view. `200` with the team's points, `401` unauthenticated, `200` empty when the user
+    has no team (consistent with `GET /api/patrol/scans`).
+- **Data / storage:** no *domain* persistence owned by this feature. **Position track
+  (decided §11.1, 2026-08-26):** the BFF publishes batches to a telemetry stream that is a
+  sibling of `NATHEJK` — not a direct write, and deliberately not a projection into SQL.
+  The post-race team view reads the stream back by subject filter on demand, because one
+  team-race is ~26,000 points and projecting millions of points into MariaDB to serve a
+  view used once per team after the race is the more expensive option. Subjects are keyed
+  per person so erasure stays expressible.
+
+  The telemetry stream itself must exist on the broker before anything can publish to it.
+  `hej` does not create streams — nothing in the repo calls the stream library's `Create`,
+  and the `NATHEJK` stream is owned by the `nathejk` repo, which owns the broker. So the
+  new stream is a **cross-repo prerequisite**, not something this PRD can land alone. Note
+  also that the library's `Create(name)` accepts no retention options, so the age cap
+  §11.1 leaves open for later is today an operator action (`nats stream edit`) rather than
+  a code change — worth knowing before calling it "cheap to change".
+
+  Registration
   shape (BFF response, snake_case per existing handlers):
   `{ id, kind: "checkpoint" | "bandit", label, lat, lng, scanned_at }` with
   `lat`/`lng` nullable. Client-side, only the selected base layer is persisted
-  (`localStorage`).
+  (`localStorage`); the position track needs IndexedDB rather than `localStorage`, which
+  is synchronous, string-only and ~5 MB.
 - **Dependencies & risks:**
   - New frontend dependency: `leaflet` (+ types, + CSS import). Bundle size
     mitigated by lazy loading.
@@ -402,28 +463,43 @@ ahead of the PRD's task list):**
       (`users.User.PatrolID`/`PatrolName`; PRD 006 replaces the seed).
 - [x] Task: Frontend `scans.store.ts` (markers/UI still open below).
 
-**Open:**
+**Also landed — ticked 2026-08-26 after checking the board rather than the list.**
+These were written as "open" but had in fact shipped as tasks 040, 041, 042, 045, 046,
+047 and 049; the same staleness PRD 008's list had:
 
-- [ ] Task: Add `leaflet` (+ `@types/leaflet`) via the `ui` container and create
+- [x] Task: Add `leaflet` (+ `@types/leaflet`) via the `ui` container and create
       a lazily loaded `EventMap.vue` with a configurable base layer set in
-      `src/config/map.ts`.
-- [ ] Task: Implement the three base layers (DTK 1:25.000 `dtk25`, DTK 1:50.000
+      `src/config/map.ts`. *(task 040)*
+- [x] Task: Implement the three base layers (DTK 1:25.000 `dtk25`, DTK 1:50.000
       `dtk_50`, Luftfoto `orto_foraar`) incl. attribution, max zoom, and the token
-      from `GET /api/config`.
-- [ ] Task: Build `LayerSwitcher.vue` (touch-friendly, persists the choice in
-      `localStorage`).
-- [ ] Task: Render own position marker + accuracy circle and `LocateButton.vue`
+      from `GET /api/config`. *(task 040; aerial format corrected to JPEG 2026-08-26)*
+- [x] Task: Build `LayerSwitcher.vue` (touch-friendly, persists the choice in
+      `localStorage`). *(task 041)*
+- [x] Task: Render own position marker + accuracy circle and `LocateButton.vue`
       (follow / recentre / denied states). Keep only the **denied/repair**
       affordance here — the first location *request* belongs to onboarding
-      (PRD 005), not to the map.
-- [ ] Task: Scan markers with kind-specific Lucide icons and popups.
-- [ ] Task: Build `ScanList.vue` bottom sheet (chronological list, empty state,
-      row → pan/zoom + open popup).
-- [ ] Task: Degradation + polish — tile-failure notice, position timeout message,
-      night-legible control styling, ≥44px targets, `aria-label`s.
+      (PRD 005), not to the map. *(task 042)*
+- [x] Task: Scan markers with kind-specific Lucide icons and popups. *(task 045)*
+- [x] Task: Build `ScanList.vue` bottom sheet (chronological list, empty state,
+      row → pan/zoom + open popup). *(task 046)*
+- [x] Task: Degradation + polish — tile-failure notice, position timeout message,
+      night-legible control styling, ≥44px targets, `aria-label`s. *(tasks 047, 049)*
+
+**Open:**
+
 - [ ] Task: Register map tiles as a PRD 009 dataset + supply tile-set sizing
       numbers to its storage budget (replaces the former "exclude tiles from
-      caching" task).
+      caching" task). *Sizing measured 2026-08-26 and recorded in PRD 009; still needs
+      the race area to become a concrete figure.*
+
+**Position track — created 2026-08-26 from §11.1 (tasks 081-086):**
+
+- [ ] 081 — Declare the telemetry stream on the broker (cross-repo prerequisite)
+- [ ] 082 — Client-side track recording into IndexedDB, survives reload/kill
+- [ ] 083 — Batched upload every 2 minutes when changed, with offline backlog
+- [ ] 084 — BFF `POST /api/track` publishing to the telemetry stream
+- [ ] 085 — Location consent copy updated to cover recording and upload
+- [ ] 086 — Post-race team track view (`GET /api/team/track` + rendering)
 
 ## 11. Open Questions
 
@@ -434,16 +510,71 @@ it. Neither invalidates the agreement — the map, layers and scan history are
 unaffected — but the **position-reporting** and **tile-caching** designs need
 revisiting here before they are built.
 
-1. **Where does the position track go?** Architecture rule: *nothing writes
-   directly to the database; every state change is published as an event.* But, as
-   observed, **a new coordinate does not represent an event** — it is telemetry,
-   meaningful only in aggregate. The two statements collide, and this PRD owns the
-   resolution. PRD 008 §8 sets out the options and recommends a **separate
-   telemetry stream** with short, age-capped retention and its own subjects: the
-   no-direct-writes rule survives, domain replay stays clean, and retention comes
-   for free — which matters for a position track of identifiable minors. The
-   alternatives are a documented direct-write carve-out, or coordinates as domain
-   events (not recommended).
+1. ~~**Where does the position track go?**~~ *Answered 2026-08-26: **a sibling
+   telemetry stream, fed by the BFF from batched client uploads.*** The full design:
+
+   **Client records locally, first.** The PWA keeps the track in local storage as it is
+   collected, so a member walking through a dead spot is still recorded. Connectivity
+   affects when the track *ships*, never whether it exists.
+
+   **Upload every 2 minutes, but only if the track changed.** A fixed interval keeps the
+   pattern predictable and cheap; the change check stops a stationary phone — a member
+   asleep at a checkpoint, or one whose GPS has not moved — from paying for uploads that
+   carry nothing. Batching is also what makes the envelope overhead affordable (see the
+   sizing below).
+
+   **The BFF publishes to a telemetry stream that is a sibling of `NATHEJK`.** Not the
+   domain stream, and the measurements make the reason concrete rather than aesthetic.
+   One 12-hour race, all 827 live participants, batched every 2 minutes:
+
+   | sampling | points/person | KB/person | messages/event | MB/event | vs. `NATHEJK` |
+   |---|---|---|---|---|---|
+   | 5 s | 8,640 | 729 | 297,720 | 589 | **33×** |
+   | 10 s | 4,320 | 409 | 297,720 | 330 | **18×** |
+   | 30 s | 1,440 | 195 | 297,720 | 157 | **9×** |
+   | 60 s | 720 | 141 | 297,720 | 114 | **6×** |
+
+   The entire `NATHEJK` stream today is **18 MiB / 29,102 messages** — the whole domain
+   history of the event. A single race's telemetry is 6–33× that in bytes and ~10× in
+   message count. Projections replay `NATHEJK` **from sequence zero on every boot**, so
+   putting coordinates there would make every future restart drag a few hundred megabytes
+   of telemetry past every projector, forever, to rebuild read models that do not want it.
+   That is the argument: not that coordinates are not events (though they are not), but
+   that mixing them destroys the domain stream's replay economics.
+
+   Keeping them separate also gives retention for free — the two can be aged out
+   independently — and the no-direct-writes rule survives intact, because the BFF still
+   only publishes.
+
+   **Retention: indefinite for now**, deliberately, to allow analysis and validation of
+   the concept. Two notes on making that reversible rather than permanent:
+
+   - JetStream's defaults already *are* indefinite (`Limits` retention, unlimited age and
+     bytes), so this costs no configuration — but it also means nobody had to choose it,
+     which is worth stating out loud given what is being retained.
+   - **Subjects must be addressable per person**, so that a later retention or erasure
+     policy is expressible at all. `nats stream purge --subject` can then remove one
+     person's track. A design that keyed only by team, or lumped everyone into one
+     subject, would make per-person deletion impossible without rewriting the stream.
+
+   This is a location track of identifiable minors kept without an end date. Nothing here
+   needs to delete anything today; the requirement is that deleting stays *cheap*.
+
+   **Post-race the team sees its own whole track.** A member-facing read, so it belongs
+   to this PRD. One team of six at 10 s sampling is ~26,000 points across ~2,160
+   messages — fine to read back on demand from the stream by subject filter, and much
+   cheaper than projecting millions of points into MariaDB to serve a view used once,
+   after the race, by each team. **This is a deliberate departure from "reads come from
+   projections"** and should be recognised as one rather than copied casually: it is
+   justified by the read being bulk, cold, and non-critical, none of which is true of the
+   directory or the scan history.
+
+   **Still to decide — the sampling interval**, which the table above prices. It trades
+   three things at once: fidelity of the recorded route, bytes retained, and battery over
+   a 12-hour night in which the phone is also a torch and a comms device. The existing
+   `watchPosition` subscription uses `enableHighAccuracy: true` with `maximumAge: 5000`,
+   which is the expensive end. Recommendation: sample at **10–15 s**, or on movement
+   beyond a distance threshold, and measure battery on a real device before fixing it.
 2. **Do map tiles move onto the shared offline layer?** PRD 009 introduces one
    sync engine, one storage budget and one readiness surface for everything
    cacheable. Tiles are probably the **largest** cached dataset, so leaving them
@@ -451,7 +582,12 @@ revisiting here before they are built.
    compete for the same per-origin quota with no agreed priority, and the OS decides
    what to evict. Retrofitting is real work; doing it later is more.
 
-Both are flagged rather than resolved, because they are this PRD's calls to make.
+   Partially answered 2026-08-26: tiles **are** to be cached (maintainer: "as much as
+   possible that can have a local cached value should have this feature — map tiles, user
+   directory, etc"), scoped to a specified race area and possibly a restricted zoom range.
+   The measured costs are recorded in PRD 009; the outstanding input is the race area
+   itself. Whether the mechanism is PRD 009's shared engine or something local to the map
+   is still PRD 009's call, but the presumption is now the shared one.
 
 ### Resolved before approval (2026-08-24), by querying the live services:
 

@@ -178,6 +178,17 @@ No end users. The stories are developer- and operator-facing:
       a retention policy and a stream topology on PRD 002's behalf, which is how
       infrastructure ends up with a telemetry path nobody wanted. This requirement
       travels with PRD 002 and returns here as a task once the decision exists.
+
+      **Decision arrived 2026-08-26 (PRD 002 §11.1) and the tasks now exist:** a sibling
+      telemetry stream, fed by the BFF from client batches uploaded every 2 minutes when
+      changed, retained indefinitely for now, with per-person subjects so erasure stays
+      expressible. Tasks **081** (declare the stream — a cross-repo prerequisite, since
+      `hej` does not own broker topology) and **084** (the publishing endpoint) carry it.
+      Note the recommendation this PRD made — *short*, age-capped retention — was **not**
+      taken: retention is indefinite while the concept is validated. The measured reason
+      the separate stream matters turned out to be stronger than the one guessed here: a
+      single race is 6–33× the entire `NATHEJK` stream, which projections replay from
+      sequence zero on every boot.
 - [x] Production: `docker-swarm.yml` gains whatever state the design requires — a
       database it can reach, broker credentials, and volumes/secrets to match.
 - [x] Health/readiness reflects database connectivity, and reports broker

@@ -290,10 +290,64 @@ Proposed tasks for `roadmap/tasks/open/`:
    Needs the participant counts and tile-set size. **Not blocked on PRD 007 or 002
    shipping** — only on their sizing *answers* (007 §11.4/§11.5, and 002's tile-set
    estimate), which both have tasks to supply.
+
+   **Platform ceilings established 2026-08-26**, from WebKit's storage policy and Chrome's
+   documented quota, so the budget can be planned against real limits:
+
+   | platform | origin quota |
+   |---|---|
+   | iOS/iPadOS **17+**, home-screen web app | **60% of total disk** — explicitly the same quota as in the browser |
+   | Android Chrome | **60% of total disk** |
+   | iOS **16.4–16.7** | **~1 GB**, raised in 200 MB prompts (pre-Safari-17 policy) |
+
+   The repo's stated baseline is **iOS 16.4+**, so the binding constraint is the **~1 GB**
+   figure, not 60% of disk. Recommendation: plan the whole budget — tiles, portraits,
+   directory, app shell, unshipped position track — to fit comfortably inside ~1 GB, which
+   then makes modern devices a non-issue rather than a separate case.
+
+   Two policy details that matter more than the numbers:
+
+   - Everything is **best-effort and evictable** by default. `navigator.storage.persist()`
+     is required, and WebKit grants it "based on heuristics like whether the website is
+     opened as a Home Screen Web App" — which is exactly this app's install-first
+     onboarding, so the request should actually succeed.
+   - Safari's seven-day inactivity eviction **does not apply to installed PWAs**. Another
+     thing the install-first decision buys.
+   - Quota is an upper bound with no guarantee, so `QuotaExceededError` must be handled on
+     both Cache API and IndexedDB rather than treated as unreachable.
+
+   **Map tile sizing, measured against the live service** (256 px tiles, central Zealand,
+   2026-08-26) rather than estimated:
+
+   | zoom | tile edge | DTK25 (PNG) | aerial (JPEG) |
+   |---|---|---|---|
+   | 12 | 5.53 km | 140 kB | 14 kB |
+   | 14 | 1.38 km | 99 kB | 11 kB |
+   | 16 | 0.35 km | 32 kB | 9 kB |
+
+   Cumulative for a square race area, topo z12–16: **~0.46 MB/km²**, plus ~0.11 MB/km² for
+   the aerial layer. So 10×10 km ≈ **51 MB**, 20×20 km ≈ **184 MB**, 30×30 km ≈ **400 MB**
+   (topo only).
+
+   Two findings that change the shape of the budget:
+
+   - **Stopping the topo at z16 is nearly free in information terms.** DTK25 is a 1:25.000
+     map, and its tiles *shrink* with zoom (140 kB at z12 → 20 kB at z17) because they are
+     the same cartography upsampled. Caching z17 for a 20×20 km area costs an extra
+     **267 MB and contains no additional map information**. The aerial layer is different —
+     12.5 cm native imagery genuinely holds detail deeper.
+   - The aerial layer was being fetched as **PNG**, costing ~15× JPEG. Fixed in the map
+     code (`fix(040)`); the JPEG figures above are what the budget should assume.
+
+   Outstanding input: the **race area bounds**, which the maintainer will specify.
 2. **Does PRD 002's map-tile caching move onto this layer**, given it is already in
    `doing/`? 002 §11.2 now flags this and its non-goal has been revised to point
    here. Tiles are probably the largest dataset, so leaving them out defeats the
    shared budget — but retrofitting is real work.
+
+   **Partially answered 2026-08-26:** tiles *are* to be cached, scoped to a specified race
+   area and possibly a restricted zoom range (maintainer). The presumption is now this
+   shared layer rather than something map-local, but the mechanism remains this PRD's call.
 3. **Where does the readiness view live** — *decided*: the profile page (PRD 003
    §7). Listed only because 003 must actually carry it.
 4. **Is the member directory cached in full, or only the user's own team?** Full
@@ -316,3 +370,19 @@ Proposed tasks for `roadmap/tasks/open/`:
 8. **Which datasets are genuinely live-first?** Proposed: updates and SOS. Confirm
    — an event update that only arrives online is a reasonable design, but an update
    nobody can read at 03:00 may not be.
+9. **The unshipped position track is a dataset with a property nothing else here has.**
+   Added 2026-08-26 from PRD 002 §11.1: the app now records a location track locally and
+   uploads it every 2 minutes when changed (tasks 082/083). Until a batch is accepted by
+   the server, those points exist **only on the device**.
+
+   That puts it in the same category as portrait bytes (PRD 007): unlike tiles, the
+   directory or the rulebook, it **cannot be re-fetched** if evicted — it is simply gone.
+   Every other dataset here treats eviction as a performance problem; for these two it is
+   data loss.
+
+   It is small — ~409 KB per person for a 12-hour race at 10 s sampling — so it costs
+   almost nothing to protect. The question for this PRD is whether "unrecoverable" should
+   be a **declared property** of a registered dataset, so the sync engine and the eviction
+   priority order treat it and portraits differently by construction rather than by each
+   feature remembering to. Recommendation: yes, and it should sit at the top of the
+   priority order regardless of size.
