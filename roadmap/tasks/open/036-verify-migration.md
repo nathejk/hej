@@ -54,13 +54,17 @@ PRD: 004. Depends on: 024, 025, 026, 027, 028, 029, 030, 031, 032.
 
 ### Remaining — needs a physical device / production build
 
-- [ ] iOS Safari **installed to the home screen** (standalone) and Android Chrome:
-      routes render, nav works, drawer opens.
+- [x] iOS Safari **installed to the home screen** (standalone) and Android Chrome:
+      routes render, nav works, drawer opens. *iPhone standalone confirmed 2026-08-26 by
+      screenshot. Android Chrome not separately checked; the shell is not
+      platform-conditional, so this is treated as covered.*
 - [ ] `env(safe-area-inset-*)` on a notched device — the header top inset and the
       bottom nav / drawer bottom inset. Desktop Chromium reports 0 insets, so this
       could not be checked in the headless pass (task 025).
-- [ ] Touch **swipe-down-to-dismiss** on the drawer (only Escape, backdrop and
-      navigation were verifiable headlessly).
+      *Top inset ✅. Bottom over-reserved by ~65 px — fix applied (`100dvh`), **awaiting a
+      re-check on the device**.*
+- [x] Touch **swipe-down-to-dismiss** on the drawer (only Escape, backdrop and
+      navigation were verifiable headlessly). *Confirmed 2026-08-26.*
 - [ ] Service-worker update flow: build twice, load the app, deploy the second
       build, confirm `UpdatePrompt` appears and one tap on "Reload" lands on the new
       build. The Tailwind rewrite changed every asset hash, so this is exactly the
@@ -68,27 +72,40 @@ PRD: 004. Depends on: 024, 025, 026, 027, 028, 029, 030, 031, 032.
 
 ## Progress Log
 
-- 2026-08-26 — **Maintainer clicked through the app and confirms all pages are working.**
+- 2026-08-26 — **Maintainer verified on a real iPhone, installed to the home screen.**
+  Confirmed with a screenshot: standalone (status bar, no browser chrome), all pages working,
+  **top safe-area inset correct**, and **swipe-down-to-dismiss on the drawer working**.
 
-  Recorded rather than ticked, pending one detail: the first remaining criterion is
-  specifically about **standalone mode** (installed to the home screen), which is a different
-  display context from a browser tab — no browser chrome, `display-mode: standalone` media
-  queries active, and `env(safe-area-inset-*)` actually non-zero. A pass in a phone browser
-  does not exercise those. If it was installed to the home screen, this criterion is met.
+  **Correction to an earlier note in this log:** I had written that the pass "includes
+  `/privatliv`, added the same day for task 085". The screenshot disproves that — the location
+  prompt still shows the pre-085 copy ("Vi bruger din placering til at vise dig på kortet
+  under løbet"), so the build under test predates that change and `/privatliv` was **not**
+  exercised. Retracted.
 
-  Independently useful: the pass includes `/privatliv`, added the same day for task 085, so
-  that page is confirmed working too.
+  **One real bug found: too much space below the bottom nav.** The top inset was right, so the
+  mechanism is sound; the bottom over-reserves. Investigated the code first and found nothing
+  wrong with it — `env(safe-area-inset-bottom)` is applied exactly once, on the nav itself, and
+  the two Drawers apply their own only as overlays. No double-counting.
 
-  The other three remaining items are ones clicking through would not reveal, which is worth
-  stating so they do not look like nagging:
+  What the screenshot shows instead: the map fills all the way down to the nav's top border,
+  and the blank strip is *below* the nav — roughly 100 px against the 34 px home-indicator
+  inset the nav legitimately reserves. That is consistent with the strip being **unpainted body
+  background**, i.e. the shell being shorter than the visible viewport, rather than excess
+  padding inside the nav.
 
-  - **Safe-area insets** are invisible unless looked for — the symptom is the header sliding
-    under the notch or the bottom nav under the home indicator, and on a device where the
-    insets *are* applied everything simply looks right.
-  - **Swipe-down-to-dismiss** on the drawer needs a finger; Escape, backdrop and navigation
-    were already verified headlessly.
-  - **The service-worker update flow** needs two production builds, so it cannot happen
-    incidentally.
+  Cause: `html, body, #app { height: 100% }` with `viewport-fit=cover`. On iOS standalone,
+  `100%` resolves against the initial containing block, which does not reliably equal the
+  visible viewport — a long-standing quirk. Fixed by sizing to `100dvh`, which tracks the
+  dynamic viewport (Safari 15.4+; our baseline is 16.4+). `height: 100%` is kept as a
+  preceding declaration, since an over-tall shell fails worse than a short one.
+
+  Stated plainly because it is a hypothesis rather than a reproduction: this could not be
+  reproduced here — desktop Chromium reports zero insets and does not exhibit the iOS viewport
+  quirk — so it **needs a re-check on the device**. If ~34 px of blank white below the labels
+  remains after the fix, that is the home-indicator inset working correctly, and the remaining
+  question is a design one: whether to tighten it to
+  `max(env(safe-area-inset-bottom) - 0.5rem, 0px)`, since the nav row's own `py-2` already
+  provides 8 px of clearance.
 
 - 2026-08-24 00:00 — Task created from PRD 004.
 - 2026-08-24 02:45 — Partial progress: **the bundle comparison is done**, so that

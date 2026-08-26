@@ -185,10 +185,30 @@
   `--font-nathejk` costs us no request.
 */
 
+/*
+  Full-height shell.
+
+  `100dvh` rather than `100%`, and the difference is not cosmetic on iOS. With
+  `viewport-fit=cover`, `height: 100%` resolves against the initial containing block, which
+  in a standalone home-screen web app does not reliably equal the visible viewport — the
+  shell ends up shorter than the screen and the strip below it paints as bare body
+  background. Observed on a real iPhone (task 036): the top inset was correct, the map filled
+  down to the bottom nav's border, and there was still ~100 px of blank white beneath it,
+  which is far more than the 34 px home-indicator inset the nav itself reserves.
+
+  `dvh` tracks the *dynamic* viewport, so the shell always fills what is actually visible.
+  Safari has supported it since 15.4 and our baseline is 16.4+, so no fallback is needed —
+  but `height: 100%` is kept as a preceding declaration for any engine that ignores `dvh`,
+  since an over-tall shell is a worse failure than a short one.
+
+  The bottom safe-area inset stays where it belongs: on the nav itself
+  (`BottomNav.vue`), applied exactly once. Adding it here as well would double-pad.
+*/
 html,
 body,
 #app {
   height: 100%;
+  height: 100dvh;
 }
 
 body {
