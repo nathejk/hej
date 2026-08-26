@@ -380,7 +380,7 @@ Proposal: add an optional `meta: { fullBleed: true }` on the route and have
   (decided §11.1, 2026-08-26):** the BFF publishes batches to a telemetry stream that is a
   sibling of `NATHEJK` — not a direct write, and deliberately not a projection into SQL.
   The post-race team view reads the stream back by subject filter on demand, because one
-  team-race is ~26,000 points and projecting millions of points into MariaDB to serve a
+  team-race is ~8,600 points and projecting millions of points into MariaDB to serve a
   view used once per team after the race is the more expensive option. Subjects are keyed
   per person so erasure stays expressible.
 
@@ -487,10 +487,10 @@ These were written as "open" but had in fact shipped as tasks 040, 041, 042, 045
 
 **Open:**
 
-- [ ] Task: Register map tiles as a PRD 009 dataset + supply tile-set sizing
+- [x] Task: Register map tiles as a PRD 009 dataset + supply tile-set sizing
       numbers to its storage budget (replaces the former "exclude tiles from
-      caching" task). *Sizing measured 2026-08-26 and recorded in PRD 009; still needs
-      the race area to become a concrete figure.*
+      caching" task). *Sizing measured 2026-08-26 against the live service and recorded in
+      PRD 009 §11.1; the caching work itself is now task 087.*
 
 **Position track — created 2026-08-26 from §11.1 (tasks 081-086):**
 
@@ -500,6 +500,10 @@ These were written as "open" but had in fact shipped as tasks 040, 041, 042, 045
 - [ ] 084 — BFF `POST /api/track` publishing to the telemetry stream
 - [ ] 085 — Location consent copy updated to cover recording and upload
 - [ ] 086 — Post-race team track view (`GET /api/team/track` + rendering)
+
+**Tile caching — created 2026-08-26 from §11.2:**
+
+- [ ] 087 — Cache tiles within a 10 km radius, topo capped at z16, under an LRU byte cap
 
 ## 11. Open Questions
 
@@ -529,10 +533,10 @@ revisiting here before they are built.
 
    | sampling | points/person | KB/person | messages/event | MB/event | vs. `NATHEJK` |
    |---|---|---|---|---|---|
-   | 5 s | 8,640 | 729 | 297,720 | 589 | **33×** |
-   | 10 s | 4,320 | 409 | 297,720 | 330 | **18×** |
-   | 30 s | 1,440 | 195 | 297,720 | 157 | **9×** |
-   | 60 s | 720 | 141 | 297,720 | 114 | **6×** |
+   | 5 s | 8,640 | 729 | 297,720 | 589 | 33× |
+   | 10 s | 4,320 | 409 | 297,720 | 330 | 18× |
+   | **30 s — chosen** | **1,440** | **195** | **297,720** | **157** | **9×** |
+   | 60 s | 720 | 141 | 297,720 | 114 | 6× |
 
    The entire `NATHEJK` stream today is **18 MiB / 29,102 messages** — the whole domain
    history of the event. A single race's telemetry is 6–33× that in bytes and ~10× in
@@ -561,7 +565,7 @@ revisiting here before they are built.
    needs to delete anything today; the requirement is that deleting stays *cheap*.
 
    **Post-race the team sees its own whole track.** A member-facing read, so it belongs
-   to this PRD. One team of six at 10 s sampling is ~26,000 points across ~2,160
+   to this PRD. One team of six at 30 s sampling is ~8,600 points across ~2,160
    messages — fine to read back on demand from the stream by subject filter, and much
    cheaper than projecting millions of points into MariaDB to serve a view used once,
    after the race, by each team. **This is a deliberate departure from "reads come from
@@ -569,12 +573,62 @@ revisiting here before they are built.
    justified by the read being bulk, cold, and non-critical, none of which is true of the
    directory or the scan history.
 
-   **Still to decide — the sampling interval**, which the table above prices. It trades
-   three things at once: fidelity of the recorded route, bytes retained, and battery over
-   a 12-hour night in which the phone is also a torch and a comms device. The existing
-   `watchPosition` subscription uses `enableHighAccuracy: true` with `maximumAge: 5000`,
-   which is the expensive end. Recommendation: sample at **10–15 s**, or on movement
-   beyond a distance threshold, and measure battery on a real device before fixing it.
+   **Sampling interval: 30 s** *(decided 2026-08-26 — "team are walking, we do not need
+   sub-30 s resolution")*. That lands at **1,440 points per person** for a 12-hour race,
+   **~195 KB per person**, and **~157 MB per event** — 9× the whole `NATHEJK` stream rather
+   than 18–33×.
+
+   The decision is better founded than a cost compromise, which is worth recording because
+   it means finer sampling should not be revisited casually. At walking pace, 30 s puts
+   consecutive points **33 m apart at 4 km/h and 50 m at 6 km/h**. Typical GPS error for a
+   phone under forest canopy at night is **10–30 m**. So below roughly 30 s the *spacing
+   between* points becomes smaller than the error *on* each point: the extra samples
+   describe GPS noise, not movement. 5 s sampling would cost 3.75× the bytes to record a
+   6 m stride that the receiver cannot resolve.
+
+   It also relaxes the battery problem: 30 s is coarse enough that continuous
+   high-accuracy `watchPosition` is not obviously the right acquisition mode, which the
+   next paragraph makes more important than it first appears.
+
+   **Platform limitation — a web app cannot record while backgrounded.** This is the real
+   constraint on the feature, and the sampling decision does not address it.
+
+   Geolocation is only available to a document, and a backgrounded document does not run:
+   on iOS, JavaScript in a backgrounded web app is suspended. There is no background
+   geolocation for web apps on any platform. Two escape routes that look plausible and are
+   not:
+
+   - **Screen Wake Lock** keeps the screen from dimming *while the document is visible*.
+     Per the spec, "previously acquired locks are automatically released when document
+     becomes inactive" — it buys no background execution, only a lit screen. And a lit
+     screen for 12 hours is both a battery problem and a **light-discipline** problem in a
+     night race.
+   - **Periodic Background Sync** (Chrome-only regardless) can wake a service worker, but
+     service workers have no access to the Geolocation API. Dead end even on Android.
+
+   So as currently designed the track records **only while the app is open and visible**.
+   For a night hike with the phone in a pocket that is a track of fragments, not a route.
+   `MapsView.vue` makes it stricter still: it calls `location.stopWatch()` on
+   `document.hidden` and on unmount, so today recording would also stop simply by
+   navigating away from the map.
+
+   Consequences to accept or design around, rather than discover after an event:
+
+   1. **The recorder must not live in the map view.** It belongs at app level — running
+      while signed in and permission is granted — so leaving `/maps` does not stop it.
+      Drawing the live marker and recording the track are different concerns that happen
+      to share a data source (task 082).
+   2. **"The team's entire track" (below) cannot be promised** as literally entire. What is
+      deliverable is "everywhere you were while the app was open". Task 086 should say so
+      in the UI rather than presenting gaps as if the member stood still.
+   3. **Concept validation still works** — the pipeline, the batching, the retention and
+      the post-race view can all be proven on fragmentary data. It is the completeness of
+      the route that is limited, not the ability to learn whether this is worth doing.
+   4. If a genuinely continuous track is a requirement rather than a nice-to-have, it needs
+      something other than a PWA for the recording half. Worth knowing before, not after.
+
+   Verifying the exact background behaviour on a real device is task 082's first job, since
+   it determines what the rest is worth building.
 2. **Do map tiles move onto the shared offline layer?** PRD 009 introduces one
    sync engine, one storage budget and one readiness surface for everything
    cacheable. Tiles are probably the **largest** cached dataset, so leaving them
@@ -582,12 +636,46 @@ revisiting here before they are built.
    compete for the same per-origin quota with no agreed priority, and the OS decides
    what to evict. Retrofitting is real work; doing it later is more.
 
-   Partially answered 2026-08-26: tiles **are** to be cached (maintainer: "as much as
-   possible that can have a local cached value should have this feature — map tiles, user
-   directory, etc"), scoped to a specified race area and possibly a restricted zoom range.
-   The measured costs are recorded in PRD 009; the outstanding input is the race area
-   itself. Whether the mechanism is PRD 009's shared engine or something local to the map
-   is still PRD 009's call, but the presumption is now the shared one.
+   **Scope decided 2026-08-26: cache tiles within a 10 km radius of the current
+   location**, on the shared layer. Measured cost for a 314 km² circle, using real tile
+   sizes:
+
+   | zoom ceiling | topo | + aerial (JPEG) | total |
+   |---|---|---|---|
+   | z12–15 | 64 MB | 11 MB | **74 MB** |
+   | **z12–16** | 152 MB | 36 MB | **188 MB** |
+   | z12–17 | 365 MB | 133 MB | 498 MB |
+
+   **Recommend capping the topo at z16.** DTK25 is a 1:25.000 map and its tiles *shrink*
+   with zoom (140 kB at z12 → 20 kB at z17) because they are the same cartography
+   upsampled; z17 costs an extra ~310 MB and carries **no additional map information**. The
+   aerial layer is different — 12.5 cm native imagery — so it can justify going deeper if
+   anyone wants it.
+
+   **Two properties of "of the current location" that need designing for**, because the
+   phrase hides them:
+
+   - **A radius that follows the walker sweeps a capsule, not a circle.** The union of every
+     10 km circle along a route is `2·R·L + πR²`: over a 40 km route that is 1,114 km² and
+     **626 MB** at z12–16; over 60 km, **842 MB**. That alone would consume the ~1 GB iOS
+     16 ceiling before portraits, the directory and the app shell. So the cache needs a
+     **byte cap with LRU eviction** (tiles behind the walker go first), not just a radius.
+   - **A follow-me radius cannot deliver offline coverage.** Filling it requires network
+     *where you already are* — but where there is coverage the cache is not needed, and in a
+     dead spot it cannot be filled. It is a cache-warming policy, not offline preparation.
+
+   What actually delivers the offline promise is a **pre-race sync of a fixed region while
+   the participant still has coverage**. A 10 km radius around the assembly point needs no
+   route knowledge and costs 188 MB. If the route is known, a corridor is far cheaper for
+   better coverage: a **2 km corridor along a 40 km route is 173 km² / 108 MB**, about a
+   sixth of the swept radius, and all of it is fetchable before the start.
+
+   Recommended shape, pending the maintainer's call on whether the route is known in
+   advance: pre-cache a fixed region at first sync, then top up within 10 km of the current
+   position opportunistically while online, under an LRU byte cap.
+
+   Rule of thumb for any shape: **0.45 MB/km²** for topo z12–16, plus **0.11 MB/km²** for
+   aerial JPEG.
 
 ### Resolved before approval (2026-08-24), by querying the live services:
 

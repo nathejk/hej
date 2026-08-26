@@ -380,7 +380,8 @@ Proposed tasks for `roadmap/tasks/open/`:
    Every other dataset here treats eviction as a performance problem; for these two it is
    data loss.
 
-   It is small — ~409 KB per person for a 12-hour race at 10 s sampling — so it costs
+   It is small — ~195 KB per person for a 12-hour race at the chosen 30 s sampling — so it
+   costs
    almost nothing to protect. The question for this PRD is whether "unrecoverable" should
    be a **declared property** of a registered dataset, so the sync engine and the eviction
    priority order treat it and portraits differently by construction rather than by each

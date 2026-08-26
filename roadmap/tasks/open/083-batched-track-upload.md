@@ -24,9 +24,10 @@ night.
 
 ## Why batches, not per-point
 
-The metatagger envelope is ~250 bytes per message against ~76 bytes per point. Sending
-points individually would make the envelope the dominant cost — at 10 s sampling, roughly
-4× the total bytes. Batching at 2 minutes amortises it to about 12 points per envelope.
+The metatagger envelope is ~250 bytes per message against ~76 bytes per point. At the
+chosen 30 s sampling a 2-minute batch carries 4 points, so batching sends 554 bytes where
+four individual messages would send 1,304 — **2.4× less**, and 2.4× fewer messages for the
+broker to store forever.
 
 ## Retry and duplicates
 
@@ -58,8 +59,10 @@ Points are only discarded locally once the server has accepted them.
       that is documented here
 - [ ] The interval keeps running while the app is backgrounded to whatever extent the
       platform allows, and the behaviour when it does **not** is recorded rather than
-      assumed — iOS suspends timers in backgrounded tabs, so the realistic expectation is
-      that the backlog ships when the app is next foregrounded
+      assumed. Note task 082's finding: a backgrounded web app does not run at all on iOS,
+      so the realistic expectation is that nothing is recorded *or* uploaded while
+      backgrounded, and the backlog ships when the app is next foregrounded. Design for
+      that being the normal case, not the exception
 - [ ] No upload is attempted when the user is not signed in
 
 ## Progress Log
