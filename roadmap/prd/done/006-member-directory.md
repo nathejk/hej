@@ -512,12 +512,13 @@ and because the answered ones are the record of why the design is what it is.
    the first other consumer, or a fixed date?
 6. ~~**Does `hej` need the full member set or only the current year's
    participants?**~~ *Answered 2026-08-26 (task 078): **project everything, read one
-   year.*** The projection holds both years (3,278 rows: 2,451 for 2025, 827 live for
-   2026) and the directory reads only `EVENT_YEAR`, so last year's participants are
-   inert — they cannot log in. Filtering at projection time was rejected as a
-   false economy: the whole table is a few thousand rows, the projector would need to
-   learn the current year (a second place for the year to be wrong), and a replay after
-   the year rolls over would discard data that is cheap to keep and awkward to recover.
+   year.*** The projection holds both years (2,465 rows for 2025 and 1,037 for 2026, of
+   which 827 are live) and the directory reads only `EVENT_YEAR`, so last year's
+   participants are inert — they cannot log in. Filtering at projection time was
+   rejected as a false economy: the whole table is a few thousand rows, the projector
+   would need to learn the current year (a second place for the year to be wrong), and a
+   replay after the year rolls over would discard data that is cheap to keep and awkward
+   to recover.
 
    It also decides "recognized number" for someone who attended last year but not this
    one: **not recognized**, because the lookup is year-scoped. They get the same response

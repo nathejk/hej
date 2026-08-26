@@ -112,11 +112,9 @@ func run(logger *slog.Logger) error {
 		}()
 	}
 
-	// The member directory. Starts on the mock and moves to the real projection once
-	// that exists, which happens in a background callback below — see
-	// switchableDirectory for why the indirection is unavoidable rather than merely
-	// convenient. A run with no database or no broker simply stays on the mock, which is
-	// the documented degraded mode (PRD 006 §6) and keeps `hej` runnable at every step.
+	// The member directory. Starts on the mock only so that a run with no database at
+	// all is still usable; anything with a database moves to the real projection below,
+	// broker or no broker.
 	directory := newSwitchableDirectory(users.NewMockDirectory())
 
 	// The CQRS seam. Both degraded modes are deliberate and distinct:
@@ -125,14 +123,87 @@ func run(logger *slog.Logger) error {
 	//   no broker   — reader/writer still usable, so handlers keep serving
 	//                 whatever the last run projected (PRD 008 §5)
 	ev, err := openEventing(cfg, db, logger)
+	noBroker := errors.Is(err, ErrNoJetstreamDSN)
 	switch {
 	case errors.Is(err, ErrNoDSN):
 		logger.Warn("no database: skipping event stream wiring")
-	case errors.Is(err, ErrNoJetstreamDSN):
+	case noBroker:
 		logger.Warn("no JETSTREAM_DSN configured: running without a broker, reads served from existing projections")
 	case err != nil:
 		logger.Error("event stream setup failed, continuing without it", "err", err)
-	default:
+	}
+
+	// The person projection (PRD 006).
+	//
+	// Constructed here — as soon as there is a *database* — rather than inside the
+	// broker's connect callback, which is where it used to live. That was a real bug, and
+	// the reasoning that put it there ("only create tables once there is a broker, so a
+	// database-only run does not create tables nothing will fill") turned out to be worth
+	// far less than what it cost:
+	//
+	// With the broker unreachable, the callback never ran, so the directory stayed on the
+	// mock — while a fully populated `person` table sat in the database. Verified: a mock
+	// number was issued a PIN and a real member was not. In production that inverts the
+	// two things that matter. Real participants cannot log in during a broker outage even
+	// though their data is present and needs no broker to read, and the mock's phone
+	// numbers *can*, which is a set of usable fake accounts appearing precisely when
+	// nobody is watching closely. It also directly contradicted PRD 008 §5, which promises
+	// reads are served from existing projections when the broker is down.
+	//
+	// Splitting it this way follows the actual dependencies: the read path needs only the
+	// database, and the broker decides only whether the projection keeps *updating*.
+	// Creating an empty table on a fresh database is a trivial cost by comparison.
+	var persons *person.Table
+	if ev != nil && (err == nil || noBroker) {
+		// phoneNormalizer adapts internal/phone to the interface the projection
+		// declares. Passing the same implementation the login handler uses is the
+		// point: a second implementation, or the same rules re-typed, would make
+		// lookups silently miss (PRD 006 §2).
+		p, perr := person.New(ev.publisherOrNil(), ev.writer, ev.reader, phoneNormalizer{},
+			// Warn, not error: an unrecognised section slug is a routine data
+			// condition (organizers rename sections and nothing validates the
+			// values), but it means a crew member is stuck on the generic role, so
+			// it has to be visible somewhere other than a SQL query.
+			person.ReportUnmappedSlug(func(slug string) {
+				logger.Warn("unmapped crew section slug", "slug", slug)
+			}),
+			// A number that arrived and could not be used. Warn rather than error for
+			// the same reason — it is upstream data, not a fault here — but it must
+			// not be silent: for `phoneParent` it means an emergency contact the app
+			// believes does not exist. Only a digit count is logged, never the number.
+			person.ReportUnusablePhone(func(personID, field string, digits int) {
+				logger.Warn("unusable phone number",
+					"personId", personID, "field", field, "digits", digits)
+			}),
+		)
+		if perr != nil {
+			// Not fatal: the API still serves reads from the mock directory. A
+			// schema failure here is a bug to fix, not a reason to take the app
+			// down mid-event.
+			logger.Error("person projection unavailable", "err", perr)
+		} else {
+			persons = p
+			// Step 3 of the three-way registration: expose the projection's read API.
+			//
+			// Installed before any replay has run, and that is safe for a specific
+			// reason: nothing truncates the person table on boot. A restart serves the
+			// *previous* run's rows while the replay re-upserts them, so there is no
+			// window in which the directory is empty and a member is wrongly told their
+			// number is unknown.
+			//
+			// If a future change ever does truncate on boot, this must move behind a
+			// caught-up signal — the stream library has one (CatchupListener).
+			directory.set(newPersonDirectory(persons, cfg.eventYear, logger))
+			// Reports whether a broker was *configured*, not whether the projection is
+			// live: the connection is attempted in the background and has not been made
+			// yet at this point. An earlier version of this line said "live", which read
+			// as true while the broker was demonstrably unreachable.
+			logger.Info("member directory reading the person projection",
+				"year", cfg.eventYear, "broker_configured", !noBroker)
+		}
+	}
+
+	if err == nil {
 		defer func() {
 			if cerr := ev.close(); cerr != nil {
 				logger.Error("closing event stream", "err", cerr)
@@ -147,39 +218,8 @@ func run(logger *slog.Logger) error {
 
 		ev.connectInBackground(ctx, cfg, logger, func() {
 			// Step 2 of the three-way registration described in eventing.go.
-			//
-			// The person projection (PRD 006) is constructed here rather than before
-			// the connect because it creates its table through the cqrs.Writer, and
-			// doing that only once there is a broker keeps a database-only run from
-			// creating tables nothing will ever fill.
 			var projections []cqrs.Consumer
-			// phoneNormalizer adapts internal/phone to the interface the projection
-			// declares. Passing the same implementation the login handler uses is the
-			// point: a second implementation, or the same rules re-typed, would make
-			// lookups silently miss (PRD 006 §2).
-			persons, perr := person.New(ev.publisherOrNil(), ev.writer, ev.reader, phoneNormalizer{},
-				// Warn, not error: an unrecognised section slug is a routine data
-				// condition (organizers rename sections and nothing validates the
-				// values), but it means a crew member is stuck on the generic role, so
-				// it has to be visible somewhere other than a SQL query.
-				person.ReportUnmappedSlug(func(slug string) {
-					logger.Warn("unmapped crew section slug", "slug", slug)
-				}),
-				// A number that arrived and could not be used. Warn rather than error for
-				// the same reason — it is upstream data, not a fault here — but it must
-				// not be silent: for `phoneParent` it means an emergency contact the app
-				// believes does not exist. Only a digit count is logged, never the number.
-				person.ReportUnusablePhone(func(personID, field string, digits int) {
-					logger.Warn("unusable phone number",
-						"personId", personID, "field", field, "digits", digits)
-				}),
-			)
-			if perr != nil {
-				// Not fatal: the API still serves reads from the mock directory. A
-				// schema failure here is a bug to fix, not a reason to take the app
-				// down mid-event.
-				logger.Error("person projection unavailable", "err", perr)
-			} else {
+			if persons != nil {
 				projections = append(projections, persons)
 			}
 
@@ -194,23 +234,6 @@ func run(logger *slog.Logger) error {
 			// Only arm the dead-letter writer once projections are running, so
 			// schema creation still fails loudly rather than being captured.
 			ev.arm()
-
-			// Step 3 of the three-way registration: expose the projection's read API.
-			//
-			// Installed as soon as the projections are running, not after the replay
-			// finishes, and that is safe for a specific reason: nothing truncates the
-			// person table on boot. A restart therefore serves the *previous* run's rows
-			// while the replay re-upserts them, so there is no window in which the
-			// directory is empty and a member is wrongly told their number is unknown.
-			// This is PRD 008 §5's "reads served from existing projections" in practice.
-			//
-			// If a future change ever does truncate on boot, this must move behind a
-			// caught-up signal — the stream library has one (CatchupListener).
-			if persons != nil {
-				directory.set(newPersonDirectory(persons, cfg.eventYear, logger))
-				logger.Info("member directory now reading the person projection",
-					"year", cfg.eventYear)
-			}
 
 			// Report the count once, now: any rows still here after Reset() are
 			// from this run's replay, so this is the first honest reading.

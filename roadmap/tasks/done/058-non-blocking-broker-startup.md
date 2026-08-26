@@ -68,3 +68,40 @@ database outage does break login (PRD 008 §5 accepts this). The broker is not.
   starting a broker after the API. The retry loop itself is not covered by a test —
   it needs a real endpoint to fail against.
 - 2026-08-25 — Moving to done.
+- 2026-08-26 — **Reopened and fixed: degraded-mode reads did not actually work.** Found
+  while verifying PRD 008's success metrics before shipping the PRD, and the verification
+  this task explicitly recorded as *not* done — running against a real unreachable endpoint
+  rather than at the unit level — is exactly what exposed it.
+
+  With `JETSTREAM_DSN` pointing at an unreachable host, the API served requests (200s) but
+  the person projection was never constructed, because construction lived **inside** the
+  broker's connect callback. The callback never ran, so `switchableDirectory` stayed on
+  `users.NewMockDirectory()` while a fully populated `person` table sat in the database.
+
+  Measured, not inferred:
+
+  | with the broker unreachable | before | after |
+  |---|---|---|
+  | real member `+4520351385` requests a PIN | **no PIN** | PIN issued |
+  | mock number `+4530000001` requests a PIN | **PIN issued** | no PIN |
+
+  Both halves were wrong, and the second is the serious one: a broker outage in production
+  silently turned the mock directory's phone numbers into working accounts with real roles,
+  at exactly the moment nobody is watching closely. The first half contradicted this task's
+  own promise and PRD 008 §5 — reads are supposed to come from existing projections, which
+  need no broker at all.
+
+  The fix follows the real dependencies rather than the old grouping: the projection is now
+  constructed as soon as there is a **database**, and the broker decides only whether it
+  keeps *updating*. The reasoning that had put it in the callback — "only create tables once
+  there is a broker, so a database-only run does not create tables nothing will fill" — was
+  a trivial saving weighed against a correctness and security bug.
+
+  Also corrected a log line added in the same change: it reported `live=true` while the
+  broker was demonstrably unreachable. Liveness is not knowable at that point (the
+  connection is attempted in the background), so it now reports `broker_configured`, which
+  is what is actually known.
+
+  Verified in both directions: with the broker unreachable, real members log in and mock
+  numbers do not; with it restored, `projections running, dead-letter queue empty` and 0
+  dead letters. Gates green on the workspace and `GOWORK=off` paths.
