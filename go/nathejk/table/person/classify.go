@@ -25,9 +25,6 @@ const (
 
 // crewFunctionBySlug maps an organizer-authored section slug to a crew app role.
 //
-// This is the weakest link in the whole directory, and it is worth being honest
-// about why rather than making it look authoritative:
-//
 // Crew function is not modelled anywhere upstream. A crew member carries a
 // `sectionSlug` pointing at a row in the organizer-editable `section` tree, and
 // tilmelding's crew signup UI treats first-level sections as "crew functions" —
@@ -38,19 +35,26 @@ const (
 // an unrecognised slug yields RoleCrew (least-privileged) rather than an error,
 // because locking someone out of a safety app over a spelling is not acceptable.
 //
-// The better long-term answer is to project `section.Type`, which the
-// NathejkSectionAdded message already carries and the shared-go projector currently
-// drops (PRD 006 §11 Q2). Until that happens, extend this map — and task 078 exists
-// to check it against the organizers' real section names before an event.
+// # Why this is the design and not a stopgap
 //
-// The 2026 section tree, read off the stream while implementing task 074, is:
-// bandit, goeglerledelse, guides, hoensegaard, hq, koekken, noedtelefon, postmand,
-// postmandskab, pr, rover, samarit, team. Only the checkpoint, guide and medic ones
-// map to a capability the app grants; the rest correctly fall back to RoleCrew,
-// because "works in the kitchen" is not something the app needs to know.
-// `goeglerledelse` is deliberately *not* mapped to RoleGoegler: that role is for the
-// performers (task 075), and the people running them are crew.
+// An earlier note here proposed projecting `section.Type` instead — the field exists on
+// NathejkSectionAdded and shared-go's projector drops it — and treated the slug map as
+// something to be replaced. Task 078 checked the stream: **0 of 14 real section events
+// carry a `type` at all**, or a `selfAssignable`. The producer never populates them. The
+// better source does not exist in the data, so this map is the mechanism, not a
+// placeholder, and the thing to keep healthy is its coverage.
+//
+// # Two kinds of entry
+//
+// Entries below are split deliberately. A section that grants a capability maps to that
+// role. A section that is real but grants nothing maps explicitly to RoleCrew — *not*
+// left absent — so that being absent from this map means one specific thing: "nobody has
+// classified this section yet". That is what makes the unmapped-slug warning worth
+// logging; before this, it fired on every replay for three well-known sections and was
+// therefore noise.
 var crewFunctionBySlug = map[string]string{
+	// --- Sections that grant a capability ---
+
 	// Checkpoint staff.
 	"postmandskab": RolePostmandskab,
 	"postmand":     RolePostmandskab, // observed in the real 2026 section tree
@@ -67,6 +71,24 @@ var crewFunctionBySlug = map[string]string{
 	"samarit":     RoleSamarit,
 	"samaritter":  RoleSamarit,
 	"førstehjælp": RoleSamarit,
+
+	// --- Real sections that grant nothing extra ---
+	//
+	// The rest of the 2026 tree. "Works in the kitchen" is not something the app needs
+	// to know, so these are generic crew — but they are *acknowledged*, which is the
+	// point of listing them.
+	//
+	// goeglerledelse is deliberately NOT RoleGoegler: that role is for the performers
+	// (task 075), and the people organising them are crew.
+	"goeglerledelse": RoleCrew,
+	"noedtelefon":    RoleCrew,
+	"hq":             RoleCrew,
+	"koekken":        RoleCrew,
+	"rover":          RoleCrew,
+	"bandit":         RoleCrew,
+	"hoensegaard":    RoleCrew,
+	"pr":             RoleCrew,
+	"team":           RoleCrew,
 }
 
 // normalizeSlug folds a slug to its comparison form.

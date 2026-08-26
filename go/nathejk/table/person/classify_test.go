@@ -59,10 +59,21 @@ func TestUnassignedIsNotReportedButUnmappedIs(t *testing.T) {
 	}
 }
 
-// Every mapped slug must produce a crew function, never the fallback. A typo in the
-// map would otherwise silently demote a real samarit to least-privileged — which
-// fails safe, but would take away the SOS page from someone who needs it.
-func TestEveryMappedSlugYieldsACrewFunction(t *testing.T) {
+// Every mapped slug must resolve to exactly the role the map declares, and must be
+// reported as *known*. The original version of this test also asserted that no entry
+// resolves to RoleCrew, on the reasoning that a typo in the map would silently demote a
+// real samarit.
+//
+// That assertion was retired in task 078, when the map gained a second kind of entry:
+// real sections that grant nothing extra (kitchen, HQ, PR, ...) are now listed
+// explicitly as RoleCrew, so that *absence* from the map means one specific thing —
+// "nobody has classified this section yet" — and the unmapped-slug warning becomes
+// signal instead of firing on every replay for three well-known sections.
+//
+// The property the retired assertion protected is preserved below by
+// TestCapabilitySlugsDoNotResolveToTheFallback, which checks the entries that are
+// *supposed* to grant something.
+func TestEveryMappedSlugYieldsItsDeclaredRole(t *testing.T) {
 	for slug, want := range crewFunctionBySlug {
 		role, ok := ClassifyCrew(slug)
 		if !ok {
@@ -71,8 +82,56 @@ func TestEveryMappedSlugYieldsACrewFunction(t *testing.T) {
 		if role != want {
 			t.Errorf("slug %q: role = %q, want %q", slug, role, want)
 		}
+	}
+}
+
+// A slug that is supposed to grant a capability must not resolve to the least-privileged
+// fallback. A typo in one of these keys fails safe but would take the SOS page away from
+// a samarit who needs it, so it must not be able to hide.
+//
+// Listed explicitly rather than derived from the map, because deriving it from the same
+// data it is checking is how this class of bug survives.
+func TestCapabilitySlugsDoNotResolveToTheFallback(t *testing.T) {
+	capabilities := map[string]string{
+		"postmandskab": RolePostmandskab,
+		"postmand":     RolePostmandskab,
+		"post":         RolePostmandskab,
+		"poster":       RolePostmandskab,
+		"postmandskb":  RolePostmandskab,
+		"guide":        RoleGuide,
+		"guides":       RoleGuide,
+		"guider":       RoleGuide,
+		"samarit":      RoleSamarit,
+		"samaritter":   RoleSamarit,
+		"førstehjælp":  RoleSamarit,
+	}
+
+	for slug, want := range capabilities {
+		role, ok := ClassifyCrew(slug)
+		if !ok {
+			t.Errorf("capability slug %q is not in the map at all", slug)
+			continue
+		}
 		if role == RoleCrew {
-			t.Errorf("slug %q maps to the least-privileged fallback; that is a map bug", slug)
+			t.Errorf("capability slug %q resolves to the least-privileged fallback", slug)
+		}
+		if role != want {
+			t.Errorf("capability slug %q: role = %q, want %q", slug, role, want)
+		}
+	}
+}
+
+// The whole 2026 section tree, read off the live stream, must be classified — otherwise
+// the unmapped warning fires during a real event and nobody can tell it apart from a
+// section that genuinely needs attention.
+func TestTheRealSectionTreeIsFullyClassified(t *testing.T) {
+	// Verified present on the broker on 2026-08-26 (task 078).
+	for _, slug := range []string{
+		"bandit", "goeglerledelse", "guides", "hoensegaard", "hq", "koekken",
+		"noedtelefon", "postmand", "postmandskab", "pr", "rover", "samarit", "team",
+	} {
+		if _, ok := ClassifyCrew(slug); !ok {
+			t.Errorf("real section %q is unclassified; the replay will warn about it", slug)
 		}
 	}
 }

@@ -376,7 +376,7 @@ Proposed tasks for `roadmap/tasks/open/` (created 2026-08-25 as tasks **067–07
 - [x] 075 — project gøgler
 - [x] 076 — handle deletions and phone changes
 - [x] 077 — swap `users.Directory` to the projection; keep the mock as test double
-- [ ] 078 — backfill/replay verification against real event data
+- [x] 078 — backfill/replay verification against real event data
 
 Task 068's schema slice doubles as PRD 008's acceptance test (see PRD 008 §8), which
 is why the two were approved together with 008 first.
@@ -409,8 +409,39 @@ is why the two were approved together with 008 first.
    eight. That settles two things. The "refuse the login" option would have locked out
    hundreds of members, so rejecting it was correct; and **task 079 is not optional
    polish** — without the chooser, that whole cohort cannot log in.
-2. **Is `section.Type` the right source for crew function**, and does it mean what
-   the app needs? If yes, projecting it in shared-go beats a slug map in `hej`.
+
+   **Task 078 then found the premise was wrong.** The collisions are overwhelmingly *not*
+   siblings. Restricted to the 2026 event and its 827 live participants:
+
+   | shared numbers where… | count | meaning |
+   |---|---|---|
+   | every row has the **same name** | **70** | duplicate registrations |
+   | names differ | 15 | genuine sharing |
+
+   316 rows sit on a shared number, and the largest cluster is **9 rows for one person**:
+   "Cæcilie Bæk Lahoz", same patrulje, nine distinct `personId`s. Verified upstream —
+   three of the nine were read back off the stream as three separate
+   `spejder.*.updated` events with three separate member ids (and two different
+   `teamId`s), so the projection is not inventing them.
+
+   This does not invalidate the chooser, which is still required for the 15 genuine cases.
+   It does mean the chooser **cannot do the job alone**: 82% of the time it will offer
+   several identical names, which is not a question a user can answer. See Q9, which now
+   covers spejder as well as gøglere.
+2. ~~**Is `section.Type` the right source for crew function?**~~ *Answered 2026-08-26
+   (task 078): **no — it does not exist in the data.*** Every section event on the broker
+   was read back: **0 of 14 carry a `type`**, and 0 carry `selfAssignable`. They contain
+   `slug` and `label` and nothing else. The field is declared on `NathejkSectionAdded`
+   and never populated by the producer, so "project `section.Type` instead" was never an
+   available option.
+
+   That changes the slug map's status from stopgap to mechanism, and the work from
+   "replace it" to "keep its coverage honest". `classify.go` now lists the **whole** 2026
+   tree, split into sections that grant a capability and sections that are real but grant
+   nothing (kitchen, HQ, PR, …) mapped explicitly to `crew`. Absence from the map now
+   means exactly one thing — "nobody has classified this section yet" — which is what
+   makes the unmapped-slug warning worth logging. Before, it fired on every replay for
+   three well-known sections and was pure noise. **Replay warnings are now 0.**
 3. **Are `postmandskab`/`guide`/`samarit` the right app roles at all?** They were
    invented in PRD 001 for the skeleton nav. The real crew organisation is a
    section tree, which is richer and organizer-editable. Continuing to hardcode
@@ -418,6 +449,20 @@ is why the two were approved together with 008 first.
    PRD 007**, whose access matrix must enumerate every role that can log in
    (including `gøgler` and generic `crew`). Settle it before more features gate on
    it.
+
+   **Task 078 sharpens this considerably: three of the seven app roles have no members
+   at all.** A from-scratch replay of the real stream produces exactly four roles —
+   `spejder` (557), `bandit` (151), `gøgler` (99) and generic `crew` (20). Not one person
+   is classified `postmandskab`, `guide` or `samarit`, because every 2026 crew assignment
+   points at `hoensegaard` (8), `team` (6), `goeglerledelse` (5) or nothing (1) — none of
+   the three capability sections has anyone in it.
+
+   So PRD 007's access matrix is currently being designed around three roles that exist
+   only in the mock directory, and the `samarit` SOS page has no one who can reach it.
+   Either the capability sections fill up closer to the event (in which case the map is
+   ready and this resolves itself), or crew function is not modelled the way PRD 001
+   assumed and the three roles should collapse. **Worth answering before PRD 007 builds on
+   them.**
 4. ~~**Gøgler: project fresh in `hej`, or promote `hq`'s `personnel` slice into
    shared-go?**~~ *Answered 2026-08-25 (task 075): **project fresh here, and record the
    duplication.*** Reading hq's projection was never available — that would be one
@@ -442,9 +487,22 @@ is why the two were approved together with 008 first.
      path** — see Q9.
 5. **When does this lift to shared-go**, and who owns it? What is the trigger —
    the first other consumer, or a fixed date?
-6. **Does `hej` need the full member set or only the current year's
-   participants?** Affects table size and the definition of "recognized number"
-   for someone who attended last year but not this one.
+6. ~~**Does `hej` need the full member set or only the current year's
+   participants?**~~ *Answered 2026-08-26 (task 078): **project everything, read one
+   year.*** The projection holds both years (3,278 rows: 2,451 for 2025, 827 live for
+   2026) and the directory reads only `EVENT_YEAR`, so last year's participants are
+   inert — they cannot log in. Filtering at projection time was rejected as a
+   false economy: the whole table is a few thousand rows, the projector would need to
+   learn the current year (a second place for the year to be wrong), and a replay after
+   the year rolls over would discard data that is cheap to keep and awkward to recover.
+
+   It also decides "recognized number" for someone who attended last year but not this
+   one: **not recognized**, because the lookup is year-scoped. They get the same response
+   as a stranger, which is the anti-enumeration behaviour we want anyway.
+
+   One consequence to keep in view: the two years disagree sharply on data quality (see
+   Q11), so any statistic computed over the whole table rather than one year is
+   misleading. That mistake was made and corrected during this task.
 7. ~~**Which year does the app read?**~~ *Answered 2026-08-26 (task 077): **configurable,
    defaulting to the current year.*** `EVENT_YEAR` in `cmd/api/env.go`, pinned to `2026`
    in the dev compose file. Not derived from `time.Now()` the way `hq` does it, because
@@ -457,46 +515,66 @@ is why the two were approved together with 008 first.
    separate table keyed by person id? The latter keeps app-owned data out of a
    projection that will be rebuilt from events — and a rebuild must not drop
    portraits.
-9. **Duplicate gøgler registrations — the chooser cannot solve this one.** Found while
-   verifying task 075. Of the 12 shared phone numbers among 2026 gøglere, **8 have the
-   same name on every row**: one human who filled in the signup form repeatedly, each
-   time getting a fresh `userId` and therefore a separate person. "Rikke Banke Peytz"
-   is five rows on one number; "Klaus" is four. **30 of 99 gøglere sit on a shared
-   number**, so roughly a third of them hit the login chooser — and for most, the
-   chooser offers several entries it has no way to tell apart, because they are the
-   same person. Picking the wrong one yields an account with the wrong section, no
-   portrait and no history.
+9. **Duplicate registrations — the chooser cannot solve this one.** Found in task 075 among
+   gøglere and confirmed in task 078 to be **far larger and mostly a spejder problem**.
 
-   This is a data-quality problem upstream, not a chooser problem, and it is
-   deliberately **not** patched in the projection: de-duplicating would mean choosing a
-   winner, which is a product decision, and would hide the upstream issue. Only 4 of
-   the 12 are genuine sharing (siblings — e.g. Anders and Sofie Rossén Fensløv, same
-   number, same group), which is the case task 079 handles correctly.
+   Across the 2026 event, **70 of 85 shared phone numbers carry the same name on every
+   row**: one human who submitted the signup form repeatedly, each time getting a fresh
+   id and so becoming a separate person. By population, rows sitting on a shared number:
+   spejder 274, gøgler 30, bandit 9, crew 3. The worst single case is **9 rows for one
+   spejder** — "Cæcilie Bæk Lahoz", same patrulje, nine ids; among gøglere, "Rikke Banke
+   Peytz" is 5 and "Klaus" is 4.
 
-   Needs a decision: does tilmelding prevent duplicate signups, does someone merge them
-   before the event, or must the app collapse them (and on what key — normalized name
-   plus phone)?
+   **Not a projection bug.** Three of Cæcilie's nine ids were read back off the stream as
+   three separate `spejder.*.updated` events with three separate member ids — and two
+   different `teamId`s, so the patrulje record appears to be duplicated too.
+
+   Consequence for login: the task 079 chooser will offer several *identical* names, which
+   is not a question a user can answer, and picking wrong yields an account with the wrong
+   team, no portrait and no history. Deliberately **not** patched in the projection:
+   de-duplicating means choosing a winner, which is a product decision, and would hide the
+   upstream problem.
+
+   **One caveat before acting on the scale of this:** the dev broker's dataset is
+   constructed to look real rather than copied from production. These duplicates are
+   genuinely in the events, but whether they reflect real signup behaviour or an artifact
+   of how the dataset was generated is something only the data's author can say. If it is
+   real, it needs fixing upstream (or a merge step) before an event; if it is generator
+   noise, the chooser's real-world job is the 15 genuine cases and this is a false alarm.
 10. **Gøglere cannot be deleted.** No `gøgler.*.deleted` exists on the stream, so a
     gøgler who withdraws keeps a working login indefinitely. Every other population has
     a deletion path. This is security-relevant and feeds directly into **task 076**;
     resolving it may require a new event upstream rather than anything in `hej`.
 11. ~~**Should sign-in stay phone-only** given how many bandits lack a number?~~
-    *Answered 2026-08-26: **yes, phone-only.*** A full replay showed only **239 of 1433
-    live 2026 bandits (17%) have a phone**, against ~92% of spejder and **100% of
-    gøglere** — so ~1,200 bandits cannot log in as things stand. Verified not to be a
-    projection bug: the numbers that exist are stored correctly normalized, and the
-    source `senior.updated` events genuinely carry `"phone": ""`.
+    *Answered 2026-08-26: **yes, phone-only.*** The gap is accepted as a **deliberate
+    forcing function**. Bandits reserve seats before they know who will actually attend,
+    and are "quite lazy when it comes to entering data"; making the app inaccessible
+    without a number is what will get the numbers supplied. No klan-level fallback
+    contact, and no alternative sign-in method, is to be added.
 
-    The gap is accepted as a **deliberate forcing function**. Bandits reserve seats
-    before they know who will actually attend, and are "quite lazy when it comes to
-    entering data"; making the app inaccessible without a number is what will get the
-    numbers supplied. No klan-level fallback contact, and no alternative sign-in
-    method, is to be added.
+    **Correction (task 078): the gap I reported was overstated, and the error was mine.**
+    The figure given when this question was raised — "only 239 of 1433 live 2026 bandits
+    (17%) have a phone" — counted **both years**, and 2025 dominates it. Per year:
 
-    Consequence to design around rather than re-litigate: **bandit onboarding must
-    assume a first-time login very close to the event**, once someone finally enters
-    their number. PRDs 005 and 007 cannot assume a bandit has had weeks to verify a
-    profile or take a portrait.
+    | year | role | live | with phone | |
+    |---|---|---|---|---|
+    | 2025 | bandit | 1282 | 122 | 10% |
+    | **2026** | **bandit** | **151** | **117** | **77%** |
+    | 2025 | spejder | 737 | 691 | 94% |
+    | 2026 | spejder | 557 | 499 | 90% |
+
+    For the event that is actually coming, bandit coverage is **77%, not 17%** — 34 people
+    short of a number, not ~1,200. The bandit phone problem is a 2025 artifact. Verified
+    not to be a projection bug either way: the numbers that exist are stored correctly
+    normalized, and the 2025 source `senior.updated` events genuinely carry
+    `"phone": ""`.
+
+    The decision stands and is now better supported than when it was made. What changes is
+    the planning consequence: the earlier note that "bandit onboarding must assume a first
+    login very close to the event" was written for a cohort of 1,200 stragglers. At 34 it
+    is an ordinary trickle, and PRDs 005/007 do not need to be shaped around it — though
+    they still cannot assume a bandit has had weeks to verify a profile or take a
+    portrait.
 12. ~~**38 people have an emergency contact number the app cannot use.**~~ *Answered
     2026-08-26: **the check-in counter is the backstop — nobody starts without full
     details.*** Found in task 076 by making the projection's silent phone-number drops
