@@ -18,11 +18,24 @@ Blocks task 087.
 
 ## Why this cannot be a constant
 
-The obvious shortcut is to paste today's bounding box into `map.ts`. It would be wrong by
-September: the checkpoint set is **still being edited** — the most recent
-`checkgroups.sorted` event is 16 days old — and adding a single outlying checkpoint moves
-the hull. A hardcoded area silently under-caches, and the symptom appears at 02:00 in a
-forest with no coverage.
+The obvious shortcut is to paste today's bounding box into `map.ts`. It would be wrong: the
+checkpoint set is **still being edited** — the most recent `checkgroups.sorted` event is 16
+days old — and the area moves from year to year. A hardcoded area silently under-caches, and
+the symptom appears at 02:00 in a forest with no coverage.
+
+What *is* stable is the area's **size** — "roughly the same every year" (maintainer) — so the
+storage budget is a one-time decision even though the polygon is not. This task supplies the
+*where*; PRD 009's budget is settled from the *how big*.
+
+So the area is derived from live data, and re-derived whenever it is asked for.
+
+## Precision required: low
+
+Worth stating so this does not get over-built. The output feeds a tile cache with a 3 km
+buffer already baked in; being a kilometre out changes the download by a few percent and
+changes nothing a participant would notice. A convex hull over whatever checkpoints have
+coordinates is sufficient. It does not need geodesic exactness, a concave hull, or the
+missing checkpoints filled in.
 
 So the area is derived from live data, and re-derived whenever it is asked for.
 
@@ -35,13 +48,18 @@ So the area is derived from live data, and re-derived whenever it is asked for.
 ```
 
 The matching `.created` events carry no name or position, so `.updated` is the one to
-project. As of 2026-08-26 there are 12 checkpoints for 2026, of which **9 have coordinates**
-— Post 3A, Post 3B and "Til Gøgl" have none.
+project. As of 2026-08-26 there are 12 checkpoints for 2026, of which **9 have coordinates** —
+Post 3A, Post 3B and "Til Gøgl" have none.
 
-That gap matters and should be surfaced rather than silently skipped: since every checkpoint
-is inside the race area, a checkpoint without coordinates means the computed hull **may be
-too small**. Log it, and consider reporting it somewhere an organizer will see before the
-event.
+**That is normal and not a problem to solve** (maintainer, 2026-08-26): the derivation gives
+an indication of the area, not a survey. The 3 km buffer absorbs it, since checkpoints in a
+night hike sit within one bounded area, so a hull around 9 of 12 plus 3 km very likely
+contains the other three.
+
+Still worth **counting and logging** how many lack coordinates — not to chase individual
+gaps, but so that a systematic collapse (a year where the field stops being filled in at
+all, or where only two checkpoints have positions) is visible rather than silently producing
+a tiny area.
 
 ## Scope
 
@@ -64,7 +82,8 @@ polygon, not the points.
 
 - [ ] A checkpoint projection consuming `NATHEJK.*.checkpoint.*.updated`, registered in the
       three-way pattern (construct → register → expose)
-- [ ] Checkpoints without coordinates are counted and logged, not silently dropped
+- [ ] Checkpoints without coordinates are **counted and logged**, so a systematic collapse in
+      coordinate coverage is visible — individual gaps are expected and fine
 - [ ] The race area is computed as convex hull + 3 km buffer, in a function with unit tests
       covering: a single checkpoint, two checkpoints (degenerate hull), collinear points, and
       the real 9-point set
@@ -74,7 +93,10 @@ polygon, not the points.
 - [ ] Individual checkpoint coordinates are **not** exposed to participants
 - [ ] Behaves sanely with zero checkpoints (early in the year): no area, and the client
       falls back rather than caching the whole of Denmark
-- [ ] Verified against the live stream: the computed area matches the 428 km² measured by
+- [ ] A sanity bound on the result — an area far outside the expected few-hundred km² means
+      bad input (one stray checkpoint in another country would balloon the hull), and should
+      be refused rather than handed to the cache
+- [ ] Verified against the live stream: the computed area is close to the 428 km² measured by
       hand on 2026-08-26 (hull 220 km², perimeter 60 km, extent 22.4 × 15.3 km)
 
 ## Progress Log

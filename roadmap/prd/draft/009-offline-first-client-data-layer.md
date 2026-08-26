@@ -330,25 +330,35 @@ Proposed tasks for `roadmap/tasks/open/`:
    (both layers).
 
    **The tile scope decided in PRD 002 §11.2 is the whole race area** — the convex hull of
-   this year's checkpoints plus a 3 km buffer, measured at **428 km² / 324 MB** (z12–16,
-   topo + aerial JPEG, using tile sizes measured inside that area). An earlier 8 km
+   this year's checkpoints plus a 3 km buffer, measured at **428 km² / 324 MB** for 2026
+   (z12–16, topo + aerial JPEG, using tile sizes measured inside that area). An earlier 8 km
    follow-me radius was superseded: the fixed area is twice the bytes and removes eviction,
    incomplete coverage, and the problem that a moving radius can only be filled where the
    network already works.
 
+   **The area is roughly the same size every year** (maintainer), so this is a one-time
+   budget decision rather than an annual re-derivation. **Plan for ~450 MB, expect ~325 MB:**
+
+   | race area | z12–16 | z12–15 |
+   |---|---|---|
+   | 300 km² | 232 MB | 93 MB |
+   | **428 km² (2026)** | **324 MB** | **129 MB** |
+   | 600 km² | 446 MB | 175 MB |
+   | 700 km² | 517 MB | 202 MB |
+
    Two things that fall to this PRD from that:
 
-   - **Tiles are the largest single dataset** — 324 MB against roughly 100 MB for everything
+   - **Tiles are the largest single dataset** — ~325 MB against roughly 100 MB for everything
      else likely to be cached. The budget's shape is essentially "tiles plus the rest".
    - **The whole-area decision removes the movement-driven growth** that made tiles awkward
-     for a shared budget: the size is now fixed and knowable in advance, so "is the map
-     ready?" has a true answer and the eviction policy does not need a special case for it.
-     If the race area ever outgrows the budget, the radius design and its delicate property
-     — **eviction is irreversible in the field**, since a tile discarded in a dead spot
-     cannot be re-fetched — are recorded in PRD 002 §11.2 and task 087.
+     for a shared budget: the size is fixed and knowable in advance, so "is the map ready?"
+     has a true answer and the eviction policy needs no special case for it. If a future race
+     area outgrows the budget, the radius design and its delicate property — **eviction is
+     irreversible in the field**, since a tile discarded in a dead spot cannot be re-fetched
+     — are recorded in PRD 002 §11.2 and task 087.
 
-   Note z16 alone is 60% of the 324 MB, so capping the topo at z15 (129 MB total) or the
-   aerial at z14 (~270 MB total) are the levers if this budget needs to give.
+   Note z16 alone is ~60% of the total, so capping the topo at z15 is the release valve: it
+   takes any plausible race area under 200 MB.
 
    Two findings that change the shape of the budget:
 

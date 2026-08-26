@@ -39,9 +39,10 @@ directory, the app shell and the unshipped position track.
 
 ## Measured cost
 
-Race area 428 km². Tile sizes measured **in the race area** (North Zealand), not
-extrapolated — its cartography is denser than rural Zealand and topo tiles run up to 43%
-larger there.
+Race area 428 km² for 2026, and **roughly the same size every year** (maintainer) — so this
+sizing is durable rather than annual. Tile sizes measured **in the race area** (North
+Zealand), not extrapolated: its cartography is denser than rural Zealand and topo tiles run
+up to 43% larger there.
 
 | zoom ceiling | tiles | topo | + aerial (JPEG) | total |
 |---|---|---|---|---|
@@ -49,10 +50,13 @@ larger there.
 | z12–15 | 1,430 | 110 MB | 19 MB | 129 MB |
 | **z12–16 (recommended)** | **5,291** | **264 MB** | **60 MB** | **324 MB** |
 
+Plan for **~450 MB** to leave headroom for a larger year (600 km² is 446 MB); expect ~325 MB.
+
 Per-zoom, z16 alone is 3,861 tiles and 195 MB — **60% of the total**. Two levers if budget
 pressure appears later:
 
-- Cap the topo at **z15** (which is the app's own `LOCATE_ZOOM`): whole area drops to 129 MB.
+- Cap the topo at **z15** (which is the app's own `LOCATE_ZOOM`): whole area drops to 129 MB,
+  and any plausible race area stays under 200 MB.
 - Cap the **aerial** at z14 while keeping topo at z16: ~270 MB. Nobody navigates by aerial
   imagery at night, so this is the cheaper thing to give up first.
 

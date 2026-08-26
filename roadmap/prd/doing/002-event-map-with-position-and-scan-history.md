@@ -681,19 +681,38 @@ revisiting here before they are built.
 
    **Three caveats that shape the implementation:**
 
-   1. **3 of 12 checkpoints have no coordinates** (Post 3A, Post 3B, "Til Gøgl"). Since
-      every checkpoint is by definition inside the race area, any of those three lying
-      outside the hull of the other nine would make 428 km² an **underestimate**. Worth
-      fixing upstream before relying on the figure.
+   1. **3 of 12 checkpoints have no coordinates** (Post 3A, Post 3B, "Til Gøgl"). *Accepted
+      as normal, 2026-08-26 (maintainer): the derivation is an indication of the area, not a
+      survey.* The 3 km buffer absorbs it — checkpoints in a night hike sit within one
+      bounded area, so a hull around 9 of 12 plus 3 km is very likely to contain the other
+      three. Worth counting and logging so a *systematic* collapse in coordinate coverage is
+      visible, but not worth chasing individual gaps.
    2. **The checkpoint set is still changing** — the last `checkgroups.sorted` event is 16
-      days old. So the race area must be **derived from live data at sync time, not
-      hardcoded**. A number pasted into `map.ts` today would be wrong by September.
+      days old — and the area moves from year to year. So the area must be **derived from
+      live data at sync time, not hardcoded**. What *is* stable is its size (below), so the
+      storage budget can be fixed permanently even though the polygon cannot.
    3. Which means the client has to *learn* the area, so `hej` needs checkpoint positions:
       a small projection plus a way to serve the area to the client. That is new work, now
       task **088**, and it blocks the caching task.
 
-   Rule of thumb for other shapes, using race-area tile sizes: **0.62 MB/km²** for topo
-   z12–16, plus **0.14 MB/km²** for aerial JPEG.
+   **The area is roughly the same size every year** (maintainer), which makes the budget a
+   one-time decision rather than an annual re-derivation. Planning envelope, using race-area
+   tile sizes:
+
+   | race area | z12–16 | z12–15 |
+   |---|---|---|
+   | 300 km² | 232 MB | 93 MB |
+   | **428 km² (2026, measured)** | **324 MB** | **129 MB** |
+   | 600 km² | 446 MB | 175 MB |
+   | 700 km² | 517 MB | 202 MB |
+
+   So **plan for ~450 MB and expect ~325 MB** at z12–16. Even a year 60% larger than 2026
+   stays inside the ~1 GB iOS 16 floor with room for portraits, the directory and the app
+   shell — and capping the topo at z15 is the release valve, taking any plausible year under
+   200 MB.
+
+   Rule of thumb for other shapes, using race-area tile sizes: **0.73 MB/km²** at z12–16,
+   **0.28 MB/km²** at z12–15 (both layers, aerial as JPEG).
 
 ### Resolved before approval (2026-08-24), by querying the live services:
 
