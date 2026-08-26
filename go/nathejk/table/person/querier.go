@@ -151,6 +151,22 @@ const personColumns = `
 // Soft-deleted rows are excluded here rather than at the call site: a deleted member
 // must lose their login, and leaving that filter to every caller is how one of them
 // eventually forgets (task 076).
+//
+// # The guardian number is not a login key
+//
+// This matches on `phone` and must NEVER also match on `phoneParent`. Decided
+// 2026-08-26: nobody logs in with a guardian's number — not the guardian, not the
+// member.
+//
+// The temptation is concrete and will recur. 36 live 2026 spejder have no phone of their
+// own but do have a guardian number on file (PRD 006 §11 Q13), so adding
+// `OR phoneParent = ?` here looks like it rescues 36 locked-out children with one line.
+// What it actually does is let a parent's handset authenticate *as the child*, silently
+// and with no audit trail — and on a number shared between siblings, as one of several
+// children. A member with no phone simply has no app, which is an accepted outcome.
+//
+// TestLoginNeverMatchesOnTheGuardianNumber enforces this, because a comment alone would
+// not survive someone earnestly fixing a bug report.
 func (q querier) Lookup(year, phoneInput string) ([]Person, error) {
 	normalized := normalizeOrEmpty(q.normalizer, phoneInput)
 

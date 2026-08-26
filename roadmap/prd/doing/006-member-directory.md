@@ -492,9 +492,11 @@ is why the two were approved together with 008 first.
     assume a first-time login very close to the event**, once someone finally enters
     their number. PRDs 005 and 007 cannot assume a bandit has had weeks to verify a
     profile or take a portrait.
-12. **38 people have an emergency contact number the app cannot use.** Found in task 076
-    by making the projection's silent phone-number drops visible. Distinct people across
-    both years, all previously indistinguishable from "no number on file":
+12. ~~**38 people have an emergency contact number the app cannot use.**~~ *Answered
+    2026-08-26: **the check-in counter is the backstop — nobody starts without full
+    details.*** Found in task 076 by making the projection's silent phone-number drops
+    visible. Distinct people across both years, all previously indistinguishable from "no
+    number on file":
 
     | pattern | people | recoverable? |
     |---|---|---|
@@ -517,17 +519,28 @@ is why the two were approved together with 008 first.
     id (and a digit count — never the number itself, since these are third parties'
     phones), so they can be corrected upstream before an event.
 
-    Needs a decision: **who watches that log, and when?** These are only fixable by
-    someone contacting the family. If nobody does it before check-in, 38 members arrive
-    with no reachable guardian.
-13. **Can a spejder log in with their guardian's number?** Of 557 live 2026 spejder, **59
-    have no own phone — and 36 of those do have a guardian number on file**. Under
-    phone-only sign-in (Q11) those 36 cannot log in at all, even though the data contains
-    a working number for their household. `Lookup` searches `phone` only, never
-    `phoneParent`.
+    **The answer to "who fixes these" is the check-in counter**, which already refuses to
+    start anyone whose details are incomplete. So a bad number is not a silent hole in the
+    emergency-contact chain after all — it is caught in person, by the same procedure that
+    catches everything else. The log is therefore an *early-warning* convenience, not a
+    safety-critical queue: useful for shortening queues at the counter, not something an
+    event depends on. That also reframes PRD 005's value: the members whose data is
+    already clean self-verify and walk through, leaving the counter free for the ~48 who
+    genuinely need a human.
+13. ~~**Can a spejder log in with their guardian's number?**~~ *Answered 2026-08-26:
+    **no — nobody logs in with a guardian's number.*** Not the guardian, not the member it
+    belongs to. A participant is not required to bring a phone; without one they have no
+    number and no app, and that is an accepted outcome rather than a gap to engineer
+    around.
 
-    This is not the same question as Q11: it is not about lazy data entry, it is about
-    young scouts who genuinely have no phone. Allowing it would mean a parent's handset
-    can log in *as the child*, and on a shared number siblings would collide — which the
-    task 079 chooser already handles. Also 51 spejder have no guardian number either, so
-    23 have no reachable number at all and are unreachable by any phone-based route.
+    The measurements that prompted the question: of 557 live 2026 spejder, 59 have no own
+    phone and **36 of those do have a guardian number on file**; 23 have no number of any
+    kind. `Lookup` searches `phone` only, never `phoneParent`.
+
+    This is now an enforced boundary rather than a note, because the pressure to break it
+    is specific and recurring: `OR phoneParent = ?` looks like a one-line rescue of 36
+    locked-out children, and is really a way for a parent's handset to authenticate **as
+    the child** with no audit trail — and where siblings share the number, as an arbitrary
+    one of them. `TestLoginNeverMatchesOnTheGuardianNumber` inspects the WHERE clause of
+    every lookup and fails if the guardian column appears; it was verified to fail when
+    the fallback is added.
