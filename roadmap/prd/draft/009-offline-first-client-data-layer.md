@@ -330,14 +330,14 @@ Proposed tasks for `roadmap/tasks/open/`:
    (both layers).
 
    **The tile scope decided in PRD 002 §11.2 is the whole race area** — the convex hull of
-   this year's checkpoints plus a 3 km buffer, measured at **428 km² / 324 MB** for 2026
+   this year's checkpoints plus a 3 km buffer, measured at **476 km² / 358 MB** as published for 2026 (428 km² geometric, plus an outward ~1.1 km disclosure grid that stops the buffer being inverted to recover checkpoint positions)
    (z12–16, topo + aerial JPEG, using tile sizes measured inside that area). An earlier 8 km
    follow-me radius was superseded: the fixed area is twice the bytes and removes eviction,
    incomplete coverage, and the problem that a moving radius can only be filled where the
    network already works.
 
    **The area is roughly the same size every year** (maintainer), so this is a one-time
-   budget decision rather than an annual re-derivation. **Plan for ~450 MB, expect ~325 MB:**
+   budget decision rather than an annual re-derivation. **Plan for ~500 MB, expect ~360 MB:**
 
    | race area | z12–16 | z12–15 |
    |---|---|---|
@@ -348,7 +348,7 @@ Proposed tasks for `roadmap/tasks/open/`:
 
    Two things that fall to this PRD from that:
 
-   - **Tiles are the largest single dataset** — ~325 MB against roughly 100 MB for everything
+   - **Tiles are the largest single dataset** — ~360 MB against roughly 100 MB for everything
      else likely to be cached. The budget's shape is essentially "tiles plus the rest".
    - **The whole-area decision removes the movement-driven growth** that made tiles awkward
      for a shared budget: the size is fixed and knowable in advance, so "is the map ready?"

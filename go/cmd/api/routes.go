@@ -39,6 +39,9 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodPost, "/api/auth/logout", app.logoutHandler)
 	router.HandlerFunc(http.MethodGet, "/api/me", app.requireAuth(app.meHandler))
 	router.HandlerFunc(http.MethodGet, "/api/patrol/scans", app.requireAuth(app.listPatrolScansHandler))
+	// The region the client caches map tiles for. Authenticated deliberately: unlike
+	// /api/config it is not public — the event area is not fully known to participants.
+	router.HandlerFunc(http.MethodGet, "/api/race-area", app.requireAuth(app.raceAreaHandler))
 	router.HandlerFunc(http.MethodGet, "/api/push/public-key", app.pushPublicKeyHandler)
 	router.HandlerFunc(http.MethodPost, "/api/push/subscription", app.requireAuth(app.createPushSubscriptionHandler))
 

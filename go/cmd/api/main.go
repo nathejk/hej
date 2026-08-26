@@ -30,6 +30,7 @@ import (
 	"nathejk.dk/internal/sms"
 	"nathejk.dk/internal/users"
 	"nathejk.dk/internal/vcs"
+	"nathejk.dk/nathejk/table/checkpoint"
 	"nathejk.dk/nathejk/table/person"
 )
 
@@ -203,6 +204,34 @@ func run(logger *slog.Logger) error {
 		}
 	}
 
+	// The checkpoint projection (PRD 002 §11.2), which the race area is derived from.
+	//
+	// Constructed alongside the person projection and for the same reason: the read path needs
+	// only a database, so tying it to the broker's arrival would leave the map unable to name
+	// its own race area during a broker outage (see fix(058)).
+	var checkpoints *checkpoint.Table
+	if ev != nil && (err == nil || noBroker) {
+		c, cerr := checkpoint.New(ev.publisherOrNil(), ev.writer, ev.reader,
+			// Reported in aggregate when the area is computed, not per checkpoint.
+			// Individual gaps are expected — organizers add posts before siting them — so
+			// the signal worth having is the systematic case: a year where the field stops
+			// being filled in, leaving an area derived from two points.
+			checkpoint.ReportPositionless(func(year string, positionless, total int) {
+				if positionless == 0 {
+					return
+				}
+				logger.Warn("checkpoints without a position",
+					"year", year, "positionless", positionless, "total", total)
+			}),
+		)
+		if cerr != nil {
+			// Not fatal: the map still works, it just cannot scope an offline tile cache.
+			logger.Error("checkpoint projection unavailable", "err", cerr)
+		} else {
+			checkpoints = c
+		}
+	}
+
 	if err == nil {
 		defer func() {
 			if cerr := ev.close(); cerr != nil {
@@ -221,6 +250,9 @@ func run(logger *slog.Logger) error {
 			var projections []cqrs.Consumer
 			if persons != nil {
 				projections = append(projections, persons)
+			}
+			if checkpoints != nil {
+				projections = append(projections, checkpoints)
 			}
 
 			ev.registerProjections(logger, projections...)
@@ -269,7 +301,7 @@ func run(logger *slog.Logger) error {
 	app := &application{
 		JsonApi:  bff.JsonApi{Logger: logger},
 		config:   cfg,
-		models:   data.NewModels(directory, scans.NewMockSource()),
+		models:   data.NewModels(directory, scans.NewMockSource(), raceAreasOrNil(checkpoints)),
 		commands: commands.New(publisherFor(ev)),
 		db:       db,
 		eventing: ev,

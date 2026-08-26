@@ -503,8 +503,8 @@ These were written as "open" but had in fact shipped as tasks 040, 041, 042, 045
 
 **Tile caching — created 2026-08-26 from §11.2:**
 
-- [ ] 088 — Derive the race area from checkpoints and serve it to the client
-- [ ] 087 — Cache map tiles for the race area (z12–16, ~324 MB)
+- [x] 088 — Derive the race area from checkpoints and serve it to the client
+- [ ] 087 — Cache map tiles for the race area (z12–16, ~358 MB as published)
 
 ## 11. Open Questions
 
@@ -655,8 +655,22 @@ revisiting here before they are built.
    | checkpoint bounding box | 55.6516–55.8525 N, 12.0578–12.3018 E (North Zealand) |
    | checkpoint extent | **22.4 km N–S × 15.3 km E–W** |
    | convex hull of the 9 | 220 km², 60 km perimeter |
-   | **hull + 3 km buffer** | **428 km²** — the race area |
-   | bounding box + 3 km buffer | 604 km² (looser; the hull is the right shape) |
+   | hull + 3 km buffer | 428 km² (the geometric area) |
+   | **as published to the client** | **476 km²** — see the disclosure grid below |
+
+   **The published polygon is snapped outward to a ~1.1 km grid, which costs 11%.** Not
+   tidiness — a fix for a real leak found while building task 088. A buffered hull is
+   *invertible*: every vertex sits on a circle of radius `BufferKm` around a vertex of the
+   original hull, and those vertices **are** checkpoint positions. Since the buffer distance
+   has to be published too (the client must not add its own), an unsnapped polygon lets
+   anyone offset inward and recover the outermost posts exactly. The first implementation did
+   exactly that, emitting input latitudes at full float precision, because sampling a circle
+   from angle 0 puts a vertex at its centre's own latitude.
+
+   Snapping to a grid coarser than that inversion's precision destroys it, and the trade is
+   explicit: **+48 km² and +34 MB of tiles** to turn "there is a post at this spot" back into
+   "the event is in this region" — which the client must know anyway, since it caches tiles
+   for it. Snapping is always outward, so coverage is never lost.
 
    **Tile costs measured *in the race area*, not extrapolated.** This mattered: North
    Zealand's cartography is denser than the rural Zealand sample used earlier, and topo
@@ -665,9 +679,9 @@ revisiting here before they are built.
    | region | km² | tiles | topo | + aerial | total |
    |---|---|---|---|---|---|
    | 8 km radius (the superseded decision) | 201 | 2,587 | 131 MB | 29 MB | 160 MB |
-   | **race area, z12–16** | **428** | **5,291** | **264 MB** | **60 MB** | **324 MB** |
-   | race area, z12–15 | 428 | 1,430 | 110 MB | 19 MB | 129 MB |
-   | race area, z12–14 | 428 | 404 | 50 MB | 6 MB | 56 MB |
+   | race area, geometric | 428 | 5,291 | 264 MB | 60 MB | 324 MB |
+   | **race area as published, z12–16** | **476** | **5,858** | **292 MB** | **66 MB** | **358 MB** |
+   | race area as published, z12–15 | 476 | 1,590 | 122 MB | 21 MB | 143 MB |
 
    **Recommendation: cache the whole race area and drop the radius.** It is roughly twice
    the bytes of an 8 km radius and better on every other axis — complete coverage instead of
@@ -695,8 +709,11 @@ revisiting here before they are built.
       live data at sync time, not hardcoded**. What *is* stable is its size (below), so the
       storage budget can be fixed permanently even though the polygon cannot.
    3. Which means the client has to *learn* the area, so `hej` needs checkpoint positions:
-      a small projection plus a way to serve the area to the client. That is new work, now
-      task **088**, and it blocks the caching task.
+      a small projection plus a way to serve the area to the client. **Built 2026-08-26 as
+      task 088**: a `checkpoint` projection, `checkpoint.ComputeRaceArea`, and an
+      authenticated `GET /api/race-area`. Deliberately *not* added to `GET /api/config`,
+      whose own contract states everything it carries is public by definition — which the
+      race area is not.
 
    **The area is roughly the same size every year** (maintainer), which makes the budget a
    one-time decision rather than an annual re-derivation. Planning envelope, using race-area

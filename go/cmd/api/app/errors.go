@@ -53,3 +53,16 @@ func (a *JsonApi) InvalidCredentialsResponse(w http.ResponseWriter, r *http.Requ
 func (a *JsonApi) AuthenticationRequiredResponse(w http.ResponseWriter, r *http.Request) {
 	a.errorResponse(w, r, http.StatusUnauthorized, "you must be authenticated to access this resource")
 }
+
+// ServiceUnavailableResponse returns a 503 for a dependency that is not available.
+//
+// Distinct from a 500: this app is designed to run in degraded modes on purpose — without a
+// database, without a broker, or with a projection that failed to build (PRD 008 §5) — and a
+// handler that cannot answer for that reason has not encountered a *problem*, it is missing a
+// dependency the operator may not have configured. A client should retry later rather than
+// treat it as a bug, and the log should not read as an error when nothing is broken.
+func (a *JsonApi) ServiceUnavailableResponse(w http.ResponseWriter, r *http.Request, message string) {
+	a.Logger.Warn("service unavailable",
+		"reason", message, "method", r.Method, "uri", r.URL.RequestURI())
+	a.errorResponse(w, r, http.StatusServiceUnavailable, message)
+}

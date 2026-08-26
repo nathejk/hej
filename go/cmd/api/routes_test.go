@@ -34,9 +34,11 @@ func newTestApp(t *testing.T) *application {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return &application{
-		JsonApi:  bff.JsonApi{Logger: logger},
-		config:   config{env: "testing", webRoot: webRoot},
-		models:   data.NewModels(users.NewMockDirectory(), scans.NewMockSource()),
+		JsonApi: bff.JsonApi{Logger: logger},
+		config:  config{env: "testing", webRoot: webRoot},
+		// nil race areas: the routing tests run without a database, which is exactly the
+		// degraded mode the handler must answer 503 for rather than panic in.
+		models:   data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil),
 		commands: commands.New(commands.NewPublisherHolder()),
 
 		pins:              pin.NewStore(),
