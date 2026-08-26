@@ -329,25 +329,26 @@ Proposed tasks for `roadmap/tasks/open/`:
    the aerial layer. So 10×10 km ≈ **66 MB**, 20×20 km ≈ **236 MB**, 30×30 km ≈ **510 MB**
    (both layers).
 
-   **The tile scope decided in PRD 002 §11.2 is an 8 km radius of the current location** —
-   201 km², **124 MB** at z12–16 — with eviction, because a radius that follows a walker
-   sweeps a capsule and reaches 478 MB over a 40 km route. A corridor was ruled out: the
-   race area is known but a given team's route is not.
+   **The tile scope decided in PRD 002 §11.2 is the whole race area** — the convex hull of
+   this year's checkpoints plus a 3 km buffer, measured at **428 km² / 324 MB** (z12–16,
+   topo + aerial JPEG, using tile sizes measured inside that area). An earlier 8 km
+   follow-me radius was superseded: the fixed area is twice the bytes and removes eviction,
+   incomplete coverage, and the problem that a moving radius can only be filled where the
+   network already works.
 
    Two things that fall to this PRD from that:
 
-   - **Tiles are the largest dataset and the only one with a movement-driven growth rate.**
-     Every other registered dataset has a size set by the data; this one grows as the user
-     walks. The budget needs to express a *cap*, not just a size.
-   - **Eviction here is irreversible in the field.** Discarding a tile in a dead spot means
-     it cannot be re-fetched. So the eviction policy cannot be a single global LRU pool — a
-     protected floor around the user (and around any pre-cached region) has to survive
-     pressure from other datasets, or ordinary movement will evict the coverage the cache
-     exists to provide.
+   - **Tiles are the largest single dataset** — 324 MB against roughly 100 MB for everything
+     else likely to be cached. The budget's shape is essentially "tiles plus the rest".
+   - **The whole-area decision removes the movement-driven growth** that made tiles awkward
+     for a shared budget: the size is now fixed and knowable in advance, so "is the map
+     ready?" has a true answer and the eviction policy does not need a special case for it.
+     If the race area ever outgrows the budget, the radius design and its delicate property
+     — **eviction is irreversible in the field**, since a tile discarded in a dead spot
+     cannot be re-fetched — are recorded in PRD 002 §11.2 and task 087.
 
-   Still worth settling in PRD 002: whether the **whole known race area** should be
-   pre-cached instead, which at ≤20×20 km is both cheaper than the swept radius and
-   complete. That would remove the movement-driven growth from this budget entirely.
+   Note z16 alone is 60% of the 324 MB, so capping the topo at z15 (129 MB total) or the
+   aerial at z14 (~270 MB total) are the levers if this budget needs to give.
 
    Two findings that change the shape of the budget:
 
@@ -365,11 +366,9 @@ Proposed tasks for `roadmap/tasks/open/`:
    here. Tiles are probably the largest dataset, so leaving them out defeats the
    shared budget — but retrofitting is real work.
 
-   **Partially answered 2026-08-26:** tiles *are* to be cached, on this shared layer, scoped
-   to an **8 km radius of the current location** with eviction (PRD 002 §11.2). The
-   presumption is now this shared engine rather than something map-local. Task 087 carries
-   it, and flags one decision that could simplify it substantially — pre-caching the whole
-   known race area instead of a moving window.
+   **Answered 2026-08-26:** tiles are cached on this shared layer, scoped to the **whole race
+   area** (428 km², 324 MB at z12–16) rather than a moving radius. Tasks 088 (derive the
+   area from checkpoints) and 087 (cache it) carry it.
 3. **Where does the readiness view live** — *decided*: the profile page (PRD 003
    §7). Listed only because 003 must actually carry it.
 4. **Is the member directory cached in full, or only the user's own team?** Full

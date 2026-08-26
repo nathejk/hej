@@ -503,7 +503,8 @@ These were written as "open" but had in fact shipped as tasks 040, 041, 042, 045
 
 **Tile caching — created 2026-08-26 from §11.2:**
 
-- [ ] 087 — Cache tiles within an 8 km radius, topo capped at z16, with eviction
+- [ ] 088 — Derive the race area from checkpoints and serve it to the client
+- [ ] 087 — Cache map tiles for the race area (z12–16, ~324 MB)
 
 ## 11. Open Questions
 
@@ -636,70 +637,63 @@ revisiting here before they are built.
    compete for the same per-origin quota with no agreed priority, and the OS decides
    what to evict. Retrofitting is real work; doing it later is more.
 
-   **Scope decided 2026-08-26, refined the same day: cache tiles within an 8 km radius of
-   the current location**, on the shared layer, with eviction of stale tiles. A corridor
-   along the route was considered and **ruled out: the race area is known, but the route a
-   given team will follow is not**, so there is no corridor to draw.
+   **Scope decided 2026-08-26, then superseded the same day by measuring the actual race
+   area.** The decision history is kept because the reasoning still applies if the area
+   grows: first a 10 km radius of the current location, then 8 km with eviction, with a
+   corridor ruled out because the race area is known but a given team's route is not.
 
-   Measured cost for an 8 km radius (201 km²), using real tile sizes:
+   **The race area, derived from this year's checkpoints (2026-08-26).** 12 checkpoints
+   exist on the stream for 2026; 9 carry coordinates. `NATHEJK.<year>.checkpoint.<id>.updated`
+   carries `position: {latitude, longitude}` — so checkpoint definitions *do* have
+   coordinates, which also part-answers the "scan data source" question below.
 
-   | zoom ceiling | topo | + aerial (JPEG) | total |
-   |---|---|---|---|
-   | **z12–16 (recommended)** | 100 MB | 24 MB | **124 MB** |
-   | z12–17 | 262 MB | 63 MB | 325 MB |
+   | | |
+   |---|---|
+   | checkpoint bounding box | 55.6516–55.8525 N, 12.0578–12.3018 E (North Zealand) |
+   | checkpoint extent | **22.4 km N–S × 15.3 km E–W** |
+   | convex hull of the 9 | 220 km², 60 km perimeter |
+   | **hull + 3 km buffer** | **428 km²** — the race area |
+   | bounding box + 3 km buffer | 604 km² (looser; the hull is the right shape) |
 
-   For comparison, a 10 km radius is 188 MB at z12–16, so shrinking to 8 km saves ~34%.
+   **Tile costs measured *in the race area*, not extrapolated.** This mattered: North
+   Zealand's cartography is denser than the rural Zealand sample used earlier, and topo
+   tiles are up to **43% larger** there (z15: 59.5 kB vs 41.7 kB; z16: 41.0 kB vs 31.9 kB).
 
-   **Cap the topo at z16.** DTK25 is a 1:25.000 map and its tiles *shrink* with zoom
-   (140 kB at z12 → 20 kB at z17) because they are the same cartography upsampled; z17
-   costs ~200 MB more and carries **no additional map information**. The aerial layer is
-   12.5 cm native imagery and could justify going deeper, but it is not the layer anyone
-   navigates by at night.
+   | region | km² | tiles | topo | + aerial | total |
+   |---|---|---|---|---|---|
+   | 8 km radius (the superseded decision) | 201 | 2,587 | 131 MB | 29 MB | 160 MB |
+   | **race area, z12–16** | **428** | **5,291** | **264 MB** | **60 MB** | **324 MB** |
+   | race area, z12–15 | 428 | 1,430 | 110 MB | 19 MB | 129 MB |
+   | race area, z12–14 | 428 | 404 | 50 MB | 6 MB | 56 MB |
 
-   **Eviction is required, not optional.** A radius that follows the walker sweeps a
-   capsule, not a circle — the union of every 8 km circle along a route is `2·R·L + πR²`:
+   **Recommendation: cache the whole race area and drop the radius.** It is roughly twice
+   the bytes of an 8 km radius and better on every other axis — complete coverage instead of
+   a moving window, **no eviction logic at all**, deterministic contents, and all of it
+   fetchable before the start while the participant still has coverage. A follow-me radius
+   can only ever be filled where the network already works, which is precisely where the
+   cache is not needed. 324 MB also sits comfortably inside the ~1 GB iOS 16 floor alongside
+   portraits, the directory and the app shell.
 
-   | route walked | area | total at z12–16 |
-   |---|---|---|
-   | 0 km (static) | 201 km² | 124 MB |
-   | 20 km | 521 km² | 303 MB |
-   | 40 km | 841 km² | 478 MB |
-   | 60 km | 1,161 km² | 651 MB |
+   Note z16 alone is 195 MB of that 324 MB — 60%. If budget pressure appears, capping the
+   topo at z15 (the app's own `LOCATE_ZOOM`) brings the whole area to 129 MB. And the aerial
+   layer is 60 MB that nobody navigates by at night, so capping *it* at z14 while keeping
+   topo at z16 gives ~270 MB. Both are levers to pull later rather than now.
 
-   So the radius is a *fetch* policy; the *bound* comes from a byte cap with eviction
-   ("clean out old cache", maintainer). One safety property matters more than the policy
-   itself: **eviction is irreversible until coverage returns.** Discarding a tile in a dead
-   spot means it cannot be re-fetched, so eviction must never reach tiles near the current
-   position, and should prefer what is furthest behind.
+   **Three caveats that shape the implementation:**
 
-   **A known race area probably makes the radius unnecessary — worth one decision before
-   building it.** The route being unknown is exactly why a *fixed area* works where a
-   corridor does not, and pre-caching the whole known area is strictly better than a moving
-   radius: complete coverage instead of a window, no eviction logic, deterministic contents,
-   and — decisively — all of it fetchable **before the start while the participant still
-   has coverage**. A follow-me radius can only be filled where there is network, which is
-   precisely where the cache is not needed.
+   1. **3 of 12 checkpoints have no coordinates** (Post 3A, Post 3B, "Til Gøgl"). Since
+      every checkpoint is by definition inside the race area, any of those three lying
+      outside the hull of the other nine would make 428 km² an **underestimate**. Worth
+      fixing upstream before relying on the figure.
+   2. **The checkpoint set is still changing** — the last `checkgroups.sorted` event is 16
+      days old. So the race area must be **derived from live data at sync time, not
+      hardcoded**. A number pasted into `map.ts` today would be wrong by September.
+   3. Which means the client has to *learn* the area, so `hej` needs checkpoint positions:
+      a small projection plus a way to serve the area to the client. That is new work, now
+      task **088**, and it blocks the caching task.
 
-   And it is not more expensive. At z12–16, topo + aerial:
-
-   | known race area | total | vs. 8 km radius |
-   |---|---|---|
-   | 10×10 km | 66 MB | cheaper than the static radius |
-   | 15×15 km | 138 MB | ≈ the static radius (124 MB) |
-   | 20×20 km | 236 MB | cheaper than the radius swept over 20 km (303 MB) |
-   | 30×30 km | 510 MB | dearer; radius starts to pay |
-
-   An 8 km radius is 201 km² — about a **14×14 km square**. So if the race area is anywhere
-   near that size, the radius and the area are nearly the same set of tiles and the radius
-   is pure machinery.
-
-   **Outstanding input: the size of the race area.** At roughly 20×20 km or smaller,
-   recommend caching the whole area at first sync and dropping the radius entirely. Larger
-   than that, the radius plus eviction earns its complexity. The two also compose: pre-cache
-   the area if it fits, and use the radius only for opportunistic top-up beyond it.
-
-   Rule of thumb for any shape: **0.45 MB/km²** for topo z12–16, plus **0.11 MB/km²** for
-   aerial JPEG.
+   Rule of thumb for other shapes, using race-area tile sizes: **0.62 MB/km²** for topo
+   z12–16, plus **0.14 MB/km²** for aerial JPEG.
 
 ### Resolved before approval (2026-08-24), by querying the live services:
 
