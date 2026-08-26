@@ -1,11 +1,11 @@
 # PRD 008 — Persistence and event-stream infrastructure for `hej`
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed)
 **Created:** 2026-08-25
-**Last updated:** 2026-08-25
+**Last updated:** 2026-08-26
 **Approved:** 2026-08-25
-**Shipped:**
+**Shipped:** 2026-08-26
 **Target users:** none directly — this is enabling infrastructure for PRDs 003, 005, 006 and 007
 
 <!--
@@ -150,38 +150,44 @@ No end users. The stories are developer- and operator-facing:
 
 ### Functional
 
-- [ ] `DB_DSN` (or equivalent) configuration read in `main.go` via the existing
+- [x] `DB_DSN` (or equivalent) configuration read in `main.go` via the existing
       `flag.StringVar(..., os.Getenv(...))` pattern, plumbed through the `config`
       struct — never read deeper in the call tree, per `go-bff-layout`.
-- [ ] MariaDB driver added; connection pool configured with sane limits and a
+- [x] MariaDB driver added; connection pool configured with sane limits and a
       startup ping with bounded retry.
-- [ ] `db` service added to the `api` service's environment and `depends_on` in
+- [x] `db` service added to the `api` service's environment and `depends_on` in
       dev compose (the service itself already exists).
-- [ ] The `api` service joins the **shared, org-level `jetstream` network** and is
+- [x] The `api` service joins the **shared, org-level `jetstream` network** and is
       given `JETSTREAM_DSN`. This repo does **not** run its own broker — see §8.
-- [ ] The cqrs triple wired in `main.go`: `cqrs.Reader` (`*sql.DB`), `cqrs.Writer`
+- [x] The cqrs triple wired in `main.go`: `cqrs.Reader` (`*sql.DB`), `cqrs.Writer`
       (`deadletter` wrapping `sqlpersister`), `cqrs.Publisher` (`metatagger` over
       JetStream).
-- [ ] `xstream.Mux` created, with the three-way registration pattern `hq` uses:
+- [x] `xstream.Mux` created, with the three-way registration pattern `hq` uses:
       constructor → `projections` slice → `data.NewModels(...)`.
-- [ ] `shared-go` added to `go.mod`, with `go.work` resolving `../../shared-go` in
+- [x] `shared-go` added to `go.mod`, with `go.work` resolving `../../shared-go` in
       dev, and a verified `GOWORK=off` build for CI/prod.
-- [ ] `commands.Commands` becomes real (it is an empty struct today): `hej`
+- [x] `commands.Commands` becomes real (it is an empty struct today): `hej`
       **publishes** domain events, and no handler writes SQL directly.
-- [ ] A blob store for portrait bytes (object store or mounted volume),
+- [x] A blob store for portrait bytes (object store or mounted volume),
       content-addressed, with the reference carried on the stream (§8).
 - [ ] Whichever position-telemetry mechanism PRD 002 settles on (§8) — most likely
       a separate, short-retention telemetry stream.
-- [ ] Production: `docker-swarm.yml` gains whatever state the design requires — a
+      **Not delivered, and deliberately not blocking this PRD (2026-08-26):** PRD 002
+      has not settled the mechanism — its §11 is reopened for exactly this question —
+      and there is nothing to build until it does. Building a guess would mean choosing
+      a retention policy and a stream topology on PRD 002's behalf, which is how
+      infrastructure ends up with a telemetry path nobody wanted. This requirement
+      travels with PRD 002 and returns here as a task once the decision exists.
+- [x] Production: `docker-swarm.yml` gains whatever state the design requires — a
       database it can reach, broker credentials, and volumes/secrets to match.
-- [ ] Health/readiness reflects database connectivity, and reports broker
+- [x] Health/readiness reflects database connectivity, and reports broker
       connectivity and projection lag **without** failing readiness on broker
       absence.
-- [ ] Startup does not block on JetStream; the API serves reads if the broker is
+- [x] Startup does not block on JetStream; the API serves reads if the broker is
       unavailable.
-- [ ] Deadlettered projection statements are observable.
-- [ ] A documented way to get realistic data locally (§11).
-- [ ] `go test ./...`, `go vet`, `staticcheck` stay green in the dev loop, which
+- [x] Deadlettered projection statements are observable.
+- [x] A documented way to get realistic data locally (§11).
+- [x] `go test ./...`, `go vet`, `staticcheck` stay green in the dev loop, which
       means anything touching the DB must be testable without one — use
       `cqrs/cqrstest`'s in-memory `Writer`/`Publisher` fakes.
 
@@ -392,14 +398,40 @@ running. Both fixed, both now covered by tests.
 
 ## 9. Success Metrics
 
-- `docker compose up` from a clean checkout yields an API connected to both
-  MariaDB and JetStream, with no manual steps.
-- A projection rebuilds from an empty volume without intervention.
-- The API serves reads with the broker stopped.
-- Production deploy, restart and redeploy preserve app-owned data; a restore from
-  backup is tested at least once before the event.
-- `GOWORK=off` builds green in CI.
-- PRDs 003, 005, 006 and 007 proceed without further infrastructure work.
+Status as of 2026-08-26, after tasks 050–066. Measured against the running dev stack.
+
+- ✅ **`docker compose up` from a clean checkout yields an API connected to both MariaDB
+  and JetStream, with no manual steps.** True, with one prerequisite that is not a manual
+  step so much as an org-level fact: the external `traefik` and `jetstream` networks must
+  exist, and they are owned by the `nathejk` repo. Now written down in the README, which
+  did not exist when this metric was drafted.
+- ✅ **A projection rebuilds from an empty volume without intervention.** Verified twice
+  over: by destroying `hej_db` (2026-08-25), and again in task 078 by *dropping the
+  tables*, which also exercises schema creation on the same path. Clean both times.
+- ✅ **The API serves reads with the broker stopped.** This one was **false when first
+  checked**, in a way the original verification could not have caught. It served — from
+  the mock directory, because the projection was constructed inside the broker's connect
+  callback. Real members could not log in while their rows sat in the database, and the
+  mock's phone numbers could. Fixed under `fix(058)`; now verified against a genuinely
+  unreachable broker, in both directions.
+
+  Worth keeping visible: the metric would have been ticked on the strength of a 200
+  response. "Serves reads" needed to mean "serves *the real* reads".
+- ⚠️ **Production deploy, restart and redeploy preserve app-owned data; a restore from
+  backup is tested at least once before the event.** Built and exercised as far as this
+  environment allows (tasks 062, 063 — the blob store's backup/restore was tested once).
+  The production half cannot be verified from here and has not been: no deploy has
+  happened. It stays a pre-event checklist item, not a shipped claim.
+- ✅ **`GOWORK=off` builds green in CI.** By construction: the Dockerfile's `build` stage
+  sets `ENV GOWORK=off` and runs `go test ./...` and `staticcheck` before compiling, and
+  CI builds `target: prod` through it. So a green CI run *is* a green `GOWORK=off` test
+  run. (`go vet` is not in that stage — a small gap, mostly covered by staticcheck.)
+- ✅ **PRDs 003, 005, 006 and 007 proceed without further infrastructure work.** Evidenced
+  rather than asserted for one of them: **PRD 006 shipped in full on this foundation**
+  (12 tasks, live login on real projected data) and needed no infrastructure changes
+  beyond the `fix(058)` correction above. 003, 005 and 007 are not built yet, so the
+  claim is only proven for 006 — but 006 was chosen as this PRD's acceptance test
+  precisely because it exercises the whole chain.
 
 ## 10. Rollout / Task Breakdown
 
@@ -409,23 +441,23 @@ stays runnable and the app is never half-migrated on `main`.
 
 Proposed tasks for `roadmap/tasks/open/` (created 2026-08-25 as tasks **050–066**):
 
-- [ ] 050 — `DB_DSN` config + MariaDB driver + pooled connection with startup ping
-- [ ] 051 — wire `db` into the `api` service env/`depends_on` in dev compose
-- [ ] 052 — add shared-go + cqrs + stream to `go.mod`/`go.work`; prove `GOWORK=off`
-- [ ] 053 — JetStream-enabled `nats` service in dev compose with a volume
-- [ ] 054 — construct the cqrs triple
-- [ ] 055 — `xstream.Mux` + the projector registration pattern
-- [ ] 056 — real `commands.Commands` write facade (publisher-backed)
-- [ ] 057 — content-addressed blob store for portrait bytes
-- [ ] 058 — non-blocking broker startup + degraded-mode reads
-- [ ] 059 — health/readiness reporting DB, broker and projection lag
-- [ ] 060 — deadletter observability
-- [ ] 061 — decide + implement the production database route (§11 Q2)
-- [ ] 062 — production swarm changes: state, secrets, volumes
-- [ ] 063 — backup + restore for the blob store, tested once
-- [ ] 064 — decide + implement the replica strategy (§11 Q1)
-- [ ] 065 — local data seeding / replay procedure
-- [ ] 066 — review the phpMyAdmin exposure
+- [x] 050 — `DB_DSN` config + MariaDB driver + pooled connection with startup ping
+- [x] 051 — wire `db` into the `api` service env/`depends_on` in dev compose
+- [x] 052 — add shared-go + cqrs + stream to `go.mod`/`go.work`; prove `GOWORK=off`
+- [x] 053 — JetStream-enabled `nats` service in dev compose with a volume
+- [x] 054 — construct the cqrs triple
+- [x] 055 — `xstream.Mux` + the projector registration pattern
+- [x] 056 — real `commands.Commands` write facade (publisher-backed)
+- [x] 057 — content-addressed blob store for portrait bytes
+- [x] 058 — non-blocking broker startup + degraded-mode reads
+- [x] 059 — health/readiness reporting DB, broker and projection lag
+- [x] 060 — deadletter observability
+- [x] 061 — decide + implement the production database route (§11 Q2)
+- [x] 062 — production swarm changes: state, secrets, volumes
+- [x] 063 — backup + restore for the blob store, tested once
+- [x] 064 — decide + implement the replica strategy (§11 Q1)
+- [x] 065 — local data seeding / replay procedure
+- [x] 066 — review the phpMyAdmin exposure
 
 The position-telemetry mechanism is **not** a task here: PRD 002 owns that
 decision (§8), and this PRD provides whichever mechanism it settles on.
