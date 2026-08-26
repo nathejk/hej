@@ -138,5 +138,18 @@ func ReportUnmappedSlug(report func(slug string)) Option {
 	return func(t *Table) { t.consumer.unmapped = report }
 }
 
+// ReportUnusablePhone installs a sink for phone numbers that arrived but could not be
+// normalized.
+//
+// Without this the projection drops them silently, which for the guardian number means
+// staff are told "no number on file" for a member whose parents did supply one — and
+// nobody finds out until they need to ring it. See consumer.normalizePhone.
+//
+// The sink receives a digit count, not the number: these are third parties' phone
+// numbers and a log line is the wrong place for them.
+func ReportUnusablePhone(report func(personID, field string, digits int)) Option {
+	return func(t *Table) { t.consumer.unusablePhone = report }
+}
+
 // CreateTableSql exposes the schema, matching the shared-go entities' shape.
 func (t *Table) CreateTableSql() string { return tableSchema }

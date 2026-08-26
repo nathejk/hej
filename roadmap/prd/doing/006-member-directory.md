@@ -374,7 +374,7 @@ Proposed tasks for `roadmap/tasks/open/` (created 2026-08-25 as tasks **067–07
 - [x] 073 — project senior/klan as bandit (incl. armNumber subject)
 - [x] 074 — project crewmember + section
 - [x] 075 — project gøgler
-- [ ] 076 — handle deletions and phone changes
+- [x] 076 — handle deletions and phone changes
 - [ ] 077 — swap `users.Directory` to the projection; keep the mock as test double
 - [ ] 078 — backfill/replay verification against real event data
 
@@ -492,3 +492,42 @@ is why the two were approved together with 008 first.
     assume a first-time login very close to the event**, once someone finally enters
     their number. PRDs 005 and 007 cannot assume a bandit has had weeks to verify a
     profile or take a portrait.
+12. **38 people have an emergency contact number the app cannot use.** Found in task 076
+    by making the projection's silent phone-number drops visible. Distinct people across
+    both years, all previously indistinguishable from "no number on file":
+
+    | pattern | people | recoverable? |
+    |---|---|---|
+    | 7 digits — one short | 27 | no |
+    | free text naming two numbers ("Mor: ... eller Far: ...") | 3 | no, ambiguous |
+    | 10 digits, not a country code | 2 | no |
+    | 9 digits — one long | 1 | no |
+    | non-empty but no digits at all | 4 | no |
+
+    Plus 10 people with an unusable *own* number, who therefore cannot log in.
+
+    One class **was** recoverable and is now fixed: a `45` country code typed without the
+    `+`. `internal/phone` rejected those, silently. Notably the projection's test double
+    had accepted them for some time, so the tests believed a case worked that production
+    dropped — the fake was ahead of the real implementation.
+
+    The rest are deliberately **not** repaired. Guessing a digit for a number the app may
+    have to ring in an emergency is worse than admitting it is unusable, and choosing one
+    of "Mor eller Far" is a guess about who to call. They are now logged with the person
+    id (and a digit count — never the number itself, since these are third parties'
+    phones), so they can be corrected upstream before an event.
+
+    Needs a decision: **who watches that log, and when?** These are only fixable by
+    someone contacting the family. If nobody does it before check-in, 38 members arrive
+    with no reachable guardian.
+13. **Can a spejder log in with their guardian's number?** Of 557 live 2026 spejder, **59
+    have no own phone — and 36 of those do have a guardian number on file**. Under
+    phone-only sign-in (Q11) those 36 cannot log in at all, even though the data contains
+    a working number for their household. `Lookup` searches `phone` only, never
+    `phoneParent`.
+
+    This is not the same question as Q11: it is not about lazy data entry, it is about
+    young scouts who genuinely have no phone. Allowing it would mean a parent's handset
+    can log in *as the child*, and on a shared number siblings would collide — which the
+    task 079 chooser already handles. Also 51 spejder have no guardian number either, so
+    23 have no reachable number at all and are unreachable by any phone-based route.

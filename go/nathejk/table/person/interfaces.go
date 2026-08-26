@@ -36,6 +36,9 @@ type PhoneNormalizer interface {
 //
 // The querier refuses to look up an empty phone (see Lookup), so a blank cannot
 // accidentally match every row that also has a blank.
+//
+// "Visible" was doing a lot of unearned work in that reasoning, though: nothing actually
+// said so. See consumer.normalizePhone, which reports the drop.
 func normalizeOrEmpty(n PhoneNormalizer, raw string) string {
 	if n == nil || raw == "" {
 		return ""
@@ -45,4 +48,18 @@ func normalizeOrEmpty(n PhoneNormalizer, raw string) string {
 		return ""
 	}
 	return normalized
+}
+
+// countDigits returns how many digits a string contains.
+//
+// Used to describe an unusable phone number without repeating it: see
+// consumer.normalizePhone for why the raw value is deliberately not passed on.
+func countDigits(s string) int {
+	n := 0
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			n++
+		}
+	}
+	return n
 }

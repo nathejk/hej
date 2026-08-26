@@ -64,9 +64,15 @@ CREATE TABLE IF NOT EXISTS person (
     -- portraits are the one thing that cannot be rebuilt from the log.
     portraitRef VARCHAR(64) NOT NULL DEFAULT "",
 
-    -- Soft delete. A hard DELETE would work too, but a flag keeps a replay's
-    -- ordering harmless: a `deleted` arriving before a late `updated` still leaves
-    -- the person excluded, whereas a delete-then-insert would resurrect them.
+    -- Soft delete. A hard DELETE would work too, but a flag keeps the row available
+    -- as evidence and makes "was this person removed?" answerable without consulting
+    -- the log.
+    --
+    -- Deletion is NOT sticky, deliberately: an `updated` arriving after a `deleted`
+    -- sets this back to 0, because upstream re-adding a member is a real thing that
+    -- happens and they should get their login back. Stream order is the truth, and the
+    -- last event about a person wins. On the current data this never fires — 433
+    -- spejder delete events, 433 rows still deleted (task 076).
     deleted TINYINT(1) NOT NULL DEFAULT 0,
 
     updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

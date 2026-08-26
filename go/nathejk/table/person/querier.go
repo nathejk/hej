@@ -55,6 +55,36 @@ type Person struct {
 // rename.
 const MemberStatusRacing = "racing"
 
+// IsVerified reports whether this person's guardian number is currently confirmed.
+//
+// Note what this is *not*: a read of `verifiedAt`. It is `verifiedAt` **and** the
+// acknowledged number still matching the guardian number on file. The projector already
+// clears `verifiedAt` when the number changes (see invalidateVerification), so in a
+// healthy row the extra comparison is redundant — which is the point of doing it here
+// as well.
+//
+// The two guards fail differently. The projector's clear depends on the change arriving
+// through handleSpejderUpdated; this one holds regardless of which event path moved the
+// number, including one nobody has written yet. The cost of the belt-and-braces is a
+// string compare, and the cost of being wrong is telling staff a guardian consented to
+// being called on a number they never saw — during an emergency. That trade is not
+// close.
+//
+// A person with no guardian number at all (crew, bandit, gøgler — see HasGuardianPhone)
+// can never be verified in this sense, and callers must not read that as "unverified,
+// nag them": there is nothing for them to confirm.
+func (p Person) IsVerified() bool {
+	if p.VerifiedAt == nil {
+		return false
+	}
+	if p.PhoneParent == nil || p.AcknowledgedPhone == nil {
+		// Verified at some point, but there is now no number on file, or no record of
+		// which number was confirmed. Neither is a state in which a tick can be shown.
+		return false
+	}
+	return *p.AcknowledgedPhone == *p.PhoneParent
+}
+
 // HasStarted reports whether the member has begun the event.
 //
 // PRD 005's confirmation step is skipped for these members: starting implies their

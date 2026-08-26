@@ -43,8 +43,27 @@ func onlyStatement(t *testing.T, stmts []string) string {
 	return stmts[0]
 }
 
+// upsertStatement picks out the INSERT from a handler that emits several statements.
+//
+// The spejder handler emits two: the upsert, and a conditional verification
+// invalidation (task 076). Tests about the row's contents want the first, and should not
+// break every time a handler grows a second concern.
+func upsertStatement(t *testing.T, stmts []string) string {
+	t.Helper()
+	var found []string
+	for _, s := range stmts {
+		if strings.HasPrefix(s, "INSERT ") {
+			found = append(found, s)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("want exactly 1 INSERT, got %d: %v", len(found), stmts)
+	}
+	return found[0]
+}
+
 func TestSpejderUpdatedWritesThePerson(t *testing.T) {
-	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.updated",
+	stmt := upsertStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.updated",
 		messages.NathejkScoutUpdated{
 			MemberID:     "member-1",
 			Name:         "Freja Hansen",
@@ -78,8 +97,8 @@ func TestSpejderUpdatedWritesThePerson(t *testing.T) {
 func TestSpejderUpdatedIsIdempotent(t *testing.T) {
 	body := messages.NathejkScoutUpdated{MemberID: "member-1", Name: "Freja", Phone: "30112233"}
 
-	first := onlyStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.updated", body))
-	second := onlyStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.updated", body))
+	first := upsertStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.updated", body))
+	second := upsertStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.updated", body))
 
 	if first != second {
 		t.Fatalf("identical events produced different SQL:\n%s\n%s", first, second)
@@ -92,7 +111,7 @@ func TestSpejderUpdatedIsIdempotent(t *testing.T) {
 // A guardian number is what makes spejder different, and its absence must be NULL —
 // not "" — so PRD 005 can tell "none on file" from "this population has none".
 func TestMissingGuardianPhoneIsNull(t *testing.T) {
-	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.updated",
+	stmt := upsertStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.updated",
 		messages.NathejkScoutUpdated{MemberID: "member-1", Phone: "30112233"}))
 
 	if !strings.Contains(stmt, "NULL") {
@@ -107,7 +126,7 @@ func TestMissingGuardianPhoneIsNull(t *testing.T) {
 // querier refuses to look up, so the person simply cannot log in — visible and
 // fixable, rather than matching every row with no number on file.
 func TestUnparseablePhoneStoresEmpty(t *testing.T) {
-	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.updated",
+	stmt := upsertStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.updated",
 		messages.NathejkScoutUpdated{MemberID: "member-1", Phone: "not a number"}))
 
 	if !strings.Contains(stmt, `phone, `) && !strings.Contains(stmt, `""`) {
@@ -118,7 +137,7 @@ func TestUnparseablePhoneStoresEmpty(t *testing.T) {
 // An update must clear a previous soft delete: a member deleted and re-added upstream
 // should get their login back.
 func TestSpejderUpdatedClearsSoftDelete(t *testing.T) {
-	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.updated",
+	stmt := upsertStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.updated",
 		messages.NathejkScoutUpdated{MemberID: "member-1", Phone: "30112233"}))
 
 	if !strings.Contains(stmt, "deleted") {
@@ -196,7 +215,7 @@ func TestSpejderUpdatedWithoutMemberIDIsAnError(t *testing.T) {
 // Escaping is this file's job, since cqrs.Writer takes a finished statement. A quote
 // in a name must not be able to terminate the literal.
 func TestNameWithQuotesIsEscaped(t *testing.T) {
-	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.updated",
+	stmt := upsertStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.updated",
 		messages.NathejkScoutUpdated{MemberID: "member-1", Name: `Freja "Fre" O'Hansen`, Phone: "30112233"}))
 
 	// %q escapes the inner double quotes; the raw sequence must not appear.

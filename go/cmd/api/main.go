@@ -158,6 +158,14 @@ func run(logger *slog.Logger) error {
 				person.ReportUnmappedSlug(func(slug string) {
 					logger.Warn("unmapped crew section slug", "slug", slug)
 				}),
+				// A number that arrived and could not be used. Warn rather than error for
+				// the same reason — it is upstream data, not a fault here — but it must
+				// not be silent: for `phoneParent` it means an emergency contact the app
+				// believes does not exist. Only a digit count is logged, never the number.
+				person.ReportUnusablePhone(func(personID, field string, digits int) {
+					logger.Warn("unusable phone number",
+						"personId", personID, "field", field, "digits", digits)
+				}),
 			)
 			if perr != nil {
 				// Not fatal: the API still serves reads from the mock directory. A

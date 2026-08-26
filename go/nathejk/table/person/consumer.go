@@ -21,6 +21,9 @@ type consumer struct {
 	// logging (see the package doc: it is bound for shared-go). nil is a valid value
 	// and means "do not report".
 	unmapped func(slug string)
+	// unusablePhone reports a phone number that arrived but could not be normalized.
+	// Same nil-safe callback reasoning as unmapped.
+	unusablePhone func(personID, field string, digits int)
 }
 
 // reportUnmappedSlug surfaces a section slug the classifier does not know.
@@ -32,6 +35,35 @@ func (c consumer) reportUnmappedSlug(slug string) {
 		return
 	}
 	c.unmapped(slug)
+}
+
+// normalizePhone folds a phone number, reporting it if it arrived but was unusable.
+//
+// The projection cannot fail on a bad number — one typo must not stall every person
+// queued behind it — so the value becomes empty and the row is still written. What was
+// missing is that this was called "visible" while being completely silent. It is not
+// visible at all: nobody notices that one member of 557 cannot log in, and for the
+// guardian field nobody notices until an emergency, when staff are told there is no
+// number on file for a member whose parents did supply one.
+//
+// On the real 2026 data this fires for 14 of 51 spejder whose guardian number looked
+// absent: `45`-prefixed numbers (now accepted — see internal/phone), 7- and 9-digit
+// typos, and free text naming two numbers ("Mor: ... eller Far: ...").
+//
+// The raw value is deliberately NOT passed to the sink, only a digit count. These are
+// third parties' phone numbers — usually a child's parent — and a log line is the wrong
+// place for them; the person id is enough to find the record upstream and fix it. Making
+// that structural rather than a rule someone has to remember is the point.
+func (c consumer) normalizePhone(personID, field, raw string) string {
+	if raw == "" {
+		// Absent, not broken. Nothing to report.
+		return ""
+	}
+	normalized := normalizeOrEmpty(c.normalizer, raw)
+	if normalized == "" && c.unusablePhone != nil {
+		c.unusablePhone(personID, field, countDigits(raw))
+	}
+	return normalized
 }
 
 // Consumes lists the subjects this projection subscribes to.
@@ -177,19 +209,24 @@ func (c consumer) handleSpejderUpdated(msg cqrs.Message, year string) error {
 	}
 
 	role, _ := Classify(PopulationSpejder, "")
+	memberID := string(body.MemberID)
+
+	// Computed once and used twice: in the row, and in the verification check below.
+	// Normalizing it twice would also report an unusable number twice for one event.
+	guardian := c.normalizePhone(memberID, "phoneParent", string(body.PhoneContact))
 
 	cols := map[string]string{
-		"personId": quote(string(body.MemberID)),
+		"personId": quote(memberID),
 		"year":     quote(year),
 		"appRole":  quote(role),
 		"name":     quote(body.Name),
 		// Normalized with the same implementation the login handler uses, so a
 		// lookup cannot miss on a formatting difference (see interfaces.go).
-		"phone": quote(normalizeOrEmpty(c.normalizer, string(body.Phone))),
+		"phone": quote(c.normalizePhone(memberID, "phone", string(body.Phone))),
 		// The guardian/emergency contact. Only spejder have one, and it arrives as
 		// PhoneContact on this message. NULL rather than "" when absent, so PRD 005
 		// can tell "no number on file" from "this population has none".
-		"phoneParent": nullableQuote(normalizeOrEmpty(c.normalizer, string(body.PhoneContact))),
+		"phoneParent": nullableQuote(guardian),
 		"address":     quote(body.Address),
 		"postalCode":  quote(body.PostalCode),
 		"city":        quote(body.City),
@@ -212,7 +249,52 @@ func (c consumer) handleSpejderUpdated(msg cqrs.Message, year string) error {
 		cols["teamId"] = quote(string(legacy.TeamID))
 	}
 
-	return c.w.Consume(upsert(cols))
+	if err := c.w.Consume(upsert(cols)); err != nil {
+		return err
+	}
+
+	// A changed guardian number invalidates the member's verification.
+	return c.w.Consume(invalidateVerification(memberID, year, guardian))
+}
+
+// invalidateVerification clears a verification whose acknowledged number no longer
+// matches the guardian number on file.
+//
+// # Why this is necessary
+//
+// PRD 005 asks the member to confirm the number of a parent or guardian who can be
+// reached during the event — for an injury, or to arrange a pickup for someone who has
+// resigned. The confirmation is therefore a claim about a *specific* number, not a
+// checkbox: "this number can be contacted during Nathejk". Once that number changes,
+// the claim is about a number nobody agreed to, and the app would be showing staff a
+// green tick for a phone that may not answer. In an emergency-contact flow that is the
+// expensive kind of wrong, so `acknowledgedPhone` exists precisely to make the
+// staleness decidable.
+//
+// # Why it is a second statement, and SQL rather than Go
+//
+// A projector cannot read (cqrs.Writer takes statements, not queries), so the
+// comparison has to happen inside the statement. It cannot be folded into the upsert
+// either: the upsert must write `phoneParent` unconditionally, while this must fire only
+// when the number actually *changed*. Spejder details are re-published on any edit and
+// re-delivered on every replay, so clearing on every write would destroy a valid
+// verification the first time an organizer corrected an address.
+//
+// `NOT (acknowledgedPhone <=> ?)` is MariaDB's null-safe inequality, which matters at
+// both ends: a guardian number being *removed* must invalidate just as much as one being
+// changed, and a plain `<>` against NULL yields NULL and would quietly skip it.
+//
+// `acknowledgedPhone` is deliberately left in place. The pair then reads as "they did
+// verify, and it was for a number that is no longer current", which is more useful than
+// erasing the evidence — and it means changing the number back does not silently
+// resurrect the old consent, because `verifiedAt` stays NULL until they confirm again.
+func invalidateVerification(personID, year, guardianPhone string) string {
+	return fmt.Sprintf(
+		"UPDATE person SET verifiedAt=NULL "+
+			"WHERE personId=%s AND year=%s "+
+			"AND verifiedAt IS NOT NULL AND NOT (acknowledgedPhone <=> %s)",
+		quote(personID), quote(year), nullableQuote(guardianPhone),
+	)
 }
 
 // handleSeniorUpdated writes a senior's own details, classified as a bandit.
@@ -239,7 +321,7 @@ func (c consumer) handleSeniorUpdated(msg cqrs.Message, year string) error {
 		"year":        quote(year),
 		"appRole":     quote(role),
 		"name":        quote(body.Name),
-		"phone":       quote(normalizeOrEmpty(c.normalizer, string(body.Phone))),
+		"phone":       quote(c.normalizePhone(string(body.MemberID), "phone", string(body.Phone))),
 		"phoneParent": "NULL",
 		"address":     quote(body.Address),
 		"postalCode":  quote(body.PostalCode),
@@ -325,7 +407,7 @@ func (c consumer) handleCrewMemberUpdated(msg cqrs.Message, year string) error {
 		"personId":    quote(userID),
 		"year":        quote(year),
 		"name":        quote(body.Name),
-		"phone":       quote(normalizeOrEmpty(c.normalizer, string(body.Phone))),
+		"phone":       quote(c.normalizePhone(userID, "phone", string(body.Phone))),
 		"phoneParent": "NULL",
 		"email":       quote(string(body.Email)),
 		"deleted":     boolInt(false),
@@ -512,7 +594,7 @@ func (c consumer) goeglerColumns(personID, year, name, phone, email, group strin
 		"year":     quote(year),
 		"appRole":  quote(role),
 		"name":     quote(name),
-		"phone":    quote(normalizeOrEmpty(c.normalizer, phone)),
+		"phone":    quote(c.normalizePhone(personID, "phone", phone)),
 		"email":    quote(email),
 		// Gøglere have no guardian number, so NULL rather than "": "this population does
 		// not have one" must stay distinguishable from "should have one and it is

@@ -27,8 +27,17 @@ var nonDigit = regexp.MustCompile(`\D`)
 //     parentheses (leading `+` preserved).
 //   - `00<code><digits>` — converted to `+<code><digits>`.
 //   - Bare 8-digit local number — prefixed with DefaultCountryCode (+45).
+//   - Bare `45` + 8 digits — treated as a Danish number whose country code was
+//     typed without the `+`. Unambiguous, because Danish subscriber numbers are
+//     exactly 8 digits, so a 10-digit local number starting `45` cannot be one.
+//     This case is not hypothetical: guardian numbers in the real event data are
+//     entered this way, and rejecting them meant an emergency contact silently
+//     did not exist (task 076).
 //
-// Any other input returns ErrInvalid.
+// Any other input returns ErrInvalid. In particular a 7- or 9-digit number is
+// rejected rather than guessed at: those are typos, and inventing a digit for a
+// number the app may have to ring in an emergency would be worse than admitting
+// it is unusable.
 func Normalize(input string) (string, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
@@ -50,6 +59,8 @@ func Normalize(input string) (string, error) {
 		return "+" + strings.TrimPrefix(digits, "00"), nil
 	case len(digits) == 8:
 		return DefaultCountryCode + digits, nil
+	case len(digits) == 10 && strings.HasPrefix(digits, "45"):
+		return "+" + digits, nil
 	default:
 		return "", ErrInvalid
 	}
