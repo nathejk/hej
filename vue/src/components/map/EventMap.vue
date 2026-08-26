@@ -119,7 +119,18 @@ function buildBaseLayer(key: BaseLayerKey): L.TileLayer.WMS {
   // which is how `token` reaches Dataforsyningen.
   const layer = L.tileLayer.wms(cfg.url, {
     layers: cfg.layer,
-    format: 'image/png',
+    // Per-layer, not hardcoded: the aerial layer is ~15x smaller as JPEG (see
+    // BaseLayerConfig.format).
+    format: cfg.format,
+    // Do NOT add `version: '1.3.0'` here without also uppercasing this value.
+    //
+    // Leaflet emits WMS params with lowercase names and stringified values
+    // (`transparent=false`) and defaults to WMS 1.1.1, which Dataforsyningen accepts.
+    // Under 1.3.0 the same service rejects the lowercase value with
+    // `ServiceException: TRANSPARENT must be either TRUE or FALSE` — verified against
+    // the live service, 2026-08-26. Since Leaflet sends this parameter on *every* tile
+    // request, bumping the version alone would break every layer at once, and the
+    // failure arrives as a 200 response containing XML rather than as an HTTP error.
     transparent: false,
     attribution: cfg.attribution,
     token: dataforsyningenToken.value,

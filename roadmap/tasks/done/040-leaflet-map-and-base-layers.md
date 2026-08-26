@@ -62,3 +62,32 @@ Danish base layers, and the token plumbing.
   rendered, all three layers fetch from their own service, `type-check` and
   `build` clean. Leaflet lands in its own 152.8 kB (44.9 kB gzip) chunk plus 15.7 kB
   of CSS, loaded only on this page — the app shell is unchanged.
+- 2026-08-26 — **Follow-up fix: the aerial layer was requesting PNG.** Found while
+  measuring tile sizes for PRD 009's storage budget, by fetching real tiles from the
+  live service rather than estimating. Mean bytes per 256 px tile, central Zealand:
+
+  | zoom | DTK25 (PNG) | aerial (PNG) | aerial (**JPEG**) |
+  |---|---|---|---|
+  | 12 | 140 kB | 154 kB | **14 kB** |
+  | 14 | 99 kB | 145 kB | **11 kB** |
+  | 16 | 32 kB | 137 kB | **9 kB** |
+
+  `format` was hardcoded to `image/png` for every layer, so the aerial layer cost
+  **~15x more bytes than necessary** — losslessly encoding photographic detail. That is
+  live mobile-data cost on rural connections, which is this app's whole context, and it
+  would have dominated PRD 009's offline budget. `format` is now per-layer on
+  `BaseLayerConfig`: JPEG for the orthophoto, PNG kept for the topographic layers, whose
+  line art and place names JPEG would smear.
+
+  **A trap found in passing, and commented in the code.** Dataforsyningen's WMS accepts
+  Leaflet's lowercase `transparent=false` under WMS **1.1.1** (Leaflet's default) but
+  **rejects it under 1.3.0** with `ServiceException: TRANSPARENT must be either TRUE or
+  FALSE`. Leaflet sends that parameter on every tile request, so adding
+  `version: '1.3.0'` — an obvious-looking modernisation — would break all three layers at
+  once, and the failure arrives as a `200` containing XML rather than as an HTTP error.
+  Verified against the live service; the warning now sits next to the option.
+
+  Also confirmed while here that the runtime token delivery works end to end: the token
+  reaches `/api/config`, fetches a real tile, and is **no longer baked into the bundle**
+  (an older local `dist/` still had the build-time value; `vue/dist/` is gitignored and
+  the token is not in git history). `type-check` and `build` clean.

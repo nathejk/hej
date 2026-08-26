@@ -14,6 +14,24 @@ export interface BaseLayerConfig {
   /** WMS layer name. */
   layer: string
   attribution: string
+  /**
+   * WMS output format.
+   *
+   * Per layer, not global, because the right answer differs by content type and the
+   * difference is large. Measured against the live service (256 px tiles, central
+   * Zealand, 2026-08-26):
+   *
+   *   orto_foraar   PNG ~137 kB/tile   JPEG ~9-14 kB/tile   (~15x)
+   *
+   * PNG stores photographic detail losslessly, which is exactly the wrong trade for
+   * aerial imagery — and this app is used on rural mobile data, so it is a real cost
+   * rather than a theoretical one. It also matters for PRD 009's offline budget, where
+   * tiles are the largest cached dataset.
+   *
+   * The topographic layers stay PNG deliberately: they are line art and text, where
+   * JPEG's block artefacts smear thin contours and place names.
+   */
+  format: 'image/png' | 'image/jpeg'
   /** Extra note surfaced in the switcher, e.g. data currency caveats. */
   note?: string
 }
@@ -38,12 +56,14 @@ export const baseLayers: Record<BaseLayerKey, BaseLayerConfig> = {
     url: 'https://api.dataforsyningen.dk/dtk_25_DAF',
     layer: 'dtk25',
     attribution: DATAFORSYNINGEN_ATTRIBUTION,
+    format: 'image/png',
   },
   dtk50: {
     label: 'Topografisk 1:50.000',
     url: 'https://api.dataforsyningen.dk/dtk_50_DAF',
     layer: 'dtk_50',
     attribution: DATAFORSYNINGEN_ATTRIBUTION,
+    format: 'image/png',
     // The service itself states it is not updated after 2017.
     note: 'Kortdata fra 2017',
   },
@@ -52,6 +72,7 @@ export const baseLayers: Record<BaseLayerKey, BaseLayerConfig> = {
     url: 'https://api.dataforsyningen.dk/orto_foraar_DAF',
     layer: 'orto_foraar',
     attribution: DATAFORSYNINGEN_ATTRIBUTION,
+    format: 'image/jpeg',
   },
 } as const satisfies Record<BaseLayerKey, BaseLayerConfig>
 
