@@ -4,9 +4,37 @@
 # On every *.go / *.sql change it re-runs the gates (test, vet, staticcheck,
 # build) and restarts the binary. gosec + govulncheck run once at startup,
 # report-only, so their findings/network fetch don't gate the loop.
+#
+# # Why this builds a binary instead of using `go run` (task 048)
+#
+# It used to run `go run nathejk.dk/cmd/api &` and remember `$!`. That PID is the
+# `go run` *wrapper*, not the server: go run compiles to a temp binary and execs it
+# as a child, so the tree was
+#
+#     api-dev (1) -> go run (1174) -> /go/.cache/.../api (1208)   <- the real server
+#
+# Killing 1174 left 1208 alive and holding :4000. The loop then reported
+# "==> starting api", the new process failed to bind, and requests kept hitting the
+# *old* binary — so an edit appeared to reload while a new route 404'd. That cost
+# real debugging time more than once, including during PRD 006's verification, where
+# it risked checking new behaviour against old code.
+#
+# Building to a fixed path and exec'ing it directly makes `$!` the server itself, so
+# a plain kill works. It also drops one redundant compile, since the gates already
+# built everything.
 set -eu
 
 export GOCACHE="${GOCACHE:-/go/.cache/go-build}"
+
+# Fixed path rather than a mktemp: the reload loop needs to find and clean up the
+# previous process, and a predictable path is what makes `pkill -f` below precise
+# rather than a guess.
+API_BIN=/tmp/api-dev-server
+
+# The port the server binds, as it appears in /proc/net/*. Must match cmd/api's
+# default (PORT=4000). Uppercase hex, no leading "0x" — that is the kernel's format.
+API_PORT=4000
+API_PORT_HEX=$(printf '%04X' "$API_PORT")
 
 echo "==> one-time security scans (report-only)"
 go tool gosec -quiet ./... || true
@@ -14,24 +42,70 @@ go tool govulncheck ./... || true
 
 API_PID=""
 
+# port_held reports whether anything is listening on API_PORT.
+#
+# Reads /proc/net directly because this image has no ss, netstat, lsof or fuser.
+# Both files are checked, and tcp6 is the one that actually matters: Go's
+# net.Listen("tcp", ":4000") binds a dual-stack IPv6 socket, so the listener shows up
+# in /proc/net/tcp6 and NOT in /proc/net/tcp. Checking only the latter would have
+# looked clean while the port was held — the same silent-success failure this whole
+# task is about.
+#
+# State 0A is TCP_LISTEN.
+port_held() {
+    awk -v want=":$API_PORT_HEX" '
+        $4 == "0A" && index($2, want) == length($2) - length(want) + 1 { found = 1 }
+        END { exit(found ? 0 : 1) }
+    ' /proc/net/tcp /proc/net/tcp6 2>/dev/null
+}
+
 stop() {
     if [ -n "$API_PID" ]; then
         kill "$API_PID" 2>/dev/null || true
         wait "$API_PID" 2>/dev/null || true
         API_PID=""
     fi
+
+    # Safety net, not the mechanism. With a directly-exec'd binary the kill above is
+    # enough; this catches an orphan from a crash, or from a container that was
+    # already running the old `go run` version when this file changed.
+    if port_held; then
+        pkill -f "$API_BIN" 2>/dev/null || true
+        # Anything still holding the port is a `go run` child from the old scheme,
+        # living under the build cache with no relation to $API_BIN.
+        pkill -f 'go-build/.*/api$' 2>/dev/null || true
+
+        # Give the kernel a moment to release the socket.
+        i=0
+        while [ "$i" -lt 20 ] && port_held; do
+            sleep 0.1
+            i=$((i + 1))
+        done
+    fi
 }
 
 start() {
+    # Refuse to start on a held port instead of starting a process that cannot bind
+    # and letting the previous one keep answering. A loud message beats the silent
+    # wrong answer that made this bug expensive.
+    if port_held; then
+        echo "==> ERROR: port $API_PORT is still held; refusing to start a second server"
+        echo "==>        (requests would keep hitting the old binary — see task 048)"
+        return
+    fi
+
     echo "==> gates: get / test / vet / staticcheck / build"
+    # shellcheck disable=SC2086
     if go get -v ./... \
         && go test -timeout 10s ./... \
         && go vet ./... \
         && go tool staticcheck ./... \
-        && go build ./...; then
+        && go build ./... \
+        && go build ${GO_BUILD_FLAGS:-} -o "$API_BIN" nathejk.dk/cmd/api; then
         echo "==> starting api"
-        # shellcheck disable=SC2086
-        go run ${GO_BUILD_FLAGS:-} nathejk.dk/cmd/api &
+        # No `go run`: $! is now the server, so stop() can actually stop it.
+        # GO_BUILD_FLAGS (e.g. -race) belongs on the build above, not here.
+        "$API_BIN" &
         API_PID=$!
     else
         echo "==> build failed; waiting for changes"
