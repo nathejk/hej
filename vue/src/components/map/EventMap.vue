@@ -122,6 +122,21 @@ function buildBaseLayer(key: BaseLayerKey): L.TileLayer.WMS {
     // Per-layer, not hardcoded: the aerial layer is ~15x smaller as JPEG (see
     // BaseLayerConfig.format).
     format: cfg.format,
+    // Request tiles with CORS so the service worker can cache them as ordinary,
+    // readable responses (task 087).
+    //
+    // Without this, `<img>` tiles are fetched no-cors and the responses are **opaque**.
+    // Opaque responses can be stored, but browsers pad them for quota accounting to stop
+    // cross-origin size leaks, so a few thousand tiles would consume far more of the
+    // origin's quota than their real ~324 MB — on iOS 16's ~1 GB ceiling that is the
+    // difference between fitting and not.
+    //
+    // Safe because Dataforsyningen sends `Access-Control-Allow-Origin`, reflecting whatever
+    // Origin is presented (verified against the live service for both the dev and
+    // production hostnames, 2026-08-26). If that ever stops, tiles fail to load rather than
+    // silently degrade — and it surfaces through the existing tile-retry and
+    // "Kortbilleder kunne ikke hentes" notice rather than as a blank map.
+    crossOrigin: 'anonymous',
     // Do NOT add `version: '1.3.0'` here without also uppercasing this value.
     //
     // Leaflet emits WMS params with lowercase names and stringified values

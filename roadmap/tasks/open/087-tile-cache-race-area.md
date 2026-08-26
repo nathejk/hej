@@ -101,7 +101,9 @@ past its design scale, so z17 adds bytes and no map information.
 ## Acceptance Criteria
 
 - [ ] **Tiles are cached as they are browsed**, unconditionally and with no bulk download —
-      this alone must give useful offline coverage for wherever the user has looked
+      this alone must give useful offline coverage for wherever the user has looked.
+      *Implemented 2026-08-26 and verified in the generated `sw.js`; the "gives useful
+      offline coverage" half needs a browser against a production build, see the log below.*
 - [ ] Bulk download of the race area (from task 088), topo z12–16, aerial as JPEG
 - [ ] The bulk download is **user-initiated, with the size stated before it starts** — not
       triggered silently, since on iOS the app cannot tell WiFi from cellular
@@ -155,3 +157,59 @@ re-fetched.
   `navigator.connection` is unavailable in Safari so the app cannot detect WiFi on iOS.
   Also corrected earlier advice in this file: z15 is *not* a cheap saving — z16 is DTK25's
   native 1.25 m/px scale, so z15 halves the source map's resolution.
+- 2026-08-26 — **Cache-while-browsing implemented.** A Workbox `runtimeCaching` rule in
+  `vite.config.ts` stores every tile fetched to draw the map, plus `crossOrigin` on the tile
+  layer and a new `src/config/cache.ts` holding the tuning in one place.
+
+  Four decisions worth the reasoning:
+
+  - **`CacheFirst`, not `StaleWhileRevalidate`.** Checked the response headers: the service
+    sends **no `cache-control`, `etag` or `expires` at all**, so there is nothing to
+    revalidate against and no upstream freshness signal to respect. SWR would re-download
+    every visible tile on every view — precisely the mobile-data cost this exists to avoid.
+    Our `maxAgeSeconds` is therefore the only freshness policy there is; a year is right for
+    maps revised on a scale of years (DTK 1:50.000 has not changed since 2017).
+  - **`crossOrigin: 'anonymous'` on the tile layer.** Without it, `<img>` tiles are fetched
+    no-cors and the responses are **opaque**; browsers pad opaque responses for quota
+    accounting to prevent cross-origin size leaks, so a few thousand tiles would consume far
+    more than their real ~324 MB. Verified the live service sends
+    `Access-Control-Allow-Origin` reflecting whatever Origin is presented — tested for the
+    dev hostname, the production hostname and a nonsense one, all reflected — so this is
+    safe. `cacheableResponse: { statuses: [200] }` then refuses to store opaque responses at
+    all, so a future CORS regression fails visibly through the existing tile-retry and
+    "Kortbilleder kunne ikke hentes" notice rather than silently filling the cache with
+    padded entries.
+  - **The cache key strips `token` and `_retry`.** Both would otherwise fragment the cache:
+    a rotated Dataforsyningen token would silently miss several hundred megabytes and
+    re-download the lot, and the existing tile-retry appends `&_retry=N` to force an `<img>`
+    reload, so a tile that failed once and succeeded on retry would be stored under a URL
+    its normal request never asks for.
+  - **Removed `purgeOnQuotaError`** after adding it. It deletes the *entire* cache on a quota
+    error, which contradicts the principle already written into PRD 009 §11.9: offline, a
+    purged tile cannot be re-fetched, so losing every tile mid-race is unrecoverable. A full
+    cache that cannot grow is much better than an empty one. Whether tiles should be
+    sacrificed to protect genuinely unrecoverable data like portraits is a cross-dataset
+    priority question and belongs to PRD 009 §11.1.
+
+  **A bug found by inspecting the generated worker rather than trusting the build.** The
+  `cacheKeyWillBeUsed` callback originally referenced the imported
+  `TILE_CACHE_KEY_IGNORED_PARAMS`. It type-checked, built cleanly, and produced a `sw.js`
+  containing `for(const s of TILE_CACHE_KEY_IGNORED_PARAMS)` — a free identifier that does
+  not exist in worker scope, so every tile request would have thrown `ReferenceError` at
+  runtime. Workbox's generateSW mode **stringifies** callbacks verbatim instead of bundling
+  them; only values outside function bodies (`cacheName`, `maxEntries`, `urlPattern`) are
+  evaluated at build time. The list is now inlined, with the constraint documented at both
+  ends. Nothing short of reading `sw.js` would have caught this.
+
+  **Verification, and its limit.** Confirmed in the built `sw.js`: the route
+  `/^https:\/\/api\.dataforsyningen\.dk\//` bound to `CacheFirst`, cache
+  `nathejk-map-tiles-v1`, `ExpirationPlugin{maxEntries:12000, maxAgeSeconds:31536000}`,
+  `CacheableResponsePlugin{statuses:[200]}`, and a self-contained key callback. `crossOrigin`
+  present in the `EventMap` chunk. Precache unchanged at 24 entries / 491 KiB, so no shell
+  bloat. `vue-tsc` and `npm run build` clean.
+
+  What is **not** verified is runtime behaviour, and it cannot be from here: the service
+  worker is disabled in dev (no `devOptions.enabled` in `vite.config.ts`), so the dev server
+  cannot exercise this at all, and there is no browser in this environment. Someone needs to
+  load a production build and confirm tiles are served from `nathejk-map-tiles-v1` with the
+  network offline. That is the same production-build check task 036 is already waiting on.
