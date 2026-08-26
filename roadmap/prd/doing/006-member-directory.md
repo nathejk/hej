@@ -365,15 +365,15 @@ throughout so `hej` stays runnable at every step.
 
 Proposed tasks for `roadmap/tasks/open/` (created 2026-08-25 as tasks **067–078**):
 
-- [ ] 067 — extend the app-role enum with `gøgler` + generic `crew`
-- [ ] 068 — `nathejk/table/person` skeleton: schema, constructor, `EnsureColumn`
-- [ ] 069 — app-role classification + slug→function map with logged fallback
-- [ ] 070 — `GetByPhone` / `GetByID` queriers + phone-normalization consistency
-- [ ] 071 — phone-collision policy (§11 Q1)
-- [ ] 072 — project spejder (+ patrulje team names)
-- [ ] 073 — project senior/klan as bandit (incl. armNumber subject)
-- [ ] 074 — project crewmember + section
-- [ ] 075 — project gøgler
+- [x] 067 — extend the app-role enum with `gøgler` + generic `crew`
+- [x] 068 — `nathejk/table/person` skeleton: schema, constructor, `EnsureColumn`
+- [x] 069 — app-role classification + slug→function map with logged fallback
+- [x] 070 — `GetByPhone` / `GetByID` queriers + phone-normalization consistency
+- [x] 071 — phone-collision policy (§11 Q1)
+- [x] 072 — project spejder (+ patrulje team names)
+- [x] 073 — project senior/klan as bandit (incl. armNumber subject)
+- [x] 074 — project crewmember + section
+- [x] 075 — project gøgler
 - [ ] 076 — handle deletions and phone changes
 - [ ] 077 — swap `users.Directory` to the projection; keep the mock as test double
 - [ ] 078 — backfill/replay verification against real event data
@@ -418,9 +418,28 @@ is why the two were approved together with 008 first.
    PRD 007**, whose access matrix must enumerate every role that can log in
    (including `gøgler` and generic `crew`). Settle it before more features gate on
    it.
-4. **Gøgler: project fresh in `hej`, or promote `hq`'s `personnel` slice into
-   shared-go?** The latter avoids two projections of one population disagreeing,
-   but is a change in someone else's repo.
+4. ~~**Gøgler: project fresh in `hej`, or promote `hq`'s `personnel` slice into
+   shared-go?**~~ *Answered 2026-08-25 (task 075): **project fresh here, and record the
+   duplication.*** Reading hq's projection was never available — that would be one
+   service calling another's API, which the architecture forbids — and promoting hq's
+   slice would have blocked this app's login on another repo's release. So `hej` now
+   holds the **second** projection of this population, derived from the same events by
+   different code, and the two can silently disagree. Promotion to shared-go remains the
+   intended end state; the trade is documented at the top of
+   `go/nathejk/table/person/goegler.go` so it cannot be mistaken for an oversight.
+
+   Two things the implementation had to discover, because gøglere have **no message
+   types in shared-go at all** — the wire shapes were read off the live stream and are
+   an observation, not an agreement:
+
+   - `gøgler.*.signedup` is **not** redundant with `.updated`, unlike the crew pair.
+     31 of 99 gøglere in 2026 (26 of 125 in 2025) have a signup and no update at all.
+     The two families looked similar enough that reusing the crew reasoning would have
+     silently dropped a third of the population from the directory, and therefore from
+     logging in.
+   - `.status.changed` and `.deleted`, both named in §8, **do not exist** on the stream.
+     Left unimplemented rather than written blind. **A gøgler therefore has no deletion
+     path** — see Q9.
 5. **When does this lift to shared-go**, and who owns it? What is the trigger —
    the first other consumer, or a fixed date?
 6. **Does `hej` need the full member set or only the current year's
@@ -433,3 +452,43 @@ is why the two were approved together with 008 first.
    separate table keyed by person id? The latter keeps app-owned data out of a
    projection that will be rebuilt from events — and a rebuild must not drop
    portraits.
+9. **Duplicate gøgler registrations — the chooser cannot solve this one.** Found while
+   verifying task 075. Of the 12 shared phone numbers among 2026 gøglere, **8 have the
+   same name on every row**: one human who filled in the signup form repeatedly, each
+   time getting a fresh `userId` and therefore a separate person. "Rikke Banke Peytz"
+   is five rows on one number; "Klaus" is four. **30 of 99 gøglere sit on a shared
+   number**, so roughly a third of them hit the login chooser — and for most, the
+   chooser offers several entries it has no way to tell apart, because they are the
+   same person. Picking the wrong one yields an account with the wrong section, no
+   portrait and no history.
+
+   This is a data-quality problem upstream, not a chooser problem, and it is
+   deliberately **not** patched in the projection: de-duplicating would mean choosing a
+   winner, which is a product decision, and would hide the upstream issue. Only 4 of
+   the 12 are genuine sharing (siblings — e.g. Anders and Sofie Rossén Fensløv, same
+   number, same group), which is the case task 079 handles correctly.
+
+   Needs a decision: does tilmelding prevent duplicate signups, does someone merge them
+   before the event, or must the app collapse them (and on what key — normalized name
+   plus phone)?
+10. **Gøglere cannot be deleted.** No `gøgler.*.deleted` exists on the stream, so a
+    gøgler who withdraws keeps a working login indefinitely. Every other population has
+    a deletion path. This is security-relevant and feeds directly into **task 076**;
+    resolving it may require a new event upstream rather than anything in `hej`.
+11. ~~**Should sign-in stay phone-only** given how many bandits lack a number?~~
+    *Answered 2026-08-26: **yes, phone-only.*** A full replay showed only **239 of 1433
+    live 2026 bandits (17%) have a phone**, against ~92% of spejder and **100% of
+    gøglere** — so ~1,200 bandits cannot log in as things stand. Verified not to be a
+    projection bug: the numbers that exist are stored correctly normalized, and the
+    source `senior.updated` events genuinely carry `"phone": ""`.
+
+    The gap is accepted as a **deliberate forcing function**. Bandits reserve seats
+    before they know who will actually attend, and are "quite lazy when it comes to
+    entering data"; making the app inaccessible without a number is what will get the
+    numbers supplied. No klan-level fallback contact, and no alternative sign-in
+    method, is to be added.
+
+    Consequence to design around rather than re-litigate: **bandit onboarding must
+    assume a first-time login very close to the event**, once someone finally enters
+    their number. PRDs 005 and 007 cannot assume a bandit has had weeks to verify a
+    profile or take a portrait.

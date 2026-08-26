@@ -73,6 +73,13 @@ func (c consumer) Consumes() []cqrs.Subject {
 		// moments after the other, and its body keys the person as `teamId` rather than
 		// `userId`. Consuming it would add a second spelling of the primary key for no
 		// extra field.
+		//
+		// Gøglere: both events, and here `signedup` is NOT redundant — a third of the
+		// population has no `updated` at all (see goegler.go). `.status.changed` and
+		// `.deleted` were in PRD 006's list and do not exist on the stream; they are left
+		// out rather than written blind against a shape nobody has seen.
+		cqrs.SubjectFromStr("NATHEJK.*.gøgler.*.signedup"),
+		cqrs.SubjectFromStr("NATHEJK.*.gøgler.*.updated"),
 		// Patrulje: the team name shown alongside them, and the team they belong to.
 		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.signedup"),
 		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.updated"),
@@ -130,6 +137,13 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 		return c.handleCrewMemberUpdated(msg, year)
 	case subject.Match("nathejk.*.crewmember.*.deleted"):
 		return c.handleCrewMemberDeleted(msg, year)
+	// Gøgler. Both are four-part subjects, so they cannot be confused with the
+	// five-part `gøgler.*.mail.signup.sent` / `.sms.validate.sent` traffic that shares
+	// the same prefix and outnumbers them.
+	case subject.Match("nathejk.*.gøgler.*.signedup"):
+		return c.handleGoeglerSignedUp(msg, year)
+	case subject.Match("nathejk.*.gøgler.*.updated"):
+		return c.handleGoeglerUpdated(msg, year)
 	case subject.Match("nathejk.*.spejder.*.updated"):
 		return c.handleSpejderUpdated(msg, year)
 	case subject.Match("nathejk.*.senior.*.updated"):
@@ -434,6 +448,97 @@ func (c consumer) handleSectionAssigned(msg cqrs.Message, year string) error {
 			"SET p.sectionName=COALESCE(s.label, '') WHERE p.personId=%s AND p.year=%s",
 		quote(userID), quote(year),
 	))
+}
+
+// handleGoeglerSignedUp writes a gøgler from the signup event.
+//
+// This handler is the *only* record of roughly a third of the gøglere — 31 of 99 in
+// 2026 never get an `updated` (see goegler.go). Skipping it, by analogy with the crew
+// signup event that genuinely is redundant, would have quietly excluded them from the
+// directory and therefore from logging in at all.
+//
+// It writes with upsertKeepingRole for the same reason the crew handler does, plus one
+// of its own: `signedup` is the *thinner* of the two events, and on replay it is
+// re-delivered before the richer `updated`. Fields it does not carry are simply not in
+// the column set, so a later re-delivery cannot blank what `updated` filled in.
+func (c consumer) handleGoeglerSignedUp(msg cqrs.Message, year string) error {
+	var body NathejkGoeglerSignedUp
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+	// TeamID despite the name: for this event it is the person's own id, and it equals
+	// the subject's entity id. Falling back to the subject rather than trusting one
+	// spelling of the key, because the two gøgler events disagree about it.
+	personID := string(body.TeamID)
+	if personID == "" {
+		personID = subjectEntityID(msg.Subject())
+	}
+	if personID == "" {
+		return fmt.Errorf("gøgler signedup with no id")
+	}
+
+	return c.w.Consume(upsertKeepingRole(c.goeglerColumns(personID, year,
+		body.Name, string(body.Phone), string(body.Email), "")))
+}
+
+// handleGoeglerUpdated writes a gøgler's fuller profile.
+func (c consumer) handleGoeglerUpdated(msg cqrs.Message, year string) error {
+	var body NathejkGoeglerUpdated
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+	personID := string(body.UserID)
+	if personID == "" {
+		personID = subjectEntityID(msg.Subject())
+	}
+	if personID == "" {
+		return fmt.Errorf("gøgler updated with no id")
+	}
+
+	return c.w.Consume(upsertKeepingRole(c.goeglerColumns(personID, year,
+		body.Name, string(body.Phone), string(body.Email), body.Group)))
+}
+
+// goeglerColumns builds the column set shared by both gøgler events.
+//
+// Shared rather than duplicated because the two events describe the same person and any
+// divergence between them would be a bug that only shows up for the third of the
+// population that has just one of them.
+func (c consumer) goeglerColumns(personID, year, name, phone, email, group string) map[string]string {
+	role, _ := Classify(PopulationGoegler, "")
+
+	cols := map[string]string{
+		"personId": quote(personID),
+		"year":     quote(year),
+		"appRole":  quote(role),
+		"name":     quote(name),
+		"phone":    quote(normalizeOrEmpty(c.normalizer, phone)),
+		"email":    quote(email),
+		// Gøglere have no guardian number, so NULL rather than "": "this population does
+		// not have one" must stay distinguishable from "should have one and it is
+		// missing". PRD 005 skips its confirmation step on this, and PRD 003 renders the
+		// two differently.
+		"phoneParent": "NULL",
+		"deleted":     boolInt(false),
+	}
+
+	// The scout group goes in teamName, which is a deliberate stretch of that column.
+	//
+	// A gøgler has no nathejk team and no section, so both of the columns the login
+	// chooser reads to tell two people on one phone apart (task 079) are empty for them
+	// — two gøglere sharing a number would be offered two identical first names and no
+	// way to choose. Their scout group is the only affiliation the events carry.
+	//
+	// teamId is left empty, which is the part that matters: PRD 002's patrol-scoped
+	// reads key on teamId, not teamName, so this cannot make a gøgler appear to be a
+	// member of a patrulje. teamName is only ever a label.
+	//
+	// Written only when non-empty so the thin `signedup` event, which has no group,
+	// does not blank a value `updated` supplied.
+	if group != "" {
+		cols["teamName"] = quote(group)
+	}
+	return cols
 }
 
 // handleMemberDeleted soft-deletes a person.
