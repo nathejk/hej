@@ -77,6 +77,7 @@ export interface TrackEvent {
     | 'geoerror'
     | 'full'
     | 'capped'
+    | 'nostart'
     | 'hidden'
     | 'visible'
   detail?: string

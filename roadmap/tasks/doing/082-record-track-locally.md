@@ -86,10 +86,12 @@ so there is no reason to be clever about compaction.
 
 ## Acceptance Criteria
 
-- [ ] **Measured on a real device**: what happens to recording when the app is backgrounded,
+- [x] **Measured on a real device**: what happens to recording when the app is backgrounded,
       when the screen locks, and when the user switches apps. Recorded here — not as a
       go/no-go (fragmented is accepted) but so the expected coverage is known and anything
       worse than predicted is caught
+      *Measured 2026-08-27 on an iPhone (iOS 18.7, installed). Recording stops completely
+      while backgrounded, resumes within 60 ms. See the log entry for the numbers.*
 - [x] Positions are appended to IndexedDB as they arrive, while permission is granted
 - [x] Recording is **not** tied to the map view's lifecycle — navigating away from `/maps`
       does not stop it
@@ -97,11 +99,10 @@ so there is no reason to be clever about compaction.
       high-accuracy `watchPosition` is not obviously right for a 30 s cadence, and battery
       cost over a night is the deciding factor
 - [ ] Battery cost measured on a device over a representative period, result recorded here
-- [ ] The track survives a page reload, backgrounding, and the app being killed
-      *Reload verified in a browser. Backgrounding and being killed are device work,
-      bundled with the first criterion — IndexedDB is the mechanism that makes them
-      work, and nothing in the app holds the track in memory, but that is an argument,
-      not a measurement.*
+- [x] The track survives a page reload, backgrounding, and the app being killed
+      *All three now measured. The device run included three cold starts (iOS killing the
+      backgrounded app) and the points from before each survived — 9 points spanning
+      6m 47s across them.*
 - [x] `navigator.storage.persist()` is requested, and the outcome is observable rather
       than assumed
 - [x] Each point carries at least a timestamp, lat, lng and accuracy; (person, timestamp)
@@ -260,3 +261,68 @@ so there is no reason to be clever about compaction.
   the launch and uses a pipe rather than a websocket. Also worth remembering: a killed
   harness leaves a Chromium container pegging a core, which makes the *next* run fail the
   same way.
+- 2026-08-27 — **DEVICE RUN. iPhone, iOS 18.7, Safari 26.6, installed to the home screen
+  (`standalone: true`), role spejder.** 9 points over 6m 47s, 3 cold loads, 4 `hidden`,
+  2 `visible`.
+- 2026-08-27 — What it settled, in order of value:
+  * **`storage.persisted()` = `true`.** WebKit granted persistent storage to the
+    home-screen app, as the task predicted it would. The track is not in evictable
+    storage, which matters more here than for tiles because an evicted track cannot be
+    re-fetched from anywhere.
+  * **Backgrounding stops recording completely, and resumption is immediate.** `hidden` at
+    15:27:50 → `visible` at 15:30:36 produced **zero** points in between, matching a
+    2m 52s hole in the track exactly; the first point after resuming landed **52 ms**
+    after `visible`. So the platform limit is real and total — no throttled trickle — and
+    the resume-sample added for this task works.
+  * **Accuracy is much better than assumed: 5.0 / 7.2 / 11.5 m** (min/median/max) versus
+    the 10–30 m the 30 s interval was reasoned from. That does not make the interval wrong
+    — 30 s still puts points 33–50 m apart at walking pace, comfortably above 7 m — but the
+    canopy-error assumption should be treated as pessimistic, and this is the number to
+    revisit it against if anyone argues for a longer interval.
+  * **6 of 10 points reused the map's fix** and cost no extra geolocation. The
+    battery argument for the acquisition mode holds on a real device.
+  * **The dedupe works in the field**: 10 `point` events produced 9 stored points, because
+    two samples returned the same fix timestamp and the second overwrote the first rather
+    than inventing a position.
+- 2026-08-27 — **And it found a real bug, which is why the run was worth doing before
+  declaring this done.** The report said `optager nu: false` with
+  `placeringstilladelse: prompt` on a device that had just been recording.
+  Cause: **WebKit answers `prompt` to
+  `navigator.permissions.query({name: 'geolocation'})` even when permission is granted** —
+  Safari exposes no queryable granted state for geolocation. So on every cold start the app
+  concluded it had no permission, refused to start the recorder, and stayed off until the
+  user happened to open the map, which was the only thing producing a successful fix.
+- 2026-08-27 — Why that was worse than it first looks: the same run shows **three cold loads
+  in eight minutes** — iOS kills a backgrounded standalone web app aggressively. Two of the
+  four `hidden` events are followed by a `load` rather than a `visible`, i.e. the app was
+  terminated, not resumed. So in practice recording was off for most of a session unless
+  the participant kept returning to the map. This task moved the recorder out of `MapsView`
+  precisely so the track would not depend on looking at the map; **permission detection had
+  quietly re-coupled them**, and only a device could show it.
+- 2026-08-27 — Fix: a successful fix is direct evidence of a grant, so it is remembered in
+  localStorage and **trusted over the Permissions API**. `granted` and `denied` from the API
+  are believed outright; `prompt` may no longer overwrite a remembered grant. It is
+  self-correcting — a PERMISSION_DENIED clears the memory and sets `denied` — and it is only
+  ever used to *skip* asking again, never to ask: a device that has not granted is left
+  alone, so PRD 002's consent copy still comes before any system dialog.
+- 2026-08-27 — Regression test built for exactly this, since Chromium answers `granted` and
+  would never have caught it: `navigator.permissions.query` is stubbed to behave like
+  Safari, and the harness asserts that a never-granted device records nothing and still gets
+  the pre-prompt, that granting starts recording, that a **cold start away from the map**
+  then records with the API still saying `prompt`, and that a denial clears the remembered
+  grant and stops recording. 11/11 pass. The recording suite was re-run afterwards
+  (14/14) to confirm nothing regressed.
+- 2026-08-27 — Chromium **cannot** emulate a revoked permission — clearing the override does
+  not produce a denial, the request simply never completes — so the denial path is tested by
+  stubbing the error callback with code 1. That tests our handling, which is what could be
+  wrong. Whether iOS actually delivers code 1 when a user revokes in Settings is a device
+  question and is **not yet verified**; worth a minute during the next run.
+- 2026-08-27 — Improvements the run motivated: `nostart` events (a refusal now says why),
+  a background section in the report pairing `hidden`/`visible` into suspend spans and
+  counting how many ended in a kill instead of a resume, and rounded accuracy — the raw
+  floats (`4.986577009122841`) were unreadable in a report meant to be read.
+- 2026-08-27 — **Still open: battery.** The run was ~8 minutes with the screen mostly on,
+  which measures nothing useful, and the before/after fields came back blank. It needs a
+  representative period — ideally a couple of hours with the phone in a pocket, the app
+  open, which is the real usage — and iOS has no Battery Status API, so the numbers have to
+  come from Settings → Battery by hand.

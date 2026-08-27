@@ -88,7 +88,30 @@ const analysis = computed(() => {
 const accuracy = computed(() => {
   if (!points.value.length) return null
   const a = points.value.map((p) => p.accuracy).sort((x, y) => x - y)
-  return { min: a[0], median: a[Math.floor(a.length / 2)], max: a[a.length - 1] }
+  // Rounded: the browser reports full float precision (4.986577009122841 m), which is
+  // noise in a report meant to be read.
+  const r = (n: number) => Math.round(n * 10) / 10
+  return { min: r(a[0]), median: r(a[Math.floor(a.length / 2)]), max: r(a[a.length - 1]) }
+})
+
+// How long the app spent suspended, paired from the event log. A `hidden` with no
+// following `visible` means iOS killed the app rather than resuming it — worth counting
+// separately, because that is the case that also loses the in-memory recorder.
+const suspends = computed(() => {
+  const spans: { from: number; to: number; ms: number }[] = []
+  let killed = 0
+  let openedAt: number | null = null
+  for (const e of events.value) {
+    if (e.kind === 'hidden') openedAt = e.at
+    else if (e.kind === 'visible' && openedAt !== null) {
+      spans.push({ from: openedAt, to: e.at, ms: e.at - openedAt })
+      openedAt = null
+    } else if (e.kind === 'load' && openedAt !== null) {
+      killed += 1
+      openedAt = null
+    }
+  }
+  return { spans: spans.sort((a, b) => b.ms - a.ms), killed, total: spans.reduce((s, x) => s + x.ms, 0) }
 })
 
 // The report. Plain text on purpose: it is going into a task log or a chat message, and
@@ -140,6 +163,14 @@ const report = computed(() => {
   if (accuracy.value) {
     L('nøjagtighed min/median/max', `${accuracy.value.min}/${accuracy.value.median}/${accuracy.value.max} m`)
   }
+  lines.push('')
+  lines.push('-- baggrund --')
+  L('gange i baggrunden', suspends.value.spans.length + suspends.value.killed)
+  L('heraf dræbt af iOS (ingen genoptagelse)', suspends.value.killed)
+  L('samlet tid i baggrunden (målt)', dur(suspends.value.total))
+  suspends.value.spans.slice(0, 10).forEach((s, i) => {
+    lines.push(`  baggrund ${i + 1}: ${dur(s.ms)} — ${clock(s.from)} → ${clock(s.to)}`)
+  })
   lines.push('')
   lines.push('-- hændelser: optalt over hele perioden --')
   {

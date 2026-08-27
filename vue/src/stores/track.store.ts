@@ -76,7 +76,21 @@ export const useTrackStore = defineStore('track', {
       // without a signed-in person to attribute it to: a point with no owner could not
       // be uploaded (task 083 resolves the person from the session) and could not be
       // erased on request either.
-      if (!session.user || location.permission !== 'granted') return
+      //
+      // Logged when it refuses. The first device run showed `optager nu: false` with no
+      // explanation anywhere, and the reason (WebKit reporting `prompt` for a granted
+      // permission) took a report and a code read to work out. A refusal is exactly the
+      // thing a diagnostic needs to state out loud.
+      if (!session.user || location.permission !== 'granted') {
+        // Only logged when there IS a signed-in person: App.vue calls start() on mount,
+        // before the session has resolved, so "no user yet" is the normal startup order
+        // rather than a refusal worth reporting. Logging it filled the diagnostic with
+        // noise that looked like a fault.
+        if (session.user) {
+          void logEvent('nostart', `permission=${location.permission}`)
+        }
+        return
+      }
       if (this.recording || this.starting || this.problem) return
       this.starting = true
 
@@ -259,7 +273,9 @@ export const useTrackStore = defineStore('track', {
           (err) => {
             void logEvent('geoerror', `code=${err.code} ${err.message}`)
             if (err.code === err.PERMISSION_DENIED) {
-              location.permission = 'denied'
+              // Clears the remembered grant too, which is what makes a revocation in iOS
+              // Settings self-correcting rather than a permanent wrong belief.
+              location.markDenied(err.message)
               this.stop()
             }
             resolve(null)

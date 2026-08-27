@@ -2,6 +2,47 @@ import { defineStore } from 'pinia'
 
 export type GeoPermission = 'unknown' | 'prompt' | 'granted' | 'denied' | 'unavailable'
 
+// Remembers that this device has granted location at least once.
+//
+// WHY THIS IS NECESSARY, measured on an iPhone (iOS 18.7, task 082's device run).
+// **WebKit's `navigator.permissions.query({name: 'geolocation'})` answers `prompt` even
+// when permission is granted** — Safari does not expose a queryable "granted" state for
+// geolocation. On a cold start the app therefore concluded it had no permission, refused to
+// start the track recorder, and stayed off until the user happened to open the map, which
+// is the only thing that produced a successful fix and corrected the state.
+//
+// That was worse than it sounds. iOS kills a backgrounded standalone web app aggressively
+// — the device run recorded three cold loads in eight minutes — so in practice recording
+// was off for most of a session unless the participant kept returning to the map. Task 082
+// moved the recorder out of `MapsView` so the track would not depend on looking at the
+// map; permission detection had quietly re-coupled them.
+//
+// A successful fix is direct evidence of a grant, so it is remembered here and trusted
+// over the Permissions API. It is self-correcting: if the user revokes access in iOS
+// Settings, the next fix fails with PERMISSION_DENIED, which clears this and sets `denied`.
+//
+// It is also why we can call `getCurrentPosition` on startup without being rude — we only
+// do so for a device that has already agreed. A device that has not is left alone, so
+// PRD 002's deliberate consent copy still comes before any system dialog.
+const GRANT_KEY = 'hej.geo-granted'
+
+function rememberGrant(granted: boolean) {
+  try {
+    if (granted) localStorage.setItem(GRANT_KEY, '1')
+    else localStorage.removeItem(GRANT_KEY)
+  } catch {
+    // Private mode can refuse; costs only the cold-start optimisation.
+  }
+}
+
+function grantRemembered(): boolean {
+  try {
+    return localStorage.getItem(GRANT_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 export interface Coords {
   lat: number
   lng: number
@@ -40,19 +81,41 @@ export const useLocationStore = defineStore('location', {
         this.permission = 'unavailable'
         return
       }
+      // Our own evidence first: see the note on GRANT_KEY. On WebKit the query below
+      // would otherwise talk us out of a permission we demonstrably have.
+      if (grantRemembered()) {
+        this.permission = 'granted'
+      }
       if ('permissions' in navigator) {
         try {
           const status = await navigator.permissions.query({
             name: 'geolocation',
           } as PermissionDescriptor)
-          this.permission = status.state as GeoPermission
+          this.applyPermissionState(status.state)
           status.onchange = () => {
-            this.permission = status.state as GeoPermission
+            this.applyPermissionState(status.state)
           }
         } catch {
           // Some browsers don't support querying geolocation permission; leave
-          // it 'unknown' and let request() resolve it.
+          // it as it stands and let request() resolve it.
         }
+      }
+    },
+
+    // applyPermissionState folds a Permissions API answer into our state.
+    //
+    // `granted` and `denied` are believed outright — they are definite. `prompt` is not:
+    // WebKit reports it for a granted permission too, so it must not overwrite a
+    // remembered grant, or every cold start on iOS would look like a fresh install.
+    applyPermissionState(state: PermissionState) {
+      if (state === 'granted') {
+        this.permission = 'granted'
+        rememberGrant(true)
+      } else if (state === 'denied') {
+        this.permission = 'denied'
+        rememberGrant(false)
+      } else if (!grantRemembered()) {
+        this.permission = 'prompt'
       }
     },
 
@@ -74,6 +137,7 @@ export const useLocationStore = defineStore('location', {
             }
             this.positionAt = pos.timestamp || Date.now()
             this.permission = 'granted'
+            rememberGrant(true)
             this.error = ''
             resolve(this.position)
           },
@@ -81,6 +145,7 @@ export const useLocationStore = defineStore('location', {
             this.error = err.message
             if (err.code === err.PERMISSION_DENIED) {
               this.permission = 'denied'
+              rememberGrant(false)
             }
             resolve(null)
           },
@@ -105,12 +170,14 @@ export const useLocationStore = defineStore('location', {
           }
           this.positionAt = pos.timestamp || Date.now()
           this.permission = 'granted'
+          rememberGrant(true)
           this.error = ''
         },
         (err) => {
           this.error = err.message
           if (err.code === err.PERMISSION_DENIED) {
             this.permission = 'denied'
+            rememberGrant(false)
             // A denied watch will never fire; drop it so we don't hold a dead
             // subscription (and so a later grant can start a fresh one).
             this.stopWatch()
@@ -118,6 +185,15 @@ export const useLocationStore = defineStore('location', {
         },
         { enableHighAccuracy: true, timeout: 10_000, maximumAge: 5_000 },
       )
+    },
+
+    // markDenied records a denial observed elsewhere (e.g. the track recorder's own fix
+    // request), so the remembered grant is cleared in one place rather than two.
+    markDenied(message = '') {
+      this.permission = 'denied'
+      if (message) this.error = message
+      rememberGrant(false)
+      this.stopWatch()
     },
 
     stopWatch() {
