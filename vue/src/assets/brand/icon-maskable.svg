@@ -1,0 +1,35 @@
+<!--
+  App icon, "maskable" purpose — Android adaptive launchers.
+
+  Android crops this to a launcher-chosen shape (circle, squircle, teardrop,
+  rounded square), guaranteeing only the centred circle of 80% width — a radius
+  of 204.8 on this 512 canvas. Everything outside that may be cut.
+
+  The moon is therefore framed smaller than in icon.svg: 330 tall, 240.4 wide,
+  giving a half-diagonal of 204.1 — just inside the safe radius even measured to
+  its bounding-box corners, which is conservative, since the crescent's corners
+  are empty space. This matters more than usual here because the mark's
+  extremities are the two thin horns; on the full-bleed framing a circle crop
+  would clip them and read as a blob rather than a moon.
+
+  The ground bleeds to all four edges as required — never pad a maskable icon
+  with transparency.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Hej Nathejk">
+  <rect width="512" height="512" fill="#0f172a" />
+  <g transform="translate(135.8 91) scale(2.18613)">
+    <path
+      fill="#E6EA08"
+      d="M77.7764 0.0669
+         C41.1167 -0.7261 7.14453 28.3286 1.15137 64.1606
+         C-1.65625 81.3906 0.386719 100.059 10.4336 114.661
+         C23.6045 134.527 45.5854 148.493 69.5586 150.536
+         C77.4131 152.794 68.418 144.161 67.6201 140.566
+         C57.4219 122.786 51.9604 102.145 55.2109 81.6689
+         C58.3828 55.3599 73.4834 31.126 95.2969 16.3716
+         C100.004 12.856 105.065 9.52783 109.965 6.12988
+         C99.8701 1.48047 88.8545 -0.390137 77.7764 0.0669
+         Z"
+    />
+  </g>
+</svg>

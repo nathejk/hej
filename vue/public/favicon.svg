@@ -1,14 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+<!--
+  Browser favicon. Rendered as-authored in the tab strip (no platform masking),
+  so the rounded corners are ours to draw here — unlike the app icons.
+
+  Framed tighter than icon.svg (75% height rather than 70%) because this is read
+  at 16px, where margin is wasted pixels. Nothing else is simplified: the
+  crescent is a single convex-ish shape with no interior detail to lose, so it
+  survives the size without a separate reduced drawing.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Hej Nathejk">
   <rect width="32" height="32" rx="7" fill="#0f172a" />
-  <text
-    x="16"
-    y="21"
-    font-family="system-ui, sans-serif"
-    font-size="15"
-    font-weight="700"
-    fill="#ffffff"
-    text-anchor="middle"
-  >
-    H
-  </text>
+  <g transform="translate(7.26 4) scale(0.15903)">
+    <path
+      fill="#E6EA08"
+      d="M77.7764 0.0669
+         C41.1167 -0.7261 7.14453 28.3286 1.15137 64.1606
+         C-1.65625 81.3906 0.386719 100.059 10.4336 114.661
+         C23.6045 134.527 45.5854 148.493 69.5586 150.536
+         C77.4131 152.794 68.418 144.161 67.6201 140.566
+         C57.4219 122.786 51.9604 102.145 55.2109 81.6689
+         C58.3828 55.3599 73.4834 31.126 95.2969 16.3716
+         C100.004 12.856 105.065 9.52783 109.965 6.12988
+         C99.8701 1.48047 88.8545 -0.390137 77.7764 0.0669
+         Z"
+    />
+  </g>
 </svg>

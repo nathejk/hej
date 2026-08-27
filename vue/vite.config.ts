@@ -30,20 +30,58 @@ export default defineConfig({
     VitePWA({
       registerType: 'prompt',
       injectRegister: false, // we register manually in @/helpers/pwa
-      includeAssets: ['favicon.svg', 'logo.svg'],
+      includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'badge-96.png'],
       manifest: {
         name: 'Hej Nathejk',
         short_name: 'Hej Nathejk',
         description: 'Nathejk in-event companion — maps, contacts, rulebook and updates.',
         theme_color: '#0f172a',
-        background_color: '#ffffff',
+        // Matches theme_color rather than being white: this is the colour of the
+        // synthesised launch screen, and white flashes on every cold start.
+        background_color: '#0f172a',
         display: 'standalone',
         start_url: '/',
         scope: '/',
         lang: 'da',
+        // PNG, not SVG. Android derives the launcher icon and the splash-screen
+        // artwork from these, and the 'any'/'maskable' pair are genuinely
+        // different framings (the maskable one is inset so the crescent's thin
+        // horns survive the circle crop) — so they cannot be the same file, as
+        // they were when both pointed at the placeholder logo.svg.
+        //
+        // Regenerate with vue/scripts/generate-icons.sh after editing the
+        // vectors in src/assets/brand/.
+        // Turns Chromium's bare install prompt (favicon + URL) into the richer
+        // dialog with name, description and a preview. Regenerate with
+        // vue/scripts/capture-screenshots.sh against a running dev stack.
+        //
+        // `sizes` must match each file exactly or the entire set is ignored, and
+        // at least one `narrow` plus one `wide` entry is needed for the prompt to
+        // upgrade. The narrow one is 540 wide rather than a true phone width
+        // because headless Chrome cannot lay out below ~500 — see the script.
+        //
+        // Only the login view so far: every other route is behind the auth guard,
+        // so maps/rulebook shots need a session for a seeded person.
+        screenshots: [
+          {
+            src: '/screenshots/login-narrow.png',
+            sizes: '540x1080',
+            type: 'image/png',
+            form_factor: 'narrow',
+            label: 'Log ind med dit telefonnummer',
+          },
+          {
+            src: '/screenshots/login-wide.png',
+            sizes: '1280x800',
+            type: 'image/png',
+            form_factor: 'wide',
+            label: 'Log ind med dit telefonnummer',
+          },
+        ],
         icons: [
-          { src: '/logo.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
-          { src: '/logo.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+          { src: '/pwa-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/pwa-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {

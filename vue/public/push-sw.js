@@ -14,8 +14,12 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Hej Nathejk'
   const options = {
     body: data.body || '',
-    icon: '/logo.svg',
-    badge: '/logo.svg',
+    icon: '/pwa-192.png',
+    // Distinct from `icon`: Android renders `badge` as a flat silhouette from the
+    // alpha channel alone, so the app icon would show up as a solid square (its
+    // dark ground is opaque edge to edge). badge-96.png is the bare crescent on
+    // transparency.
+    badge: '/badge-96.png',
     data: { url: data.url || '/' },
   }
   event.waitUntil(self.registration.showNotification(title, options))

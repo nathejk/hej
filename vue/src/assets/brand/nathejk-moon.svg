@@ -1,0 +1,39 @@
+<!--
+  Nathejk moon — extracted from the official logo artwork
+  (Nathejklogo_hvidtekst.eps, Adobe Illustrator 16, 2017-03-21).
+
+  This is a verbatim transcription of the single filled path in that EPS, not a
+  trace of a raster preview: the EPS stores the artwork as plain PostScript, so
+  the moveto/curveto coordinates below are the original Bézier control points.
+  The source page transform (`1 -1 scale 0 -199.093 translate`) already maps
+  those coordinates into a top-left origin space, i.e. SVG's convention, so they
+  are used unchanged.
+
+  The viewBox is the path's exact tight bounding box (Bézier extremes solved
+  analytically, not the control-point hull), hence no padding: the mark bleeds to
+  all four edges. Add your own margin at the point of use.
+
+  COLOUR: the source specifies CMYK 9.6 / 0 / 95.2 / 0 with no embedded output
+  profile, so there is no single correct sRGB value. The fill below is an
+  estimate. Replace it if a brand-guide hex exists.
+-->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 109.965 150.907"
+  role="img"
+  aria-label="Nathejk"
+>
+  <path
+    fill="#E6EA08"
+    d="M77.7764 0.0669
+       C41.1167 -0.7261 7.14453 28.3286 1.15137 64.1606
+       C-1.65625 81.3906 0.386719 100.059 10.4336 114.661
+       C23.6045 134.527 45.5854 148.493 69.5586 150.536
+       C77.4131 152.794 68.418 144.161 67.6201 140.566
+       C57.4219 122.786 51.9604 102.145 55.2109 81.6689
+       C58.3828 55.3599 73.4834 31.126 95.2969 16.3716
+       C100.004 12.856 105.065 9.52783 109.965 6.12988
+       C99.8701 1.48047 88.8545 -0.390137 77.7764 0.0669
+       Z"
+  />
+</svg>
