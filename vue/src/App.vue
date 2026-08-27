@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { LogOut } from '@lucide/vue'
 import { useSessionStore } from '@/stores/session.store'
 import { useAppStore } from '@/stores/app.store'
+import { useLocationStore } from '@/stores/location.store'
+import { useTrackStore } from '@/stores/track.store'
 import BottomNav from '@/components/BottomNav.vue'
 import UpdatePrompt from '@/components/UpdatePrompt.vue'
 import OfflineNotice from '@/components/OfflineNotice.vue'
@@ -11,6 +13,8 @@ import { APP_NAME } from '@/config/brand'
 
 const session = useSessionStore()
 const app = useAppStore()
+const location = useLocationStore()
+const track = useTrackStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -30,11 +34,31 @@ async function handleOnline() {
 onMounted(() => {
   window.addEventListener('online', handleOnline)
   window.addEventListener('offline', handleOffline)
+
+  // Position track (task 082). Deliberately started HERE and not in MapsView: that
+  // view stops its geolocation watch on `document.hidden` and on unmount, which is
+  // right for a map marker and wrong for a recorder — the track would stop the moment
+  // the user navigated away from the map. At app level it records whenever the app is
+  // open at all, which is the most coverage a web app can get (it cannot record while
+  // backgrounded on any platform).
+  void location.syncPermission().then(() => void track.start())
 })
 onUnmounted(() => {
   window.removeEventListener('online', handleOnline)
   window.removeEventListener('offline', handleOffline)
+  track.stop()
 })
+
+// React to permission being granted or revoked later, and to signing in or out.
+// `start()` is safe to call repeatedly and refuses unless there is both a signed-in
+// person and a granted permission; `stop()` is what a revocation must reach.
+watch(
+  () => [location.permission, session.user?.userId] as const,
+  ([permission, userId]) => {
+    if (permission === 'granted' && userId) void track.start()
+    else track.stop()
+  },
+)
 
 // The app shell (top bar + bottom nav) frames authenticated pages. The login
 // screen renders bare.

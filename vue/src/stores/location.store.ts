@@ -18,6 +18,11 @@ export const useLocationStore = defineStore('location', {
   state: () => ({
     permission: 'unknown' as GeoPermission,
     position: null as Coords | null,
+    // When `position` was acquired, in epoch ms. Lets a consumer tell a fresh fix from
+    // a stale one — the track recorder (task 082) reuses the map's fix when it is
+    // recent enough and only asks for its own when it is not, which is what keeps
+    // recording free while the map is open.
+    positionAt: 0,
     error: '',
     // Whether the map should keep recentring on the position. Manual panning
     // turns this off; the locate button turns it back on.
@@ -67,6 +72,7 @@ export const useLocationStore = defineStore('location', {
               lng: pos.coords.longitude,
               accuracy: pos.coords.accuracy,
             }
+            this.positionAt = pos.timestamp || Date.now()
             this.permission = 'granted'
             this.error = ''
             resolve(this.position)
@@ -97,6 +103,7 @@ export const useLocationStore = defineStore('location', {
             lng: pos.coords.longitude,
             accuracy: pos.coords.accuracy,
           }
+          this.positionAt = pos.timestamp || Date.now()
           this.permission = 'granted'
           this.error = ''
         },
