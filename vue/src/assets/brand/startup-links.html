@@ -1,28 +1,3 @@
-<!doctype html>
-<html lang="da">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <!-- PNG, because iOS ignores SVG here and would otherwise fall back to a
-         screenshot of the page as the home-screen icon. -->
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover"
-    />
-    <meta name="theme-color" content="#0f172a" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Hej Nathejk" />
-    <!-- iOS launch ("boot") images. START apple-touch-startup-image — GENERATED,
-         do not hand-edit: run vue/scripts/generate-splash.sh and paste
-         src/assets/brand/startup-links.html back in here.
-
-         iOS does not use the manifest's background_color for the launch screen,
-         so without these it shows plain white. It matches on the device's exact
-         dimensions and falls back to white if nothing matches, which is why the
-         set is exhaustive rather than one or two sizes. -->
     <link
       rel="apple-touch-startup-image"
       media="screen and (device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)"
@@ -223,11 +198,3 @@
       media="screen and (device-width: 1032px) and (device-height: 1376px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)"
       href="/splash/splash-2752x2064.png"
     />
-    <!-- END apple-touch-startup-image -->
-    <title>Hej Nathejk</title>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
-</html>

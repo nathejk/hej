@@ -12,6 +12,8 @@ generated.
 | `icon.svg` | App icon, `any` purpose. Full-bleed square on the dark ground, moon at 70% height. |
 | `icon-maskable.svg` | App icon, `maskable` purpose. Moon at 64% so it survives Android's circle crop. |
 | `badge.svg` | Notification badge. Bare crescent on transparency. |
+| `splash.html` | Render source for the iOS launch images. HTML, not SVG — it has to centre the mark across ~20 aspect ratios. |
+| `startup-links.html` | Generated `<link rel="apple-touch-startup-image">` block, to paste into `index.html`. Not an asset; kept out of `public/` so it isn't deployed. |
 | `source/Nathejklogo_hvidtekst.eps` | The original artwork, archived. |
 
 `vue/public/favicon.svg` is a fourth framing of the same path, kept in `public/`
@@ -72,6 +74,31 @@ Writes `pwa-512`, `pwa-192`, `apple-touch-icon` (180), `maskable-512` and
 inputs that `vite-plugin-pwa` copies through, not build outputs, so commit them
 alongside any SVG change.
 
+## Regenerating the iOS launch images
+
+```sh
+vue/scripts/generate-splash.sh
+```
+
+Writes 40 PNGs (20 device configurations x 2 orientations, ~1.1 MB total) into
+`vue/public/splash/`, plus `startup-links.html` — paste that between the
+`START`/`END apple-touch-startup-image` markers in `vue/index.html`.
+
+**iOS does not use the manifest's `background_color` for the launch screen.** With
+no startup image it shows plain white; the manifest value only affects Android.
+iOS then matches on the device's **exact** dimensions and falls back to white if
+nothing matches, which is why the set is exhaustive rather than one or two sizes.
+Models newer than the device list in the script (iPhone 17 and later) will show
+white until their dimensions are added.
+
+These are deliberately **not** in the Workbox precache — 1.1 MB of images the OS
+reads at launch, never the app at runtime. Verify with
+`grep -c splash- vue/dist/sw.js` after a build; it should print `0`.
+
+> **iOS caches the manifest, icons and startup images at install time.** After
+> changing any of them you must delete the home-screen app and re-add it —
+> reloading does nothing.
+
 ## Why there are four framings and not one
 
 Each consumer treats the icon differently, and getting this wrong fails
@@ -80,7 +107,8 @@ silently:
 - **iOS** ignores SVG for `apple-touch-icon` entirely and falls back to a
   screenshot of the page. Hence the PNG. It also applies its own squircle mask,
   so `icon.svg` is deliberately square and unrounded — pre-rounded art gets
-  letterboxed against a white gutter.
+  letterboxed against a white gutter. And it ignores `background_color` for the
+  launch screen, hence the 40 startup images.
 - **Android** crops `maskable` icons to a launcher-chosen shape, guaranteeing
   only the centred circle of 80% width. The moon's extremities are its two thin
   horns, exactly what a circle crop shaves off, so the maskable variant is

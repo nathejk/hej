@@ -1,0 +1,41 @@
+<!doctype html>
+<!--
+  Render source for the iOS launch ("boot") images in vue/public/splash/.
+  Not shipped — only rasterised by vue/scripts/generate-splash.sh.
+
+  HTML rather than a plain SVG because these are needed at ~20 different aspect
+  ratios, from 375x667 through 1032x1376, and centring a fixed-aspect mark inside
+  an arbitrary viewport is one line of flexbox but awkward in static SVG markup.
+
+  The moon is sized in `vmin` so it keeps the same optical weight whether the
+  canvas is a tall phone or a squarer iPad, and stays clear of the notch/Dynamic
+  Island in portrait and of the rounded corners in landscape.
+-->
+<html lang="da">
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      body {
+        /* Must match BACKGROUND_COLOR / the manifest background_color. */
+        background: #0f172a;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      img {
+        /* Height, not width: the moon is portrait (~0.73:1), so height is the
+           dimension that governs how large it reads. 38vmin puts it at roughly a
+           third of the short edge — 30 looked lost on a tall phone. */
+        height: 38vmin;
+      }
+    </style>
+  </head>
+  <body>
+    <img src="./nathejk-moon.svg" alt="" />
+  </body>
+</html>
