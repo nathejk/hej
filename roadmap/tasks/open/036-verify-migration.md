@@ -58,11 +58,11 @@ PRD: 004. Depends on: 024, 025, 026, 027, 028, 029, 030, 031, 032.
       routes render, nav works, drawer opens. *iPhone standalone confirmed 2026-08-26 by
       screenshot. Android Chrome not separately checked; the shell is not
       platform-conditional, so this is treated as covered.*
-- [ ] `env(safe-area-inset-*)` on a notched device — the header top inset and the
+- [x] `env(safe-area-inset-*)` on a notched device — the header top inset and the
       bottom nav / drawer bottom inset. Desktop Chromium reports 0 insets, so this
       could not be checked in the headless pass (task 025).
-      *Top inset ✅. Bottom over-reserved by ~65 px — fix applied (`100dvh`), **never yet
-      deployed to the device**; see the 2026-08-27 log entry.*
+      *Both ✅, confirmed 2026-08-27 on a deploy that actually contained the `100dvh`
+      fix. Nav sits flush at the viewport bottom, gap 0px.*
 - [x] Touch **swipe-down-to-dismiss** on the drawer (only Escape, backdrop and
       navigation were verifiable headlessly). *Confirmed 2026-08-26.*
 - [ ] Service-worker update flow: build twice, load the app, deploy the second
@@ -158,3 +158,44 @@ PRD: 004. Depends on: 024, 025, 026, 027, 028, 029, 030, 031, 032.
   and only then ask for a re-check of the bottom strip plus a screenshot of the amber
   panel (Mere → Data og privatliv). Its root font-size reading is what confirms or kills
   the rem / iOS Larger-Text hypothesis. No further layout theorising before then.
+- 2026-08-27 — **Bottom inset resolved.** Task 089's compose stack deployed, so the device
+  finally ran a build containing the `100dvh` fix and the diagnostic. Panel readings from
+  the standalone PWA on the maintainer's iPhone (display-mode standalone `true`,
+  `navigator.standalone` `true`, DPR 3):
+
+  | reading | value |
+  |---|---|
+  | root font-size | **16px** |
+  | screen.height | 852px |
+  | innerHeight / clientHeight / visualViewport.height | 793px |
+  | inset-top (env) | 59px |
+  | inset-bottom (env) | 34px |
+  | nav computed padding-bottom | 34px |
+  | nav item height (row) | 55px |
+  | nav height | 90px |
+  | nav top / nav bottom | 703px / 793px |
+  | **gap: innerHeight − nav.bottom** | **0px** |
+  | body scrollHeight | 793px |
+
+- 2026-08-27 — What the numbers say. The nav is flush with the bottom of the viewport
+  (gap 0), the document does not scroll (`scrollHeight` = `innerHeight`), and the nav box
+  is exactly 55px row + 34px inset + 1px border = 90px. `env(safe-area-inset-bottom)` is
+  34px — the standard iPhone home-indicator height — and appears once. So the strip below
+  the labels is the home indicator, which is what it is *for*; nothing is over-reserved.
+- 2026-08-27 — **The rem / iOS Larger-Text hypothesis is dead:** root font-size is a plain
+  16px, so nothing was scaling the nav. The whole hypothesis existed only to explain an
+  observation that turned out to be a stale build. Recording it as killed rather than
+  quietly dropping it, since it was the leading theory for two sessions.
+- 2026-08-27 — Root cause, for the record: sizing the shell to `100%` rather than `100dvh`.
+  On iOS standalone, `100%` resolves against a viewport taller than the visible one, so the
+  shell overhung the bottom and carried the nav with it. `100dvh` tracks the actual visible
+  viewport. The fix was correct when written; the only error was concluding it had failed.
+- 2026-08-27 — Removed the temporary diagnostic: deleted `vue/src/components/LayoutDebug.vue`
+  and its import/usage in `PrivacyView.vue`. `grep -rn LayoutDebug vue/src` is empty,
+  `vue-tsc --noEmit` is clean and `npm run build` succeeds (26 precache entries,
+  496.17 KiB; `PrivacyView` chunk down to 4.25 kB / 1.66 kB gzip).
+- 2026-08-27 — One criterion left, and it is mine, not the maintainer's: the
+  **service-worker update flow** across two production builds. Needs the prod target
+  served and a headless Chromium pass (the task 025 approach). That run will also give
+  task 087's cache-while-browsing its first real verification — it is currently only
+  verified by reading the generated `sw.js`.
