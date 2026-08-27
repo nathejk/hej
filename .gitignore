@@ -12,3 +12,7 @@ vue/src/components.d.ts
 # service-worker update check: two built bundles, a served document root and a
 # puppeteer script). Never a build input.
 tmp/
+
+# macOS Finder metadata. Unanchored so it matches at any depth — Finder creates
+# one in every directory it displays.
+.DS_Store
