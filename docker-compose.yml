@@ -160,7 +160,7 @@ services:
   # Decision (task 066): keep the tool, remove the ambient reachability. It is now
   # published on loopback only, so it takes a deliberate step — open
   # http://127.0.0.1:8081 — and is unreachable from anywhere but this machine.
-  # It appears in no production manifest — `docker-swarm.yml` defines no such
+  # It appears in no production manifest — `docker-compose.prod.yml` defines no such
   # service — and must not be added to one.
   phpmyadmin:
     image: phpmyadmin

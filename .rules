@@ -21,6 +21,8 @@ Everything in that file applies here unless explicitly overridden below.
 ### Key files
 - `docker/Dockerfile` — multistage build (dev targets: `ui-dev`, `base`; prod target: `prod`)
 - `docker-compose.yml` — dev environment
+- `docker-compose.prod.yml` — production stack (plain compose; the org does **not**
+  use Swarm — see task 089)
 - `roadmap/tasks/TASKS.md` — task board conventions
 - `roadmap/prd/` — Product Requirements Documents (see `roadmap/prd/README.md`)
 

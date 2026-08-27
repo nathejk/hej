@@ -61,8 +61,8 @@ PRD: 004. Depends on: 024, 025, 026, 027, 028, 029, 030, 031, 032.
 - [ ] `env(safe-area-inset-*)` on a notched device — the header top inset and the
       bottom nav / drawer bottom inset. Desktop Chromium reports 0 insets, so this
       could not be checked in the headless pass (task 025).
-      *Top inset ✅. Bottom over-reserved by ~65 px — fix applied (`100dvh`), **awaiting a
-      re-check on the device**.*
+      *Top inset ✅. Bottom over-reserved by ~65 px — fix applied (`100dvh`), **never yet
+      deployed to the device**; see the 2026-08-27 log entry.*
 - [x] Touch **swipe-down-to-dismiss** on the drawer (only Escape, backdrop and
       navigation were verifiable headlessly). *Confirmed 2026-08-26.*
 - [ ] Service-worker update flow: build twice, load the app, deploy the second
@@ -137,3 +137,24 @@ PRD: 004. Depends on: 024, 025, 026, 027, 028, 029, 030, 031, 032.
   device, `env(safe-area-inset-*)` on a notched screen, the drawer's touch
   swipe-to-dismiss, and the service-worker update prompt across two production
   builds. PRD 004 stays in `doing/` until these pass.
+- 2026-08-27 — **Correction: every device observation since 2026-08-26 was made against a
+  stale build, and one conclusion drawn from them was wrong.** The maintainer reported
+  that `docker stack deploy` fails with *network "jetstream" is declared as external, but
+  could not be found* — and task 089 establishes that this repo's production deploy has
+  **never succeeded**, because the org does not run Swarm at all. So the device has been
+  serving an image built before the `100dvh` fix and before the diagnostic panel existed.
+- 2026-08-27 — Consequences, in order of how badly they were misread:
+  * "There is no amber panel" is **expected**, not a bug: `LayoutDebug` was never on the
+    device.
+  * The `100dvh` fix is **untested, not disproven**. I previously read the unchanged
+    spacing as the fix having failed, and built a diagnostic on that premise. The
+    spacing was unchanged because the code was not there.
+  * The earlier screenshot showing pre-085 prompt copy already pointed at a stale
+    deployment. It was recorded as a curiosity instead of being followed up, which would
+    have caught this two sessions earlier. Lesson: an unexpectedly *old* string in a
+    screenshot is evidence about the build, not about the string.
+- 2026-08-27 — Next step is therefore unchanged in substance but must happen in the right
+  order: land task 089's `docker-compose.prod.yml`, get a deploy to actually succeed,
+  and only then ask for a re-check of the bottom strip plus a screenshot of the amber
+  panel (Mere → Data og privatliv). Its root font-size reading is what confirms or kills
+  the rem / iOS Larger-Text hypothesis. No further layout theorising before then.

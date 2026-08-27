@@ -26,6 +26,11 @@ should have.
 ```
 docker-compose.yml              # service graph (committed)
 docker-compose.override.yml     # local secrets / dev overrides (gitignored)
+docker-compose.prod.yml         # production stack: published image + db (committed)
+                                # Plain compose — the org does NOT use Swarm; the
+                                # shared `traefik`/`prod` networks are bridge
+                                # networks owned by standalone stacks, which
+                                # `docker stack deploy` cannot see (task 089).
 docker/
 ├── Dockerfile                  # multistage: api-dev → base → build,
 │                               #             ui-dev → ui-builder, prod
