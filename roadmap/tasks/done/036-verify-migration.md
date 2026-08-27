@@ -1,11 +1,11 @@
 # 036 — Final verification of the shadcn-vue / Tailwind v4 migration
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-24
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-08-24
+**Completed:** 2026-08-27
 
 ## Description
 
@@ -45,11 +45,11 @@ PRD: 004. Depends on: 024, 025, 026, 027, 028, 029, 030, 031, 032.
 - [x] All eight routes plus the overflow sheet, pre-prompts and update prompt
       render with a clean console on a phone viewport.
 - [x] The login flow completes end to end against the BFF.
-- [ ] The service-worker update prompt is verified against a new build.
+- [x] The service-worker update prompt is verified against a new build.
 - [x] Before/after bundle sizes are recorded and the payload has not grown.
 - [x] `grep -ri primevue vue/src vue/*.ts vue/*.json` (excluding the lockfile) is
       empty, and no `tailwind.config.js` remains.
-- [ ] PRD 004 is moved to `roadmap/prd/done/` with `Status: done` and a `Shipped`
+- [x] PRD 004 is moved to `roadmap/prd/done/` with `Status: done` and a `Shipped`
       date.
 
 ### Remaining — needs a physical device / production build
@@ -65,10 +65,11 @@ PRD: 004. Depends on: 024, 025, 026, 027, 028, 029, 030, 031, 032.
       fix. Nav sits flush at the viewport bottom, gap 0px.*
 - [x] Touch **swipe-down-to-dismiss** on the drawer (only Escape, backdrop and
       navigation were verifiable headlessly). *Confirmed 2026-08-26.*
-- [ ] Service-worker update flow: build twice, load the app, deploy the second
+- [x] Service-worker update flow: build twice, load the app, deploy the second
       build, confirm `UpdatePrompt` appears and one tap on "Reload" lands on the new
       build. The Tailwind rewrite changed every asset hash, so this is exactly the
       scenario the prompt exists for — do not assume it.
+      *Verified 2026-08-27 against the real `prod` image; 16/16 checks passed.*
 
 ## Progress Log
 
@@ -199,3 +200,70 @@ PRD: 004. Depends on: 024, 025, 026, 027, 028, 029, 030, 031, 032.
   served and a headless Chromium pass (the task 025 approach). That run will also give
   task 087's cache-while-browsing its first real verification — it is currently only
   verified by reading the generated `sw.js`.
+- 2026-08-27 — **Service-worker update flow verified.** Method, built to test the real
+  trigger rather than a convenient one:
+  * Two production bundles differing **only** in `__APP_VERSION__` (`1.0.0-A` /
+    `2.0.0-B`), which `main.ts` logs as `Hej Nathejk v<version>` — a marker readable from
+    the console that needs no source edit to revert. Every chunk hash and `sw.js` itself
+    differ between them, so this reproduces the "every asset hash changed" case the
+    Tailwind rewrite created.
+  * First attempt used `npm_package_version=... npx vite build` and produced two
+    **byte-identical** dists. Cause: npm/npx repopulates `npm_package_*` from
+    `package.json`, silently overwriting the value. Calling `./node_modules/.bin/vite`
+    directly fixes it. Worth remembering — the test would have "passed" against one build.
+  * Served by the **real `prod` image** (`docker build --target prod`, so this also
+    re-proved that stage builds) with `/www` bind-mounted, and the deploy simulated by
+    emptying the document root and copying build B in — a replacement, not an overlay,
+    which is what a container swap does.
+  * Driven by headless Chromium (puppeteer-core + Alpine chromium, own network) at
+    390×844. Service workers need a secure context, and there is no TLS inside the
+    network, so the origin was declared trustworthy with
+    `--unsafely-treat-insecure-origin-as-secure`. That flag affects only the
+    secure-context gate; registration, byte-comparison, waiting and `skipWaiting` behave
+    as they do over HTTPS.
+  * The update was triggered by a plain **page reload**, not by calling
+    `registration.update()` — the point is that the *browser* notices, which is the path
+    a participant actually takes.
+- 2026-08-27 — Results, 16/16 checks passed:
+  * SW registers on first load and reaches `active`; the first load is deliberately
+    **not** controlled (no `clientsClaim`, correct for `registerType: 'prompt'`), and one
+    reload puts the client under it.
+  * No banner while only one build has been served — i.e. the prompt is not a false
+    positive that fires on every load.
+  * After build B was served: `UpdatePrompt` appeared, the new worker sat in `waiting`
+    rather than auto-activating, and **the page kept running build A** — the prompt is
+    non-blocking, as designed.
+  * One click on **Genindlæs** landed on `2.0.0-B`, the banner disappeared, nothing was
+    left `waiting`, the new worker controlled the page and the app rendered.
+- 2026-08-27 — **Separate finding, filed as task 090: the app renders a blank screen when
+  offline.** I added an offline reload to the harness beyond this task's criteria, and it
+  failed. Probed it rather than guessing, and the service worker is *not* at fault:
+  offline, the navigation is served from the precache (`index.html`, 939 bytes, no
+  navigation error) and the JS chunk loads — the only failed request is
+  `GET /api/me`. But `#app` has **0 children**. Cause: `fetchMe()` rethrows anything that
+  is not a 401, so offline `ensureReady()` rejects inside `router.beforeEach`, the
+  navigation is aborted and nothing ever renders. Not a regression from PRD 004 and so
+  out of scope here, but it means the offline work (tile caching, task 087, PRD 009) is
+  currently unreachable in the situation it exists for.
+- 2026-08-27 — Harness kept out of the repo: it lives in `tmp/` (gitignored) because it
+  is a one-off that hard-codes two throwaway version strings and a container name. Task
+  090 will need it again; the method is recorded above in enough detail to rebuild it,
+  and task 025's log covers the same browser setup.
+- 2026-08-27 — Closed out the last criterion, PRD 004's hand-off. Its §6 requirement boxes
+  and §10 task list had never been ticked, so rather than tick them on faith I re-verified
+  each from the current tree: no `primevue`/`primeicons` string anywhere in
+  `vue/package.json`, `package-lock.json` or `vue/src`; `main.ts` free of PrimeVue, Lara
+  and ToastService; no `PrimeVueResolver`, no `unplugin-vue-components`, no
+  `components.d.ts`; `tailwindcss@^4.3.3` + `@tailwindcss/vite`, no `tailwind.config.js`,
+  no `postcss.config.js`, `main.css` on `@import 'tailwindcss'` with `@theme` and
+  `@custom-variant dark`; globals (`height`, `margin: 0`, `color-scheme: light`) intact;
+  `components.json` with `cssVariables: true`, `iconLibrary: lucide` and the repo's
+  aliases (`@/helpers/utils` for `cn`, not `@/lib/utils`); reka-ui, cva, clsx,
+  tailwind-merge, tw-animate-css and `@lucide/vue` all present; `cn()` in
+  `helpers/utils.ts`; primitives generated (accordion, button, card, dialog, drawer,
+  input, label, separator); `MoreMenu` on the shadcn `Drawer`; `.rules` naming shadcn-vue,
+  standard-component-first and the PrimeVue ban; both skills split
+  (`vue3-pwa-layout` + `vue3-spa-layout-legacy`). All 13 §10 tasks map to done tasks
+  (024–035, 037, 038, plus this one). 28 boxes ticked, `Shipped: 2026-08-27`, moved to
+  `roadmap/prd/done/`.
+- 2026-08-27 — ✅ All criteria complete. Moving to done. PRD 004 shipped.

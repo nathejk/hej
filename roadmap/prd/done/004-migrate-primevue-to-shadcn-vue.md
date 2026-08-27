@@ -1,11 +1,11 @@
 # PRD 004 — Migrate the component library from PrimeVue to shadcn-vue (and upgrade Tailwind to v4)
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed / Claude Opus 5)
 **Created:** 2026-08-24
-**Last updated:** 2026-08-25 (Lucide package name corrected)
+**Last updated:** 2026-08-27 (shipped; requirements verified and ticked)
 **Approved:** 2026-08-24
-**Shipped:**
+**Shipped:** 2026-08-27
 **Target users:** none directly — developer-facing foundation change; all app roles benefit indirectly
 
 <!--
@@ -192,14 +192,14 @@ skill.
 
 ### Functional
 
-- [ ] `primevue`, `@primevue/themes` and `@primevue/auto-import-resolver` are
+- [x] `primevue`, `@primevue/themes` and `@primevue/auto-import-resolver` are
       removed from `vue/package.json` and `package-lock.json`.
-- [ ] `vue/src/main.ts` no longer imports or registers `PrimeVue`, the `Lara`
+- [x] `vue/src/main.ts` no longer imports or registers `PrimeVue`, the `Lara`
       preset, or `ToastService`.
-- [ ] `vue/vite.config.ts` no longer references `PrimeVueResolver`; the
+- [x] `vue/vite.config.ts` no longer references `PrimeVueResolver`; the
       `unplugin-vue-components` plugin is removed or kept only with a documented
       reason, and `src/components.d.ts` is removed if the plugin goes.
-- [ ] **Tailwind is upgraded from 3.4 to the latest v4** (`tailwindcss@^4`), with:
+- [x] **Tailwind is upgraded from 3.4 to the latest v4** (`tailwindcss@^4`), with:
       - `@tailwindcss/vite` added to `vite.config.ts` (preferred) or
         `@tailwindcss/postcss` in `postcss.config.js`;
       - `autoprefixer` (and any other now-redundant PostCSS plugins) removed, and
@@ -210,35 +210,35 @@ skill.
       - `tailwind.config.js` removed, or reduced to only what v4 still needs;
       - dark mode expressed as `@custom-variant dark` rather than
         `darkMode: ['class']`.
-- [ ] The existing global styles (`html, body, #app { height: 100% }`,
+- [x] The existing global styles (`html, body, #app { height: 100% }`,
       `body { margin: 0 }`, `color-scheme`) still apply after the CSS rewrite.
-- [ ] shadcn-vue is initialised **for Tailwind v4** with a `vue/components.json`
+- [x] shadcn-vue is initialised **for Tailwind v4** with a `vue/components.json`
       whose aliases match repo conventions (`@/components`, `@/components/ui`, and
       the `cn()` helper under `@/helpers` rather than the CLI-default
       `@/lib/utils`), and `tailwind.cssVariables` enabled.
-- [ ] The shadcn foundation is in place: `reka-ui`,
+- [x] The shadcn foundation is in place: `reka-ui`,
       `class-variance-authority`, `clsx`, `tailwind-merge`, `tw-animate-css`
       (the v4 successor to `tailwindcss-animate`), a `cn()` utility, and the
       CSS-variable design tokens.
-- [ ] Lucide (`@lucide/vue`) is the configured icon
+- [x] Lucide (`@lucide/vue`) is the configured icon
       library for generated components — consistent with `.rules`.
-- [ ] The initial component set is generated into `vue/src/components/ui/`,
+- [x] The initial component set is generated into `vue/src/components/ui/`,
       scoped to what is needed now and by the in-flight PRDs: at minimum
       `button`, `input`, `sheet` (or `drawer`), `dialog`, `card` and `separator`.
-- [ ] `MoreMenu.vue`'s bottom sheet is evaluated against the generated
+- [x] `MoreMenu.vue`'s bottom sheet is evaluated against the generated
       `sheet`/`drawer` primitive and refactored onto it if that removes
       hand-rolled focus/ARIA/scroll-lock handling without changing appearance.
-- [ ] The design tokens are set so the app's existing look (slate palette, brand
+- [x] The design tokens are set so the app's existing look (slate palette, brand
       colours from `@/config/brand`) is preserved.
-- [ ] **Standard-component-first is documented as a rule:** when UI is needed, an
+- [x] **Standard-component-first is documented as a rule:** when UI is needed, an
       existing shadcn-vue component is used; hand-rolling is allowed only when no
       shadcn component covers the need, and the reason is recorded in a comment on
       the component.
-- [ ] `npm run build` and `npm run type-check` pass in the `ui` container.
-- [ ] `.rules` states that this repo uses shadcn-vue, that standard shadcn
+- [x] `npm run build` and `npm run type-check` pass in the `ui` container.
+- [x] `.rules` states that this repo uses shadcn-vue, that standard shadcn
       components are preferred over hand-rolled ones, and that PrimeVue (and
       PrimeIcons) must not be used or reintroduced.
-- [ ] The frontend skill is split: `.agents/skills/vue3-spa-layout/` is renamed to
+- [x] The frontend skill is split: `.agents/skills/vue3-spa-layout/` is renamed to
       `.agents/skills/vue3-spa-layout-legacy/` (kept, clearly marked as describing
       the older PrimeVue-based sibling repos and **not** to be applied here), and a
       new `.agents/skills/vue3-pwa-layout/` skill describes this repo's stack:
@@ -394,42 +394,42 @@ removal → optional `MoreMenu` refactor → docs/skills → verification.
 
 Proposed tasks to create in `roadmap/tasks/open/`:
 
-- [ ] Task: Upgrade Tailwind 3.4 → latest v4 in the `ui` container — run
+- [x] Task: Upgrade Tailwind 3.4 → latest v4 in the `ui` container — run
       `npx @tailwindcss/upgrade` from a clean tree, switch to
       `@tailwindcss/vite`, drop `autoprefixer`/`postcss.config.js`, move config
       into CSS-first `@theme`, and review every codemod diff by hand.
-- [ ] Task: Visual-regression pass after the Tailwind upgrade — walk every route on
+- [x] Task: Visual-regression pass after the Tailwind upgrade — walk every route on
       a phone viewport and fix drift from v4's changed defaults (borders, rings,
       shadows, `outline-hidden`).
-- [ ] Task: Confirm and document the browser baseline implied by Tailwind v4
+- [x] Task: Confirm and document the browser baseline implied by Tailwind v4
       (Safari 16.4+ / Chrome 111+) against the phones participants use.
-- [ ] Task: Install the shadcn-vue foundation for Tailwind v4 in the `ui`
+- [x] Task: Install the shadcn-vue foundation for Tailwind v4 in the `ui`
       container — `reka-ui`, `cva`, `clsx`, `tailwind-merge`, `tw-animate-css`,
       `cn()` in `@/helpers`, and a `components.json` whose aliases match repo
       conventions.
-- [ ] Task: Add the shadcn CSS-variable design tokens to `main.css` via
+- [x] Task: Add the shadcn CSS-variable design tokens to `main.css` via
       `@theme`/`@custom-variant dark` so the current look is preserved.
-- [ ] Task: Generate the initial primitives into `src/components/ui/` —
+- [x] Task: Generate the initial primitives into `src/components/ui/` —
       `button`, `input`, `sheet`/`drawer`, `dialog`, `card`, `separator` — with
       Lucide as the icon set; audit them for ≥44px touch targets.
-- [ ] Task: Remove PrimeVue — uninstall the three packages and strip the wiring
+- [x] Task: Remove PrimeVue — uninstall the three packages and strip the wiring
       from `main.ts` and the resolver from `vite.config.ts`.
-- [ ] Task: Decide and execute the `unplugin-vue-components` question — remove the
+- [x] Task: Decide and execute the `unplugin-vue-components` question — remove the
       plugin and add explicit imports for the app's own components (deleting
       `src/components.d.ts`), or keep it resolver-less with a comment saying why.
-- [ ] Task: Refactor `MoreMenu.vue` onto the generated `sheet`/`drawer` primitive
+- [x] Task: Refactor `MoreMenu.vue` onto the generated `sheet`/`drawer` primitive
       if it removes hand-rolled a11y/scroll-lock code without visual change.
-- [ ] Task: Update `.rules` — shadcn-vue is the component library, standard
+- [x] Task: Update `.rules` — shadcn-vue is the component library, standard
       components are preferred over hand-rolled ones, PrimeVue and PrimeIcons must
       not be used or reintroduced. *(Done ahead of approval at the user's request.)*
-- [ ] Task: Rename `.agents/skills/vue3-spa-layout/` → `vue3-spa-layout-legacy/`
+- [x] Task: Rename `.agents/skills/vue3-spa-layout/` → `vue3-spa-layout-legacy/`
       and mark it as describing the older PrimeVue-based sibling repos, not this
       one. *(Done ahead of approval at the user's request.)*
-- [ ] Task: Add the `.agents/skills/vue3-pwa-layout/` skill describing this repo's
+- [x] Task: Add the `.agents/skills/vue3-pwa-layout/` skill describing this repo's
       stack — Vue 3 + TS, Tailwind v4, shadcn-vue (standard-component-first),
       Pinia, PWA/service worker, Lucide. *(Done ahead of approval at the user's
       request.)*
-- [ ] Task: Rebuild the `ui` image, run `build` + `type-check`, click through
+- [x] Task: Rebuild the `ui` image, run `build` + `type-check`, click through
       every route on a phone viewport, verify the service-worker update flow after
       the asset-hash churn, and record before/after bundle sizes in the task log.
 
