@@ -14,7 +14,7 @@ export const THEME_COLOR = '#0f172a' // slate-900
 // actually used.
 export const BACKGROUND_COLOR = '#0f172a'
 
-// The moon's yellow, from the official logo artwork. See
-// @/assets/brand/nathejk-moon.svg for how it was derived and why it is an
-// estimate of the source CMYK.
+// The moon's yellow, from the official logo artwork. Confirmed 2026-08-27; see
+// @/assets/brand/README.md for how it was derived from the source CMYK and why
+// the obvious conversion is wrong.
 export const BRAND_YELLOW = '#E6EA08'

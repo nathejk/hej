@@ -42,20 +42,24 @@ asset, convert the text to outlines in Illustrator first; do not re-set it with
 a font stack, because the glyph widths in the original are Impact's exact
 metrics.
 
-## The yellow is an estimate
+## The yellow: `#E6EA08` (confirmed)
 
-The source specifies **CMYK 9.6 / 0 / 95.2 / 0 with no embedded output
-profile**, so there is no single correct sRGB value — it depends on the press
+**Confirmed 2026-08-27. Do not change it without the same confirmation.**
+
+The derivation is recorded here because the source cannot settle the question on
+its own: the EPS specifies **CMYK 9.6 / 0 / 95.2 / 0 with no embedded output
+profile**, so it has no single correct sRGB rendering — that depends on the press
 profile the designer worked in.
 
-The value in use is **`#E6EA08`**, interpolated 10% from the ISO/US-coated
-yellow anchor (`#FFF200`) toward the cyan+yellow green anchor (`#00A651`).
-A naive per-channel conversion gives `#E6FF0C`, which is wrong: it pins green to
-255, an acid yellow-green no yellow ink can produce.
+`#E6EA08` was arrived at by interpolating 10% from the ISO/US-coated yellow
+anchor (`#FFF200`) toward the cyan+yellow green anchor (`#00A651`), then
+confirmed against the artwork. For the record, a naive per-channel conversion
+gives `#E6FF0C`, which is wrong: it pins green to 255, an acid yellow-green no
+yellow ink can produce — don't "correct" the value to that.
 
-**If a brand guide or Pantone reference turns up, replace it.** It appears in
-`nathejk-moon.svg`, `icon.svg`, `../../../public/favicon.svg` and as
-`BRAND_YELLOW` in `@/config/brand`. Then re-run the generator.
+If it ever does need to change, it appears in `nathejk-moon.svg`, `icon.svg`,
+`../../../public/favicon.svg` and as `BRAND_YELLOW` in `@/config/brand` — then
+re-run the generator.
 
 ## Regenerating the raster icons
 

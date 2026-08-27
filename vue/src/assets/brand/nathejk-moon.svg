@@ -13,9 +13,10 @@
   analytically, not the control-point hull), hence no padding: the mark bleeds to
   all four edges. Add your own margin at the point of use.
 
-  COLOUR: the source specifies CMYK 9.6 / 0 / 95.2 / 0 with no embedded output
-  profile, so there is no single correct sRGB value. The fill below is an
-  estimate. Replace it if a brand-guide hex exists.
+  COLOUR: #E6EA08, confirmed 2026-08-27. The source specifies CMYK 9.6 / 0 /
+  95.2 / 0 with no embedded output profile, so it has no single correct sRGB
+  rendering and this value was derived rather than read off. See
+  README.md in this directory before changing it.
 -->
 <svg
   xmlns="http://www.w3.org/2000/svg"

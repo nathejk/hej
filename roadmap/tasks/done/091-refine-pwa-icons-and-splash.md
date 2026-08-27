@@ -36,8 +36,8 @@ font/Impact stack this mark aligns to).
 
 ### Out of scope / follow-ups
 
-- **The moon's yellow is an unverified estimate.** See the progress log; needs a
-  brand-guide or Pantone reference to confirm.
+- ~~**The moon's yellow is an unverified estimate.**~~ Resolved 2026-08-27:
+  `#E6EA08` confirmed by the design owner. See the final progress log entry.
 - **Manifest screenshots cover only `/login`.** Every other route is behind the
   auth guard; capturing maps/rulebook needs a session for a seeded person, which
   needs jetstream up.
@@ -146,3 +146,10 @@ font/Impact stack this mark aligns to).
   surface, two silent platform bugs fixed, generation scripted and documented.
   Two follow-ups remain open (see Description): confirm the yellow, and capture
   authed screenshots once jetstream is available.
+- 2026-08-27 16:20 — Follow-up closed: **`#E6EA08` confirmed by the design
+  owner.** The value is unchanged, so no icons needed regenerating — but the
+  caveat was live in three places telling the next reader to go replace it
+  (`nathejk-moon.svg`, the brand README, `BRAND_YELLOW` in `@/config/brand`), so
+  all three now record it as confirmed and dated. Kept the derivation on record,
+  including the note that the naive per-channel conversion (`#E6FF0C`) is wrong,
+  so nobody "corrects" it later. One follow-up still open: authed screenshots.
