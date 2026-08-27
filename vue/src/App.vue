@@ -1,15 +1,40 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { LogOut } from '@lucide/vue'
 import { useSessionStore } from '@/stores/session.store'
+import { useAppStore } from '@/stores/app.store'
 import BottomNav from '@/components/BottomNav.vue'
 import UpdatePrompt from '@/components/UpdatePrompt.vue'
+import OfflineNotice from '@/components/OfflineNotice.vue'
 import { APP_NAME } from '@/config/brand'
 
 const session = useSessionStore()
+const app = useAppStore()
 const route = useRoute()
 const router = useRouter()
+
+// Connectivity (task 090). The browser events are a hint, not the truth —
+// navigator.onLine is true on a captive portal and with one unusable bar — so
+// `offline` is only ever optimistic here: going online triggers a real request, and
+// if that fails session.store puts the flag back.
+function handleOffline() {
+  app.setOnline(false)
+}
+async function handleOnline() {
+  app.setOnline(true)
+  // Confirm a provisional identity, or discover the session actually expired while
+  // we were away.
+  if (session.provisional) await session.refresh()
+}
+onMounted(() => {
+  window.addEventListener('online', handleOnline)
+  window.addEventListener('offline', handleOffline)
+})
+onUnmounted(() => {
+  window.removeEventListener('online', handleOnline)
+  window.removeEventListener('offline', handleOffline)
+})
 
 // The app shell (top bar + bottom nav) frames authenticated pages. The login
 // screen renders bare.
@@ -45,6 +70,14 @@ async function signOut() {
         Log ud
       </button>
     </header>
+
+    <!-- In flow, so it never covers the map or collides with UpdatePrompt. On a
+         full-bleed route there is no header above it, so it carries the top safe-area
+         inset itself. -->
+    <div v-if="fullBleed" style="padding-top: env(safe-area-inset-top)">
+      <OfflineNotice />
+    </div>
+    <OfflineNotice v-else />
 
     <main :class="fullBleed ? 'relative min-h-0 flex-1' : 'min-h-0 flex-1 overflow-y-auto'">
       <RouterView />

@@ -7,6 +7,7 @@ import LocateButton from '@/components/map/LocateButton.vue'
 import ScanList from '@/components/map/ScanList.vue'
 import { useLocationStore } from '@/stores/location.store'
 import { useScansStore } from '@/stores/scans.store'
+import { useAppStore } from '@/stores/app.store'
 import {
   BASE_LAYER_STORAGE_KEY,
   baseLayers,
@@ -21,6 +22,7 @@ const EventMap = defineAsyncComponent(() => import('@/components/map/EventMap.vu
 
 const location = useLocationStore()
 const scans = useScansStore()
+const app = useAppStore()
 
 const mapRef = ref<{ focusScan: (id: string) => void; recenter: () => void } | null>(null)
 
@@ -54,8 +56,13 @@ const showPrompt = computed(
 )
 
 // Only a genuinely absent key is worth reporting; don't flash the notice while
-// the config request is still in flight.
-const missingToken = computed(() => configLoaded.value && dataforsyningenToken.value === '')
+// the config request is still in flight. And only when we actually got an answer
+// from the BFF: offline there is no answer, and blaming the deployment for something
+// the user cannot act on — while the offline notice already explains the real
+// situation — is worse than saying nothing (task 090).
+const missingToken = computed(
+  () => configLoaded.value && dataforsyningenToken.value === '' && app.online,
+)
 
 async function accept() {
   const coords = await location.request()

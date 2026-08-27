@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { KeyRound, Phone, ArrowLeft, ChevronRight } from '@lucide/vue'
-import { HttpError } from '@/helpers'
+import { KeyRound, Phone, ArrowLeft, ChevronRight, WifiOff } from '@lucide/vue'
+import { HttpError, NetworkError } from '@/helpers'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useSessionStore } from '@/stores/session.store'
+import { useAppStore } from '@/stores/app.store'
 import { NODTELEFON, NODTELEFON_DISPLAY } from '@/config/contact'
 import { APP_NAME } from '@/config/brand'
 
@@ -15,6 +17,7 @@ import { APP_NAME } from '@/config/brand'
 const RESEND_COOLDOWN_SECONDS = 60
 
 const session = useSessionStore()
+const app = useAppStore()
 const router = useRouter()
 
 const version = __APP_VERSION__
@@ -51,7 +54,7 @@ async function sendPin() {
     step.value = 'pin'
     startCooldown()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Noget gik galt. Prøv igen.'
+    error.value = messageFor(err)
   } finally {
     busy.value = false
   }
@@ -83,7 +86,7 @@ async function submitPin() {
     } else if (err instanceof HttpError && err.status === 429) {
       error.value = 'For mange forsøg. Bed om en ny kode og prøv igen.'
     } else {
-      error.value = err instanceof Error ? err.message : 'Noget gik galt. Prøv igen.'
+      error.value = messageFor(err)
     }
   } finally {
     busy.value = false
@@ -103,11 +106,27 @@ async function choose(userId: string) {
       step.value = 'phone'
       session.clearChoice()
     } else {
-      error.value = err instanceof Error ? err.message : 'Noget gik galt. Prøv igen.'
+      error.value = messageFor(err)
     }
   } finally {
     busy.value = false
   }
+}
+
+// Signing in needs the network — the only secret is an SMS PIN — so unlike the rest
+// of the app this screen genuinely cannot work offline (task 090). Say so plainly
+// instead of letting the user retype their number into a failing request.
+const offline = computed(() => !app.online)
+
+// A network failure has to read as "no signal", not as "wrong number". Its message
+// also flips the connectivity flag, since a failed request is better evidence than
+// navigator.onLine.
+function messageFor(err: unknown): string {
+  if (err instanceof NetworkError) {
+    app.setOnline(false)
+    return 'Ingen forbindelse. Find et sted med signal og prøv igen.'
+  }
+  return err instanceof Error ? err.message : 'Noget gik galt. Prøv igen.'
 }
 
 function changeNumber() {
@@ -132,6 +151,19 @@ function changeNumber() {
       <h1 class="font-nathejk text-3xl tracking-wide">{{ APP_NAME }}</h1>
       <p class="text-sm text-slate-500">Log ind med dit telefonnummer</p>
     </header>
+
+    <Alert
+      v-if="offline"
+      class="border-amber-300 bg-amber-50 text-amber-900"
+      data-testid="login-offline"
+    >
+      <WifiOff aria-hidden="true" />
+      <AlertTitle>Ingen forbindelse</AlertTitle>
+      <AlertDescription class="text-amber-800">
+        Du skal have signal for at logge ind, fordi koden kommer som SMS. Prøv et sted
+        med bedre dækning.
+      </AlertDescription>
+    </Alert>
 
     <!-- Step 1: phone number -->
     <form v-if="step === 'phone'" class="flex flex-col gap-3" @submit.prevent="sendPin">

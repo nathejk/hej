@@ -56,6 +56,12 @@ const router = createRouter({
 // sent to /login; signed-in users are kept out of /login; role-scoped routes
 // redirect disallowed roles home. Client-side gating is UX only — the BFF
 // authorizes every protected endpoint independently.
+//
+// NOTHING IN HERE MAY REJECT (task 090). A rejected guard aborts the navigation, so
+// no route component mounts and the user is left looking at a blank white screen —
+// which is what happened offline, when `ensureReady()` propagated the failure of
+// GET /api/me. `ensureReady()` is now explicitly non-throwing; keep it that way, and
+// do not add an `await` here that can reject.
 router.beforeEach(async (to) => {
   const session = useSessionStore()
   await session.ensureReady()

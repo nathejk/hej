@@ -18,6 +18,20 @@ export class HttpError extends Error {
   }
 }
 
+// NetworkError means the request never reached the BFF — no signal, DNS failure,
+// connection reset. Distinct from HttpError on purpose: an HTTP status is an answer
+// from the server, this is the absence of one, and the two must not be handled
+// alike. Treating a network failure as a hard error is what blanked the app offline
+// (task 090), which for an app used in a forest at midnight is the worst possible
+// place to be pessimistic.
+export class NetworkError extends Error {
+  constructor(url: string, cause?: unknown) {
+    super(`Ingen forbindelse til serveren (${url})`)
+    this.name = 'NetworkError'
+    this.cause = cause
+  }
+}
+
 async function request<T = Json>(method: string, url: string, body?: unknown): Promise<T> {
   const options: RequestInit = {
     method,
@@ -30,7 +44,15 @@ async function request<T = Json>(method: string, url: string, body?: unknown): P
     options.body = JSON.stringify(body)
   }
 
-  const response = await fetch(url, options)
+  // fetch rejects only on a network-level failure; every HTTP status resolves. So
+  // this catch means precisely "the request never reached the server".
+  let response: Response
+  try {
+    response = await fetch(url, options)
+  } catch (err) {
+    throw new NetworkError(url, err)
+  }
+
   const text = await response.text()
   const data = text ? JSON.parse(text) : null
 

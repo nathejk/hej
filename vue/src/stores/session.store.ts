@@ -1,29 +1,14 @@
 import { defineStore } from 'pinia'
-import { fetchWrapper, HttpError } from '@/helpers'
+import { fetchWrapper, HttpError, NetworkError } from '@/helpers'
+import { clearIdentity, loadIdentity, saveIdentity } from '@/helpers/identity'
+import { useAppStore } from '@/stores/app.store'
+import type { Identity, Role } from '@/config/roles'
 
-// The app roles (mirrors the BFF's users.Role). Drives which pages the nav shows.
-//
-// These are *app* roles, not signup categories: the upstream data speaks in team
-// types (patrulje/klan/crew/gøgler), and PRD 006's person projection owns the
-// translation. Keep this list identical to `AllRoles` in
-// `go/internal/users/directory.go` — they are one enum expressed twice.
-//
-// `crew` is the least-privileged fallback for a crew member whose function could
-// not be determined from their section slug. It is not "crew with crew powers": an
-// account lands there because classification failed.
-export type Role =
-  | 'spejder'
-  | 'bandit'
-  | 'postmandskab'
-  | 'guide'
-  | 'samarit'
-  | 'gøgler'
-  | 'crew'
-
-export interface Identity {
-  userId: string
-  role: Role
-}
+// The app roles and the signed-in identity live in @/config/roles, so that
+// @/helpers/identity can validate a stored role without importing this store.
+// Re-exported here because this store has always been their public home.
+export type { Role, Identity } from '@/config/roles'
+export { ALL_ROLES } from '@/config/roles'
 
 interface IdentityResponse {
   user_id: string
@@ -56,6 +41,10 @@ export const useSessionStore = defineStore('session', {
     user: null as Identity | null,
     // ready flips true once we've asked the BFF who we are at least once.
     ready: false,
+    // True when `user` came from the remembered identity rather than from the BFF,
+    // i.e. we believe this is who you are but have not been able to confirm it
+    // (task 090). Drives the offline notice; never used to grant anything.
+    provisional: false,
     // A pending disambiguation for a shared phone number. In memory only: the token
     // lives about a minute and bridges two requests, so persisting it would give it a
     // lifetime it should not have.
@@ -71,13 +60,38 @@ export const useSessionStore = defineStore('session', {
   actions: {
     // fetchMe resolves the current session from the BFF. A 401 means "not
     // signed in" (a normal state), not an error.
+    //
+    // Three distinct outcomes, and the difference matters (task 090):
+    //   * an identity      — confirmed, remembered for later offline starts
+    //   * 401              — genuinely signed out; forget the remembered identity
+    //   * no network       — unknown; fall back to the remembered identity and mark
+    //                        it provisional. This is NOT a sign-out.
+    // A network failure used to be rethrown, which rejected the router guard and
+    // left a blank screen.
     async fetchMe() {
+      const app = useAppStore()
       try {
         const data = await fetchWrapper.get<IdentityResponse>('/api/me')
         this.user = { userId: data.user_id, role: data.role }
+        this.provisional = false
+        saveIdentity(this.user)
+        app.setOnline(true)
       } catch (err) {
-        if (err instanceof HttpError && err.status === 401) {
+        if (err instanceof NetworkError) {
+          // The server said nothing, so nothing is known about the session. Keeping
+          // the remembered identity is the honest reading of "unknown", and it is
+          // safe: the cookie is what authorizes, and the BFF checks it per request.
+          app.setOnline(false)
+          const remembered = this.user ?? loadIdentity()
+          if (remembered) {
+            this.user = remembered
+            this.provisional = true
+          }
+        } else if (err instanceof HttpError && err.status === 401) {
           this.user = null
+          this.provisional = false
+          clearIdentity()
+          app.setOnline(true)
         } else {
           throw err
         }
@@ -87,10 +101,33 @@ export const useSessionStore = defineStore('session', {
     },
 
     // ensureReady lazily resolves the session once (used by the router guard).
+    //
+    // Deliberately cannot reject. A rejected navigation guard aborts the navigation,
+    // so no route component ever mounts and the user gets a white screen — exactly
+    // the failure task 090 fixed. Whatever went wrong, it is better to enter the app
+    // with whatever is known than to render nothing.
     async ensureReady() {
-      if (!this.ready) {
+      if (this.ready) return
+      try {
         await this.fetchMe()
+      } catch {
+        // A 5xx or a malformed response. `ready` is already true (fetchMe's finally),
+        // so the guard proceeds on what is known: a remembered identity if there is
+        // one, otherwise the login screen.
+        const remembered = this.user ?? loadIdentity()
+        if (remembered) {
+          this.user = remembered
+          this.provisional = true
+        }
       }
+    },
+
+    // refresh re-asks the BFF who we are. Used when connectivity returns, to turn a
+    // provisional identity back into a confirmed one — or to discover that the
+    // session has in fact expired.
+    async refresh() {
+      this.ready = false
+      await this.ensureReady()
     },
 
     // requestPin asks the BFF to SMS a login PIN. The response is deliberately
@@ -122,7 +159,9 @@ export const useSessionStore = defineStore('session', {
 
       this.clearChoice()
       this.user = { userId: data.user_id, role: data.role }
+      this.provisional = false
       this.ready = true
+      saveIdentity(this.user)
       return this.user
     },
 
@@ -145,7 +184,9 @@ export const useSessionStore = defineStore('session', {
 
       this.clearChoice()
       this.user = { userId: data.user_id, role: data.role }
+      this.provisional = false
       this.ready = true
+      saveIdentity(this.user)
       return this.user
     },
 
@@ -156,11 +197,16 @@ export const useSessionStore = defineStore('session', {
       this.choiceCandidates = []
     },
 
+    // logout ends the session. The remembered identity is dropped even if the request
+    // fails: the user asked to be signed out, and leaving it behind would sign them
+    // back in on the next offline start.
     async logout() {
       try {
         await fetchWrapper.post('/api/auth/logout')
       } finally {
         this.user = null
+        this.provisional = false
+        clearIdentity()
         this.clearChoice()
       }
     },
