@@ -116,6 +116,12 @@ onMounted(() => void track.refreshCount())
             Telefonen har ikke lovet at beholde det, hvis der bliver pladsmangel. Derfor sender
             appen ruten videre, så snart den kan.
           </p>
+          <RouterLink
+            :to="{ name: 'track-status' }"
+            class="mt-3 inline-block text-sm text-slate-600 underline"
+          >
+            Se teknisk sporingsstatus
+          </RouterLink>
         </div>
       </div>
     </section>

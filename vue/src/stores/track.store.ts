@@ -9,6 +9,7 @@ import {
   appendPoint,
   countPoints,
   latestTimestamp,
+  logEvent,
   requestPersistentStorage,
   TrackStorageFullError,
 } from '@/helpers/trackDb'
@@ -98,6 +99,7 @@ export const useTrackStore = defineStore('track', {
         if (!session.user || location.permission !== 'granted') return
 
         this.recording = true
+        void logEvent('start', `points=${this.pointCount} persisted=${this.persisted}`)
         // Belt and braces: never leave an orphaned interval behind.
         if (this.timer !== null) clearInterval(this.timer)
         // Sample immediately — but sample() skips if anything was recorded within the
@@ -115,6 +117,7 @@ export const useTrackStore = defineStore('track', {
         clearInterval(this.timer)
         this.timer = null
       }
+      if (this.recording) void logEvent('stop')
       this.recording = false
     },
 
@@ -153,7 +156,10 @@ export const useTrackStore = defineStore('track', {
       // silence from a one-off clock error.
       const minGapMs = TRACK_SAMPLE_SECONDS * 1000 * 0.8
       const elapsed = Date.now() - this.lastPointAt
-      if (this.lastPointAt && elapsed >= 0 && elapsed < minGapMs) return
+      if (this.lastPointAt && elapsed >= 0 && elapsed < minGapMs) {
+        void logEvent('skip', `${Math.round(elapsed / 1000)}s since last point`)
+        return
+      }
 
       // Acquiring a fix takes up to TRACK_FIX_TIMEOUT_MS, which is most of a sample
       // interval, so the next tick can arrive while this one is still waiting. Two
@@ -174,18 +180,26 @@ export const useTrackStore = defineStore('track', {
       const session = useSessionStore()
       if (!session.user) return
 
-      const fresh =
-        location.position && Date.now() - location.positionAt <= TRACK_MAX_FIX_AGE_MS
-          ? { coords: location.position, at: location.positionAt }
-          : await this.acquire()
+      // Whether this used a fix the map's watch already had (free) or cost us our own.
+      // Recorded in the event log because it is the whole battery argument for this
+      // design, and on a real phone it is the number worth knowing.
+      const reused =
+        !!location.position && Date.now() - location.positionAt <= TRACK_MAX_FIX_AGE_MS
+      const fresh = reused
+        ? { coords: location.position!, at: location.positionAt }
+        : await this.acquire()
 
-      if (!fresh) return
+      if (!fresh) {
+        void logEvent('nofix')
+        return
+      }
 
       if (this.pointCount >= TRACK_MAX_POINTS) {
         // A safety net, not a policy: this is ~7 days of sampling against a 12-hour
         // race, so reaching it means something is wrong. Stop and surface it instead of
         // discarding points that nothing has copied anywhere else yet.
         this.problem = 'capped'
+        void logEvent('capped', `${this.pointCount} points`)
         this.stop()
         return
       }
@@ -204,11 +218,13 @@ export const useTrackStore = defineStore('track', {
         })
         this.lastPointAt = fresh.at
         this.pointCount += 1
+        void logEvent('point', `acc=${Math.round(fresh.coords.accuracy)}m reused=${reused ? 1 : 0}`)
       } catch (err) {
         if (err instanceof TrackStorageFullError) {
           // Handled rather than thrown into the void: a recorder whose writes silently
           // fail looks exactly like a working one.
           this.problem = 'full'
+          void logEvent('full')
           this.stop()
           return
         }
@@ -241,6 +257,7 @@ export const useTrackStore = defineStore('track', {
             resolve({ coords, at })
           },
           (err) => {
+            void logEvent('geoerror', `code=${err.code} ${err.message}`)
             if (err.code === err.PERMISSION_DENIED) {
               location.permission = 'denied'
               this.stop()

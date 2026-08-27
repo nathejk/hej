@@ -215,3 +215,48 @@ so there is no reason to be clever about compaction.
   backgrounded on any platform — that is a documented platform limit, accepted
   2026-08-26 — so these are measurements of expected coverage, not go/no-go tests.
   Everything else in this task is done and verified.
+- 2026-08-27 — Built the instrumentation the device measurement needs, since the two
+  remaining criteria are answered on a phone and a maintainer should not have to read them
+  out of a debugger:
+  * **A persisted event ring** in IndexedDB (`events` store, DB v2) recording `load`,
+    `start`, `stop`, `point`, `skip`, `nofix`, `geoerror`, `full`, `capped`, `hidden` and
+    `visible`. Persisted rather than in memory precisely because the interesting cases
+    destroy memory: iOS suspending a backgrounded app, and the OS killing it. An event
+    written before the app went away is the only evidence that survives.
+  * **`hidden`/`visible` logging at app level**, plus a prompt sample on resume (which
+    cannot oversample — `sample()` still refuses inside one interval). The pair of
+    timestamps either side of a gap in the points is what actually answers "what does
+    backgrounding cost".
+  * **A status page at `/sporing`**, linked from the privacy page and deliberately *not* a
+    nav destination: it is a measurement tool, not a feature. It renders a plain-text
+    report with a "Kopiér rapport" button, and also as selectable text — clipboard access
+    can be refused, and a report you can select by hand is the difference between a
+    measurement and a lost night.
+- 2026-08-27 — The centre of the report is the **gap analysis**, computed from the stored
+  timestamps: total span, points actual vs. what a perfect recorder would have taken,
+  coverage as a percentage, the count of gaps longer than two sampling intervals, total
+  time lost to them, and the fifteen largest with clock times. Two intervals is the
+  threshold because one missed sample can be a slow fix, while two means the app was not
+  running. It also counts each event kind over the whole period and reports how many points
+  reused the map's fix versus cost a fix of their own — the battery argument, measured
+  rather than asserted.
+- 2026-08-27 — Sized the event ring against the measurement instead of picking a round
+  number: at 30 s sampling a 12-hour night produces ~1,440 `point` events on its own, so
+  the first version's 400-entry ring would have spent itself on routine successes and
+  discarded exactly the `hidden`/`visible` transitions the test is for. Now 2,000 (~120 KB,
+  against the 195 KB of points it annotates).
+- 2026-08-27 — Battery cannot be read by the app: **iOS has no Battery Status API**. The
+  report therefore ends with a blank line for it and says why, so the number gets written
+  down next to the run it belongs to rather than remembered wrongly afterwards.
+- 2026-08-27 — Verified the page in a browser, all checks passing, with a synthetic history
+  injected into IndexedDB — 40 points at 30 s, a 14-minute gap, then 20 more. The analysis
+  found both gaps (the injected one plus the join to the live points), ranked them
+  longest-first, and reported 51% coverage over 59m 22s. Testing the analysis in a browser
+  is the honest split: a headless page does not suspend the way iOS does, so the phone
+  contributes real gaps, not a different code path.
+- 2026-08-27 — Harness note: launching Chromium started failing with
+  `Network.enable timed out` once the host load average passed ~12. Not a code fault —
+  Chromium starts but the first CDP round-trip misses its budget. The harness now retries
+  the launch and uses a pipe rather than a websocket. Also worth remembering: a killed
+  harness leaves a Chromium container pegging a core, which makes the *next* run fail the
+  same way.

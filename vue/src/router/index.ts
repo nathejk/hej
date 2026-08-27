@@ -49,6 +49,15 @@ const router = createRouter({
       meta: { public: true },
     },
     ...destinationRoutes,
+    // Diagnostic page for the position track (task 082). Deliberately NOT a
+    // `destination`: it is a measurement tool for the device tests, not a feature, so it
+    // stays out of the nav and is reached from the privacy page. If the recorder turns
+    // out to need watching during the event, promoting it is one line.
+    {
+      path: '/sporing',
+      name: 'track-status',
+      component: () => import('@/views/TrackStatusView.vue'),
+    },
   ],
 })
 

@@ -6,6 +6,7 @@ import { useSessionStore } from '@/stores/session.store'
 import { useAppStore } from '@/stores/app.store'
 import { useLocationStore } from '@/stores/location.store'
 import { useTrackStore } from '@/stores/track.store'
+import { logEvent } from '@/helpers/trackDb'
 import BottomNav from '@/components/BottomNav.vue'
 import UpdatePrompt from '@/components/UpdatePrompt.vue'
 import OfflineNotice from '@/components/OfflineNotice.vue'
@@ -31,9 +32,24 @@ async function handleOnline() {
   // we were away.
   if (session.provisional) await session.refresh()
 }
+// Records when the document is suspended and resumed. This is the measurement task 082
+// actually needs from a real phone: a web app cannot record while backgrounded, and the
+// pair of hidden/visible timestamps either side of a gap in the points is the evidence of
+// what that costs in practice. Written to IndexedDB rather than kept in memory because
+// iOS may kill the app in between, taking any in-memory log with it.
+function onVisibility() {
+  void logEvent(document.hidden ? 'hidden' : 'visible')
+  // Coming back from a suspend, the interval may have been throttled or the app
+  // restarted; sample promptly rather than waiting out the rest of the period. sample()
+  // refuses if a point was recorded within the last interval, so this cannot oversample.
+  if (!document.hidden) void track.sample()
+}
+
 onMounted(() => {
   window.addEventListener('online', handleOnline)
   window.addEventListener('offline', handleOffline)
+  document.addEventListener('visibilitychange', onVisibility)
+  void logEvent('load', document.visibilityState)
 
   // Position track (task 082). Deliberately started HERE and not in MapsView: that
   // view stops its geolocation watch on `document.hidden` and on unmount, which is
@@ -46,6 +62,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('online', handleOnline)
   window.removeEventListener('offline', handleOffline)
+  document.removeEventListener('visibilitychange', onVisibility)
   track.stop()
 })
 

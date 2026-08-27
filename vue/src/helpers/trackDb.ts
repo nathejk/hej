@@ -11,8 +11,24 @@
 // file, not less.
 
 const DB_NAME = 'hej-track'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const STORE = 'points'
+const EVENTS = 'events'
+
+/**
+ * How many diagnostic events are kept.
+ *
+ * A ring, not a log: this exists to answer "what did the recorder do on a real phone
+ * overnight" (task 082's device measurement), and unbounded growth would compete for the
+ * quota with the thing being measured.
+ *
+ * Sized against that measurement rather than picked round. A 12-hour test at 30 s
+ * sampling produces ~1,440 `point` events on its own, so a smaller ring would spend
+ * itself on routine successes and discard precisely the `hidden`/`visible` transitions
+ * the test is for. 2,000 covers a full night with room left; at roughly 60 bytes an entry
+ * that is ~120 KB, which is nothing beside the 195 KB of points it annotates.
+ */
+const MAX_EVENTS = 2000
 
 /** A recorded position. */
 export interface TrackPoint {
@@ -41,6 +57,31 @@ export interface TrackPoint {
 //     numbers is shared by siblings (task 079), so one phone can legitimately carry
 //     two people's tracks. Keying by device would silently merge them into one route
 //     through the forest that nobody walked.
+/**
+ * One diagnostic event.
+ *
+ * Persisted rather than kept in memory precisely because the interesting cases destroy
+ * memory: iOS suspending a backgrounded app, and the OS killing it outright. An event
+ * written before the app went away is the only evidence that survives to be read
+ * afterwards.
+ */
+export interface TrackEvent {
+  at: number
+  kind:
+    | 'load'
+    | 'start'
+    | 'stop'
+    | 'point'
+    | 'skip'
+    | 'nofix'
+    | 'geoerror'
+    | 'full'
+    | 'capped'
+    | 'hidden'
+    | 'visible'
+  detail?: string
+}
+
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION)
@@ -50,6 +91,11 @@ function open(): Promise<IDBDatabase> {
         const store = db.createObjectStore(STORE, { keyPath: ['userId', 'ts'] })
         // Task 083 selects "this person's points that have not shipped".
         store.createIndex('pending', ['userId', 'uploaded'])
+      }
+      // Added in v2. Guarded by the same `contains` check as the points store so the
+      // upgrade is correct from either a fresh install or an existing v1 database.
+      if (!db.objectStoreNames.contains(EVENTS)) {
+        db.createObjectStore(EVENTS, { keyPath: 'seq', autoIncrement: true })
       }
     }
     req.onsuccess = () => resolve(req.result)
@@ -144,6 +190,66 @@ export async function countPoints(): Promise<number> {
   return new Promise((resolve, reject) => {
     const req = conn.transaction(STORE, 'readonly').objectStore(STORE).count()
     req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+/**
+ * logEvent appends a diagnostic event, trimming the ring when it grows past the cap.
+ *
+ * Deliberately never throws: this is instrumentation, and instrumentation that can break
+ * the thing it observes is worse than none. A failure here is swallowed, including a
+ * quota failure — the points are what matter, and appendPoint reports that properly.
+ */
+export async function logEvent(kind: TrackEvent['kind'], detail?: string): Promise<void> {
+  try {
+    const conn = await db()
+    await new Promise<void>((resolve) => {
+      const tx = conn.transaction(EVENTS, 'readwrite')
+      const store = tx.objectStore(EVENTS)
+      store.add({ at: Date.now(), kind, ...(detail ? { detail } : {}) })
+      // Trim from the front. autoIncrement keys are monotonic, so "oldest" is simply
+      // the lowest key.
+      const countReq = store.count()
+      countReq.onsuccess = () => {
+        const excess = countReq.result - MAX_EVENTS
+        if (excess > 0) {
+          const cursorReq = store.openCursor()
+          let removed = 0
+          cursorReq.onsuccess = () => {
+            const cursor = cursorReq.result
+            if (cursor && removed < excess) {
+              cursor.delete()
+              removed += 1
+              cursor.continue()
+            }
+          }
+        }
+      }
+      tx.oncomplete = () => resolve()
+      tx.onabort = tx.onerror = () => resolve()
+    })
+  } catch {
+    // See above: instrumentation must not be able to break recording.
+  }
+}
+
+/** listEvents returns the diagnostic events, oldest first. */
+export async function listEvents(): Promise<TrackEvent[]> {
+  const conn = await db()
+  return new Promise((resolve, reject) => {
+    const req = conn.transaction(EVENTS, 'readonly').objectStore(EVENTS).getAll()
+    req.onsuccess = () => resolve(req.result as TrackEvent[])
+    req.onerror = () => reject(req.error)
+  })
+}
+
+/** listPoints returns every stored point, for the status report's gap analysis. */
+export async function listPoints(): Promise<TrackPoint[]> {
+  const conn = await db()
+  return new Promise((resolve, reject) => {
+    const req = conn.transaction(STORE, 'readonly').objectStore(STORE).getAll()
+    req.onsuccess = () => resolve(req.result as TrackPoint[])
     req.onerror = () => reject(req.error)
   })
 }
