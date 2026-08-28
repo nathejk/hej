@@ -64,6 +64,11 @@ CREATE TABLE IF NOT EXISTS person (
     -- portraits are the one thing that cannot be rebuilt from the log.
     portraitRef VARCHAR(64) NOT NULL DEFAULT "",
 
+    -- Content hash of the thumbnail generated at upload (task 104). Empty for a
+    -- portrait captured before thumbnails existed; readers fall back to the full
+    -- image rather than treating that as broken.
+    portraitThumbRef VARCHAR(64) NOT NULL DEFAULT "",
+
     -- When that portrait was captured. The retention job (task 109) works from this:
     -- "the portrait does not outlive the event" needs an age on the row, and the
     -- message's delivery time is not usable because it changes on every replay. NULL

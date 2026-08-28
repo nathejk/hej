@@ -1,6 +1,7 @@
 package person
 
 import (
+	"database/sql/driver"
 	"errors"
 	"regexp"
 	"strings"
@@ -123,15 +124,7 @@ func TestLookupReturnsAllOwnersOfASharedNumber(t *testing.T) {
 	defer db.Close()
 
 	rows := personRows("+4530112233")
-	rows.AddRow(
-		"person-b", "2026", RoleSpejder,
-		"Sibling B", "+4530112233", nil,
-		"", "", "", "", nil,
-		"", "",
-		"", "",
-		"", "",
-		nil, nil, "", nil,
-	)
+	addPersonRow(rows, "person-b", "Sibling B", "+4530112233")
 	mock.ExpectQuery(regexp.QuoteMeta("FROM person")).
 		WithArgs("2026", "+4530112233").
 		WillReturnRows(rows)
@@ -198,18 +191,51 @@ func personColumnNames() []string {
 		"teamId", "teamName",
 		"sectionSlug", "sectionName",
 		"memberStatus", "armNumber",
-		"verifiedAt", "acknowledgedPhone", "portraitRef", "portraitCapturedAt",
+		"verifiedAt", "acknowledgedPhone", "portraitRef", "portraitThumbRef", "portraitCapturedAt",
 	}
 }
 
 func personRows(phone string) *sqlmock.Rows {
-	return sqlmock.NewRows(personColumnNames()).AddRow(
-		"person-a", "2026", RoleSpejder,
-		"Sibling A", phone, nil,
-		"", "", "", "", nil,
-		"", "",
-		"", "",
-		"", "",
-		nil, nil, "", nil,
-	)
+	rows := sqlmock.NewRows(personColumnNames())
+	addPersonRow(rows, "person-a", "Sibling A", phone)
+	return rows
+}
+
+// addPersonRow appends a row sized from personColumnNames, filling everything the test
+// does not care about with a zero value.
+//
+// Built by name rather than as a positional literal because the positional version has
+// now broken twice on an additive schema change (portraitCapturedAt, portraitThumbRef) —
+// each time with a "expected 21 destination arguments, not 22" that says nothing about
+// which column is missing. This way a new column costs nothing here, and a *renamed* one
+// still fails loudly in scanPerson where it should.
+func addPersonRow(rows *sqlmock.Rows, personID, name, phone string) {
+	// The nullable columns must be nil rather than "": the querier scans them into
+	// pointers, and the nil-vs-empty distinction is load-bearing for phoneParent.
+	nullable := map[string]bool{
+		"phoneParent": true, "birthday": true,
+		"verifiedAt": true, "acknowledgedPhone": true, "portraitCapturedAt": true,
+	}
+
+	columns := personColumnNames()
+	values := make([]driver.Value, 0, len(columns))
+	for _, column := range columns {
+		switch {
+		case nullable[column]:
+			values = append(values, nil)
+		case column == "personId":
+			values = append(values, personID)
+		case column == "year":
+			values = append(values, "2026")
+		case column == "appRole":
+			values = append(values, string(RoleSpejder))
+		case column == "name":
+			values = append(values, name)
+		case column == "phone":
+			values = append(values, phone)
+		default:
+			values = append(values, "")
+		}
+	}
+	rows.AddRow(values...)
 }

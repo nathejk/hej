@@ -142,6 +142,31 @@ func TestStorePortraitFailsWithNoPublisher(t *testing.T) {
 	}
 }
 
+// The thumbnail is a second content-addressed object, referenced from the same event, so
+// PRD 007 can sync faces without pulling full-size images over a mobile connection.
+func TestStorePortraitStoresTheThumbnailToo(t *testing.T) {
+	pub := &cqrstest.Publisher{}
+	app := portraitTestApp(t, pub)
+
+	thumb := []byte("pretend this is a 256px jpeg")
+	_, err := app.storePortrait(context.Background(), "member-1", []byte("the full image"),
+		portraitMeta{ContentType: "image/jpeg", Thumb: thumb})
+	if err != nil {
+		t.Fatalf("storePortrait: %v", err)
+	}
+
+	body := publishedPortrait(t, pub)
+	if body.ThumbRef != blob.ComputeRef(thumb).String() {
+		t.Errorf("thumbRef = %q, want the thumbnail's hash", body.ThumbRef)
+	}
+	if body.ThumbRef == body.Ref {
+		t.Error("the thumbnail must be its own object, not the same hash as the full image")
+	}
+	if ok, _ := app.blobs.Exists(context.Background(), blob.Ref(body.ThumbRef)); !ok {
+		t.Error("thumbnail bytes were not stored")
+	}
+}
+
 func TestStorePortraitRefusesBadInput(t *testing.T) {
 	app := portraitTestApp(t, &cqrstest.Publisher{})
 

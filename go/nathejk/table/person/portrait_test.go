@@ -145,3 +145,38 @@ func TestPortraitCapturedWithoutTimestampWritesNull(t *testing.T) {
 		t.Errorf("want a NULL timestamp, got: %s", stmt)
 	}
 }
+
+func TestPortraitCapturedWritesTheThumbnailRef(t *testing.T) {
+	thumb := strings.Repeat("b", 64)
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.portrait.member-1.captured",
+		PortraitCaptured{PersonID: "member-1", Ref: testRef, ThumbRef: thumb}))
+	if !strings.Contains(stmt, thumb) {
+		t.Errorf("statement should carry the thumbnail ref: %s", stmt)
+	}
+}
+
+// A malformed thumbnail ref costs the thumbnail, not the portrait: readers fall back to
+// the full image, whereas failing the event would lose the photo entirely over a
+// secondary artefact.
+func TestPortraitCapturedDropsABadThumbnailRefButKeepsThePortrait(t *testing.T) {
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.portrait.member-1.captured",
+		PortraitCaptured{PersonID: "member-1", Ref: testRef, ThumbRef: "../../etc/passwd"}))
+	if !strings.Contains(stmt, testRef) {
+		t.Errorf("the portrait ref must still be written: %s", stmt)
+	}
+	if strings.Contains(stmt, "passwd") {
+		t.Errorf("the bad thumbnail ref must not be written: %s", stmt)
+	}
+	if !strings.Contains(stmt, `portraitThumbRef=""`) {
+		t.Errorf("want an empty thumbnail ref: %s", stmt)
+	}
+}
+
+// An event from before thumbnails existed must still apply cleanly on replay.
+func TestPortraitCapturedWithoutAThumbnailIsAccepted(t *testing.T) {
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.portrait.member-1.captured",
+		PortraitCaptured{PersonID: "member-1", Ref: testRef}))
+	if !strings.Contains(stmt, `portraitThumbRef=""`) {
+		t.Errorf("want an empty thumbnail ref: %s", stmt)
+	}
+}

@@ -53,6 +53,17 @@ type PortraitCaptured struct {
 	// blob.Ref.Valid, which this projection's handler enforces before writing.
 	Ref string `json:"ref"`
 
+	// ThumbRef is the content hash of the thumbnail generated at upload (task 104).
+	//
+	// Separate object, separate hash: PRD 007 syncs *thumbnails* to devices for offline
+	// identification, and it must be able to fetch them without pulling full-size images
+	// over a rural mobile connection.
+	//
+	// May be empty. Portraits captured before thumbnails existed have no thumbnail, and
+	// so does a replayed event from that era — consumers must degrade to the full image
+	// rather than treat it as a broken record.
+	ThumbRef string `json:"thumbRef"`
+
 	// ContentType, Bytes, Width and Height describe the stored object so a consumer
 	// (PRD 007's thumbnail sync, an audit) can reason about it without fetching it.
 	ContentType string `json:"contentType"`
@@ -163,6 +174,15 @@ func (c consumer) handlePortraitCaptured(msg cqrs.Message, year string) error {
 		return fmt.Errorf("portrait ref %q is not a content hash", body.Ref)
 	}
 
+	// The thumbnail is optional (see ThumbRef), but a *present* one still has to be a
+	// hash. An empty value is written as empty, which readers treat as "use the full
+	// image"; a malformed one is dropped rather than failing the whole event, because a
+	// bad thumbnail must not cost the member their portrait.
+	thumbRef := body.ThumbRef
+	if thumbRef != "" && !validPortraitRef(thumbRef) {
+		thumbRef = ""
+	}
+
 	capturedAt := body.CapturedAt
 	if capturedAt.IsZero() {
 		// Nothing sensible to fall back to that is replay-stable — time.Now() would
@@ -170,14 +190,15 @@ func (c consumer) handlePortraitCaptured(msg cqrs.Message, year string) error {
 		// depend on. NULL means "unknown age", and the purge job treats that as
 		// purgeable rather than as immortal.
 		return c.w.Consume(fmt.Sprintf(
-			"UPDATE person SET portraitRef=%s, portraitCapturedAt=NULL WHERE personId=%s AND year=%s",
-			quote(body.Ref), quote(personID), quote(year),
+			"UPDATE person SET portraitRef=%s, portraitThumbRef=%s, portraitCapturedAt=NULL WHERE personId=%s AND year=%s",
+			quote(body.Ref), quote(thumbRef), quote(personID), quote(year),
 		))
 	}
 
 	return c.w.Consume(fmt.Sprintf(
-		"UPDATE person SET portraitRef=%s, portraitCapturedAt=%s WHERE personId=%s AND year=%s",
+		"UPDATE person SET portraitRef=%s, portraitThumbRef=%s, portraitCapturedAt=%s WHERE personId=%s AND year=%s",
 		quote(body.Ref),
+		quote(thumbRef),
 		quote(capturedAt.UTC().Format("2006-01-02 15:04:05")),
 		quote(personID), quote(year),
 	))

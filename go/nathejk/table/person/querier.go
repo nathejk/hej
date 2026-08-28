@@ -43,6 +43,9 @@ type Person struct {
 	VerifiedAt        *time.Time
 	AcknowledgedPhone *string
 	PortraitRef       string
+	// PortraitThumbRef is the thumbnail's content hash, or empty when the portrait
+	// predates thumbnails (task 104). Readers fall back to PortraitRef.
+	PortraitThumbRef string
 	// PortraitCapturedAt is when the current portrait was taken, or nil when there is
 	// none (or when the event carried no timestamp). The retention job reads it; see
 	// portrait.go.
@@ -143,7 +146,7 @@ const personColumns = `
 	teamId, teamName,
 	sectionSlug, sectionName,
 	memberStatus, armNumber,
-	verifiedAt, acknowledgedPhone, portraitRef, portraitCapturedAt`
+	verifiedAt, acknowledgedPhone, portraitRef, portraitThumbRef, portraitCapturedAt`
 
 // Lookup finds people by phone number.
 //
@@ -232,7 +235,7 @@ func scanPerson(s scanner) (Person, error) {
 		&p.TeamID, &p.TeamName,
 		&p.SectionSlug, &p.SectionName,
 		&p.MemberStatus, &p.ArmNumber,
-		&p.VerifiedAt, &p.AcknowledgedPhone, &p.PortraitRef, &p.PortraitCapturedAt,
+		&p.VerifiedAt, &p.AcknowledgedPhone, &p.PortraitRef, &p.PortraitThumbRef, &p.PortraitCapturedAt,
 	)
 	return p, err
 }

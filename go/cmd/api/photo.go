@@ -1,22 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"image"
-	"image/jpeg"
 	"io"
 	"net/http"
-
-	// PNG and GIF are registered for their *decoders* only: a client may hand us
-	// either, and everything is re-encoded to JPEG on the way out. Registering them
-	// is also what makes image.Decode able to reject a file whose bytes do not match
-	// its claimed type.
-	_ "image/gif"
-	_ "image/png"
+	"strings"
 
 	"nathejk.dk/internal/blob"
+	"nathejk.dk/internal/imaging"
 )
 
 // maxPortraitUpload bounds the request body.
@@ -33,6 +25,14 @@ const maxPortraitUpload = 4 << 20
 // Re-sizing here as well as on the client is not redundant: the server cannot assume the
 // client did it, and PRD 007 sizes its offline sync against what is actually stored.
 const maxPortraitEdge = 1024
+
+// thumbnailEdge is the longest edge of the thumbnail generated at upload (task 104).
+//
+// 256 is chosen against its consumer: PRD 007 shows a grid of faces to identify someone
+// in the dark, and caches many of them offline. At 256px a face is still recognisable
+// when tapped to fill a phone's width, while the file stays around 15–25 KB — so a
+// few hundred of them is a handful of megabytes rather than a hundred.
+const thumbnailEdge = 256
 
 // jpegQuality is a deliberate trade. The portrait is used to recognise a face in the
 // dark, so it must survive being enlarged on a phone screen; 85 is visually lossless for
@@ -64,13 +64,12 @@ var errNotAnImage = errors.New("filen er ikke et billede vi kan læse")
 //
 // # Orientation
 //
-// Re-encoding drops the EXIF orientation tag, so a photo the camera stored rotated with
-// a "turn me" flag would come out sideways. The client is required to apply orientation
-// before upload (task 106) — the correct place, since it has the tag and the canvas. The
-// `<input capture>` fallback is the case to watch on real devices (task 108).
+// The EXIF orientation tag is read and **applied** before re-encoding (task 104), so a
+// photo a phone stored rotated arrives upright. Doing it server-side covers the path the
+// client cannot: the `<input capture>` fallback hands over an untouched camera file.
 //
 // @Summary      Upload own portrait
-// @Description  Accepts a multipart form with a `photo` file field, or a raw image body. The bytes are validated by decoding them, re-encoded to JPEG (which strips all EXIF, including GPS), downscaled to a longest edge of 1024px, stored content-addressed, and published as a portrait event. The declared content type is ignored in favour of the actual bytes. Max 4 MiB.
+// @Description  Accepts a multipart form with a `photo` file field, or a raw image body. The bytes are validated by decoding them, turned upright per their EXIF orientation, re-encoded to JPEG (which strips all EXIF, including GPS), downscaled to a longest edge of 1024px, and stored content-addressed together with a 256px thumbnail. The declared content type is ignored in favour of the actual bytes. Max 4 MiB.
 // @Tags         me
 // @Accept       mpfd
 // @Produce      json
@@ -123,6 +122,11 @@ func (app *application) updatePhotoHandler(w http.ResponseWriter, r *http.Reques
 
 // showPhotoHandler serves the signed-in user's own portrait. Runs behind requireAuth.
 //
+// `?size=thumb` serves the 256px thumbnail generated at upload (task 104). A query
+// parameter rather than a second route because it selects a *representation* of the same
+// resource, and because PRD 007 will need the same choice for other people's portraits —
+// one convention is better than two.
+//
 // Own portrait only: the ref comes from the caller's own projection row, never from the
 // URL, so there is no path here that can be pointed at somebody else's face. Viewing
 // *other* people's portraits is PRD 007, with its own access matrix and audit log — it
@@ -132,9 +136,10 @@ func (app *application) updatePhotoHandler(w http.ResponseWriter, r *http.Reques
 // replay that finds a missing object must degrade to 'no photo', never fail".
 //
 // @Summary      Own portrait
-// @Description  Returns the signed-in user's own portrait as JPEG. Never another user's — cross-person viewing is a separate feature with its own access rules. 404 when no portrait is on file, or when the stored bytes are missing.
+// @Description  Returns the signed-in user's own portrait as JPEG. Pass `size=thumb` for the 256px thumbnail; portraits captured before thumbnails existed fall back to the full image. Never another user's — cross-person viewing is a separate feature with its own access rules. 404 when no portrait is on file, or when the stored bytes are missing.
 // @Tags         me
 // @Produce      jpeg
+// @Param        size  query     string  false  "full (default) or thumb"
 // @Success      200  {file}    binary
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
@@ -162,13 +167,21 @@ func (app *application) showPhotoHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ref := blob.Ref(p.PortraitRef)
+	// Thumbnail when asked for and available. Falling back to the full image rather than
+	// 404-ing is deliberate: portraits captured before task 104 have no thumbnail, and a
+	// client asking for a small image would rather have a large one than nothing.
+	stored := p.PortraitRef
+	if strings.EqualFold(r.URL.Query().Get("size"), "thumb") && p.PortraitThumbRef != "" {
+		stored = p.PortraitThumbRef
+	}
+
+	ref := blob.Ref(stored)
 	if !ref.Valid() {
 		// The projection refuses non-hash refs (task 103), so this is belt and braces —
 		// but it is the one check standing between a database value and a filesystem
 		// path, and it costs nothing.
 		app.Logger.Error("portrait ref in projection is not a content hash",
-			"userId", s.UserID, "ref", p.PortraitRef)
+			"userId", s.UserID, "ref", stored)
 		app.NotFoundResponse(w, r)
 		return
 	}
@@ -239,68 +252,27 @@ func readCapped(src io.Reader) ([]byte, error) {
 	return data, nil
 }
 
-// normalizePortrait decodes, downscales and re-encodes the upload.
+// normalizePortrait decodes, turns upright, downscales and re-encodes the upload, and
+// produces the thumbnail from the same decode.
 //
 // The decode is the validation: bytes that are not an image cannot get past it, and no
-// header or filename is consulted. What comes out is always JPEG.
+// header or filename is consulted. What comes out is always JPEG. The work itself lives
+// in internal/imaging, where it is testable without a request.
 func normalizePortrait(raw []byte) ([]byte, portraitMeta, error) {
-	img, _, err := image.Decode(bytes.NewReader(raw))
+	prepared, err := imaging.Prepare(raw, maxPortraitEdge, thumbnailEdge, jpegQuality)
 	if err != nil {
-		return nil, portraitMeta{}, errNotAnImage
-	}
-
-	img = fitWithin(img, maxPortraitEdge)
-
-	var out bytes.Buffer
-	if err := jpeg.Encode(&out, img, &jpeg.Options{Quality: jpegQuality}); err != nil {
-		return nil, portraitMeta{}, fmt.Errorf("re-encode portrait: %w", err)
-	}
-
-	bounds := img.Bounds()
-	return out.Bytes(), portraitMeta{
-		ContentType: "image/jpeg",
-		Width:       bounds.Dx(),
-		Height:      bounds.Dy(),
-	}, nil
-}
-
-// fitWithin scales img down so its longest edge is at most edge. Images already within
-// the limit are returned untouched.
-//
-// Nearest-neighbour by hand rather than a resize dependency: this runs on an image that
-// the client has usually already sized correctly, so it is a safety net rather than the
-// normal path, and adding a dependency for the exceptional case is the wrong trade. Task
-// 104 needs real resampling for thumbnails and can bring the library — with a visual
-// check — if it turns out to matter.
-func fitWithin(img image.Image, edge int) image.Image {
-	bounds := img.Bounds()
-	w, h := bounds.Dx(), bounds.Dy()
-	if w <= edge && h <= edge {
-		return img
-	}
-
-	newW, newH := w, h
-	if w >= h {
-		newW = edge
-		newH = h * edge / w
-	} else {
-		newH = edge
-		newW = w * edge / h
-	}
-	if newW < 1 {
-		newW = 1
-	}
-	if newH < 1 {
-		newH = 1
-	}
-
-	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
-	for y := 0; y < newH; y++ {
-		srcY := bounds.Min.Y + y*h/newH
-		for x := 0; x < newW; x++ {
-			srcX := bounds.Min.X + x*w/newW
-			dst.Set(x, y, img.At(srcX, srcY))
+		if errors.Is(err, imaging.ErrNotAnImage) {
+			// Translated to the Danish message the client shows; the packaged error is
+			// for the log.
+			return nil, portraitMeta{}, errNotAnImage
 		}
+		return nil, portraitMeta{}, fmt.Errorf("prepare portrait: %w", err)
 	}
-	return dst
+
+	return prepared.Full, portraitMeta{
+		ContentType: "image/jpeg",
+		Width:       prepared.Width,
+		Height:      prepared.Height,
+		Thumb:       prepared.Thumb,
+	}, nil
 }

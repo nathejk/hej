@@ -48,6 +48,21 @@ func (app *application) storePortrait(
 		return "", fmt.Errorf("store portrait bytes: %w", err)
 	}
 
+	// The thumbnail is stored before the event too, for the same reason as the full
+	// image: an event referencing bytes that are not there yet is the unrecoverable
+	// order.
+	var thumbRef blob.Ref
+	if len(meta.Thumb) > 0 {
+		thumbRef, err = app.blobs.Put(ctx, meta.Thumb)
+		if err != nil {
+			// Fails the upload rather than storing a portrait with no thumbnail
+			// (task 104's requirement). PRD 007 relies on the thumbnail existing for
+			// every portrait; letting one through without it would make "missing
+			// thumbnail" a state that has to be handled forever.
+			return "", fmt.Errorf("store portrait thumbnail: %w", err)
+		}
+	}
+
 	subject, err := person.PortraitSubject(app.config.eventYear, personID)
 	if err != nil {
 		// A configured year or person id that cannot be a subject token is our
@@ -60,6 +75,7 @@ func (app *application) storePortrait(
 		PersonID:    personID,
 		Year:        app.config.eventYear,
 		Ref:         ref.String(),
+		ThumbRef:    thumbRef.String(),
 		ContentType: meta.ContentType,
 		Bytes:       len(data),
 		Width:       meta.Width,
@@ -107,7 +123,8 @@ func peopleOrNil(t *person.Table) person.Queries {
 	return t
 }
 
-// portraitMeta is what the event records about the stored object beyond its hash.
+// portraitMeta is what the event records about the stored object beyond its hash,
+// plus the thumbnail bytes to store alongside it.
 //
 // Dimensions are carried so a consumer — PRD 007's offline thumbnail sync, an audit —
 // can reason about the image without fetching it.
@@ -115,4 +132,9 @@ type portraitMeta struct {
 	ContentType string
 	Width       int
 	Height      int
+
+	// Thumb is the already-encoded thumbnail (task 104). Passed in rather than generated
+	// here because it comes from the *same decode* as the full image, which is what
+	// guarantees the two agree about orientation.
+	Thumb []byte
 }

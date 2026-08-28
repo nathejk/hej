@@ -206,6 +206,84 @@ func TestUploadPhoto_DownscalesToTheEdgeLimit(t *testing.T) {
 		t.Errorf("stored image is %dx%d but the event says %dx%d",
 			cfg.Width, cfg.Height, meta.Width, meta.Height)
 	}
+
+	// And a thumbnail comes out of the same call (task 104).
+	thumbCfg, err := jpeg.DecodeConfig(bytes.NewReader(meta.Thumb))
+	if err != nil {
+		t.Fatalf("thumbnail is not a JPEG: %v", err)
+	}
+	if thumbCfg.Width != thumbnailEdge {
+		t.Errorf("thumbnail width = %d, want %d", thumbCfg.Width, thumbnailEdge)
+	}
+}
+
+// `?size=thumb` serves the thumbnail; without it, the full image.
+func TestShowPhoto_ServesTheThumbnailWhenAsked(t *testing.T) {
+	people := &stubPeople{found: true}
+	app := photoTestApp(t, &cqrstest.Publisher{}, people)
+
+	full := []byte("full image bytes")
+	thumb := []byte("thumb")
+	fullRef, err := app.blobs.Put(t.Context(), full)
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	thumbRef, err := app.blobs.Put(t.Context(), thumb)
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	people.p = person.Person{PortraitRef: fullRef.String(), PortraitThumbRef: thumbRef.String()}
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	cookies := authedCookies(t, app, srv, "30000001", "+4530000001")
+
+	for query, want := range map[string][]byte{
+		"":            full,
+		"?size=thumb": thumb,
+		// Case-insensitive, because a client writing `Thumb` is not making a mistake
+		// worth answering with the wrong image.
+		"?size=THUMB": thumb,
+		"?size=full":  full,
+		// An unrecognised value falls back to the full image rather than erroring.
+		"?size=weird": full,
+	} {
+		resp := getWithCookies(t, srv.URL+"/api/me/photo"+query, cookies)
+		got, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if !bytes.Equal(got, want) {
+			t.Errorf("%q served %q, want %q", query, got, want)
+		}
+	}
+}
+
+// A portrait captured before thumbnails existed must serve the full image when a
+// thumbnail is requested — a client asking for something small would rather have
+// something large than nothing.
+func TestShowPhoto_FallsBackWhenThereIsNoThumbnail(t *testing.T) {
+	people := &stubPeople{found: true}
+	app := photoTestApp(t, &cqrstest.Publisher{}, people)
+
+	full := []byte("full image bytes")
+	ref, err := app.blobs.Put(t.Context(), full)
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	people.p = person.Person{PortraitRef: ref.String()}
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	cookies := authedCookies(t, app, srv, "30000001", "+4530000001")
+
+	resp := getWithCookies(t, srv.URL+"/api/me/photo?size=thumb", cookies)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	got, _ := io.ReadAll(resp.Body)
+	if !bytes.Equal(got, full) {
+		t.Error("want the full image as a fallback")
+	}
 }
 
 // A small image is left at its own size rather than being blown up.
