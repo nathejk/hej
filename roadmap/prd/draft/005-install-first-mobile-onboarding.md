@@ -340,8 +340,9 @@ hard-code `{ name: 'login' }`):
 - `router/index.ts` — the guard's unauthenticated fallback becomes `{ name: 'welcome' }`
   (or `{ name: 'install' }` when the install gate has not passed).
 - `App.vue` — `signOut()` redirects to `{ name: 'welcome' }`, landing on step 1.
-  There is **one** sign-out action with **one** destination; PRD 003 relocates the
-  control onto the profile page but does not change where it goes.
+  There is **one** sign-out action with **one** destination; PRD 003 moves the
+  control into a top-bar user menu (`UserMenu.vue`) but does not change where it
+  goes.
 
 *(Made explicit 2026-08-25: this previously said `/login` was "retained … inside
 `/welcome`", which left it ambiguous whether the route still existed and what those

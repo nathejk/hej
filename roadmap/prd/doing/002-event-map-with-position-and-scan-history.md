@@ -263,7 +263,8 @@ available both as map markers and as a chronological list.
 (app name + "Log ud") above a scrolling `<main>`. For this page the shell must
 support a *full-bleed* route: the top bar is hidden and the map is flush to the
 top safe-area inset, with only the bottom nav below it. Sign-out remains
-reachable from other pages (and, when PRD 003 lands, from the profile page).
+reachable from every other page — PRD 003 puts it in a user menu in the top bar's
+trailing corner, which is simply absent on this route.
 
 Proposal: add an optional `meta: { fullBleed: true }` on the route and have
 `App.vue` skip the header and the `overflow-y-auto` wrapper for such routes.

@@ -3,7 +3,7 @@
 **Status:** draft
 **Author:** agent session (Zed / Claude Opus 5)
 **Created:** 2026-08-24
-**Last updated:** 2026-08-25
+**Last updated:** 2026-08-28
 **Approved:**
 **Shipped:**
 **Target users:** all signed-in roles (spejder, bandit, postmandskab, guide, samarit)
@@ -153,7 +153,9 @@ for the web app on this device — with a one-tap way to fix it when they are no
 
 ### Functional
 
-- [ ] A `Min profil` page reachable from the navigation for every signed-in role.
+- [ ] A `Min profil` page reachable for every signed-in role from a **user menu in
+      the top-right of the app bar** (an avatar button showing the portrait, or
+      initials while none exists).
 - [ ] Read-only details, fetched from the BFF: **name**, **address**, **own phone
       number**, **parent phone number**. Rendered as labelled rows, clearly
       non-editable, with a short line on how to get a correction made.
@@ -182,8 +184,8 @@ for the web app on this device — with a one-tap way to fix it when they are no
       change made in browser settings is reflected on return.
 - [ ] Rows whose permission is blocked show platform-appropriate guidance instead
       of a non-functional button.
-- [ ] Sign-out is available from this page (it is the conventional place for it,
-      and PRD 002 hides the top bar on the map page).
+- [ ] **Sign-out lives in the user menu**, not on the profile page and not as a
+      standalone top-bar button. There is exactly one sign-out action in the app.
 - [ ] The section is structured so additional preferences can be appended without
       a redesign (a preferences list, not a bespoke layout).
 - [ ] All copy in Danish.
@@ -211,19 +213,40 @@ for the web app on this device — with a one-tap way to fix it when they are no
 
 ## 7. UX / UI Notes
 
-**Placement.** Two options:
+**Placement — decided 2026-08-28: a user menu in the top-right of the app bar.**
 
-1. A destination in `vue/src/config/navigation.ts` (Lucide `User` /
-   `CircleUser`), which for most roles pushes the list past 5 entries and into
-   the existing `MoreMenu` overflow sheet — acceptable, since profile is not a
-   frequent-use page.
-2. An avatar button in the shell's top bar (replacing/next to "Log ud"), which is
-   the more conventional pattern but conflicts with PRD 002 hiding the top bar on
-   the map page.
+The shell's top bar carries an **avatar button** at its trailing edge, replacing
+the current standalone "Log ud" button. Tapping it opens a small menu with:
 
-Proposal: **option 1** (a nav destination, landing in the overflow sheet), with
-sign-out moved onto the profile page. It keeps the shell simple and works with
-the full-bleed map.
+1. A header row — name and role (non-interactive), so the menu also answers "who
+   am I signed in as?" without navigating.
+2. **Min profil** (Lucide `CircleUser`) → `/profile`.
+3. A separator, then **Log ud** (Lucide `LogOut`), styled as the low-emphasis
+   destructive item at the bottom.
+
+The avatar shows the user's portrait once one exists, and their initials until
+then — which doubles as a persistent, unobtrusive nudge to take one.
+
+This replaces the earlier proposal (a nav destination in the `MoreMenu` overflow
+sheet, with sign-out moved onto the profile page). Reasons for the change: it is
+the conventional pattern users already expect, it keeps profile and sign-out out
+of the per-role destination list — which this page and PRD 007 were about to push
+past the 5 visible nav slots — and it puts sign-out somewhere predictable instead
+of at the bottom of a long scrolling page.
+
+**Consequence for the full-bleed map (PRD 002).** `/maps` hides the top bar, so
+the user menu is not present there. That is accepted rather than worked around:
+the map's top-right corner is already taken by the layer switcher, and the bottom
+nav is always available to leave the map. Neither profile nor sign-out is an
+in-map action. The `profile` destination is therefore **not** added to
+`navigation.ts`.
+
+**Component.** Use the shadcn-vue **`dropdown-menu`** primitive (to be generated;
+not in `components/ui/` yet) anchored to the avatar button, with the shadcn-vue
+**`avatar`** primitive for the trigger. Do not hand-roll a popover. The trigger
+must meet the ≥44px tap-target rule and carry an `aria-label` ("Din profil og
+konto"); the menu must be keyboard- and screen-reader-navigable, which is the
+main reason for using the primitive.
 
 **Page structure** (scrolling, standard shell with top bar):
 
@@ -242,7 +265,9 @@ the full-bleed map.
 5. **Mine køretøjer** — the caller's registered vehicles, with edit, remove and add.
    Owned by **PRD 010** (vehicle registration); shown only for the roles that may
    bring a vehicle (bandit, gøgler, crew), so it is absent for spejder.
-6. **Log ud** — a low-emphasis destructive action at the bottom.
+
+There is deliberately **no sign-out button on the page** — it lives in the user
+menu (see Placement above).
 
 **Capture flow.** Tapping the portrait opens a full-screen capture surface: live
 camera preview with a **face-guide overlay** (a circular framing guide — the same
@@ -263,11 +288,16 @@ portrait, not a modal spinner. **This component is owned here** and reused by PR
   confirm, client-side downscale.
 - `src/components/profile/PreferenceRow.vue` — icon + label + status + action row.
 - `src/stores/profile.store.ts` — fetch details, upload/replace photo.
-- `src/config/navigation.ts` — new `profile` destination.
+- `src/components/UserMenu.vue` — avatar trigger + dropdown menu (name/role
+  header, `Min profil`, `Log ud`). Owns the `signOut()` call currently in
+  `App.vue`.
 - `src/router/index.ts` — `/profile` route (auth-guarded, all roles).
-- `src/App.vue` — sign-out relocated. Note **PRD 005 lands the shell rewrite**
-  (`showShell`, hidden chrome on onboarding routes); this change is a diff on top of
-  that, and there is exactly one sign-out action with one destination, named in 005.
+- `src/App.vue` — the top bar's trailing "Log ud" button is replaced by
+  `<UserMenu />`; `signOut()` moves into that component. Note **PRD 005 lands the
+  shell rewrite** (`showShell`, hidden chrome on onboarding routes); this change is
+  a diff on top of that, and there is exactly one sign-out action with one
+  destination, named in 005.
+- `src/config/navigation.ts` — **unchanged**; profile is not a nav destination.
 
 ## 8. Technical Considerations
 
@@ -392,8 +422,8 @@ Proposed tasks to create in `roadmap/tasks/open/`:
       supplies the real implementation. Do not grow the mock into a data source.
 - [ ] Task: BFF — `GET /api/me/profile` handler behind `requireAuth`. OpenAPI
       annotations.
-- [ ] Task: Frontend — `/profile` route, `profile` nav destination (Lucide),
-      `ProfileView.vue` skeleton + `profile.store.ts`.
+- [ ] Task: Frontend — `/profile` route, `ProfileView.vue` skeleton +
+      `profile.store.ts`.
 - [ ] Task: Frontend — read-only details block (Danish labels, `tel:` links,
       "Ikke registreret" and hidden-row rules).
 - [ ] Task: Frontend — `PreferenceRow.vue` + "På denne enhed" section wired to
@@ -402,11 +432,14 @@ Proposed tasks to create in `roadmap/tasks/open/`:
 - [ ] Task: Frontend — `notifications.store.syncSubscription()` reading the live
       `PushSubscription`, so the push row is accurate after a reload (today
       `subscribed` is only set inside `enable()`).
-- [ ] Task: Generate the shadcn-vue primitives this page needs (`avatar`, and
-      `alert`/`badge` if used) in `vue/src/components/ui/`.
+- [ ] Task: Generate the shadcn-vue primitives this page needs (`avatar`,
+      `dropdown-menu`, and `badge` if used) in `vue/src/components/ui/`.
+- [ ] Task: Frontend — `UserMenu.vue` in the top-right of the app bar (avatar
+      trigger with portrait/initials, name+role header, `Min profil`, `Log ud`),
+      replacing the standalone "Log ud" button in `App.vue`.
 - [ ] Task: Frontend — platform-aware "blocked permission" guidance copy in one
       place.
-- [ ] Task: Move/duplicate sign-out onto the profile page.
+
 - [ ] Task: Decide + document photo consent, retention and access policy (GDPR
       blocker for the photo tasks).
 - [ ] Task: BFF — portrait event + `portrait` projection + content-addressed blob
@@ -458,12 +491,14 @@ Proposed tasks to create in `roadmap/tasks/open/`:
   to (a phone number, an email, the leader)? **PRD 005 needs this answer too** —
   its confirmation step must tell a user what to do when a number is wrong. If
   editing does open up, a number change should invalidate PRD 005's confirmation.
-- **Nav placement** — *decided*: a nav destination landing in the overflow sheet
-  (§7 option 1), with sign-out moved onto the page. Kept here only as a note that
-  **no single PRD owns the per-role destination order**, which now matters: this page
-  plus PRD 007's identification view push service roles past the 5 visible slots.
-  PRD 001 §11 already lists per-role destination sets as open; this page is the
-  natural place to settle it.
+- **Nav placement** — *decided 2026-08-28*: **a user menu in the top-right of the
+  app bar** (avatar → `Min profil` + `Log ud`), superseding the earlier decision to
+  use an overflow-sheet nav destination with sign-out on the page. Profile is
+  therefore not a nav destination at all. Still open, and unowned by any single
+  PRD: the **per-role destination order** for the bottom nav — PRD 007's
+  identification view can still push service roles past the 5 visible slots. PRD
+  001 §11 lists this as open; taking profile out of the list relieves the pressure
+  but does not settle it.
 - **Other preferences** — the request anticipates more preferences once the app is
   fully scoped. Candidates to confirm: notification categories (event updates vs
   urgent only), quiet hours, language, text size, "share my position with my

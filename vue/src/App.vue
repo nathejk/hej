@@ -106,8 +106,8 @@ watch(
 const showShell = computed(() => session.isAuthenticated && route.name !== 'login')
 
 // Full-bleed routes (the map) get everything above the bottom nav: no top bar,
-// no scroll container. Sign-out stays reachable from every other page — and, once
-// PRD 003 lands, from the profile page.
+// no scroll container. The top bar's trailing user menu (PRD 003: profile +
+// sign-out) is therefore absent here; the bottom nav is the way out.
 const fullBleed = computed(() => route.meta.fullBleed === true)
 
 async function signOut() {
