@@ -46,6 +46,7 @@ func newTestApp(t *testing.T) *application {
 		sessions:          session.NewManager([]byte("test-secret"), time.Hour, false),
 		choices:           choice.NewManager([]byte("test-secret"), choice.DefaultTTL),
 		requestPinLimiter: ratelimit.New(100, time.Minute),
+		trackLimiter:      ratelimit.New(100, time.Minute),
 		pushStore:         push.NewMemoryStore(),
 	}
 }

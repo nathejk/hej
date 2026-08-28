@@ -39,6 +39,9 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodPost, "/api/auth/logout", app.logoutHandler)
 	router.HandlerFunc(http.MethodGet, "/api/me", app.requireAuth(app.meHandler))
 	router.HandlerFunc(http.MethodGet, "/api/patrol/scans", app.requireAuth(app.listPatrolScansHandler))
+	// Position track ingest (PRD 002 §11.1, task 084). Publishes to the telemetry stream
+	// and writes no SQL; the person is taken from the session, never from the body.
+	router.HandlerFunc(http.MethodPost, "/api/track", app.requireAuth(app.createTrackHandler))
 	// The region the client caches map tiles for. Authenticated deliberately: unlike
 	// /api/config it is not public — the event area is not fully known to participants.
 	router.HandlerFunc(http.MethodGet, "/api/race-area", app.requireAuth(app.raceAreaHandler))

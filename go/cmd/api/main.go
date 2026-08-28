@@ -48,6 +48,11 @@ type application struct {
 	sms               sms.Sender
 	sessions          *session.Manager
 	requestPinLimiter *ratelimit.Limiter
+	// trackLimiter throttles position-batch uploads, keyed by user rather than by IP
+	// (task 084). Participants share networks — a patrol on one phone's hotspot, a klan
+	// behind one carrier NAT — so an IP limit would punish groups while still letting a
+	// single runaway client flood the broker.
+	trackLimiter *ratelimit.Limiter
 	// choices issues the short-lived token that carries a user from "PIN verified" to
 	// "which of you is this?" when a phone number is shared (task 079).
 	choices *choice.Manager
@@ -320,6 +325,12 @@ func run(logger *slog.Logger) error {
 		choices: choice.NewManager([]byte(cfg.sessionSecret), choice.DefaultTTL),
 		// Allow a modest burst of PIN requests per IP per minute.
 		requestPinLimiter: ratelimit.New(5, time.Minute),
+		// Position batches arrive every 2 minutes per client (PRD 002 §11.1), so 20 a
+		// minute is ~40× the expected rate. The headroom is not slack: a client that has
+		// been offline ships its backlog in several chunked requests in quick succession
+		// (task 083), which is exactly when a tight limit would throttle the data it is
+		// most important not to lose.
+		trackLimiter: ratelimit.New(20, time.Minute),
 
 		pushStore: push.NewMemoryStore(),
 	}

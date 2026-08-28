@@ -188,11 +188,13 @@ available both as map markers and as a chronological list.
 
 #### Position track (added 2026-08-26, §11.1)
 
-- [ ] While location permission is granted, the app records the user's position into
+- [x] While location permission is granted, the app records the user's position into
       **local persistent storage** as it is collected, independently of connectivity.
-- [ ] The recorded track survives a page reload, the app being backgrounded, and the app
+      *Task 082.*
+- [x] The recorded track survives a page reload, the app being backgrounded, and the app
       being killed — an unshipped track is the one thing here that cannot be recovered
       from the server, so it must not live only in memory.
+      *Task 082, measured on an iPhone across three cold starts.*
 - [ ] Every **2 minutes**, and **only when the track has new points**, the pending points
       are uploaded in one batch.
 - [ ] Upload failure is not data loss: points stay pending and are retried on the next
@@ -200,11 +202,13 @@ available both as map markers and as a chronological list.
 - [ ] Points already accepted by the server are not uploaded again, and a retried batch
       does not duplicate points — each point is identified by (person, timestamp) so
       duplicates are detectable rather than merely unlikely.
-- [ ] The BFF accepts a batch from the signed-in user, resolves the person from the
+- [x] The BFF accepts a batch from the signed-in user, resolves the person from the
       session (never from the request body), and **publishes** it to the telemetry
       stream. It writes no SQL.
-- [ ] Subjects are addressable **per person**, so a retention or erasure policy can be
+      *Task 084. The body cannot even name a person — unknown fields are a 400.*
+- [x] Subjects are addressable **per person**, so a retention or erasure policy can be
       applied to one individual later.
+      *Tasks 081/084. Verified: purging one person's subject left another's messages.*
 - [ ] A team can see its **own** whole track after the race, and no other team's.
 - [ ] The location consent copy states that the track is recorded and sent to the
       organizers (see Non-Functional → Privacy).

@@ -44,6 +44,16 @@ func (a *JsonApi) RateLimitResponse(w http.ResponseWriter, r *http.Request) {
 	a.errorResponse(w, r, http.StatusTooManyRequests, "rate limit exceeded; please try again later")
 }
 
+// PayloadTooLargeResponse returns a 413 JSON error.
+//
+// Distinct from a 400 because the client can act on it: "too big" tells an uploader to split
+// its batch and try again, which is what the track uploader's chunking does (task 083),
+// whereas a generic bad request only tells it something is wrong with a body it believes is
+// correct.
+func (a *JsonApi) PayloadTooLargeResponse(w http.ResponseWriter, r *http.Request, err error) {
+	a.errorResponse(w, r, http.StatusRequestEntityTooLarge, err.Error())
+}
+
 // InvalidCredentialsResponse returns a 401 JSON error for a failed auth attempt.
 func (a *JsonApi) InvalidCredentialsResponse(w http.ResponseWriter, r *http.Request) {
 	a.errorResponse(w, r, http.StatusUnauthorized, "invalid phone number or PIN")
