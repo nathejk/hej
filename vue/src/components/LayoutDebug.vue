@@ -12,13 +12,12 @@ import { useRoute } from 'vue-router'
 //
 // The two derived values are the ones worth reading:
 //
-//   cover     whether the viewport actually covers the screen. `viewport-fit=cover` is
-//             in our meta tag, but iOS standalone does not always honour it — and when
-//             it does not, the viewport is already inset below the status bar while
-//             env(safe-area-inset-top) *still* reports a non-zero value. Anything
-//             positioned with that inset then double-counts it.
-//   main.top  where the shell's <main> starts. On a full-bleed route it should be 0;
-//             a non-zero value means something in our own layout is reserving space.
+//   vh-extra  the shortfall added back to the shell height. On iOS the reported viewport
+//             height excludes the top inset even though the content extends into it, so
+//             `100dvh` leaves the shell short of the bottom of the display.
+//   app.h     the shell's resulting height. Should equal the screen height.
+//   main.top  where the shell's <main> starts. On a full-bleed route it should be 0; a
+//             non-zero value means something in our own layout is reserving space.
 
 const route = useRoute()
 
@@ -29,7 +28,8 @@ const insets = ref('')
 const effective = ref('')
 const mainTop = ref('')
 const mode = ref('')
-const cover = ref('')
+const extra = ref('')
+const appH = ref('')
 const where = ref('')
 
 // Safe-area insets cannot be read from JS: `env()` is only valid in CSS values, and
@@ -73,18 +73,17 @@ function sample() {
   const { text, top } = readInsets()
   insets.value = text
 
-  // What the app is actually using after @/helpers/safeArea's correction. When these
-  // differ from the raw values above, the correction fired.
+  // What the app is actually using, and the height correction derived from it.
   const rootStyle = getComputedStyle(document.documentElement)
   const v = (name: string) => Math.round(Number.parseFloat(rootStyle.getPropertyValue(name)) || 0)
   effective.value = `${v('--sat')}/${v('--sar')}/${v('--sab')}/${v('--sal')}`
+  extra.value = `${v('--vh-extra')}`
 
-  // The verdict. `screen.height` is orientation-aware on iOS, so this compares like
-  // with like. A shortfall equal to the top inset is the double-count case.
-  const shortfall = window.screen.height - window.innerHeight
-  if (shortfall <= 0) cover.value = 'cover yes'
-  else if (shortfall === top) cover.value = `cover NO (-${shortfall} = sa.top)`
-  else cover.value = `cover NO (-${shortfall})`
+  const el = document.getElementById('app')
+  // Should match screen height. If it is short, the strip below the nav is back.
+  appH.value = el ? String(Math.round(el.getBoundingClientRect().height)) : '?'
+
+  void top
 
   const main = document.querySelector('main')
   mainTop.value = main ? String(Math.round(main.getBoundingClientRect().top)) : 'no main'
@@ -145,7 +144,8 @@ onBeforeUnmount(() => {
       <div>scr {{ scr }} @{{ dpr }}</div>
       <div>sa {{ insets }}</div>
       <div>use {{ effective }}</div>
-      <div>{{ cover }}</div>
+      <div>vh-extra {{ extra }}</div>
+      <div>app.h {{ appH }}</div>
       <div>main.top {{ mainTop }}</div>
       <div>{{ mode }} / {{ where }}</div>
     </div>

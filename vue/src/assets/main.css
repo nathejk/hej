@@ -204,29 +204,47 @@
   The bottom safe-area inset stays where it belongs: on the nav itself
   (`BottomNav.vue`), applied exactly once via `var(--sab)`. Adding it here as well would
   double-pad.
+
+  `100dvh` alone is still not the whole story, which is why that strip shrank from ~100px
+  to 59 rather than disappearing. In an iOS standalone web app whose content extends
+  behind a translucent status bar, `innerHeight`/`dvh` report the *safe-area* height, so
+  the shell ends 59px above the bottom of the display even though it starts at the very
+  top of it. `--vh-extra` adds that shortfall back. It is 0 everywhere else, including
+  Android, where the viewport genuinely does begin below the status bar and extending the
+  shell would push content underneath it. See @/helpers/safeArea.
+
+  `overflow: hidden` because the document is then taller than the height iOS reports,
+  which would otherwise leave the whole app draggable by 59px. This app scrolls in inner
+  containers (`main`), never at the document level.
 */
 html,
 body,
 #app {
   height: 100%;
-  height: 100dvh;
+  height: calc(100dvh + var(--vh-extra, 0px));
+}
+
+html,
+body {
+  overflow: hidden;
 }
 
 /*
-  Safe-area insets, as custom properties.
+  Safe-area insets and the viewport-height correction, as custom properties.
 
-  Components must use these, never `env(safe-area-inset-*)` directly. The seeds here
-  are the plain CSS answer and keep the app correct with JavaScript disabled or before
-  it runs; @/helpers/safeArea then corrects `--sat` for the one case CSS cannot detect
-  — an iOS standalone web app whose viewport has already been placed below the status
-  bar while `env()` still reports a top inset, where using `env()` directly reserves
-  the same 59px twice. See that file for the full reasoning.
+  Components must use these, never `env(safe-area-inset-*)` directly. The seeds here are
+  the plain CSS answer and keep the app correct before JavaScript runs;
+  @/helpers/safeArea then sets `--vh-extra` for the one thing CSS cannot detect — that on
+  iOS the reported viewport height excludes the top inset even though the content extends
+  into it. The insets themselves are passed through unchanged; they are correct as
+  reported, and are what keeps the map controls clear of the status bar.
 */
 :root {
   --sat: env(safe-area-inset-top);
   --sar: env(safe-area-inset-right);
   --sab: env(safe-area-inset-bottom);
   --sal: env(safe-area-inset-left);
+  --vh-extra: 0px;
 }
 
 body {
