@@ -14,17 +14,6 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/u
 defineProps<{ open: boolean; items: NavDestination[] }>()
 const emit = defineEmits<{ close: [] }>()
 
-// Build identity, shown at the foot of the sheet. Deliberately here and not in the
-// always-visible chrome: it is a debugging aid, not product copy, and the overflow
-// sheet is somewhere you can reach in two taps from any screen without it costing
-// anything the rest of the time.
-//
-// This exists because "which build is the phone actually running?" was repeatedly
-// unanswerable while testing on a device — an installed PWA can sit on a stale
-// service worker, so the screen in front of you is not necessarily the code you just
-// deployed, and a test result against the wrong build proves nothing.
-const buildId = __BUILD_ID__
-
 function onOpenChange(value: boolean) {
   if (!value) {
     emit('close')
@@ -55,16 +44,6 @@ function onOpenChange(value: boolean) {
           <span>{{ item.label }}</span>
         </RouterLink>
       </nav>
-
-      <!-- Low contrast on purpose: recognisable when you go looking for it, quiet
-           enough to ignore otherwise. `select-all` makes it one tap to copy when
-           reporting which build a problem was seen on. -->
-      <p
-        class="px-5 pb-2 text-right font-mono text-[10px] leading-none text-slate-300 select-all"
-        :aria-label="`Build ${buildId}`"
-      >
-        {{ buildId }}
-      </p>
     </DrawerContent>
   </Drawer>
 </template>

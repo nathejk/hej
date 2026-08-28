@@ -33,6 +33,20 @@ type config struct {
 	// deployed with a different key, and out of git so our quota isn't shared.
 	dataforsyningenToken string
 
+	// showBuildId toggles the build identifier overlaid on the bottom nav. It is a
+	// diagnostic, not a feature: an installed PWA can sit on a stale service
+	// worker, so "which build is this phone running?" is otherwise unanswerable from
+	// the device — and a test result against the wrong build proves nothing.
+	//
+	// Served at runtime rather than baked in by Vite so the same published image can
+	// have it on for a test deployment and off for the real event. Defaults to on
+	// everywhere except production, which is where it would be noise.
+	//
+	// Note it only controls the nav overlay. The privacy page shows the build id
+	// unconditionally, because a user reporting a problem needs to be able to read it
+	// back to us.
+	showBuildId bool
+
 	// MariaDB connection. dbDSN is a go-sql-driver/mysql DSN; empty means "run
 	// without a database", which is a legitimate mode: everything served today
 	// comes from mocks (PRD 008 is what introduces persistence), so a missing DSN
@@ -87,6 +101,9 @@ func loadConfig() config {
 	flag.StringVar(&cfg.vapidPublicKey, "vapid-public-key", envStr("VAPID_PUBLIC_KEY", ""), "Web Push VAPID public key (served to clients)")
 	flag.StringVar(&cfg.vapidPrivateKey, "vapid-private-key", envStr("VAPID_PRIVATE_KEY", ""), "Web Push VAPID private key (secret)")
 	flag.StringVar(&cfg.dataforsyningenToken, "dataforsyningen-token", envStr("DATAFORSYNINGEN_TOKEN", ""), "Dataforsyningen API token for the map's WMS base layers")
+	// Default derived from ENV read directly, not from cfg.env: flags are not parsed
+	// yet at this point, so cfg.env still holds its zero value.
+	flag.BoolVar(&cfg.showBuildId, "show-build-id", envBool("SHOW_BUILD_ID", envStr("ENV", "development") != "production"), "Overlay the build id on the bottom nav (diagnostic)")
 	flag.StringVar(&cfg.dbDSN, "db-dsn", envStr("DB_DSN", ""), "MariaDB DSN (empty runs without a database)")
 	flag.IntVar(&cfg.dbMaxOpenConns, "db-max-open-conns", envInt("DB_MAX_OPEN_CONNS", 25), "Maximum open database connections")
 	flag.IntVar(&cfg.dbMaxIdleConns, "db-max-idle-conns", envInt("DB_MAX_IDLE_CONNS", 25), "Maximum idle database connections")

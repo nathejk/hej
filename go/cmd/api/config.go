@@ -10,6 +10,11 @@ type runtimeConfigResponse struct {
 	// unconfigured, which the map surfaces as a notice rather than showing grey
 	// tiles.
 	DataforsyningenToken string `json:"dataforsyningen_token"`
+
+	// ShowBuildId toggles the diagnostic build id overlaid on the client's bottom
+	// nav. Public and harmless: the build id is in the bundle either way, this only
+	// decides whether it is drawn.
+	ShowBuildId bool `json:"show_build_id"`
 }
 
 // runtimeConfigHandler serves configuration the SPA needs but must not have
@@ -27,6 +32,7 @@ type runtimeConfigResponse struct {
 func (app *application) runtimeConfigHandler(w http.ResponseWriter, r *http.Request) {
 	cfg := runtimeConfigResponse{
 		DataforsyningenToken: app.config.dataforsyningenToken,
+		ShowBuildId:          app.config.showBuildId,
 	}
 	if err := app.WriteJSON(w, http.StatusOK, cfg, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)

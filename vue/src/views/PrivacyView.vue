@@ -10,7 +10,7 @@
 // legalese: a text nobody reads is not consent, and this is the only written account most
 // parents will see, since the start-area briefing reaches the participants and not them.
 import { onMounted } from 'vue'
-import { MapPin, Camera, ShieldCheck, Clock, Route } from '@lucide/vue'
+import { MapPin, Camera, ShieldCheck, Clock, Route, Info } from '@lucide/vue'
 import { useTrackStore } from '@/stores/track.store'
 
 // The recording status below is here rather than in a developer tool on purpose
@@ -20,6 +20,14 @@ import { useTrackStore } from '@/stores/track.store'
 // storage, and whether writing has stopped — answerable instead of assumed.
 const track = useTrackStore()
 onMounted(() => void track.refreshCount())
+
+// Build identity. Shown here **unconditionally**, unlike the nav overlay, which the BFF
+// can switch off: when someone reports a problem, the answer to "which build were you
+// on?" has to be reachable without a redeploy. Same reasoning as the storage stats above
+// — the facts that are otherwise invisible belong on the page the user can actually get
+// to.
+const buildId = __BUILD_ID__
+const appVersion = __APP_VERSION__
 </script>
 
 <template>
@@ -138,6 +146,41 @@ onMounted(() => void track.refreshCount())
           <p class="mt-2 text-sm text-slate-600">
             Vil du have din rute eller dit billede slettet, så skriv til os, så gør vi det.
           </p>
+        </div>
+      </div>
+    </section>
+    <section class="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+      <div class="flex items-start gap-3">
+        <Info class="mt-0.5 h-5 w-5 shrink-0 text-slate-500" aria-hidden="true" />
+        <div class="min-w-0">
+          <h2 class="font-medium text-slate-800">Om denne udgave af appen</h2>
+          <p class="mt-1 text-sm text-slate-600">
+            Skriver du til os om en fejl, så tag gerne dette nummer med — så kan vi se
+            præcis hvilken udgave du kører.
+          </p>
+          <dl class="mt-3 space-y-1.5 text-sm">
+            <div class="flex gap-2">
+              <dt class="w-28 shrink-0 text-slate-500">Udgave</dt>
+              <!-- select-all: one tap selects the whole string to paste into a message. -->
+              <dd class="font-mono text-xs break-all text-slate-700 select-all">{{ buildId }}</dd>
+            </div>
+            <div class="flex gap-2">
+              <dt class="w-28 shrink-0 text-slate-500">Version</dt>
+              <dd class="font-mono text-xs text-slate-700 select-all">{{ appVersion }}</dd>
+            </div>
+            <div class="flex gap-2">
+              <dt class="w-28 shrink-0 text-slate-500">Gemte punkter</dt>
+              <dd class="text-slate-700">{{ track.pointCount }}</dd>
+            </div>
+            <div class="flex gap-2">
+              <dt class="w-28 shrink-0 text-slate-500">Optager nu</dt>
+              <dd class="text-slate-700">{{ track.recording ? 'Ja' : 'Nej' }}</dd>
+            </div>
+            <div class="flex gap-2">
+              <dt class="w-28 shrink-0 text-slate-500">Plads reserveret</dt>
+              <dd class="text-slate-700">{{ track.persisted ? 'Ja' : 'Nej' }}</dd>
+            </div>
+          </dl>
         </div>
       </div>
     </section>
