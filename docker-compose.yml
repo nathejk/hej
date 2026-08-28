@@ -71,6 +71,19 @@ services:
       # docker-compose.override.yml. Without it the map shows a "missing API key"
       # notice instead of blank tiles.
       DATAFORSYNINGEN_TOKEN: ""
+      # Diagnostic overlays, served to the SPA via GET /api/config.
+      #
+      # SHOW_BUILD_ID defaults on outside production already, so it needs no entry
+      # here. SHOW_LAYOUT_DEBUG defaults off because it is noisy, and is wired to a
+      # shell variable so it can be flipped without editing a committed file:
+      #
+      #   SHOW_LAYOUT_DEBUG=true docker compose up -d api
+      #
+      # It overlays viewport, safe-area inset and shell-geometry values. Deliberately
+      # not a `?debug=` URL parameter: the manifest start_url is "/", so an installed
+      # home-screen launch drops the query string — which is the one mode where these
+      # values actually differ from a browser tab.
+      SHOW_LAYOUT_DEBUG: "${SHOW_LAYOUT_DEBUG:-false}"
       # MariaDB connection (PRD 008). The db service below has existed since the
       # repo was scaffolded but nothing used it; this is what connects the two.
       # Credentials match the MARIADB_* values on that service.

@@ -10,10 +10,12 @@ import { readonly, ref } from 'vue'
 interface RuntimeConfigResponse {
   dataforsyningen_token?: string
   show_build_id?: boolean
+  show_layout_debug?: boolean
 }
 
 const token = ref('')
 const showBuild = ref(false)
+const showLayout = ref(false)
 
 // The last token the BFF handed us, remembered so the map still has a key offline
 // (task 090).
@@ -24,10 +26,12 @@ const showBuild = ref(false)
 // an API key — a configuration error they cannot act on and that isn't true. A
 // network failure must never be reported as a misconfiguration.
 const STORAGE_KEY = 'hej.dataforsyningen-token'
-// Remembered for the same reason as the token: an offline start would otherwise hide
-// the build id, and offline is the normal case in the field — which is exactly when a
-// screenshot needs to say which build produced it.
+// The diagnostic flags are remembered for the same reason as the token: an offline
+// start would otherwise switch them off, and offline is the normal case in the field —
+// which is exactly when a screenshot needs to say which build produced it, and when a
+// layout question is hardest to reproduce afterwards.
 const SHOW_BUILD_KEY = 'hej.show-build-id'
+const SHOW_LAYOUT_KEY = 'hej.show-layout-debug'
 
 function remembered(): string {
   try {
@@ -46,6 +50,22 @@ function remember(value: string) {
   }
 }
 
+function rememberFlag(key: string, value: boolean) {
+  try {
+    localStorage.setItem(key, value ? '1' : '0')
+  } catch {
+    // Blocked or full storage only costs the offline case.
+  }
+}
+
+function rememberedFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === '1'
+  } catch {
+    return false
+  }
+}
+
 /** Dataforsyningen quota key for the map's WMS base layers; '' until loaded. */
 export const dataforsyningenToken = readonly(token)
 
@@ -54,6 +74,17 @@ export const dataforsyningenToken = readonly(token)
  * page shows the build id regardless of this flag.
  */
 export const showBuildId = readonly(showBuild)
+
+/**
+ * Whether to overlay viewport / safe-area / geometry values on the app. Diagnostic
+ * only, off unless SHOW_LAYOUT_DEBUG is set on the BFF.
+ *
+ * Deliberately not driven by a `?debug=` URL parameter: the manifest's start_url is
+ * "/", so an installed home-screen launch drops the query string — i.e. it would be
+ * unavailable in standalone mode, the only mode where these values differ from a
+ * browser tab and the only one worth debugging.
+ */
+export const showLayoutDebug = readonly(showLayout)
 
 // Module-level so concurrent callers share one request and later callers resolve
 // immediately — the map and any future consumer can each `await` it freely.
@@ -72,14 +103,12 @@ export function loadRuntimeConfig(): Promise<void> {
       const body = (await res.json()) as RuntimeConfigResponse
       token.value = body.dataforsyningen_token ?? ''
       showBuild.value = body.show_build_id ?? false
+      showLayout.value = body.show_layout_debug ?? false
       // Deliberately mirrors an unset key too, so clearing it in production
       // eventually clears it on the device rather than living on forever.
       remember(token.value)
-      try {
-        localStorage.setItem(SHOW_BUILD_KEY, showBuild.value ? '1' : '0')
-      } catch {
-        // Blocked or full storage only costs the offline case.
-      }
+      rememberFlag(SHOW_BUILD_KEY, showBuild.value)
+      rememberFlag(SHOW_LAYOUT_KEY, showLayout.value)
     } catch (err) {
       // Degrade rather than block the page: fall back to the last known token so an
       // offline start still draws map tiles. If there is no remembered token either,
@@ -87,11 +116,8 @@ export function loadRuntimeConfig(): Promise<void> {
       // outcome as an unconfigured deployment, and far better than a view that never
       // renders.
       token.value = remembered()
-      try {
-        showBuild.value = localStorage.getItem(SHOW_BUILD_KEY) === '1'
-      } catch {
-        showBuild.value = false
-      }
+      showBuild.value = rememberedFlag(SHOW_BUILD_KEY)
+      showLayout.value = rememberedFlag(SHOW_LAYOUT_KEY)
       console.error('failed to load runtime config', err)
       // Allow a later retry (e.g. revisiting the map after a network blip).
       inFlight = null

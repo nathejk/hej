@@ -15,6 +15,10 @@ type runtimeConfigResponse struct {
 	// nav. Public and harmless: the build id is in the bundle either way, this only
 	// decides whether it is drawn.
 	ShowBuildId bool `json:"show_build_id"`
+
+	// ShowLayoutDebug toggles the client's viewport/safe-area diagnostic overlay.
+	// Off by default; see config.showLayoutDebug for why this is not a URL parameter.
+	ShowLayoutDebug bool `json:"show_layout_debug"`
 }
 
 // runtimeConfigHandler serves configuration the SPA needs but must not have
@@ -33,6 +37,7 @@ func (app *application) runtimeConfigHandler(w http.ResponseWriter, r *http.Requ
 	cfg := runtimeConfigResponse{
 		DataforsyningenToken: app.config.dataforsyningenToken,
 		ShowBuildId:          app.config.showBuildId,
+		ShowLayoutDebug:      app.config.showLayoutDebug,
 	}
 	if err := app.WriteJSON(w, http.StatusOK, cfg, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)

@@ -47,6 +47,19 @@ type config struct {
 	// back to us.
 	showBuildId bool
 
+	// showLayoutDebug overlays viewport, safe-area inset and shell-geometry values on
+	// the app. Strictly a diagnostic for the iOS standalone layout questions that
+	// cannot be answered from a screenshot — whether a blank strip is our layout
+	// reserving space or iOS drawing its own chrome, which is otherwise pure guesswork.
+	//
+	// A runtime flag rather than a `?debug=` URL parameter because the manifest's
+	// start_url is "/": launching from the home screen drops any query string, so a
+	// URL-based switch can never be on in the one mode that needs it.
+	//
+	// Defaults off everywhere, including development — unlike showBuildId this is
+	// genuinely noisy, so it is opt-in with SHOW_LAYOUT_DEBUG=true.
+	showLayoutDebug bool
+
 	// MariaDB connection. dbDSN is a go-sql-driver/mysql DSN; empty means "run
 	// without a database", which is a legitimate mode: everything served today
 	// comes from mocks (PRD 008 is what introduces persistence), so a missing DSN
@@ -104,6 +117,7 @@ func loadConfig() config {
 	// Default derived from ENV read directly, not from cfg.env: flags are not parsed
 	// yet at this point, so cfg.env still holds its zero value.
 	flag.BoolVar(&cfg.showBuildId, "show-build-id", envBool("SHOW_BUILD_ID", envStr("ENV", "development") != "production"), "Overlay the build id on the bottom nav (diagnostic)")
+	flag.BoolVar(&cfg.showLayoutDebug, "show-layout-debug", envBool("SHOW_LAYOUT_DEBUG", false), "Overlay viewport/safe-area/geometry values on the client (diagnostic)")
 	flag.StringVar(&cfg.dbDSN, "db-dsn", envStr("DB_DSN", ""), "MariaDB DSN (empty runs without a database)")
 	flag.IntVar(&cfg.dbMaxOpenConns, "db-max-open-conns", envInt("DB_MAX_OPEN_CONNS", 25), "Maximum open database connections")
 	flag.IntVar(&cfg.dbMaxIdleConns, "db-max-idle-conns", envInt("DB_MAX_IDLE_CONNS", 25), "Maximum idle database connections")

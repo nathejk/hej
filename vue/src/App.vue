@@ -10,7 +10,9 @@ import { logEvent } from '@/helpers/trackDb'
 import BottomNav from '@/components/BottomNav.vue'
 import UpdatePrompt from '@/components/UpdatePrompt.vue'
 import OfflineNotice from '@/components/OfflineNotice.vue'
+import LayoutDebug from '@/components/LayoutDebug.vue'
 import { APP_NAME } from '@/config/brand'
+import { showLayoutDebug } from '@/config/runtime'
 
 const session = useSessionStore()
 const app = useAppStore()
@@ -94,6 +96,9 @@ async function signOut() {
 
 <template>
   <UpdatePrompt />
+  <!-- Diagnostic only, and teleported+fixed so it never affects the layout it reports
+       on. Rendered outside the shell so it is present on the login screen too. -->
+  <LayoutDebug v-if="showLayoutDebug" />
 
   <div v-if="showShell" class="flex h-full flex-col">
     <header
