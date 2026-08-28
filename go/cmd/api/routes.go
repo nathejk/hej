@@ -38,6 +38,9 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodPost, "/api/auth/choose", app.chooseHandler)
 	router.HandlerFunc(http.MethodPost, "/api/auth/logout", app.logoutHandler)
 	router.HandlerFunc(http.MethodGet, "/api/me", app.requireAuth(app.meHandler))
+	// The caller's own details (PRD 003). Session-scoped by construction: there is no
+	// user id in the path, so no caller can ask for somebody else's profile.
+	router.HandlerFunc(http.MethodGet, "/api/me/profile", app.requireAuth(app.showProfileHandler))
 	router.HandlerFunc(http.MethodGet, "/api/patrol/scans", app.requireAuth(app.listPatrolScansHandler))
 	// Position track ingest (PRD 002 §11.1, task 084). Publishes to the telemetry stream
 	// and writes no SQL; the person is taken from the session, never from the body.
