@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"nathejk.dk/internal/blob"
+	"nathejk.dk/internal/imaging"
 	"nathejk.dk/nathejk/table/person"
 )
 
@@ -48,19 +49,29 @@ func (app *application) storePortrait(
 		return "", fmt.Errorf("store portrait bytes: %w", err)
 	}
 
-	// The thumbnail is stored before the event too, for the same reason as the full
-	// image: an event referencing bytes that are not there yet is the unrecoverable
-	// order.
-	var thumbRef blob.Ref
-	if len(meta.Thumb) > 0 {
-		thumbRef, err = app.blobs.Put(ctx, meta.Thumb)
-		if err != nil {
-			// Fails the upload rather than storing a portrait with no thumbnail
-			// (task 104's requirement). PRD 007 relies on the thumbnail existing for
-			// every portrait; letting one through without it would make "missing
-			// thumbnail" a state that has to be handled forever.
-			return "", fmt.Errorf("store portrait thumbnail: %w", err)
+	// Renditions are stored before the event too, for the same reason as the full image:
+	// an event referencing bytes that are not there yet is the unrecoverable order.
+	thumbs := make([]person.PortraitThumb, 0, len(meta.Thumbs))
+	for _, t := range meta.Thumbs {
+		if len(t.Bytes) == 0 {
+			continue
 		}
+		thumbRef, terr := app.blobs.Put(ctx, t.Bytes)
+		if terr != nil {
+			// Fails the upload rather than storing a portrait with a missing rendition
+			// (task 104's requirement). PRD 007 relies on the thumbnails existing for
+			// every portrait; letting one through without them would make "incomplete
+			// rendition set" a state that has to be handled forever.
+			return "", fmt.Errorf("store portrait rendition %q: %w", t.Name, terr)
+		}
+		thumbs = append(thumbs, person.PortraitThumb{
+			Name:        t.Name,
+			Ref:         thumbRef.String(),
+			ContentType: meta.ContentType,
+			Bytes:       len(t.Bytes),
+			Width:       t.Width,
+			Height:      t.Height,
+		})
 	}
 
 	subject, err := person.PortraitSubject(app.config.eventYear, personID)
@@ -75,11 +86,11 @@ func (app *application) storePortrait(
 		PersonID:    personID,
 		Year:        app.config.eventYear,
 		Ref:         ref.String(),
-		ThumbRef:    thumbRef.String(),
 		ContentType: meta.ContentType,
 		Bytes:       len(data),
 		Width:       meta.Width,
 		Height:      meta.Height,
+		Thumbs:      thumbs,
 		CapturedAt:  time.Now().UTC(),
 	}
 	if err := app.commands.Publish(subject, body); err != nil {
@@ -123,18 +134,18 @@ func peopleOrNil(t *person.Table) person.Queries {
 	return t
 }
 
-// portraitMeta is what the event records about the stored object beyond its hash,
-// plus the thumbnail bytes to store alongside it.
+// portraitMeta is what the event records about the stored objects beyond their hashes,
+// plus the rendition bytes to store alongside the full image.
 //
-// Dimensions are carried so a consumer — PRD 007's offline thumbnail sync, an audit —
-// can reason about the image without fetching it.
+// Dimensions are carried so a consumer — PRD 007's offline thumbnail sync, an audit — can
+// reason about an image without fetching it.
 type portraitMeta struct {
 	ContentType string
 	Width       int
 	Height      int
 
-	// Thumb is the already-encoded thumbnail (task 104). Passed in rather than generated
-	// here because it comes from the *same decode* as the full image, which is what
-	// guarantees the two agree about orientation.
-	Thumb []byte
+	// Thumbs are the already-encoded renditions (task 104). Passed in rather than
+	// generated here because they come from the *same decode* as the full image, which is
+	// what guarantees no rendition disagrees with another about orientation.
+	Thumbs []imaging.Rendition
 }

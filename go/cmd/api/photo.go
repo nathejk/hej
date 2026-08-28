@@ -26,13 +26,21 @@ const maxPortraitUpload = 4 << 20
 // client did it, and PRD 007 sizes its offline sync against what is actually stored.
 const maxPortraitEdge = 1024
 
-// thumbnailEdge is the longest edge of the thumbnail generated at upload (task 104).
+// thumbnailEdges are the thumbnail sizes generated at upload (task 104).
 //
-// 256 is chosen against its consumer: PRD 007 shows a grid of faces to identify someone
-// in the dark, and caches many of them offline. At 256px a face is still recognisable
-// when tapped to fill a phone's width, while the file stays around 15–25 KB — so a
-// few hundred of them is a handful of megabytes rather than a hundred.
-const thumbnailEdge = 256
+// A list because more than one is expected: an identification grid (PRD 007) wants a
+// different size from an avatar. Adding one here is all it takes — the event, the
+// projection and the endpoint all carry a *set* of renditions, so no shape changes.
+//
+// 256 is sized against its first consumer: PRD 007 shows a grid of faces to identify
+// someone in the dark and caches many of them offline. At 256px a face is still
+// recognisable when tapped to fill a phone's width, while the file stays around 15–25 KB —
+// so a few hundred is a handful of megabytes rather than a hundred.
+//
+// Note that changing this list does **not** rewrite existing portraits: renditions are
+// produced at upload. A new size appears for portraits taken after the change, and a
+// backfill would be its own task.
+var thumbnailEdges = []int{256}
 
 // jpegQuality is a deliberate trade. The portrait is used to recognise a face in the
 // dark, so it must survive being enlarged on a phone screen; 85 is visually lossless for
@@ -136,10 +144,10 @@ func (app *application) updatePhotoHandler(w http.ResponseWriter, r *http.Reques
 // replay that finds a missing object must degrade to 'no photo', never fail".
 //
 // @Summary      Own portrait
-// @Description  Returns the signed-in user's own portrait as JPEG. Pass `size=thumb` for the 256px thumbnail; portraits captured before thumbnails existed fall back to the full image. Never another user's — cross-person viewing is a separate feature with its own access rules. 404 when no portrait is on file, or when the stored bytes are missing.
+// @Description  Returns the signed-in user's own portrait as JPEG. `size=thumb` serves the default (smallest) thumbnail, and `size=thumb256` (or `size=256`) names a specific rendition; anything unrecognised, or a portrait without that rendition, falls back to the full image. Never another user's — cross-person viewing is a separate feature with its own access rules. 404 when no portrait is on file, or when the stored bytes are missing.
 // @Tags         me
 // @Produce      jpeg
-// @Param        size  query     string  false  "full (default) or thumb"
+// @Param        size  query     string  false  "full (default), thumb, or a rendition name such as thumb256"
 // @Success      200  {file}    binary
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
@@ -167,12 +175,28 @@ func (app *application) showPhotoHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Thumbnail when asked for and available. Falling back to the full image rather than
-	// 404-ing is deliberate: portraits captured before task 104 have no thumbnail, and a
-	// client asking for a small image would rather have a large one than nothing.
+	// Which rendition to serve. `size=thumb` means "the default thumbnail" (the smallest,
+	// denormalized onto the row); `size=thumb256` — or just `size=256` — names one
+	// explicitly, which is how a client asks for a specific size once there is more than
+	// one.
+	//
+	// Anything unrecognised, and any portrait with no such rendition, falls back to the
+	// full image rather than 404-ing: a client asking for something small would rather
+	// have something large than nothing.
 	stored := p.PortraitRef
-	if strings.EqualFold(r.URL.Query().Get("size"), "thumb") && p.PortraitThumbRef != "" {
-		stored = p.PortraitThumbRef
+	if size := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("size"))); size != "" && size != "full" {
+		switch {
+		case size == "thumb" && p.PortraitThumbRef != "":
+			stored = p.PortraitThumbRef
+		default:
+			name := size
+			if !strings.HasPrefix(name, "thumb") {
+				name = "thumb" + name
+			}
+			if t, ok := p.Thumb(name); ok {
+				stored = t.Ref
+			}
+		}
 	}
 
 	ref := blob.Ref(stored)
@@ -259,7 +283,7 @@ func readCapped(src io.Reader) ([]byte, error) {
 // header or filename is consulted. What comes out is always JPEG. The work itself lives
 // in internal/imaging, where it is testable without a request.
 func normalizePortrait(raw []byte) ([]byte, portraitMeta, error) {
-	prepared, err := imaging.Prepare(raw, maxPortraitEdge, thumbnailEdge, jpegQuality)
+	prepared, err := imaging.Prepare(raw, maxPortraitEdge, thumbnailEdges, jpegQuality)
 	if err != nil {
 		if errors.Is(err, imaging.ErrNotAnImage) {
 			// Translated to the Danish message the client shows; the packaged error is
@@ -269,10 +293,10 @@ func normalizePortrait(raw []byte) ([]byte, portraitMeta, error) {
 		return nil, portraitMeta{}, fmt.Errorf("prepare portrait: %w", err)
 	}
 
-	return prepared.Full, portraitMeta{
+	return prepared.Full.Bytes, portraitMeta{
 		ContentType: "image/jpeg",
-		Width:       prepared.Width,
-		Height:      prepared.Height,
-		Thumb:       prepared.Thumb,
+		Width:       prepared.Full.Width,
+		Height:      prepared.Full.Height,
+		Thumbs:      prepared.Thumbs,
 	}, nil
 }

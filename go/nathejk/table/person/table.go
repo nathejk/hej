@@ -104,6 +104,7 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer, opts
 		// had already created the table.
 		{"portraitCapturedAt", `portraitCapturedAt TIMESTAMP NULL DEFAULT NULL`},
 		{"portraitThumbRef", `portraitThumbRef VARCHAR(64) NOT NULL DEFAULT ""`},
+		{"portraitThumbs", `portraitThumbs TEXT NULL DEFAULT NULL`},
 	} {
 		if err := cqrs.EnsureColumn(r, w, "person", col.name, col.ddl); err != nil {
 			return nil, fmt.Errorf("person: ensure column %s: %w", col.name, err)

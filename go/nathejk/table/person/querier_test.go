@@ -191,7 +191,8 @@ func personColumnNames() []string {
 		"teamId", "teamName",
 		"sectionSlug", "sectionName",
 		"memberStatus", "armNumber",
-		"verifiedAt", "acknowledgedPhone", "portraitRef", "portraitThumbRef", "portraitCapturedAt",
+		"verifiedAt", "acknowledgedPhone", "portraitRef", "portraitThumbRef", "portraitThumbs",
+		"portraitCapturedAt",
 	}
 }
 
@@ -215,6 +216,7 @@ func addPersonRow(rows *sqlmock.Rows, personID, name, phone string) {
 	nullable := map[string]bool{
 		"phoneParent": true, "birthday": true,
 		"verifiedAt": true, "acknowledgedPhone": true, "portraitCapturedAt": true,
+		"portraitThumbs": true,
 	}
 
 	columns := personColumnNames()

@@ -146,37 +146,180 @@ func TestPortraitCapturedWithoutTimestampWritesNull(t *testing.T) {
 	}
 }
 
-func TestPortraitCapturedWritesTheThumbnailRef(t *testing.T) {
-	thumb := strings.Repeat("b", 64)
+func TestPortraitCapturedWritesEveryRendition(t *testing.T) {
+	medium := strings.Repeat("b", 64)
+	small := strings.Repeat("c", 64)
+
 	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.portrait.member-1.captured",
-		PortraitCaptured{PersonID: "member-1", Ref: testRef, ThumbRef: thumb}))
-	if !strings.Contains(stmt, thumb) {
-		t.Errorf("statement should carry the thumbnail ref: %s", stmt)
+		PortraitCaptured{
+			PersonID: "member-1",
+			Ref:      testRef,
+			Thumbs: []PortraitThumb{
+				{Name: "thumb256", Ref: medium, ContentType: "image/jpeg", Bytes: 20000, Width: 256, Height: 256},
+				{Name: "thumb96", Ref: small, ContentType: "image/jpeg", Bytes: 4000, Width: 96, Height: 96},
+			},
+		}))
+
+	// Every rendition's ref must reach the row, or the purge cannot find it later.
+	for _, want := range []string{testRef, medium, small} {
+		if !strings.Contains(stmt, want) {
+			t.Errorf("statement missing ref %s: %s", want, stmt)
+		}
+	}
+	// The sizes travel with them — that is the point of the list.
+	for _, want := range []string{"thumb256", "thumb96", "20000", "4000"} {
+		if !strings.Contains(stmt, want) {
+			t.Errorf("statement missing %q: %s", want, stmt)
+		}
+	}
+	// The denormalized default is the SMALLEST rendition, not the first: it is served
+	// wherever "a thumbnail" is wanted, and the cheapest is the right default.
+	if !strings.Contains(stmt, `portraitThumbRef="`+small+`"`) {
+		t.Errorf("default thumbnail should be the smallest rendition: %s", stmt)
 	}
 }
 
-// A malformed thumbnail ref costs the thumbnail, not the portrait: readers fall back to
-// the full image, whereas failing the event would lose the photo entirely over a
-// secondary artefact.
-func TestPortraitCapturedDropsABadThumbnailRefButKeepsThePortrait(t *testing.T) {
-	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.portrait.member-1.captured",
-		PortraitCaptured{PersonID: "member-1", Ref: testRef, ThumbRef: "../../etc/passwd"}))
-	if !strings.Contains(stmt, testRef) {
-		t.Errorf("the portrait ref must still be written: %s", stmt)
+// The stored JSON must be readable back into the same renditions — the projection writes
+// it and the querier parses it, and nothing else connects those two.
+func TestPortraitThumbsRoundTripThroughTheRow(t *testing.T) {
+	thumbs := []PortraitThumb{
+		{Name: "thumb256", Ref: strings.Repeat("b", 64), ContentType: "image/jpeg", Bytes: 20000, Width: 256, Height: 192},
 	}
+	encoded, err := encodeThumbs(thumbs)
+	if err != nil {
+		t.Fatalf("encodeThumbs: %v", err)
+	}
+
+	decoded := decodeThumbs(&encoded)
+	if len(decoded) != 1 {
+		t.Fatalf("decoded %d renditions, want 1", len(decoded))
+	}
+	if decoded[0] != thumbs[0] {
+		t.Errorf("round trip changed the rendition:\n got %+v\nwant %+v", decoded[0], thumbs[0])
+	}
+}
+
+// Unparseable JSON must not break a read: the consequence of returning no renditions is
+// falling back to the full image, whereas an error here would fail a login.
+func TestDecodeThumbsToleratesRubbish(t *testing.T) {
+	for _, encoded := range []string{"", "not json", "{}", "["} {
+		if got := decodeThumbs(&encoded); got != nil {
+			t.Errorf("%q decoded to %+v, want nil", encoded, got)
+		}
+	}
+	if got := decodeThumbs(nil); got != nil {
+		t.Errorf("NULL decoded to %+v, want nil", got)
+	}
+}
+
+// PortraitRefs is what the purge deletes, so it must cover every object exactly once.
+func TestPortraitRefsCoversEveryObjectOnce(t *testing.T) {
+	medium := strings.Repeat("b", 64)
+	small := strings.Repeat("c", 64)
+	p := Person{
+		PortraitRef: testRef,
+		// A copy of one of the renditions, as the projection denormalizes it.
+		PortraitThumbRef: small,
+		PortraitThumbs: []PortraitThumb{
+			{Name: "thumb256", Ref: medium},
+			{Name: "thumb96", Ref: small},
+		},
+	}
+
+	got := p.PortraitRefs()
+	if len(got) != 3 {
+		t.Fatalf("refs = %v, want 3 distinct objects", got)
+	}
+	seen := map[string]int{}
+	for _, ref := range got {
+		seen[ref]++
+	}
+	for _, want := range []string{testRef, medium, small} {
+		if seen[want] != 1 {
+			t.Errorf("%s appears %d times, want exactly once", want, seen[want])
+		}
+	}
+
+	// No portrait, nothing to delete.
+	if refs := (Person{}).PortraitRefs(); refs != nil {
+		t.Errorf("refs = %v, want none", refs)
+	}
+}
+
+func TestThumbLooksUpByName(t *testing.T) {
+	p := Person{PortraitThumbs: []PortraitThumb{{Name: "thumb256", Ref: testRef, Width: 256}}}
+	if got, ok := p.Thumb("thumb256"); !ok || got.Width != 256 {
+		t.Errorf("Thumb(thumb256) = %+v, %v", got, ok)
+	}
+	if _, ok := p.Thumb("thumb96"); ok {
+		t.Error("a rendition this portrait does not have must not be found")
+	}
+}
+
+// Events published before the list existed are on the log permanently. Their single
+// thumbRef must still be found, or a replay silently loses the thumbnail.
+func TestPortraitCapturedPromotesTheDeprecatedThumbRef(t *testing.T) {
+	legacy := strings.Repeat("d", 64)
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.portrait.member-1.captured",
+		PortraitCaptured{PersonID: "member-1", Ref: testRef, ThumbRef: legacy}))
+
+	if !strings.Contains(stmt, legacy) {
+		t.Errorf("the deprecated thumbRef must still be recorded: %s", stmt)
+	}
+	if !strings.Contains(stmt, `portraitThumbRef="`+legacy+`"`) {
+		t.Errorf("it should also become the default thumbnail: %s", stmt)
+	}
+}
+
+// The list wins when both shapes are present — it is the one with dimensions.
+func TestPortraitCapturedPrefersTheListOverTheDeprecatedRef(t *testing.T) {
+	listed := strings.Repeat("b", 64)
+	legacy := strings.Repeat("d", 64)
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.portrait.member-1.captured",
+		PortraitCaptured{
+			PersonID: "member-1",
+			Ref:      testRef,
+			ThumbRef: legacy,
+			Thumbs:   []PortraitThumb{{Name: "thumb256", Ref: listed, Width: 256, Height: 256}},
+		}))
+
+	if strings.Contains(stmt, legacy) {
+		t.Errorf("the deprecated ref should be ignored when a list is present: %s", stmt)
+	}
+	if !strings.Contains(stmt, listed) {
+		t.Errorf("statement should carry the listed rendition: %s", stmt)
+	}
+}
+
+// A malformed rendition ref costs that rendition, not the portrait.
+func TestPortraitCapturedDropsABadRenditionButKeepsTheRest(t *testing.T) {
+	good := strings.Repeat("b", 64)
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.portrait.member-1.captured",
+		PortraitCaptured{
+			PersonID: "member-1",
+			Ref:      testRef,
+			Thumbs: []PortraitThumb{
+				{Name: "thumb256", Ref: "../../etc/passwd", Width: 256},
+				{Name: "thumb96", Ref: good, Width: 96},
+			},
+		}))
+
 	if strings.Contains(stmt, "passwd") {
-		t.Errorf("the bad thumbnail ref must not be written: %s", stmt)
+		t.Errorf("the bad ref must not be written: %s", stmt)
 	}
-	if !strings.Contains(stmt, `portraitThumbRef=""`) {
-		t.Errorf("want an empty thumbnail ref: %s", stmt)
+	if !strings.Contains(stmt, testRef) || !strings.Contains(stmt, good) {
+		t.Errorf("the portrait and the good rendition must survive: %s", stmt)
 	}
 }
 
-// An event from before thumbnails existed must still apply cleanly on replay.
+// An event with no renditions at all must still apply cleanly on replay.
 func TestPortraitCapturedWithoutAThumbnailIsAccepted(t *testing.T) {
 	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.portrait.member-1.captured",
 		PortraitCaptured{PersonID: "member-1", Ref: testRef}))
 	if !strings.Contains(stmt, `portraitThumbRef=""`) {
-		t.Errorf("want an empty thumbnail ref: %s", stmt)
+		t.Errorf("want an empty default thumbnail: %s", stmt)
+	}
+	if !strings.Contains(stmt, `portraitThumbs=""`) {
+		t.Errorf("want an empty rendition list: %s", stmt)
 	}
 }

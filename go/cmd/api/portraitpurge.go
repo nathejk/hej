@@ -112,10 +112,11 @@ func (app *application) purgeExpiredPortraits(ctx context.Context) (int, error) 
 }
 
 func (app *application) purgeOnePortrait(ctx context.Context, e person.ExpiredPortrait) error {
-	// The thumbnail goes too. Forgetting it would leave a recognisable face on disk and
-	// technically satisfy "the portrait was deleted", which is the kind of compliance
-	// nobody wants to explain.
-	for _, ref := range []string{e.Ref, e.ThumbRef} {
+	// Every rendition goes, not just the full image. Forgetting one would leave a
+	// recognisable face on disk and technically satisfy "the portrait was deleted", which
+	// is the kind of compliance nobody wants to explain. The list comes from
+	// Person.PortraitRefs, so adding a thumbnail size cannot bypass this.
+	for _, ref := range e.Refs {
 		if ref == "" {
 			continue
 		}
@@ -139,7 +140,7 @@ func (app *application) purgeOnePortrait(ctx context.Context, e person.ExpiredPo
 	return app.commands.Publish(subject, person.PortraitPurged{
 		PersonID: e.PersonID,
 		Year:     app.config.eventYear,
-		Ref:      e.Ref,
+		Refs:     e.Refs,
 		Reason:   "retention",
 		PurgedAt: time.Now().UTC(),
 	})

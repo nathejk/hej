@@ -442,6 +442,13 @@ verified in a container). Everything else is done: 093–107 and 109 shipped on
 not outlive the event — is settled; the number is a conservative placeholder and is
 changed with an env var, not a deploy.
 
+**Thumbnail sizes are configuration** (`thumbnailEdges`, task 110). Today one 256px
+rendition is generated; the event, projection and endpoint all carry a *set*, each
+entry with its own byte count and dimensions, so adding the size PRD 007's
+identification grid wants is a one-line change. Note it applies to portraits taken
+after the change — renditions are produced at upload, so a backfill would be its own
+task.
+
 Two loosely coupled tracks: (a) details + permission status, which is
 low-risk and shippable on its own, and (b) photo capture + storage, which carries
 the platform and privacy risk. Ship (a) first so the page exists, then (b).

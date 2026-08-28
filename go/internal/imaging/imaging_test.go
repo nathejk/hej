@@ -133,28 +133,29 @@ func TestPrepareRotatesAccordingToExif(t *testing.T) {
 	// Landscape source: 40 wide, 20 high.
 	raw := jpegWithOrientation(t, gradient(40, 20), 6, false)
 
-	out, err := imaging.Prepare(raw, 1024, 256, 85)
+	out, err := imaging.Prepare(raw, 1024, []int{256}, 85)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
-	if out.Width != 20 || out.Height != 40 {
-		t.Errorf("stored image is %dx%d, want it turned upright (20x40)", out.Width, out.Height)
+	if out.Full.Width != 20 || out.Full.Height != 40 {
+		t.Errorf("stored image is %dx%d, want it turned upright (20x40)", out.Full.Width, out.Full.Height)
 	}
-	// And the thumbnail must agree — they come from one correction, so a disagreement
-	// would mean the orientation was applied twice or not at all on one path.
-	if out.ThumbWidth > out.ThumbHeight {
-		t.Errorf("thumbnail is %dx%d, want portrait like the full image", out.ThumbWidth, out.ThumbHeight)
+	// And the thumbnail must agree — every rendition comes from one correction, so a
+	// disagreement would mean the orientation was applied twice or not at all on one path.
+	thumb := out.Thumbs[0]
+	if thumb.Width > thumb.Height {
+		t.Errorf("thumbnail is %dx%d, want portrait like the full image", thumb.Width, thumb.Height)
 	}
 }
 
 func TestPrepareLeavesUprightImagesAlone(t *testing.T) {
 	raw := jpegWithOrientation(t, gradient(40, 20), 1, false)
-	out, err := imaging.Prepare(raw, 1024, 256, 85)
+	out, err := imaging.Prepare(raw, 1024, []int{256}, 85)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
-	if out.Width != 40 || out.Height != 20 {
-		t.Errorf("got %dx%d, want the original 40x20", out.Width, out.Height)
+	if out.Full.Width != 40 || out.Full.Height != 20 {
+		t.Errorf("got %dx%d, want the original 40x20", out.Full.Width, out.Full.Height)
 	}
 }
 
@@ -164,11 +165,11 @@ func TestPrepareLeavesUprightImagesAlone(t *testing.T) {
 func TestPrepareHandlesAllOrientations(t *testing.T) {
 	for orientation := 1; orientation <= 8; orientation++ {
 		raw := jpegWithOrientation(t, gradient(30, 10), orientation, false)
-		out, err := imaging.Prepare(raw, 1024, 256, 85)
+		out, err := imaging.Prepare(raw, 1024, []int{256}, 85)
 		if err != nil {
 			t.Fatalf("orientation %d: %v", orientation, err)
 		}
-		cfg, err := jpeg.DecodeConfig(bytes.NewReader(out.Full))
+		cfg, err := jpeg.DecodeConfig(bytes.NewReader(out.Full.Bytes))
 		if err != nil {
 			t.Fatalf("orientation %d: stored bytes not a JPEG: %v", orientation, err)
 		}
@@ -187,26 +188,96 @@ func TestPrepareProducesBothSizes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := imaging.Prepare(buf.Bytes(), 1024, 256, 85)
+	out, err := imaging.Prepare(buf.Bytes(), 1024, []int{256}, 85)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
 
-	if out.Width != 1024 || out.Height != 512 {
-		t.Errorf("full = %dx%d, want 1024x512", out.Width, out.Height)
+	if out.Full.Width != 1024 || out.Full.Height != 512 {
+		t.Errorf("full = %dx%d, want 1024x512", out.Full.Width, out.Full.Height)
 	}
-	if out.ThumbWidth != 256 || out.ThumbHeight != 128 {
-		t.Errorf("thumb = %dx%d, want 256x128", out.ThumbWidth, out.ThumbHeight)
+	if len(out.Thumbs) != 1 {
+		t.Fatalf("got %d thumbnails, want 1", len(out.Thumbs))
+	}
+	thumb := out.Thumbs[0]
+	if thumb.Name != "thumb256" {
+		t.Errorf("thumbnail name = %q, want thumb256", thumb.Name)
+	}
+	if thumb.Width != 256 || thumb.Height != 128 {
+		t.Errorf("thumb = %dx%d, want 256x128", thumb.Width, thumb.Height)
 	}
 	// The thumbnail is the point of task 104: it must actually be small, or PRD 007's
 	// offline sync gains nothing from it.
-	if len(out.Thumb) >= len(out.Full) {
-		t.Errorf("thumb (%d B) is not smaller than full (%d B)", len(out.Thumb), len(out.Full))
+	if len(thumb.Bytes) >= len(out.Full.Bytes) {
+		t.Errorf("thumb (%d B) is not smaller than full (%d B)", len(thumb.Bytes), len(out.Full.Bytes))
 	}
-	for name, data := range map[string][]byte{"full": out.Full, "thumb": out.Thumb} {
+	for name, data := range map[string][]byte{"full": out.Full.Bytes, "thumb": thumb.Bytes} {
 		if _, err := jpeg.Decode(bytes.NewReader(data)); err != nil {
 			t.Errorf("%s is not a decodable JPEG: %v", name, err)
 		}
+	}
+}
+
+// Several sizes at once, which is what the list shape exists for. Each rendition must
+// carry its own dimensions, and they must be genuinely different files.
+func TestPrepareProducesEveryRequestedSize(t *testing.T) {
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, gradient(1200, 900), nil); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := imaging.Prepare(buf.Bytes(), 1024, []int{512, 256, 96}, 85)
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if len(out.Thumbs) != 3 {
+		t.Fatalf("got %d thumbnails, want 3", len(out.Thumbs))
+	}
+
+	wantNames := []string{"thumb512", "thumb256", "thumb96"}
+	wantEdges := []int{512, 256, 96}
+	sizes := map[int]bool{}
+	for i, thumb := range out.Thumbs {
+		// Order is the order requested — a consumer indexing by position must not have to
+		// guess.
+		if thumb.Name != wantNames[i] {
+			t.Errorf("thumb %d named %q, want %q", i, thumb.Name, wantNames[i])
+		}
+		if thumb.Width != wantEdges[i] {
+			t.Errorf("%s is %dpx wide, want %d", thumb.Name, thumb.Width, wantEdges[i])
+		}
+		if thumb.Height == 0 || len(thumb.Bytes) == 0 {
+			t.Errorf("%s is missing dimensions or bytes: %+v", thumb.Name, thumb)
+		}
+		if sizes[len(thumb.Bytes)] {
+			t.Errorf("%s has the same byte length as another rendition", thumb.Name)
+		}
+		sizes[len(thumb.Bytes)] = true
+	}
+
+	// Smaller edge, smaller file — otherwise the size list buys nothing.
+	if !(len(out.Thumbs[0].Bytes) > len(out.Thumbs[1].Bytes) &&
+		len(out.Thumbs[1].Bytes) > len(out.Thumbs[2].Bytes)) {
+		t.Errorf("renditions do not shrink with their edge: %d, %d, %d",
+			len(out.Thumbs[0].Bytes), len(out.Thumbs[1].Bytes), len(out.Thumbs[2].Bytes))
+	}
+}
+
+// No sizes requested is a legitimate configuration (thumbnails off), not an error.
+func TestPrepareWithNoThumbnailSizes(t *testing.T) {
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, gradient(300, 300), nil); err != nil {
+		t.Fatal(err)
+	}
+	out, err := imaging.Prepare(buf.Bytes(), 1024, nil, 85)
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if len(out.Thumbs) != 0 {
+		t.Errorf("got %d thumbnails, want none", len(out.Thumbs))
+	}
+	if len(out.Full.Bytes) == 0 {
+		t.Error("the full image must still be produced")
 	}
 }
 
@@ -219,17 +290,18 @@ func TestPrepareAcceptsPngAndDropsTrailingBytes(t *testing.T) {
 	}
 	tagged := append(buf.Bytes(), []byte("GPSLatitudeSecretMarker")...)
 
-	out, err := imaging.Prepare(tagged, 1024, 256, 85)
+	out, err := imaging.Prepare(tagged, 1024, []int{256}, 85)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
-	if bytes.Contains(out.Full, []byte("SecretMarker")) || bytes.Contains(out.Thumb, []byte("SecretMarker")) {
+	if bytes.Contains(out.Full.Bytes, []byte("SecretMarker")) ||
+		bytes.Contains(out.Thumbs[0].Bytes, []byte("SecretMarker")) {
 		t.Error("appended metadata survived re-encoding")
 	}
 }
 
 func TestPrepareRejectsNonImages(t *testing.T) {
-	if _, err := imaging.Prepare([]byte("MZ\x90\x00 not an image"), 1024, 256, 85); err != imaging.ErrNotAnImage {
+	if _, err := imaging.Prepare([]byte("MZ\x90\x00 not an image"), 1024, []int{256}, 85); err != imaging.ErrNotAnImage {
 		t.Fatalf("err = %v, want ErrNotAnImage", err)
 	}
 }

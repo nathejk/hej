@@ -64,10 +64,21 @@ CREATE TABLE IF NOT EXISTS person (
     -- portraits are the one thing that cannot be rebuilt from the log.
     portraitRef VARCHAR(64) NOT NULL DEFAULT "",
 
-    -- Content hash of the thumbnail generated at upload (task 104). Empty for a
-    -- portrait captured before thumbnails existed; readers fall back to the full
-    -- image rather than treating that as broken.
+    -- Content hash of the *default* thumbnail — the smallest rendition — denormalized
+    -- so the common "serve this person's thumbnail" read needs no JSON parsing. Same
+    -- reasoning as teamName above. Empty for a portrait captured before thumbnails
+    -- existed; readers fall back to the full image rather than treating that as broken.
     portraitThumbRef VARCHAR(64) NOT NULL DEFAULT "",
+
+    -- Every thumbnail rendition, as JSON: name, ref, contentType, bytes, width,
+    -- height. A list because more sizes are expected (an identification grid wants a
+    -- different size from an avatar), and each carries its own dimensions and byte
+    -- count so PRD 007 can budget an offline cache without downloading anything.
+    --
+    -- JSON rather than a side table because the set is small, always read with its
+    -- person, and written only by the portrait event. If something ever needs to query
+    -- *across* renditions, that is the moment to normalize.
+    portraitThumbs TEXT NULL DEFAULT NULL,
 
     -- When that portrait was captured. The retention job (task 109) works from this:
     -- "the portrait does not outlive the event" needs an age on the row, and the

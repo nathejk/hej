@@ -227,45 +227,68 @@ func TestUploadPhoto_DownscalesToTheEdgeLimit(t *testing.T) {
 	}
 
 	// And a thumbnail comes out of the same call (task 104).
-	thumbCfg, err := jpeg.DecodeConfig(bytes.NewReader(meta.Thumb))
+	if len(meta.Thumbs) != 1 {
+		t.Fatalf("got %d thumbnails, want 1", len(meta.Thumbs))
+	}
+	thumbCfg, err := jpeg.DecodeConfig(bytes.NewReader(meta.Thumbs[0].Bytes))
 	if err != nil {
 		t.Fatalf("thumbnail is not a JPEG: %v", err)
 	}
-	if thumbCfg.Width != thumbnailEdge {
-		t.Errorf("thumbnail width = %d, want %d", thumbCfg.Width, thumbnailEdge)
+	if thumbCfg.Width != thumbnailEdges[0] {
+		t.Errorf("thumbnail width = %d, want %d", thumbCfg.Width, thumbnailEdges[0])
 	}
 }
 
-// `?size=thumb` serves the thumbnail; without it, the full image.
+// `?size=thumb` serves the default thumbnail; a rendition name serves that one; without
+// either, the full image.
 func TestShowPhoto_ServesTheThumbnailWhenAsked(t *testing.T) {
 	people := &stubPeople{found: true}
 	app := photoTestApp(t, &cqrstest.Publisher{}, people)
 
 	full := []byte("full image bytes")
-	thumb := []byte("thumb")
+	small := []byte("96px")
+	medium := []byte("256px bytes")
 	fullRef, err := app.blobs.Put(t.Context(), full)
 	if err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	thumbRef, err := app.blobs.Put(t.Context(), thumb)
+	smallRef, err := app.blobs.Put(t.Context(), small)
 	if err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	people.p = person.Person{PortraitRef: fullRef.String(), PortraitThumbRef: thumbRef.String()}
+	mediumRef, err := app.blobs.Put(t.Context(), medium)
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	people.p = person.Person{
+		PortraitRef: fullRef.String(),
+		// The default is the smallest rendition, as the projection denormalizes it.
+		PortraitThumbRef: smallRef.String(),
+		PortraitThumbs: []person.PortraitThumb{
+			{Name: "thumb256", Ref: mediumRef.String(), Width: 256, Height: 256, Bytes: len(medium)},
+			{Name: "thumb96", Ref: smallRef.String(), Width: 96, Height: 96, Bytes: len(small)},
+		},
+	}
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 	cookies := authedCookies(t, app, srv, "30000001", "+4530000001")
 
 	for query, want := range map[string][]byte{
-		"":            full,
-		"?size=thumb": thumb,
-		// Case-insensitive, because a client writing `Thumb` is not making a mistake
-		// worth answering with the wrong image.
-		"?size=THUMB": thumb,
-		"?size=full":  full,
-		// An unrecognised value falls back to the full image rather than erroring.
-		"?size=weird": full,
+		"": full,
+		// The default thumbnail.
+		"?size=thumb": small,
+		// A named rendition, with and without the prefix, and case-insensitively — a
+		// client writing `Thumb256` is not making a mistake worth answering with the
+		// wrong image.
+		"?size=thumb256": medium,
+		"?size=256":      medium,
+		"?size=THUMB96":  small,
+		"?size=full":     full,
+		// A size this portrait has no rendition for falls back to the full image rather
+		// than erroring.
+		"?size=thumb1024": full,
+		"?size=weird":     full,
 	} {
 		resp := getWithCookies(t, srv.URL+"/api/me/photo"+query, cookies)
 		got, _ := io.ReadAll(resp.Body)

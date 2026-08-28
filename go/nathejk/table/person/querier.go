@@ -2,6 +2,7 @@ package person
 
 import (
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/jrgensen/cqrs"
@@ -43,9 +44,12 @@ type Person struct {
 	VerifiedAt        *time.Time
 	AcknowledgedPhone *string
 	PortraitRef       string
-	// PortraitThumbRef is the thumbnail's content hash, or empty when the portrait
-	// predates thumbnails (task 104). Readers fall back to PortraitRef.
+	// PortraitThumbRef is the default (smallest) thumbnail's content hash, or empty when
+	// the portrait predates thumbnails (task 104). Readers fall back to PortraitRef.
 	PortraitThumbRef string
+	// PortraitThumbs is every thumbnail rendition, each with its own size and byte count.
+	// Empty for a portrait captured before the list existed.
+	PortraitThumbs []PortraitThumb
 	// PortraitCapturedAt is when the current portrait was taken, or nil when there is
 	// none (or when the event carried no timestamp). The retention job reads it; see
 	// portrait.go.
@@ -137,8 +141,8 @@ type Queries interface {
 	// before `before`, or with no capture time recorded at all.
 	//
 	// Scoped to portraits rather than returning whole people, because the retention job
-	// (task 109) needs three fields and has no business holding a member's address
-	// while it deletes an image.
+	// (task 109) needs the refs and has no business holding a member's address while it
+	// deletes an image.
 	//
 	// A NULL capture time counts as expired. "Unknown age" must not mean "kept
 	// forever" — for a photograph of a minor held on a safety basis, the failure that
@@ -149,8 +153,10 @@ type Queries interface {
 // ExpiredPortrait is one portrait the retention job should remove.
 type ExpiredPortrait struct {
 	PersonID string
-	Ref      string
-	ThumbRef string
+	// Refs is every object to delete: the full image and every thumbnail rendition.
+	// A list rather than a full/thumb pair, so adding a size cannot leave a
+	// recognisable face on disk after the record says the portrait was deleted.
+	Refs []string
 }
 
 type querier struct {
@@ -165,7 +171,8 @@ const personColumns = `
 	teamId, teamName,
 	sectionSlug, sectionName,
 	memberStatus, armNumber,
-	verifiedAt, acknowledgedPhone, portraitRef, portraitThumbRef, portraitCapturedAt`
+	verifiedAt, acknowledgedPhone, portraitRef, portraitThumbRef, portraitThumbs,
+	portraitCapturedAt`
 
 // Lookup finds people by phone number.
 //
@@ -250,7 +257,7 @@ func (q querier) ExpiredPortraits(year string, before time.Time, limit int) ([]E
 	// that must still expire — filtering it out would make deletion a way to keep an
 	// image forever.
 	rows, err := q.db.Query(`
-		SELECT personId, portraitRef, portraitThumbRef
+		SELECT personId, portraitRef, portraitThumbRef, portraitThumbs
 		FROM person
 		WHERE year = ? AND portraitRef <> ""
 		  AND (portraitCapturedAt IS NULL OR portraitCapturedAt < ?)
@@ -263,11 +270,17 @@ func (q querier) ExpiredPortraits(year string, before time.Time, limit int) ([]E
 
 	var out []ExpiredPortrait
 	for rows.Next() {
-		var e ExpiredPortrait
-		if err := rows.Scan(&e.PersonID, &e.Ref, &e.ThumbRef); err != nil {
+		var (
+			p      Person
+			thumbs *string
+		)
+		if err := rows.Scan(&p.PersonID, &p.PortraitRef, &p.PortraitThumbRef, &thumbs); err != nil {
 			return nil, err
 		}
-		out = append(out, e)
+		p.PortraitThumbs = decodeThumbs(thumbs)
+		// Reuses Person.PortraitRefs so the purge and any other deletion path cannot
+		// disagree about what a portrait consists of.
+		out = append(out, ExpiredPortrait{PersonID: p.PersonID, Refs: p.PortraitRefs()})
 	}
 	return out, rows.Err()
 }
@@ -279,6 +292,9 @@ type scanner interface {
 
 func scanPerson(s scanner) (Person, error) {
 	var p Person
+	// Nullable in the database, and absent for every row written before the column
+	// existed, so it cannot be scanned straight into a slice.
+	var thumbs *string
 	err := s.Scan(
 		&p.PersonID, &p.Year, &p.AppRole,
 		&p.Name, &p.Phone, &p.PhoneParent,
@@ -286,9 +302,75 @@ func scanPerson(s scanner) (Person, error) {
 		&p.TeamID, &p.TeamName,
 		&p.SectionSlug, &p.SectionName,
 		&p.MemberStatus, &p.ArmNumber,
-		&p.VerifiedAt, &p.AcknowledgedPhone, &p.PortraitRef, &p.PortraitThumbRef, &p.PortraitCapturedAt,
+		&p.VerifiedAt, &p.AcknowledgedPhone, &p.PortraitRef, &p.PortraitThumbRef, &thumbs,
+		&p.PortraitCapturedAt,
 	)
-	return p, err
+	if err != nil {
+		return p, err
+	}
+	p.PortraitThumbs = decodeThumbs(thumbs)
+	return p, nil
+}
+
+// decodeThumbs parses the stored rendition list.
+//
+// Unparseable JSON yields no thumbnails rather than an error: the consequence is that
+// readers fall back to the full image, which is worse-but-working, whereas failing the
+// read would take down a **login** over a cosmetic column. This row is written by this
+// package alone, so it should be unreachable — which is exactly why it must not be the
+// thing that breaks the directory.
+func decodeThumbs(encoded *string) []PortraitThumb {
+	if encoded == nil || *encoded == "" {
+		return nil
+	}
+	var out []PortraitThumb
+	if err := json.Unmarshal([]byte(*encoded), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// Thumb returns the rendition with the given name, e.g. "thumb256".
+func (p Person) Thumb(name string) (PortraitThumb, bool) {
+	for _, t := range p.PortraitThumbs {
+		if t.Name == name {
+			return t, true
+		}
+	}
+	return PortraitThumb{}, false
+}
+
+// PortraitRefs returns every blob this person's portrait occupies: the full image and
+// every rendition.
+//
+// Exists so the retention job cannot delete a portrait and leave a rendition behind — the
+// failure mode being a recognisable face still on disk after the record says it was
+// deleted. One function, so adding a size does not mean finding every deletion site.
+func (p Person) PortraitRefs() []string {
+	if p.PortraitRef == "" {
+		return nil
+	}
+	refs := []string{p.PortraitRef}
+	seen := map[string]bool{p.PortraitRef: true}
+	// PortraitThumbRef duplicates one of the renditions, so dedupe rather than returning
+	// the same object twice.
+	candidates := append([]string{p.PortraitThumbRef}, thumbRefs(p.PortraitThumbs)...)
+	for _, ref := range candidates {
+		if ref == "" || seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		refs = append(refs, ref)
+	}
+	return refs
+}
+
+func thumbRefs(thumbs []PortraitThumb) []string {
+	out := make([]string, 0, len(thumbs))
+	for _, t := range thumbs {
+		out = append(out, t.Ref)
+	}
+	return out
 }
 
 var _ Queries = querier{}

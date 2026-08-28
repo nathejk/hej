@@ -1,6 +1,7 @@
 package person
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -34,6 +35,31 @@ import (
 // the same Ref, `blob.Put` of identical bytes is a no-op, and this projection converges
 // on the same row without anybody re-uploading anything.
 
+// PortraitThumb is one smaller rendition of a portrait, stored as its own
+// content-addressed object.
+//
+// A list of these rather than one `thumbRef`: more sizes are expected — an identification
+// grid wants a different size from an avatar — and this event is on an append-only log, so
+// retrofitting a list later would mean two shapes to interpret forever.
+//
+// Each carries its own Bytes/Width/Height, which is the point of the list. PRD 007 has to
+// answer "how much storage does caching 800 faces cost?" before it downloads them, and a
+// consumer that must fetch an object to learn its size cannot budget.
+type PortraitThumb struct {
+	// Name identifies the rendition, e.g. "thumb256", derived from its longest edge.
+	// Derived rather than a label like "small", because a label needs a table somewhere
+	// to say what it means and that table is what drifts from the pixels.
+	Name string `json:"name"`
+
+	// Ref is the blob store's content hash for this rendition.
+	Ref string `json:"ref"`
+
+	ContentType string `json:"contentType"`
+	Bytes       int    `json:"bytes"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+}
+
 // PortraitCaptured says that a person now has this portrait.
 //
 // "Captured", not "uploaded": the event records a fact about the person, not the
@@ -53,23 +79,31 @@ type PortraitCaptured struct {
 	// blob.Ref.Valid, which this projection's handler enforces before writing.
 	Ref string `json:"ref"`
 
-	// ThumbRef is the content hash of the thumbnail generated at upload (task 104).
-	//
-	// Separate object, separate hash: PRD 007 syncs *thumbnails* to devices for offline
-	// identification, and it must be able to fetch them without pulling full-size images
-	// over a rural mobile connection.
-	//
-	// May be empty. Portraits captured before thumbnails existed have no thumbnail, and
-	// so does a replayed event from that era — consumers must degrade to the full image
-	// rather than treat it as a broken record.
-	ThumbRef string `json:"thumbRef"`
-
-	// ContentType, Bytes, Width and Height describe the stored object so a consumer
-	// (PRD 007's thumbnail sync, an audit) can reason about it without fetching it.
+	// ContentType, Bytes, Width and Height describe the **full** stored object, so a
+	// consumer can reason about it without fetching it. Each thumbnail carries its own
+	// equivalents — see Thumbs.
 	ContentType string `json:"contentType"`
 	Bytes       int    `json:"bytes"`
 	Width       int    `json:"width"`
 	Height      int    `json:"height"`
+
+	// Thumbs are the smaller renditions generated at upload (task 104).
+	//
+	// May be empty: a portrait captured before thumbnails existed has none, and so does
+	// a replayed event from that era. Consumers must degrade to the full image rather
+	// than treat it as a broken record.
+	Thumbs []PortraitThumb `json:"thumbs"`
+
+	// ThumbRef is the single thumbnail hash the first version of this event carried.
+	//
+	// DEPRECATED, and kept only for reading. Events published on 2026-08-28 before the
+	// Thumbs list existed are on the log permanently, and a replay must still be able to
+	// find their thumbnail — dropping this field would silently lose it. Nothing writes
+	// it any more (see handlePortraitCaptured, which promotes it into Thumbs).
+	//
+	// Removable once no captured event predating the list remains on the stream, i.e.
+	// after a purge or a fresh event store.
+	ThumbRef string `json:"thumbRef,omitempty"`
 
 	// CapturedAt is when the photo was taken/accepted, in UTC. It is the clock the
 	// retention job works from (task 109): "the portrait does not outlive the event"
@@ -90,9 +124,9 @@ type PortraitPurged struct {
 	PersonID string `json:"personId"`
 	Year     string `json:"year"`
 
-	// Ref is the object that was deleted. Recorded for the audit trail, not for the
-	// projection, which simply clears the row.
-	Ref string `json:"ref"`
+	// Refs are the objects that were deleted — the full image and every rendition.
+	// Recorded for the audit trail, not for the projection, which simply clears the row.
+	Refs []string `json:"refs"`
 
 	// Reason is free text for the log, e.g. "retention". Deliberately not an enum: this
 	// is a note to a human reading the stream a year later, and the set of reasons is
@@ -142,7 +176,7 @@ func (c consumer) handlePortraitPurged(msg cqrs.Message, year string) error {
 	// comes *later* in the stream and re-sets these columns. Comparing refs here would
 	// make the outcome depend on replay timing rather than on stream order.
 	return c.w.Consume(fmt.Sprintf(
-		`UPDATE person SET portraitRef="", portraitThumbRef="", portraitCapturedAt=NULL `+
+		`UPDATE person SET portraitRef="", portraitThumbRef="", portraitThumbs="", portraitCapturedAt=NULL `+
 			"WHERE personId=%s AND year=%s",
 		quote(personID), quote(year),
 	))
@@ -244,14 +278,24 @@ func (c consumer) handlePortraitCaptured(msg cqrs.Message, year string) error {
 		return fmt.Errorf("portrait ref %q is not a content hash", body.Ref)
 	}
 
-	// The thumbnail is optional (see ThumbRef), but a *present* one still has to be a
-	// hash. An empty value is written as empty, which readers treat as "use the full
-	// image"; a malformed one is dropped rather than failing the whole event, because a
-	// bad thumbnail must not cost the member their portrait.
-	thumbRef := body.ThumbRef
-	if thumbRef != "" && !validPortraitRef(thumbRef) {
-		thumbRef = ""
+	thumbs := body.thumbnails()
+	encoded, err := encodeThumbs(thumbs)
+	if err != nil {
+		return err
 	}
+
+	// The smallest thumbnail is denormalized into its own column so the common read —
+	// "serve this person's thumbnail" — needs no JSON parsing. Same reasoning as teamName
+	// and sectionName being denormalized here: one hot value beside the set.
+	defaultRef := ""
+	if len(thumbs) > 0 {
+		defaultRef = smallestThumb(thumbs).Ref
+	}
+
+	columns := fmt.Sprintf(
+		"portraitRef=%s, portraitThumbRef=%s, portraitThumbs=%s",
+		quote(body.Ref), quote(defaultRef), quote(encoded),
+	)
 
 	capturedAt := body.CapturedAt
 	if capturedAt.IsZero() {
@@ -260,16 +304,88 @@ func (c consumer) handlePortraitCaptured(msg cqrs.Message, year string) error {
 		// depend on. NULL means "unknown age", and the purge job treats that as
 		// purgeable rather than as immortal.
 		return c.w.Consume(fmt.Sprintf(
-			"UPDATE person SET portraitRef=%s, portraitThumbRef=%s, portraitCapturedAt=NULL WHERE personId=%s AND year=%s",
-			quote(body.Ref), quote(thumbRef), quote(personID), quote(year),
+			"UPDATE person SET %s, portraitCapturedAt=NULL WHERE personId=%s AND year=%s",
+			columns, quote(personID), quote(year),
 		))
 	}
 
 	return c.w.Consume(fmt.Sprintf(
-		"UPDATE person SET portraitRef=%s, portraitThumbRef=%s, portraitCapturedAt=%s WHERE personId=%s AND year=%s",
-		quote(body.Ref),
-		quote(thumbRef),
+		"UPDATE person SET %s, portraitCapturedAt=%s WHERE personId=%s AND year=%s",
+		columns,
 		quote(capturedAt.UTC().Format("2006-01-02 15:04:05")),
 		quote(personID), quote(year),
 	))
+}
+
+// thumbnails returns the event's thumbnails, tolerating both shapes the event has had.
+//
+// A malformed ref costs that one rendition, not the portrait: readers fall back to the
+// full image, whereas failing the event would lose the photo over a secondary artefact.
+func (p PortraitCaptured) thumbnails() []PortraitThumb {
+	out := make([]PortraitThumb, 0, len(p.Thumbs)+1)
+	for _, t := range p.Thumbs {
+		if !validPortraitRef(t.Ref) {
+			continue
+		}
+		if t.Name == "" {
+			// A rendition nothing can ask for by name is still worth keeping, because the
+			// purge has to know its ref exists. Named by its own size so it is at least
+			// addressable.
+			t.Name = fmt.Sprintf("thumb%d", maxInt(t.Width, t.Height))
+		}
+		out = append(out, t)
+	}
+
+	// The deprecated single-ref shape (see ThumbRef). Promoted into the list so the rest
+	// of the code has exactly one thing to understand. Dimensions are unknown for these,
+	// which is precisely the gap the list closed — a consumer sees zeros and knows it must
+	// fetch to find out.
+	if len(out) == 0 && validPortraitRef(p.ThumbRef) {
+		out = append(out, PortraitThumb{Name: "thumb", Ref: p.ThumbRef, ContentType: "image/jpeg"})
+	}
+	return out
+}
+
+// encodeThumbs renders the set for storage.
+//
+// JSON in a column rather than a side table, deliberately. The set is small, always read
+// with its person, and written only by this one event, so a table would add a join and a
+// second delete-on-replace path for no read this app makes. **If something ever needs to
+// query across renditions** — "total thumbnail bytes for the year" — that is the moment to
+// normalize it, and the JSON is a faithful record to migrate from.
+func encodeThumbs(thumbs []PortraitThumb) (string, error) {
+	if len(thumbs) == 0 {
+		// Empty string rather than "[]", so "no thumbnails" reads the same in SQL as it
+		// does for a row that predates the column.
+		return "", nil
+	}
+	encoded, err := json.Marshal(thumbs)
+	if err != nil {
+		return "", fmt.Errorf("encode portrait thumbnails: %w", err)
+	}
+	return string(encoded), nil
+}
+
+// smallestThumb returns the rendition with the smallest longest edge.
+//
+// "Smallest" rather than "first": the default is served where a thumbnail is wanted, and
+// the cheapest one is the right default. A rendition with unknown dimensions (the
+// deprecated shape) sorts last rather than winning by comparing zero.
+func smallestThumb(thumbs []PortraitThumb) PortraitThumb {
+	best := thumbs[0]
+	bestEdge := maxInt(best.Width, best.Height)
+	for _, t := range thumbs[1:] {
+		edge := maxInt(t.Width, t.Height)
+		if bestEdge == 0 || (edge > 0 && edge < bestEdge) {
+			best, bestEdge = t, edge
+		}
+	}
+	return best
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

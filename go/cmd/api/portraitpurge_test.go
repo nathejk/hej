@@ -36,7 +36,7 @@ func TestPurgeDeletesBytesAndPublishesTheEvent(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 	people.expired = []person.ExpiredPortrait{
-		{PersonID: "member-1", Ref: fullRef.String(), ThumbRef: thumbRef.String()},
+		{PersonID: "member-1", Refs: []string{fullRef.String(), thumbRef.String()}},
 	}
 
 	purged, err := app.purgeExpiredPortraits(context.Background())
@@ -62,7 +62,7 @@ func TestPurgeDeletesBytesAndPublishesTheEvent(t *testing.T) {
 	if err := pub.Messages[0].Body(&body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if body.PersonID != "member-1" || body.Ref != fullRef.String() {
+	if body.PersonID != "member-1" || len(body.Refs) != 2 {
 		t.Errorf("event = %+v", body)
 	}
 	if body.Reason == "" || body.PurgedAt.IsZero() {
@@ -101,7 +101,7 @@ func TestPurgeIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	expired := []person.ExpiredPortrait{{PersonID: "member-1", Ref: ref.String()}}
+	expired := []person.ExpiredPortrait{{PersonID: "member-1", Refs: []string{ref.String()}}}
 
 	people.expired = expired
 	if _, err := app.purgeExpiredPortraits(context.Background()); err != nil {
@@ -123,10 +123,36 @@ func TestPurgeHandlesAMissingThumbnail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	people.expired = []person.ExpiredPortrait{{PersonID: "member-1", Ref: ref.String()}}
+	people.expired = []person.ExpiredPortrait{{PersonID: "member-1", Refs: []string{ref.String()}}}
 
 	if purged, err := app.purgeExpiredPortraits(context.Background()); err != nil || purged != 1 {
 		t.Fatalf("purged = %d, err = %v", purged, err)
+	}
+}
+
+// Every rendition must be deleted, however many there are. Leaving one behind would mean a
+// recognisable face still on disk after the record says the portrait was deleted.
+func TestPurgeDeletesEveryRendition(t *testing.T) {
+	people := &stubPeople{}
+	app := purgeTestApp(t, people, &cqrstest.Publisher{})
+
+	var refs []string
+	for _, payload := range []string{"full", "thumb256", "thumb96", "thumb48"} {
+		ref, err := app.blobs.Put(context.Background(), []byte(payload))
+		if err != nil {
+			t.Fatalf("Put: %v", err)
+		}
+		refs = append(refs, ref.String())
+	}
+	people.expired = []person.ExpiredPortrait{{PersonID: "member-1", Refs: refs}}
+
+	if purged, err := app.purgeExpiredPortraits(context.Background()); err != nil || purged != 1 {
+		t.Fatalf("purged = %d, err = %v", purged, err)
+	}
+	for _, ref := range refs {
+		if ok, _ := app.blobs.Exists(context.Background(), blob.Ref(ref)); ok {
+			t.Errorf("%s survived the purge", ref)
+		}
 	}
 }
 
@@ -140,8 +166,8 @@ func TestPurgeContinuesPastAFailingRow(t *testing.T) {
 	app.commands = commandsWithNoPublisher()
 
 	people.expired = []person.ExpiredPortrait{
-		{PersonID: "member-1", Ref: "aaaa"},
-		{PersonID: "member-2", Ref: "bbbb"},
+		{PersonID: "member-1", Refs: []string{"aaaa"}},
+		{PersonID: "member-2", Refs: []string{"bbbb"}},
 	}
 	purged, err := app.purgeExpiredPortraits(context.Background())
 	if err != nil {
@@ -162,7 +188,7 @@ func TestPurgeSkipsNonHashRefs(t *testing.T) {
 	app := purgeTestApp(t, people, &cqrstest.Publisher{})
 
 	people.expired = []person.ExpiredPortrait{
-		{PersonID: "member-1", Ref: "../../../etc/passwd", ThumbRef: "also-not-a-hash"},
+		{PersonID: "member-1", Refs: []string{"../../../etc/passwd", "also-not-a-hash"}},
 	}
 	// Still counts as purged: the row is cleared by the event, which is the only way to
 	// stop it being found again. Leaving it would mean retrying a bad ref forever.
@@ -195,7 +221,7 @@ func TestPurgeWithoutAProjectionIsANoop(t *testing.T) {
 // Retention of zero disables the loop rather than purging everything immediately — the
 // dangerous misreading of "0 = no retention".
 func TestRunPortraitPurgeDoesNothingWhenDisabled(t *testing.T) {
-	people := &stubPeople{expired: []person.ExpiredPortrait{{PersonID: "member-1", Ref: "aaaa"}}}
+	people := &stubPeople{expired: []person.ExpiredPortrait{{PersonID: "member-1", Refs: []string{"aaaa"}}}}
 	app := purgeTestApp(t, people, &cqrstest.Publisher{})
 	app.config.portraitRetention = 0
 

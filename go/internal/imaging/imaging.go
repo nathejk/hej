@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"image"
 	"image/draw"
 	"image/jpeg"
@@ -38,64 +39,86 @@ import (
 // or maintained.
 var ErrNotAnImage = errors.New("not a decodable image")
 
-// Portrait is a prepared portrait: the stored image and its thumbnail, both JPEG.
-type Portrait struct {
-	// Full is the display image, bounded by the caller's edge limit.
-	Full   []byte
+// Rendition is one encoded image produced from an upload.
+//
+// Name is what the event and the projection key it by, and what a client asks for. It is
+// derived from the size (`thumb256`) rather than being a label like "small": a label needs
+// a table somewhere to say what it means, and that table is what drifts from the pixels.
+type Rendition struct {
+	Name   string
+	Bytes  []byte
 	Width  int
 	Height int
-
-	// Thumb is the fixed-size thumbnail PRD 007 syncs to devices for offline
-	// identification. Generated here, at upload, rather than per request: it comes from
-	// the same decode as Full, so the two cannot disagree about orientation, and a
-	// device syncing hundreds of faces is not asking the server to resize each one.
-	Thumb      []byte
-	ThumbWidth int
-	// ThumbHeight is carried alongside the width because the thumbnail preserves aspect
-	// ratio rather than being cropped square. Cropping is the *client's* business — the
-	// circular avatar does it in CSS — and a server-side square crop would permanently
-	// discard the sides of a face that was framed a little off.
-	ThumbHeight int
 }
 
-// Prepare decodes raw, corrects its orientation, and produces both sizes as JPEG.
+// Portrait is a prepared portrait: the display image plus every thumbnail asked for.
+type Portrait struct {
+	// Full is the display image, bounded by the caller's edge limit. Its Name is empty:
+	// it is the portrait itself, not a variant of it.
+	Full Rendition
+
+	// Thumbs are the smaller renditions, in the order requested.
+	//
+	// A slice rather than one thumbnail because more sizes are expected (a grid
+	// thumbnail is a different size from an avatar), and retrofitting a list onto a
+	// single field means changing an event shape that is already on an append-only log.
+	// Generated from the same decode as Full, so no rendition can disagree with another
+	// about orientation.
+	Thumbs []Rendition
+}
+
+// Prepare decodes raw, corrects its orientation, and encodes the display image plus one
+// thumbnail per entry in thumbEdges.
 //
-// edge bounds the longest side of the display image; thumbEdge does the same for the
-// thumbnail. Neither is ever upscaled: a small upload stays small rather than being
-// blown up into a blurry "large" image.
-func Prepare(raw []byte, edge, thumbEdge, quality int) (Portrait, error) {
+// edge bounds the longest side of the display image; each thumbEdge does the same for one
+// thumbnail. Nothing is ever upscaled: a small upload stays small rather than being blown
+// up into a blurry "large" image — which also means a thumbnail can legitimately come back
+// the same size as the full image when someone uploads a tiny picture.
+func Prepare(raw []byte, edge int, thumbEdges []int, quality int) (Portrait, error) {
 	img, format, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {
 		return Portrait{}, ErrNotAnImage
 	}
 
-	// Orientation first, so both sizes inherit it from one correction. Only JPEG carries
-	// the tag; for anything else this is a no-op.
+	// Orientation first, so every rendition inherits it from one correction. Only JPEG
+	// carries the tag; for anything else this is a no-op.
 	if format == "jpeg" {
 		img = applyOrientation(img, ReadOrientation(raw))
 	}
 
-	full := Fit(img, edge)
-	fullJPEG, err := encode(full, quality)
+	full, err := render(img, "", edge, quality)
 	if err != nil {
 		return Portrait{}, err
 	}
 
-	thumb := Fit(img, thumbEdge)
-	thumbJPEG, err := encode(thumb, quality)
-	if err != nil {
-		return Portrait{}, err
+	thumbs := make([]Rendition, 0, len(thumbEdges))
+	for _, thumbEdge := range thumbEdges {
+		thumb, err := render(img, ThumbName(thumbEdge), thumbEdge, quality)
+		if err != nil {
+			return Portrait{}, err
+		}
+		thumbs = append(thumbs, thumb)
 	}
 
-	fb, tb := full.Bounds(), thumb.Bounds()
-	return Portrait{
-		Full:        fullJPEG,
-		Width:       fb.Dx(),
-		Height:      fb.Dy(),
-		Thumb:       thumbJPEG,
-		ThumbWidth:  tb.Dx(),
-		ThumbHeight: tb.Dy(),
-	}, nil
+	return Portrait{Full: full, Thumbs: thumbs}, nil
+}
+
+// ThumbName is the canonical name for a thumbnail of the given longest edge.
+//
+// One function so the producer and every consumer agree without a shared constant per
+// size — adding a size should not require editing a name table.
+func ThumbName(edge int) string {
+	return fmt.Sprintf("thumb%d", edge)
+}
+
+func render(img image.Image, name string, edge, quality int) (Rendition, error) {
+	scaled := Fit(img, edge)
+	encoded, err := encode(scaled, quality)
+	if err != nil {
+		return Rendition{}, err
+	}
+	b := scaled.Bounds()
+	return Rendition{Name: name, Bytes: encoded, Width: b.Dx(), Height: b.Dy()}, nil
 }
 
 func encode(img image.Image, quality int) ([]byte, error) {

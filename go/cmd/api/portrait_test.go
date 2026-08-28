@@ -11,6 +11,7 @@ import (
 
 	"nathejk.dk/internal/blob"
 	"nathejk.dk/internal/commands"
+	"nathejk.dk/internal/imaging"
 	"nathejk.dk/nathejk/table/person"
 )
 
@@ -142,28 +143,66 @@ func TestStorePortraitFailsWithNoPublisher(t *testing.T) {
 	}
 }
 
-// The thumbnail is a second content-addressed object, referenced from the same event, so
-// PRD 007 can sync faces without pulling full-size images over a mobile connection.
-func TestStorePortraitStoresTheThumbnailToo(t *testing.T) {
+// The thumbnails are separate content-addressed objects, referenced from the same event
+// **with their own sizes**, so PRD 007 can budget an offline cache before downloading
+// anything.
+func TestStorePortraitStoresEveryRendition(t *testing.T) {
 	pub := &cqrstest.Publisher{}
 	app := portraitTestApp(t, pub)
 
-	thumb := []byte("pretend this is a 256px jpeg")
+	small := []byte("pretend this is a 96px jpeg")
+	medium := []byte("pretend this is a 256px jpeg, which is longer")
 	_, err := app.storePortrait(context.Background(), "member-1", []byte("the full image"),
-		portraitMeta{ContentType: "image/jpeg", Thumb: thumb})
+		portraitMeta{
+			ContentType: "image/jpeg",
+			Thumbs: []imaging.Rendition{
+				{Name: "thumb256", Bytes: medium, Width: 256, Height: 192},
+				{Name: "thumb96", Bytes: small, Width: 96, Height: 72},
+			},
+		})
 	if err != nil {
 		t.Fatalf("storePortrait: %v", err)
 	}
 
 	body := publishedPortrait(t, pub)
-	if body.ThumbRef != blob.ComputeRef(thumb).String() {
-		t.Errorf("thumbRef = %q, want the thumbnail's hash", body.ThumbRef)
+	if len(body.Thumbs) != 2 {
+		t.Fatalf("event carries %d thumbnails, want 2", len(body.Thumbs))
 	}
-	if body.ThumbRef == body.Ref {
-		t.Error("the thumbnail must be its own object, not the same hash as the full image")
+
+	for i, want := range []struct {
+		name          string
+		data          []byte
+		width, height int
+	}{
+		{"thumb256", medium, 256, 192},
+		{"thumb96", small, 96, 72},
+	} {
+		got := body.Thumbs[i]
+		if got.Name != want.name {
+			t.Errorf("thumb %d named %q, want %q", i, got.Name, want.name)
+		}
+		if got.Ref != blob.ComputeRef(want.data).String() {
+			t.Errorf("%s ref = %q, want its content hash", got.Name, got.Ref)
+		}
+		// The whole reason for the list: size metadata per rendition.
+		if got.Bytes != len(want.data) || got.Width != want.width || got.Height != want.height {
+			t.Errorf("%s = %d B %dx%d, want %d B %dx%d",
+				got.Name, got.Bytes, got.Width, got.Height, len(want.data), want.width, want.height)
+		}
+		if got.ContentType != "image/jpeg" {
+			t.Errorf("%s content type = %q", got.Name, got.ContentType)
+		}
+		if ok, _ := app.blobs.Exists(context.Background(), blob.Ref(got.Ref)); !ok {
+			t.Errorf("%s bytes were not stored", got.Name)
+		}
+		if got.Ref == body.Ref {
+			t.Errorf("%s must be its own object, not the full image's hash", got.Name)
+		}
 	}
-	if ok, _ := app.blobs.Exists(context.Background(), blob.Ref(body.ThumbRef)); !ok {
-		t.Error("thumbnail bytes were not stored")
+
+	// The deprecated single-ref field is no longer written.
+	if body.ThumbRef != "" {
+		t.Errorf("thumbRef = %q, want it unset on new events", body.ThumbRef)
 	}
 }
 
