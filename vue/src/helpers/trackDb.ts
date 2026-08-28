@@ -78,6 +78,8 @@ export interface TrackEvent {
     | 'full'
     | 'capped'
     | 'nostart'
+    | 'upload'
+    | 'uploadfail'
     | 'hidden'
     | 'visible'
   detail?: string
@@ -192,6 +194,107 @@ export async function countPoints(): Promise<number> {
     const req = conn.transaction(STORE, 'readonly').objectStore(STORE).count()
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
+  })
+}
+
+/**
+ * pendingPoints returns up to `limit` of a user's not-yet-uploaded points, oldest first.
+ *
+ * Oldest first matters: a member who has been offline for hours should ship the beginning of
+ * their track first, so a partially successful backlog leaves a contiguous route rather than
+ * a scattering of the most recent fixes.
+ */
+export async function pendingPoints(userId: string, limit: number): Promise<TrackPoint[]> {
+  const conn = await db()
+  return new Promise((resolve, reject) => {
+    const index = conn.transaction(STORE, 'readonly').objectStore(STORE).index('pending')
+    // The index is on [userId, uploaded], so this range is exactly "this user's pending
+    // points" — the database does the filtering rather than the caller reading everything
+    // and discarding most of it.
+    const req = index.openCursor(IDBKeyRange.only([userId, 0]))
+    const out: TrackPoint[] = []
+    req.onsuccess = () => {
+      const cursor = req.result
+      if (!cursor || out.length >= limit) return resolve(out)
+      out.push(cursor.value as TrackPoint)
+      cursor.continue()
+    }
+    req.onerror = () => reject(req.error)
+  })
+}
+
+/** countPending returns how many of a user's points have not been uploaded. */
+export async function countPending(userId: string): Promise<number> {
+  const conn = await db()
+  return new Promise((resolve, reject) => {
+    const req = conn
+      .transaction(STORE, 'readonly')
+      .objectStore(STORE)
+      .index('pending')
+      .count(IDBKeyRange.only([userId, 0]))
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+/**
+ * markUploaded flags points as accepted by the server.
+ *
+ * Marking rather than deleting, and only after a 2xx: a point is the only copy that exists
+ * until the server has it (PRD 002 §11.1), so the flag moves exactly once, in the one place
+ * that knows the server accepted it.
+ *
+ * Writes each point back under its own key in one transaction, so either all of the batch is
+ * marked or none is. A partial mark would be the worst outcome — it would leave points that
+ * the server has but the client still thinks are pending, and re-upload them forever.
+ */
+export async function markUploaded(userId: string, timestamps: number[]): Promise<void> {
+  if (timestamps.length === 0) return
+  const conn = await db()
+  return new Promise((resolve, reject) => {
+    const tx = conn.transaction(STORE, 'readwrite')
+    const store = tx.objectStore(STORE)
+    for (const ts of timestamps) {
+      const get = store.get([userId, ts])
+      get.onsuccess = () => {
+        const point = get.result as TrackPoint | undefined
+        // Absent is not an error: a concurrent prune may have removed it, and re-adding
+        // it here would resurrect a point the device deliberately dropped.
+        if (point) store.put({ ...point, uploaded: 1 })
+      }
+    }
+    tx.oncomplete = () => resolve()
+    tx.onabort = tx.onerror = () => reject(tx.error ?? new Error('mark uploaded failed'))
+  })
+}
+
+/**
+ * pruneUploaded deletes a user's already-uploaded points older than `before`.
+ *
+ * Uploaded points are kept for a while rather than deleted on acceptance, so the status page
+ * can still say what this device recorded during the event — "9 points, 2 pending" is a
+ * useful answer and "2 points" is a misleading one. They are not kept forever: the quota is
+ * shared with map tiles and portraits, so anything the server already has stops earning its
+ * space after the race it belongs to.
+ */
+export async function pruneUploaded(userId: string, before: number): Promise<number> {
+  const conn = await db()
+  return new Promise((resolve, reject) => {
+    const tx = conn.transaction(STORE, 'readwrite')
+    const index = tx.objectStore(STORE).index('pending')
+    const req = index.openCursor(IDBKeyRange.only([userId, 1]))
+    let deleted = 0
+    req.onsuccess = () => {
+      const cursor = req.result
+      if (!cursor) return
+      if ((cursor.value as TrackPoint).ts < before) {
+        cursor.delete()
+        deleted++
+      }
+      cursor.continue()
+    }
+    tx.oncomplete = () => resolve(deleted)
+    tx.onabort = tx.onerror = () => reject(tx.error ?? new Error('prune failed'))
   })
 }
 

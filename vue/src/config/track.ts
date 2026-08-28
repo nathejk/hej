@@ -51,3 +51,44 @@ export const TRACK_FIX_TIMEOUT_MS = 20_000
  * and until task 083 ships there is nothing that has copied them anywhere else.
  */
 export const TRACK_MAX_POINTS = 20_000
+
+/**
+ * Seconds between upload attempts (PRD 002 §11.1).
+ *
+ * An attempt is skipped entirely when nothing new has been recorded, which is not a
+ * micro-optimisation: a stationary phone — a member asleep at a checkpoint, or one whose GPS
+ * has produced no new fix — would otherwise pay for 360 pointless requests over a 12-hour
+ * race, on rural mobile data, from a battery that has to last the night.
+ */
+export const TRACK_UPLOAD_INTERVAL_SECONDS = 120
+
+/**
+ * Maximum points in one upload request.
+ *
+ * Well under the server's 2,000-point limit on purpose. A normal batch is 4 points (2 minutes
+ * at 30 s sampling); this bound only matters for a backlog, and there the smaller number is
+ * better: a member who was offline for hours is, by definition, somewhere with poor
+ * connectivity, and a 30 KB request that succeeds beats a 90 KB one that times out. The
+ * backlog then ships as several requests instead of one all-or-nothing attempt.
+ */
+export const TRACK_UPLOAD_CHUNK = 500
+
+/**
+ * How many chunks one upload run will send before yielding until the next interval.
+ *
+ * Bounds a backlog burst: 4 × 500 = 2,000 points per run, which clears a full 12-hour
+ * offline race in one pass while staying far inside the endpoint's 20-requests-per-minute
+ * per-user limit (task 084). Without a bound, reconnecting after a long outage would fire as
+ * many requests as it took, which is exactly when being rate limited would cost the most.
+ */
+export const TRACK_UPLOAD_MAX_CHUNKS_PER_RUN = 4
+
+/**
+ * How long an already-uploaded point is kept on the device, in hours.
+ *
+ * Long enough to cover the race it belongs to, so the status page can answer "what did this
+ * phone record?" rather than only "what is still waiting". Not longer: the server has these
+ * points, and the storage quota is shared with map tiles and portraits, which cannot be
+ * re-fetched as cheaply.
+ */
+export const TRACK_KEEP_UPLOADED_HOURS = 18

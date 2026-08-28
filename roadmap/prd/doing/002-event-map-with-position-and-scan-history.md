@@ -195,13 +195,19 @@ available both as map markers and as a chronological list.
       being killed — an unshipped track is the one thing here that cannot be recovered
       from the server, so it must not live only in memory.
       *Task 082, measured on an iPhone across three cold starts.*
-- [ ] Every **2 minutes**, and **only when the track has new points**, the pending points
+- [x] Every **2 minutes**, and **only when the track has new points**, the pending points
       are uploaded in one batch.
-- [ ] Upload failure is not data loss: points stay pending and are retried on the next
+      *Task 083. Verified: the interval fires unprompted, and a flush with nothing new sends
+      no request at all.*
+- [x] Upload failure is not data loss: points stay pending and are retried on the next
       interval. A member who is offline for hours ships the backlog when they reconnect.
-- [ ] Points already accepted by the server are not uploaded again, and a retried batch
+      *Task 083. Verified offline, and a 1,200-point backlog shipped as 500+500+200.*
+- [x] Points already accepted by the server are not uploaded again, and a retried batch
       does not duplicate points — each point is identified by (person, timestamp) so
       duplicates are detectable rather than merely unlikely.
+      *Task 083. Verified on the stream: 1,202 points published, 1,202 distinct timestamps.
+      Duplicates are removed **at the reader** — see 083's log for why that is the only
+      possible place.*
 - [x] The BFF accepts a batch from the signed-in user, resolves the person from the
       session (never from the request body), and **publishes** it to the telemetry
       stream. It writes no SQL.

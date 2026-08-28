@@ -1,20 +1,30 @@
 import { defineStore } from 'pinia'
 import {
   TRACK_FIX_TIMEOUT_MS,
+  TRACK_KEEP_UPLOADED_HOURS,
   TRACK_MAX_FIX_AGE_MS,
   TRACK_MAX_POINTS,
   TRACK_SAMPLE_SECONDS,
+  TRACK_UPLOAD_CHUNK,
+  TRACK_UPLOAD_INTERVAL_SECONDS,
+  TRACK_UPLOAD_MAX_CHUNKS_PER_RUN,
 } from '@/config/track'
 import {
   appendPoint,
+  countPending,
   countPoints,
   latestTimestamp,
   logEvent,
+  markUploaded,
+  pendingPoints,
+  pruneUploaded,
   requestPersistentStorage,
   TrackStorageFullError,
 } from '@/helpers/trackDb'
+import { fetchWrapper, HttpError, NetworkError } from '@/helpers'
 import { useLocationStore } from '@/stores/location.store'
 import { useSessionStore } from '@/stores/session.store'
+import { useAppStore } from '@/stores/app.store'
 
 // track.store records where the user has been, into local persistent storage
 // (PRD 002 §11.1, task 082). Uploading is task 083; nothing here talks to the network.
@@ -64,6 +74,26 @@ export const useTrackStore = defineStore('track', {
     starting: false,
     /** Set while a sample is in flight, so two never overlap (see start()'s note). */
     sampling: false,
+
+    // ---- upload (task 083) ---------------------------------------------------------
+    /** How many of this user's points have not been accepted by the server yet. */
+    pendingCount: 0,
+    /** Epoch ms of the last upload the server accepted, or 0. */
+    lastUploadAt: 0,
+    /** Human-readable reason the last upload attempt failed, or '' when healthy. */
+    uploadError: '',
+    /**
+     * Set when the uploader has stopped and will not retry on its own.
+     *
+     * Only a 400 does this. Everything else — offline, 5xx, timeout, 429 — is temporary and
+     * retried on the next interval. A 400 means the client is sending something the server
+     * will never accept, i.e. a bug in this app; retrying forever would block every later
+     * point behind it, and silently discarding the batch to get unstuck would throw away a
+     * member's track to hide our own defect. So it stops and says so.
+     */
+    uploadBlocked: false,
+    uploading: false,
+    uploadTimer: null as ReturnType<typeof setInterval> | null,
   }),
   actions: {
     // start begins recording, if it should be. Safe to call repeatedly — the app-level
@@ -300,8 +330,158 @@ export const useTrackStore = defineStore('track', {
     async refreshCount() {
       try {
         this.pointCount = await countPoints()
+        const session = useSessionStore()
+        if (session.user) this.pendingCount = await countPending(session.user.userId)
       } catch (err) {
         console.error('failed to count recorded positions', err)
+      }
+    },
+
+    // ---- upload (task 083) ---------------------------------------------------------
+
+    // startUploading begins the 2-minute upload cycle.
+    //
+    // Deliberately independent of recording. Points can be pending with recording stopped —
+    // permission revoked, storage full, or simply signed in after a session where the phone
+    // recorded and never got signal — and in every one of those cases the backlog still has
+    // to ship. Tying the uploader to the recorder would strand exactly the data that is
+    // hardest to reproduce.
+    startUploading() {
+      const session = useSessionStore()
+      if (!session.user || this.uploadTimer !== null || this.uploadBlocked) return
+
+      // Attempt immediately: on iOS the app does not run while backgrounded (task 082), so
+      // being foregrounded is the moment a backlog can move, and waiting out a fresh
+      // 2-minute interval first would waste the window the user is actually giving us.
+      void this.flush()
+      this.uploadTimer = setInterval(() => void this.flush(), TRACK_UPLOAD_INTERVAL_SECONDS * 1000)
+    },
+
+    stopUploading() {
+      if (this.uploadTimer !== null) {
+        clearInterval(this.uploadTimer)
+        this.uploadTimer = null
+      }
+    },
+
+    // flush uploads pending points in bounded chunks.
+    //
+    // Points are marked uploaded ONLY after the server has answered 2xx, so a failure of any
+    // kind leaves them pending and the next interval retries them.
+    //
+    // WHERE DUPLICATES ARE REMOVED, decided here rather than left to whoever notices
+    // (task 083 asks for this in writing): **at the reader**, keyed by (person, timestamp).
+    // A request that times out *after* the server published it is indistinguishable from one
+    // that never arrived, so the client must retry, and that retry republishes points the
+    // stream already has. The client cannot know; the endpoint cannot know without keeping
+    // state it is forbidden to keep (it writes no SQL, PRD 008 §8); so the stream can contain
+    // the same point twice and the reader must collapse it. That is safe rather than merely
+    // tolerable, because a point is immutable: the same (person, timestamp) always carries
+    // the same position, so last-write-wins and first-write-wins agree. Task 086 and any
+    // other consumer must key on (person, timestamp) — this is the contract.
+    async flush() {
+      const session = useSessionStore()
+      const app = useAppStore()
+
+      // No upload without a signed-in person: the endpoint resolves the person from the
+      // session, so an unauthenticated attempt is a guaranteed 401 and a pointless request.
+      if (!session.user || this.uploading || this.uploadBlocked) return
+
+      this.uploading = true
+      try {
+        for (let chunk = 0; chunk < TRACK_UPLOAD_MAX_CHUNKS_PER_RUN; chunk++) {
+          const points = await pendingPoints(session.user.userId, TRACK_UPLOAD_CHUNK)
+          if (points.length === 0) {
+            // Nothing new. This is the common case for a stationary phone and costs no
+            // request at all — the "only when changed" condition PRD 002 §11.1 asks for.
+            this.pendingCount = 0
+            break
+          }
+
+          // Send only the wire fields. `userId` and `uploaded` are local bookkeeping, and
+          // the endpoint rejects unknown fields (task 084) — so forwarding the stored row
+          // as-is would be a 400 on every batch.
+          const payload = points.map((p) => ({
+            ts: p.ts,
+            lat: p.lat,
+            lng: p.lng,
+            accuracy: p.accuracy,
+          }))
+
+          const accepted = await this.send(payload)
+          if (!accepted) return
+
+          await markUploaded(
+            session.user.userId,
+            points.map((p) => p.ts),
+          )
+          this.lastUploadAt = Date.now()
+          this.uploadError = ''
+          app.setOnline(true)
+          void logEvent('upload', `${points.length} points`)
+
+          // A short chunk means the queue is drained; stop rather than spend another
+          // round-trip discovering it is empty.
+          if (points.length < TRACK_UPLOAD_CHUNK) break
+        }
+
+        await this.refreshCount()
+        // Uploaded points stop earning their storage once the race they belong to is over.
+        const cutoff = Date.now() - TRACK_KEEP_UPLOADED_HOURS * 60 * 60 * 1000
+        await pruneUploaded(session.user.userId, cutoff)
+      } catch (err) {
+        // Anything unexpected (an IndexedDB failure mid-flush) must not leave the uploader
+        // wedged: the points are still pending, so the next interval retries.
+        this.uploadError = err instanceof Error ? err.message : 'ukendt fejl'
+        console.error('track upload failed', err)
+      } finally {
+        this.uploading = false
+      }
+    },
+
+    // send posts one batch. Returns true when the server accepted it.
+    //
+    // Classifying the failure is the whole job here: the difference between "retry in two
+    // minutes" and "stop, this will never work" decides whether a member's track survives.
+    async send(points: { ts: number; lat: number; lng: number; accuracy: number }[]): Promise<boolean> {
+      const app = useAppStore()
+      try {
+        await fetchWrapper.post<{ accepted: number; dropped: number }>('/api/track', { points })
+        return true
+      } catch (err) {
+        if (err instanceof NetworkError) {
+          // No signal. The normal case during the race, and not worth an error message.
+          app.setOnline(false)
+          this.uploadError = 'ingen forbindelse'
+          void logEvent('uploadfail', 'offline')
+          return false
+        }
+        if (err instanceof HttpError) {
+          if (err.status === 401) {
+            // The session expired. Stop the cycle rather than hammer a dead session; the
+            // points stay pending and ship after the next sign-in.
+            this.uploadError = 'ikke logget ind'
+            this.stopUploading()
+            void logEvent('uploadfail', '401')
+            return false
+          }
+          if (err.status === 400) {
+            // A batch the server will never accept — our bug. See uploadBlocked.
+            this.uploadBlocked = true
+            this.uploadError = `afvist af serveren: ${err.message}`
+            this.stopUploading()
+            void logEvent('uploadfail', `400 ${err.message}`)
+            return false
+          }
+          // 413 (too large), 429 (rate limited), 5xx, 503 (broker down) — all temporary or
+          // self-correcting. 413 in particular should be impossible, since the chunk is a
+          // quarter of the server's bound; if it happens the retry is harmless and the
+          // message says what to look at.
+          this.uploadError = `serverfejl (${err.status})`
+          void logEvent('uploadfail', String(err.status))
+          return false
+        }
+        throw err
       }
     },
   },

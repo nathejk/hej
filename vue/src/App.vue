@@ -33,6 +33,8 @@ async function handleOnline() {
   // Confirm a provisional identity, or discover the session actually expired while
   // we were away.
   if (session.provisional) await session.refresh()
+  // Signal is back: ship the backlog now rather than at the next interval tick.
+  void track.flush()
 }
 // Records when the document is suspended and resumed. This is the measurement task 082
 // actually needs from a real phone: a web app cannot record while backgrounded, and the
@@ -44,7 +46,13 @@ function onVisibility() {
   // Coming back from a suspend, the interval may have been throttled or the app
   // restarted; sample promptly rather than waiting out the rest of the period. sample()
   // refuses if a point was recorded within the last interval, so this cannot oversample.
-  if (!document.hidden) void track.sample()
+  if (!document.hidden) {
+    void track.sample()
+    // And ship whatever accumulated. On iOS the app does not run while backgrounded, so
+    // being foregrounded is the only moment a backlog can move (task 082's measurement) —
+    // waiting out a fresh 2-minute interval would waste the window the user just gave us.
+    void track.flush()
+  }
 }
 
 onMounted(() => {
@@ -66,6 +74,7 @@ onUnmounted(() => {
   window.removeEventListener('offline', handleOffline)
   document.removeEventListener('visibilitychange', onVisibility)
   track.stop()
+  track.stopUploading()
 })
 
 // React to permission being granted or revoked later, and to signing in or out.
@@ -77,6 +86,19 @@ watch(
     if (permission === 'granted' && userId) void track.start()
     else track.stop()
   },
+)
+
+// The uploader follows the SESSION, not the permission (task 083). Points can be pending
+// with recording stopped — permission revoked, storage full, or a previous session that
+// recorded and never found signal — and in every one of those cases the backlog still has to
+// ship. Tying it to the recorder would strand exactly the data that is hardest to reproduce.
+watch(
+  () => session.user?.userId,
+  (userId) => {
+    if (userId) track.startUploading()
+    else track.stopUploading()
+  },
+  { immediate: true },
 )
 
 // The app shell (top bar + bottom nav) frames authenticated pages. The login

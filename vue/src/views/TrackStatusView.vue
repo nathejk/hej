@@ -164,6 +164,12 @@ const report = computed(() => {
     L('nøjagtighed min/median/max', `${accuracy.value.min}/${accuracy.value.median}/${accuracy.value.max} m`)
   }
   lines.push('')
+  lines.push('-- upload (task 083) --')
+  L('venter på at blive sendt', track.pendingCount)
+  L('sidste accepterede upload', track.lastUploadAt ? new Date(track.lastUploadAt).toISOString() : '(ingen)')
+  L('upload-fejl', track.uploadError || '(ingen)')
+  L('upload stoppet af fejl', track.uploadBlocked)
+  lines.push('')
   lines.push('-- baggrund --')
   L('gange i baggrunden', suspends.value.spans.length + suspends.value.killed)
   L('heraf dræbt af iOS (ingen genoptagelse)', suspends.value.killed)
@@ -240,6 +246,10 @@ async function copy() {
       <div class="rounded-lg border border-slate-200 bg-white p-3">
         <div class="text-xs text-slate-500">Periode</div>
         <div class="text-lg font-medium">{{ analysis.span ? dur(analysis.span) : '—' }}</div>
+      </div>
+      <div class="rounded-lg border border-slate-200 bg-white p-3">
+        <div class="text-xs text-slate-500">Venter</div>
+        <div class="text-lg font-medium">{{ track.pendingCount }}</div>
       </div>
       <div class="rounded-lg border border-slate-200 bg-white p-3">
         <div class="text-xs text-slate-500">Dækning</div>

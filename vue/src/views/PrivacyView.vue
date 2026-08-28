@@ -47,8 +47,12 @@ const appVersion = __APP_VERSION__
           <h2 class="font-medium text-slate-800">Din placering</h2>
           <p class="mt-1 text-sm text-slate-600">
             Når du har givet lov, viser appen dig på kortet — og undervejs gemmer den din
-            rute. Ruten sendes til Nathejks arrangører, så vi kan hjælpe jer, hvis I bliver i
-            tvivl om, hvor I er, og så vi bagefter kan vise jer jeres egen rute.
+            rute. Ruten sendes til Nathejks arrangører, så vi bagefter kan vise jer jeres
+            egen rute.
+          </p>
+          <p class="mt-2 text-sm text-slate-600">
+            Vi kan <strong>ikke</strong> se på en skærm, hvor I er lige nu. Har I brug for
+            hjælp, skal I ringe — ruten er ikke en nødknap.
           </p>
           <p class="mt-2 text-sm text-slate-600">
             Ruten optages kun, mens appen er åben. Ligger telefonen i lommen med skærmen
@@ -106,7 +110,11 @@ const appVersion = __APP_VERSION__
             Ruten gemmes først på telefonen, og sendes videre når der er signal. Lige nu er
             der
             <strong>{{ track.pointCount }}</strong>
-            {{ track.pointCount === 1 ? 'punkt' : 'punkter' }} gemt.
+            {{ track.pointCount === 1 ? 'punkt' : 'punkter' }} gemt,
+            <template v-if="track.pendingCount === 0">og alt er sendt.</template>
+            <template v-else
+              >og <strong>{{ track.pendingCount }}</strong> venter på at blive sendt.</template
+            >
           </p>
           <p v-if="track.recording" class="mt-2 text-sm text-slate-600">
             Appen optager netop nu — der kommer et nyt punkt hvert halve minut, så længe appen
@@ -119,6 +127,10 @@ const appVersion = __APP_VERSION__
           <p v-else-if="track.problem === 'capped'" class="mt-2 text-sm text-amber-800">
             Optagelsen er stoppet, fordi der er gemt usædvanligt mange punkter. Sig det til en
             voksen fra Nathejk.
+          </p>
+          <p v-if="track.uploadBlocked" class="mt-2 text-sm text-amber-800">
+            Ruten kan ikke sendes lige nu på grund af en fejl i appen. Punkterne er gemt på
+            telefonen — sig det til en voksen fra Nathejk.
           </p>
           <p v-if="!track.persisted" class="mt-2 text-sm text-slate-500">
             Telefonen har ikke lovet at beholde det, hvis der bliver pladsmangel. Derfor sender
