@@ -409,6 +409,12 @@ portrait, not a modal spinner. **This component is owned here** and reused by PR
 
 ## 10. Rollout / Task Breakdown
 
+**Progress (2026-08-28).** Track (a) — details + permission status — is
+implemented: tasks 093–101 are done, so the page exists, is reached from the new
+top-bar user menu, and shows real details and live device-permission status. Track
+(b) — the portrait — is created as tasks 103–109 and **blocked on task 102**, the
+consent/retention/access decision, which is a human call.
+
 Two loosely coupled tracks: (a) details + permission status, which is
 low-risk and shippable on its own, and (b) photo capture + storage, which carries
 the platform and privacy risk. Ship (a) first so the page exists, then (b).
