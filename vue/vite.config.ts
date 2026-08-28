@@ -16,6 +16,26 @@ export default defineConfig({
   define: {
     // Build/version id exposed to the app (npm sets npm_package_version).
     __APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? 'dev'),
+    // A build identity that actually differs between builds.
+    //
+    // __APP_VERSION__ cannot do this job: package.json's version is pinned at
+    // 0.0.0 and nobody bumps it, so every build reports the same string — which
+    // is worthless when the question is "is the phone running the build I just
+    // deployed, or a service worker's stale copy?".
+    //
+    // BUILD_VERSION is the existing org convention (`<ref_name>.<run_number>`,
+    // set by .github/workflows/build-and-publish.yml and passed to the image as a
+    // Docker build arg — see docker/Dockerfile, where the Go binary already
+    // consumes it via -ldflags). Reused here rather than introducing a second
+    // scheme. Note the build context deliberately excludes .git, so deriving this
+    // from a commit sha at build time is not an option.
+    //
+    // In dev there is no BUILD_VERSION, so it falls back to the moment the dev
+    // server started — which is the useful signal locally, since that is what
+    // changes when you restart it.
+    __BUILD_ID__: JSON.stringify(
+      process.env.BUILD_VERSION || `dev ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`,
+    ),
   },
   plugins: [
     vue(),

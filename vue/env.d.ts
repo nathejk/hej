@@ -3,6 +3,8 @@
 
 // Injected by Vite `define` (see vite.config.ts).
 declare const __APP_VERSION__: string
+// Distinct from __APP_VERSION__: this one changes per build. See vite.config.ts.
+declare const __BUILD_ID__: string
 
 // No VITE_* app config here on purpose: runtime configuration comes from the BFF
 // via GET /api/config (see src/config/runtime.ts), so one built image can be

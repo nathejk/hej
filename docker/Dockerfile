@@ -76,6 +76,11 @@ ENTRYPOINT ["ui-dev"]
 # the same Node major as ui-dev deliberately — a dev/prod split is a debugging
 # trap.
 FROM node:22-alpine AS ui-builder
+# Same build arg the Go `build` stage uses, so the SPA and the binary report the
+# same identity. Promoted to ENV because Vite reads it from the environment at
+# config time (see vue/vite.config.ts -> __BUILD_ID__).
+ARG BUILD_VERSION=dev
+ENV BUILD_VERSION=${BUILD_VERSION}
 WORKDIR /app
 COPY vue/package.json vue/package-lock.json ./
 RUN npm ci --no-audit --no-fund
