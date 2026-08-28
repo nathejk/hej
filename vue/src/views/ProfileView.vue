@@ -7,12 +7,19 @@
 //
 // There is no sign-out button here on purpose: it lives in that same user menu, and
 // PRD 005 requires exactly one sign-out action in the app.
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { Bell, Camera, MapPin } from '@lucide/vue'
 import { useProfileStore } from '@/stores/profile.store'
+import { useNotificationsStore } from '@/stores/notifications.store'
+import { useLocationStore } from '@/stores/location.store'
 import { ROLE_LABELS } from '@/config/roles'
 import { formatPhone } from '@/helpers'
+import { blockedGuidance } from '@/config/permissions'
+import PreferenceRow from '@/components/profile/PreferenceRow.vue'
 
 const profile = useProfileStore()
+const notifications = useNotificationsStore()
+const location = useLocationStore()
 
 // Crew are seeded without an address and the app has no reason to show one, so an
 // empty address is a normal state rather than missing data — but the row still says
@@ -22,7 +29,125 @@ const hasAddress = computed(() => {
   return Boolean(d && (d.address || d.postalCode || d.city))
 })
 
-onMounted(() => void profile.ensureLoaded())
+// —— På denne enhed ——
+//
+// The install row (PRD 005's `install.store`) is deliberately absent: that store does
+// not exist yet, and stubbing it here would leave a row that always says the same
+// thing. The list is a list, so appending it later costs one entry.
+
+const busy = ref(false)
+
+const pushRow = computed(() => {
+  if (!notifications.available) {
+    return {
+      status: 'Ikke understøttet',
+      detail:
+        'Denne browser kan ikke sende notifikationer. På iPhone virker det kun, når appen er lagt på hjemmeskærmen.',
+    }
+  }
+  if (notifications.permission === 'denied') {
+    return { status: 'Blokeret', detail: blockedGuidance('notifications') }
+  }
+  // Granted but not subscribed is its own state, not a rounding error: the browser can
+  // drop a subscription, and it is precisely when push silently stops working (task 100).
+  if (notifications.permission === 'granted' && !notifications.subscribed) {
+    return {
+      status: 'Ikke tilmeldt',
+      detail: 'Du har givet lov, men denne enhed er ikke tilmeldt notifikationer.',
+      action: 'Tilmeld',
+    }
+  }
+  if (notifications.subscribed) {
+    return { status: 'Til', detail: 'Du får vigtige beskeder under løbet.' }
+  }
+  return {
+    status: 'Fra',
+    detail: 'Slå til, så du får de vigtige opdateringer under løbet.',
+    action: 'Slå til',
+  }
+})
+
+const locationRow = computed(() => {
+  if (!location.available) {
+    return { status: 'Ikke understøttet', detail: 'Denne enhed kan ikke oplyse din placering.' }
+  }
+  if (location.permission === 'denied') {
+    return { status: 'Blokeret', detail: blockedGuidance('location') }
+  }
+  if (location.permission === 'granted') {
+    // Deliberate wording (PRD 003 §11): nothing is shared live. Saying "til" alone
+    // would imply someone is watching a screen with a dot on it.
+    return {
+      status: 'Til',
+      detail: 'Kortet kan vise, hvor du er, og din rute gemmes og sendes til arrangørerne.',
+    }
+  }
+  return {
+    status: 'Fra',
+    detail: 'Kortet kan ikke vise, hvor du er. Du bliver spurgt, når du åbner kortet.',
+  }
+})
+
+// Camera has no store of its own yet — PRD 003's capture component (task 106) is
+// blocked on the consent decision (task 102). Until then this row reports what can be
+// known without opening the camera, which is the honest amount.
+const cameraAvailable =
+  typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia)
+const cameraPermission = ref<'unknown' | 'prompt' | 'granted' | 'denied'>('unknown')
+
+async function syncCamera() {
+  if (!cameraAvailable || typeof navigator === 'undefined' || !('permissions' in navigator)) return
+  try {
+    const status = await navigator.permissions.query({ name: 'camera' } as PermissionDescriptor)
+    cameraPermission.value = status.state as 'prompt' | 'granted' | 'denied'
+  } catch {
+    // WebKit does not support querying the camera permission. Left as 'unknown',
+    // which the row reports as "Du bliver spurgt …" rather than guessing "Fra" —
+    // guessing here would tell an iPhone user their camera is off when it is not.
+  }
+}
+
+const cameraRow = computed(() => {
+  if (!cameraAvailable) {
+    return { status: 'Ikke understøttet', detail: 'Denne browser giver ikke adgang til kameraet.' }
+  }
+  if (cameraPermission.value === 'denied') {
+    return { status: 'Blokeret', detail: blockedGuidance('camera') }
+  }
+  if (cameraPermission.value === 'granted') {
+    return { status: 'Til', detail: 'Du kan tage et billede af dig selv til din profil.' }
+  }
+  return { status: 'Klar', detail: 'Du bliver spurgt, første gang du tager et billede.' }
+})
+
+async function enablePush() {
+  busy.value = true
+  try {
+    await notifications.enable()
+  } finally {
+    busy.value = false
+  }
+}
+
+// A permission changed in browser or system settings does not notify the page, so the
+// only reliable moment to re-read all of them is when the user comes back to it.
+async function syncAll() {
+  notifications.syncPermission()
+  await Promise.all([notifications.syncSubscription(), location.syncPermission(), syncCamera()])
+}
+
+function onVisibility() {
+  if (!document.hidden) void syncAll()
+}
+
+onMounted(() => {
+  void profile.ensureLoaded()
+  void syncAll()
+  document.addEventListener('visibilitychange', onVisibility)
+})
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', onVisibility)
+})
 </script>
 
 <template>
@@ -117,7 +242,31 @@ onMounted(() => void profile.ensureLoaded())
 
     <section>
       <h2 class="font-nathejk text-lg text-slate-900">På denne enhed</h2>
-      <!-- Filled in by task 099. -->
+      <div
+        class="mt-2 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white px-4 shadow-xs"
+      >
+        <PreferenceRow
+          :icon="Bell"
+          label="Notifikationer"
+          :status="pushRow.status"
+          :detail="pushRow.detail"
+          :action="pushRow.action"
+          :busy="busy"
+          @act="enablePush"
+        />
+        <PreferenceRow
+          :icon="MapPin"
+          label="Placering"
+          :status="locationRow.status"
+          :detail="locationRow.detail"
+        />
+        <PreferenceRow
+          :icon="Camera"
+          label="Kamera"
+          :status="cameraRow.status"
+          :detail="cameraRow.detail"
+        />
+      </div>
     </section>
   </div>
 </template>
