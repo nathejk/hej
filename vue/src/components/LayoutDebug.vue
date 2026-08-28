@@ -12,12 +12,14 @@ import { useRoute } from 'vue-router'
 //
 // The two derived values are the ones worth reading:
 //
-//   app.h     the shell's height, and the document's scrollable height next to it. The
-//             shell is deliberately taller on iOS; the DOCUMENT must stay equal to the
-//             viewport, or the whole app becomes draggable.
-//   vh-extra  how much was added to the shell height to reach the physical screen bottom.
-//   nav.gap   distance from the bottom of the nav to the bottom of the screen. Should be 0
-//             once the shell reaches the bottom; 59 means it still stops short.
+//   app.h     the shell's height, and the document's scrollable height next to it. They
+//             must be equal: if the document is taller, the whole app becomes draggable.
+//   nav.gap   distance from the nav's bottom edge to the bottom of the screen. NOTE this is
+//             CSS coordinates, not painted pixels: iOS clips painting to the reported
+//             viewport, so a gap of 0 does not mean the nav is visible all the way down.
+//             That mistake cost a release — the nav's labels were laid out below the
+//             viewport and silently not drawn. Expect this to equal the shortfall
+//             (screen.height - vp height), which is backdrop nothing can paint into.
 //   main.top  where the shell's <main> starts. On a full-bleed route it should be 0; a
 //             non-zero value means something in our own layout is reserving space.
 
@@ -31,7 +33,6 @@ const effective = ref('')
 const mainTop = ref('')
 const mode = ref('')
 const appH = ref('')
-const extra = ref('')
 const navGap = ref('')
 const where = ref('')
 
@@ -80,12 +81,10 @@ function sample() {
   const rootStyle = getComputedStyle(document.documentElement)
   const v = (name: string) => Math.round(Number.parseFloat(rootStyle.getPropertyValue(name)) || 0)
   effective.value = `${v('--sat')}/${v('--sar')}/${v('--sab')}/${v('--sal')}`
-  extra.value = `${v('--vh-extra')}`
 
-  const el = document.querySelector('.app-shell') ?? document.getElementById('app')
-  // Shell height alongside the document's scroll height. The shell is intentionally taller
-  // than the document on iOS; what must NOT happen is the document growing past the
-  // viewport, which is what made the whole app draggable.
+  const el = document.getElementById('app')
+  // Shell height vs the document's scroll height. A difference means document overflow, i.e.
+  // the whole app becomes draggable.
   const h = el ? Math.round(el.getBoundingClientRect().height) : 0
   appH.value = `${h} doc ${document.documentElement.scrollHeight}`
 
@@ -162,7 +161,6 @@ onBeforeUnmount(() => {
       <div>sa {{ insets }}</div>
       <div>use {{ effective }}</div>
       <div>app.h {{ appH }}</div>
-      <div>vh-extra {{ extra }}</div>
       <div>nav.gap {{ navGap }}</div>
       <div>main.top {{ mainTop }}</div>
       <div>{{ mode }} / {{ where }}</div>

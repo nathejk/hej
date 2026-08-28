@@ -17,32 +17,26 @@
 // whole shell could be dragged, and resizing the shell after first paint left the scroll
 // container in `main` mis-measured on a cold open. See the note in main.css.
 //
-// THE BOTTOM INSET PASSES THROUGH UNCHANGED TOO. An earlier version reduced it by the
-// viewport's shortfall, reasoning that a shell ending 59px above the screen edge was
-// already clear of the 34px home indicator. True at the time, but it is the wrong fix for
-// the wrong problem: the shell now extends to the physical bottom (see `.app-shell` in
-// main.css), so the nav really does sit over the indicator and really does need the full
-// 34px. Reducing it would put tap targets in the swipe-up area.
+// THE BOTTOM INSET IS REDUCED BY THE VIEWPORT'S SHORTFALL. This is geometry, not an
+// inference about platform behaviour:
 //
-// THE ONE THING THIS COMPUTES is `--vh-extra`: the shortfall between the reported viewport
-// height and the screen, which `.app-shell` adds to its own height so it reaches the
-// bottom of the display.
+//   * `env(safe-area-inset-bottom)` exists to keep content clear of the home indicator at
+//     the physical bottom of the screen.
+//   * iOS clips painting to the reported viewport, which ends `shortfall` pixels above the
+//     screen's bottom edge — nothing we lay out can reach past it (see main.css for the two
+//     failed attempts to make the shell reach the bottom).
+//   * So the shell already ends 59px above the screen edge, comfortably clear of a 34px
+//     indicator, and the nav's own 34px of padding is redundant. That redundancy is what
+//     "the bottom nav takes up too much space" is.
 //
-// In an iOS standalone web app with a translucent status bar, `innerHeight` (and therefore
-// `100dvh`) report `screen.height - topInset` while the web view is laid out from the very
-// top of the screen. The shell consequently stops `topInset` short of the bottom, leaving a
-// strip of blank background under the nav — the residue of task 036, which switching from
-// `height: 100%` to `100dvh` reduced from ~100px to 59 without eliminating.
+// The padding still needed is therefore `max(0, inset.bottom - shortfall)`. It can only
+// ever *reduce* padding that is provably unnecessary: when the viewport does fill the screen
+// the shortfall is 0 and the full inset survives, and Android reports no bottom inset so it
+// is 0 either way. The shortfall is clamped at 0 because desktop reports a viewport taller
+// than `screen.height`.
 //
-//   iOS, translucent status bar   short by sa.top   sa.top 59   extend the shell
-//   Android standalone            short by ~24      sa.top 0    leave it alone
-//   Browser tab / desktop         not short         sa.top 0    leave it alone
-//
-// The shortfall is only added back when it equals a non-zero top inset. That equality is
-// what separates iOS from Android: Android is short too, by its status bar, but reports no
-// top inset — and there the viewport genuinely does begin below the status bar, so
-// extending the shell would push content underneath it. A bare "is the viewport short?"
-// test would break Android.
+// This does NOT close the strip of backdrop below the viewport — nothing can. It removes the
+// 34px we were adding on top of it.
 
 const EDGES = ['top', 'right', 'bottom', 'left'] as const
 
@@ -75,17 +69,15 @@ function readInsets(): Record<(typeof EDGES)[number], number> {
 
 function apply() {
   const inset = readInsets()
-  // How far the reported viewport stops short of the screen's bottom edge. Clamped
-  // because desktop reports a viewport taller than screen.height.
+  // How far the reported viewport stops short of the screen's bottom edge. Clamped because
+  // desktop reports a viewport taller than screen.height.
   const shortfall = Math.max(0, window.screen.height - window.innerHeight)
-  const heightUnderReported = inset.top > 0 && shortfall === inset.top
 
   const root = document.documentElement.style
   root.setProperty('--sat', `${inset.top}px`)
   root.setProperty('--sar', `${inset.right}px`)
-  root.setProperty('--sab', `${inset.bottom}px`)
+  root.setProperty('--sab', `${Math.max(0, inset.bottom - shortfall)}px`)
   root.setProperty('--sal', `${inset.left}px`)
-  root.setProperty('--vh-extra', `${heightUnderReported ? shortfall : 0}px`)
 }
 
 let frame = 0

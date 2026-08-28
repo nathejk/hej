@@ -210,17 +210,25 @@
   shell can be dragged — `overflow: hidden` on `body` does not reliably prevent that on iOS.
   The strip is closed by `.app-shell` instead, which is out of flow.
 */
-
-  DO NOT put `--vh-extra` on these. Sizing the *document* taller than the viewport is what
-  broke scrolling: it gives the page scrollable overflow, so the whole app can be dragged,
-  and `overflow: hidden` on `body` does not reliably prevent that on iOS. The extension
-  belongs on `.app-shell` below, which is out of flow and therefore cannot lengthen the
-  document. Keeping these at exactly `100dvh` is also what keeps the login screen usable
-  with the keyboard open, since `dvh` shrinks and re-centres the form.
-
-  `overflow: hidden` and `overscroll-behavior: none` are what keep the document itself
+`overflow: hidden` and `overscroll-behavior: none` are what keep the document itself
   inert: this app scrolls in inner containers (`main`), never at the document level, and
   should not rubber-band.
+
+  DO NOT try to make the shell reach the physical bottom of the display. Two attempts
+  failed for two different reasons and both are dead ends:
+
+    1. `calc(100dvh + shortfall)` on html/body/#app made the DOCUMENT taller than the
+       viewport, giving it scrollable overflow so the whole app could be dragged.
+       `overflow: hidden` on `body` does not reliably prevent that on iOS.
+    2. The same height on a `position: fixed` shell fixed the scrolling, and the nav's
+       bottom edge did move to `screen.height` — but the bottom of the nav was never
+       painted. The labels simply vanished. iOS clips rendering to the reported viewport,
+       so anything laid out below it is invisible, and a measured `nav.gap` of 0 was
+       misleading because it reports CSS coordinates, not painted pixels.
+
+  The strip of backdrop between the viewport bottom and the screen bottom is therefore not
+  reachable by CSS at all. The only levers are how much padding the nav adds inside the
+  viewport (see @/helpers/safeArea) and what colour the backdrop is (`body` background).
 */
 html,
 body,
@@ -236,42 +244,17 @@ body {
 }
 
 /*
-  The authenticated app shell (top bar / content / bottom nav).
-
-  `position: fixed` rather than a normal-flow child, and deliberately so. The shell has to
-  be TALLER than the reported viewport to reach the bottom of the display — on iOS
-  standalone `100dvh` is `screen.height - topInset` while the view is laid out from the very
-  top of the screen, so a `100dvh` shell stops 59px short and leaves a strip of blank
-  background beneath the nav. Out of flow, that extra height cannot lengthen the document,
-  so it cannot reintroduce the whole-shell dragging that sizing html/body this way caused.
-
-  Applied only to the signed-in shell, not to `#app`: the login screen stays in normal flow
-  so the keyboard still shrinks its container and scrolls the phone/PIN fields into view.
-
-  `--vh-extra` is 0 on Android, in a browser tab and on desktop, where this is simply a
-  full-viewport fixed layer. See @/helpers/safeArea.
-*/
-.app-shell {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: calc(100dvh + var(--vh-extra, 0px));
-}
-
-/*
-  Safe-area insets, plus the shell-height correction, as custom properties.
+  Safe-area insets, as custom properties.
 
   Components must use these, never `env(safe-area-inset-*)` directly — one indirection so a
-  platform correction lives in one place rather than at a dozen call sites. The insets are
-  passed through unchanged by @/helpers/safeArea; `--vh-extra` is the one computed value.
+  platform correction lives in one place rather than at a dozen call sites. See
+  @/helpers/safeArea for the one correction currently applied.
 */
 :root {
   --sat: env(safe-area-inset-top);
   --sar: env(safe-area-inset-right);
   --sab: env(safe-area-inset-bottom);
   --sal: env(safe-area-inset-left);
-  --vh-extra: 0px;
 }
 
 body {
