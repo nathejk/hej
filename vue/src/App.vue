@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { LogOut } from '@lucide/vue'
+import { useRoute } from 'vue-router'
 import { useSessionStore } from '@/stores/session.store'
 import { useAppStore } from '@/stores/app.store'
 import { useLocationStore } from '@/stores/location.store'
@@ -10,6 +9,7 @@ import { logEvent } from '@/helpers/trackDb'
 import BottomNav from '@/components/BottomNav.vue'
 import UpdatePrompt from '@/components/UpdatePrompt.vue'
 import OfflineNotice from '@/components/OfflineNotice.vue'
+import UserMenu from '@/components/UserMenu.vue'
 import LayoutDebug from '@/components/LayoutDebug.vue'
 import { APP_NAME } from '@/config/brand'
 import { showLayoutDebug } from '@/config/runtime'
@@ -19,7 +19,6 @@ const app = useAppStore()
 const location = useLocationStore()
 const track = useTrackStore()
 const route = useRoute()
-const router = useRouter()
 
 // Connectivity (task 090). The browser events are a hint, not the truth —
 // navigator.onLine is true on a captive portal and with one unusable bar — so
@@ -109,11 +108,6 @@ const showShell = computed(() => session.isAuthenticated && route.name !== 'logi
 // no scroll container. The top bar's trailing user menu (PRD 003: profile +
 // sign-out) is therefore absent here; the bottom nav is the way out.
 const fullBleed = computed(() => route.meta.fullBleed === true)
-
-async function signOut() {
-  await session.logout()
-  await router.replace({ name: 'login' })
-}
 </script>
 
 <template>
@@ -129,14 +123,9 @@ async function signOut() {
       style="padding-top: calc(var(--sat) + 0.75rem)"
     >
       <span class="font-nathejk text-lg tracking-wide">{{ APP_NAME }}</span>
-      <button
-        type="button"
-        class="flex items-center gap-1 text-sm text-slate-500"
-        @click="signOut"
-      >
-        <LogOut class="h-4 w-4" aria-hidden="true" />
-        Log ud
-      </button>
+      <!-- Profile + sign-out (PRD 003). Owns signOut() — there is exactly one
+           sign-out action in the app. -->
+      <UserMenu />
     </header>
 
     <!-- In flow, so it never covers the map or collides with UpdatePrompt. On a
