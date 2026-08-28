@@ -429,7 +429,14 @@ top-bar user menu, and shows real details and live device-permission status.
 
 The consent/retention decision that blocked track (b) was **answered the same day**
 (task 102): consent is already held from sign-up, the portrait is a safety feature,
-and it is purged after the event. Tasks 103–109 are therefore unblocked.
+and it is purged after the event. Track (b) then landed too — tasks 103, 105, 106 and
+107 are done, so a member can take a portrait and it is stored, event-sourced and
+served back.
+
+Still open: **104** (server-side thumbnails, wanted by PRD 007 rather than by this
+page), **108** (device pass — needs real phones; the camera paths cannot be verified
+in a container), and **109** (purge job — needs a maintainer number for how long
+after the event).
 
 Two loosely coupled tracks: (a) details + permission status, which is
 low-risk and shippable on its own, and (b) photo capture + storage, which carries
