@@ -202,13 +202,31 @@
   since an over-tall shell is a worse failure than a short one.
 
   The bottom safe-area inset stays where it belongs: on the nav itself
-  (`BottomNav.vue`), applied exactly once. Adding it here as well would double-pad.
+  (`BottomNav.vue`), applied exactly once via `var(--sab)`. Adding it here as well would
+  double-pad.
 */
 html,
 body,
 #app {
   height: 100%;
   height: 100dvh;
+}
+
+/*
+  Safe-area insets, as custom properties.
+
+  Components must use these, never `env(safe-area-inset-*)` directly. The seeds here
+  are the plain CSS answer and keep the app correct with JavaScript disabled or before
+  it runs; @/helpers/safeArea then corrects `--sat` for the one case CSS cannot detect
+  — an iOS standalone web app whose viewport has already been placed below the status
+  bar while `env()` still reports a top inset, where using `env()` directly reserves
+  the same 59px twice. See that file for the full reasoning.
+*/
+:root {
+  --sat: env(safe-area-inset-top);
+  --sar: env(safe-area-inset-right);
+  --sab: env(safe-area-inset-bottom);
+  --sal: env(safe-area-inset-left);
 }
 
 body {

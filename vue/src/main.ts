@@ -8,11 +8,17 @@ import router from '@/router'
 import { initPwa } from '@/helpers/pwa'
 import { useAppStore } from '@/stores/app.store'
 import { loadRuntimeConfig } from '@/config/runtime'
+import { initSafeArea } from '@/helpers/safeArea'
 
 const app = createApp(App)
 
 app.use(createPinia())
 app.use(router)
+
+// Before mount: components read var(--sat)/--sab for their padding, and main.css seeds
+// those from env(). This corrects the seed for the one case CSS cannot detect (see
+// @/helpers/safeArea), and doing it first avoids a visible reflow of the shell.
+initSafeArea()
 
 app.mount('#app')
 

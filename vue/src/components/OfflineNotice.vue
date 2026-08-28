@@ -35,7 +35,7 @@ const props = defineProps<{
 const show = computed(() => !app.online && session.isAuthenticated)
 
 const insetStyle = computed(() =>
-  props.insetTop ? { paddingTop: 'env(safe-area-inset-top)' } : undefined,
+  props.insetTop ? { paddingTop: 'var(--sat)' } : undefined,
 )
 </script>
 

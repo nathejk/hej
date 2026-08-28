@@ -26,6 +26,7 @@ const vp = ref('')
 const scr = ref('')
 const dpr = ref('')
 const insets = ref('')
+const effective = ref('')
 const mainTop = ref('')
 const mode = ref('')
 const cover = ref('')
@@ -35,6 +36,11 @@ const where = ref('')
 // reading a custom property that references it returns the unsubstituted token. So
 // resolve them by measuring an off-screen probe whose padding is set from env() and
 // reading back the computed pixel values.
+//
+// Deliberately reads the RAW `env()` values, not our `var(--sat)` custom properties:
+// this overlay's job is to report what the platform says, so that the correction applied
+// in @/helpers/safeArea can be checked against it rather than assumed. The `sat` line
+// below shows the corrected value for comparison.
 function readInsets(): { text: string; top: number } {
   const probe = document.createElement('div')
   probe.style.cssText = [
@@ -66,6 +72,12 @@ function sample() {
 
   const { text, top } = readInsets()
   insets.value = text
+
+  // What the app is actually using after @/helpers/safeArea's correction. When these
+  // differ from the raw values above, the correction fired.
+  const rootStyle = getComputedStyle(document.documentElement)
+  const v = (name: string) => Math.round(Number.parseFloat(rootStyle.getPropertyValue(name)) || 0)
+  effective.value = `${v('--sat')}/${v('--sar')}/${v('--sab')}/${v('--sal')}`
 
   // The verdict. `screen.height` is orientation-aware on iOS, so this compares like
   // with like. A shortfall equal to the top inset is the double-count case.
@@ -132,6 +144,7 @@ onBeforeUnmount(() => {
       <div>vp {{ vp }}</div>
       <div>scr {{ scr }} @{{ dpr }}</div>
       <div>sa {{ insets }}</div>
+      <div>use {{ effective }}</div>
       <div>{{ cover }}</div>
       <div>main.top {{ mainTop }}</div>
       <div>{{ mode }} / {{ where }}</div>

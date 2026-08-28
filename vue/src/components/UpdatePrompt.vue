@@ -31,7 +31,7 @@ async function reload() {
       <div
         v-if="updateAvailable && !dismissed"
         class="fixed inset-x-0 top-0 z-[60] m-2 flex items-center justify-between gap-3 rounded-xl bg-slate-900 px-4 py-3 text-sm text-white shadow-lg"
-        style="margin-top: calc(env(safe-area-inset-top) + 0.5rem)"
+        style="margin-top: calc(var(--sat) + 0.5rem)"
         role="status"
       >
         <span>En ny version er tilgængelig.</span>

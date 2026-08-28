@@ -142,7 +142,7 @@ function changeNumber() {
 <template>
   <main
     class="mx-auto flex h-full w-full max-w-sm flex-col justify-center gap-8 px-6"
-    style="padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom)"
+    style="padding-top: var(--sat); padding-bottom: var(--sab)"
   >
     <header class="flex flex-col items-center gap-3 text-center">
       <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-white">

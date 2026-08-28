@@ -24,7 +24,7 @@ function onOpenChange(value: boolean) {
 <template>
   <Drawer :open="open" @update:open="onOpenChange">
     <!-- pb keeps the last row clear of the iOS home indicator. -->
-    <DrawerContent class="pb-[env(safe-area-inset-bottom)]">
+    <DrawerContent class="pb-[var(--sab)]">
       <!-- Visually hidden: the sheet is self-evident, but it still needs an
            accessible name, and Drawer requires a title for that. -->
       <DrawerHeader class="sr-only">

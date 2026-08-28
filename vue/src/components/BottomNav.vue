@@ -69,7 +69,7 @@ const buildId = __BUILD_ID__
 
     <nav
       class="relative flex items-stretch border-t border-slate-200 bg-white"
-      style="padding-bottom: env(safe-area-inset-bottom)"
+      style="padding-bottom: var(--sab)"
       aria-label="Hovednavigation"
     >
       <RouterLink

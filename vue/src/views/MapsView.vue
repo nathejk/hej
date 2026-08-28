@@ -145,7 +145,7 @@ onBeforeUnmount(() => {
          element (which is isolated, so Leaflet's own z-indexes stay inside it). -->
     <div
       class="pointer-events-none absolute right-3 z-10 flex flex-col gap-2"
-      style="top: calc(env(safe-area-inset-top) + 0.75rem)"
+      style="top: calc(var(--sat) + 0.75rem)"
     >
       <div class="pointer-events-auto">
         <LayerSwitcher :model-value="baseLayer" @update:model-value="onBaseLayerChange" />
@@ -163,7 +163,7 @@ onBeforeUnmount(() => {
     <!-- Notices, top-left, so they never cover the controls. -->
     <div
       class="absolute left-3 right-16 z-10 space-y-2"
-      style="top: calc(env(safe-area-inset-top) + 0.75rem)"
+      style="top: calc(var(--sat) + 0.75rem)"
     >
       <PermissionPrompt
         v-if="showPrompt"

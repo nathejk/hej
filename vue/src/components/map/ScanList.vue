@@ -38,7 +38,7 @@ function pick(scan: Scan) {
 
 <template>
   <Drawer :open="props.open" @update:open="onOpenChange">
-    <DrawerContent class="pb-[env(safe-area-inset-bottom)]">
+    <DrawerContent class="pb-[var(--sab)]">
       <DrawerHeader class="pb-2">
         <DrawerTitle>Registreringer</DrawerTitle>
       </DrawerHeader>

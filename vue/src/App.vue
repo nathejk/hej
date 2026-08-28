@@ -104,7 +104,7 @@ async function signOut() {
     <header
       v-if="!fullBleed"
       class="flex items-center justify-between border-b border-slate-200 bg-white px-4 pb-3"
-      style="padding-top: calc(env(safe-area-inset-top) + 0.75rem)"
+      style="padding-top: calc(var(--sat) + 0.75rem)"
     >
       <span class="font-nathejk text-lg tracking-wide">{{ APP_NAME }}</span>
       <button
