@@ -27,6 +27,15 @@ type profileResponse struct {
 	// hides the row for the former and shows "Ikke registreret" for the latter, so
 	// the pointer must survive serialization — do not "simplify" this to a string.
 	PhoneParent *string `json:"phone_parent"`
+
+	// HasPhoto says whether a portrait is on file, so the client knows whether to
+	// request GET /api/me/photo and whether to nudge.
+	//
+	// A flag here rather than the client probing the photo endpoint: a probe costs a
+	// second request whose only possible answers are 200 and 404, and HEAD is not
+	// registered on that route. It also keeps the *bytes* on their own endpoint, which
+	// is what lets them be cached independently of these details.
+	HasPhoto bool `json:"has_photo"`
 }
 
 // showProfileHandler returns the signed-in user's own details. Runs behind
@@ -41,7 +50,7 @@ type profileResponse struct {
 // nothing on file for you" from "your record is gone".
 //
 // @Summary      Own profile
-// @Description  Returns the signed-in user's own details: name, role, team/section, postal address, own phone and guardian phone. phone_parent is null when the user's population has no guardian number, and an empty string when one is expected but not registered.
+// @Description  Returns the signed-in user's own details: name, role, team/section, postal address, own phone and guardian phone, plus whether a portrait is on file. phone_parent is null when the user's population has no guardian number, and an empty string when one is expected but not registered.
 // @Tags         me
 // @Produce      json
 // @Success      200  {object}  profileResponse
@@ -71,6 +80,7 @@ func (app *application) showProfileHandler(w http.ResponseWriter, r *http.Reques
 		City:        user.City,
 		Phone:       user.Phone,
 		PhoneParent: user.PhoneParent,
+		HasPhoto:    app.hasPortrait(s.UserID),
 	}
 
 	if err := app.WriteJSON(w, http.StatusOK, out, nil); err != nil {

@@ -77,6 +77,24 @@ func (app *application) storePortrait(
 	return ref, nil
 }
 
+// hasPortrait reports whether a portrait is on file for this person.
+//
+// Answers **false** when there is no database rather than failing the profile request:
+// the details are still worth showing during an outage, and the worst consequence of a
+// false negative here is that the page invites a photo the member has already taken —
+// annoying, and much better than a blank profile page.
+func (app *application) hasPortrait(personID string) bool {
+	if app.models.People == nil {
+		return false
+	}
+	p, found, err := app.models.People.Get(app.config.eventYear, personID)
+	if err != nil {
+		app.Logger.Error("reading portrait state", "err", err, "userId", personID)
+		return false
+	}
+	return found && p.PortraitRef != ""
+}
+
 // peopleOrNil adapts the person projection to the read interface, preserving nil-ness.
 //
 // Same Go trap as raceAreasOrNil above: a nil *person.Table assigned to an interface is

@@ -22,7 +22,7 @@ import { CircleUser, LogOut, User } from '@lucide/vue'
 import { useSessionStore } from '@/stores/session.store'
 import { useProfileStore } from '@/stores/profile.store'
 import { ROLE_LABELS } from '@/config/roles'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -62,8 +62,9 @@ async function signOut() {
       aria-label="Din profil og konto"
     >
       <Avatar>
-        <!-- Initials until there is a portrait (task 107 fills the image in), and a
-             generic icon until the name loads — an empty circle would look broken. -->
+        <!-- The portrait once there is one; initials until then, which doubles as a
+             standing nudge to take one. -->
+        <AvatarImage v-if="profile.photoUrl" :src="profile.photoUrl" alt="Dit billede" />
         <AvatarFallback>
           <template v-if="profile.initials">{{ profile.initials }}</template>
           <User v-else class="h-4 w-4" aria-hidden="true" />

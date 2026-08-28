@@ -38,6 +38,7 @@ interface ProfileResponse {
   city: string
   phone: string
   phone_parent: string | null
+  has_photo: boolean
 }
 
 // profile.store owns the signed-in user's own details (PRD 003).
@@ -51,6 +52,15 @@ export const useProfileStore = defineStore('profile', {
     loading: false,
     loaded: false,
     error: '',
+    // Whether a portrait is on file. Comes from GET /api/me/profile's `has_photo`, and
+    // is set directly by a successful upload.
+    hasPhoto: false,
+    // Bumped on every upload and appended to the image URL as a cache-buster.
+    //
+    // Necessary because the URL (`/api/me/photo`) is stable while its contents are not:
+    // the response carries `Cache-Control: private, max-age=3600`, so after replacing a
+    // portrait the browser would keep showing the old face for an hour.
+    photoVersion: 0,
   }),
   getters: {
     /**
@@ -69,6 +79,15 @@ export const useProfileStore = defineStore('profile', {
       const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? '') : ''
       return (first + last).toUpperCase()
     },
+
+    /**
+     * URL for the current portrait, or null when there is none.
+     *
+     * Versioned (see photoVersion) so a replacement is shown immediately rather than an
+     * hour later.
+     */
+    photoUrl: (state): string | null =>
+      state.hasPhoto ? `/api/me/photo?v=${state.photoVersion}` : null,
   },
   actions: {
     // fetch loads the details. Never throws: the page renders its error state
@@ -89,6 +108,7 @@ export const useProfileStore = defineStore('profile', {
           phone: data.phone,
           phoneParent: data.phone_parent,
         }
+        this.hasPhoto = data.has_photo
         this.error = ''
         this.loaded = true
       } catch {
@@ -105,6 +125,30 @@ export const useProfileStore = defineStore('profile', {
       await this.fetch()
     },
 
+    // uploadPhoto sends a captured portrait to the BFF.
+    //
+    // Unlike fetch() this one **throws**: the caller renders a retry affordance, and
+    // swallowing the failure would leave the user believing there is a photo on file.
+    // The BFF answers 503 for a retryable failure (broker down) and 400 for bytes it
+    // could not read; both surface here.
+    //
+    // On success the portrait version is bumped rather than the image being re-fetched
+    // by URL alone — see photoVersion.
+    async uploadPhoto(blob: Blob) {
+      const form = new FormData()
+      form.append('photo', blob, 'portrait.jpg')
+      await fetchWrapper.putForm('/api/me/photo', form)
+      this.hasPhoto = true
+      this.photoVersion += 1
+    },
+
+    // markPhotoState records whether a portrait exists. Exposed so a component that
+    // learns the image failed to load (a blob gone missing) can correct the state
+    // instead of showing a broken picture forever.
+    markPhotoState(exists: boolean) {
+      this.hasPhoto = exists
+    },
+
     // clear drops the details on sign-out. Without this the next person to sign in
     // on a shared handset would see the previous user's name in the menu until the
     // first fetch resolved.
@@ -112,6 +156,8 @@ export const useProfileStore = defineStore('profile', {
       this.details = null
       this.loaded = false
       this.error = ''
+      this.hasPhoto = false
+      this.photoVersion = 0
     },
   },
 })

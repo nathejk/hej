@@ -39,7 +39,12 @@ async function request<T = Json>(method: string, url: string, body?: unknown): P
     credentials: 'include',
   }
 
-  if (body !== undefined) {
+  if (body instanceof FormData) {
+    // No Content-Type header on purpose: the browser has to set it, because only it
+    // knows the multipart boundary. Setting `multipart/form-data` by hand produces a
+    // body the server cannot parse — a classic and very confusing failure.
+    options.body = body
+  } else if (body !== undefined) {
     options.headers = { 'Content-Type': 'application/json' }
     options.body = JSON.stringify(body)
   }
@@ -71,5 +76,12 @@ export const fetchWrapper = {
   get: <T = Json>(url: string) => request<T>('GET', url),
   post: <T = Json>(url: string, body?: unknown) => request<T>('POST', url, body),
   put: <T = Json>(url: string, body?: unknown) => request<T>('PUT', url, body),
+  /**
+   * PUT a multipart body — the portrait upload (PRD 003).
+   *
+   * A separate entry point rather than callers passing FormData to `put`, so it is
+   * obvious at the call site that this is not a JSON request.
+   */
+  putForm: <T = Json>(url: string, form: FormData) => request<T>('PUT', url, form),
   delete: <T = Json>(url: string) => request<T>('DELETE', url),
 }

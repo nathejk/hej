@@ -16,6 +16,7 @@ import { ROLE_LABELS } from '@/config/roles'
 import { formatPhone } from '@/helpers'
 import { blockedGuidance } from '@/config/permissions'
 import PreferenceRow from '@/components/profile/PreferenceRow.vue'
+import ProfilePhoto from '@/components/profile/ProfilePhoto.vue'
 
 const profile = useProfileStore()
 const notifications = useNotificationsStore()
@@ -167,6 +168,8 @@ onUnmounted(() => {
     <p v-if="profile.error" class="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
       {{ profile.error }}
     </p>
+
+    <ProfilePhoto />
 
     <section>
       <h2 class="font-nathejk text-lg text-slate-900">Mine oplysninger</h2>
