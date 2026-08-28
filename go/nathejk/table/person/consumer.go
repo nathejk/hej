@@ -118,6 +118,9 @@ func (c consumer) Consumes() []cqrs.Subject {
 		// The one lifecycle transition this app needs: did the member actually start?
 		// PRD 005's confirmation step is skipped for members who have (task 080).
 		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.started"),
+		// The one subject this app publishes itself (task 103): a member's portrait.
+		// See portrait.go for why it lives on NATHEJK rather than a sibling stream.
+		cqrs.SubjectFromStr("NATHEJK.*.portrait.*.captured"),
 	}
 }
 
@@ -176,6 +179,8 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 		return c.handleGoeglerSignedUp(msg, year)
 	case subject.Match("nathejk.*.gøgler.*.updated"):
 		return c.handleGoeglerUpdated(msg, year)
+	case subject.Match("nathejk.*.portrait.*.captured"):
+		return c.handlePortraitCaptured(msg, year)
 	case subject.Match("nathejk.*.spejder.*.updated"):
 		return c.handleSpejderUpdated(msg, year)
 	case subject.Match("nathejk.*.senior.*.updated"):

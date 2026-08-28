@@ -12,6 +12,7 @@ import (
 	"time"
 
 	bff "nathejk.dk/cmd/api/app"
+	"nathejk.dk/internal/blob"
 	"nathejk.dk/internal/choice"
 	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/data"
@@ -40,6 +41,9 @@ func newTestApp(t *testing.T) *application {
 		// degraded mode the handler must answer 503 for rather than panic in.
 		models:   data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil),
 		commands: commands.New(commands.NewPublisherHolder()),
+		// In-memory blobs: the portrait write path (task 103) needs a store, and no test
+		// should be writing image bytes to a real directory.
+		blobs: blob.NewMemoryStore(),
 
 		pins:              pin.NewStore(),
 		sms:               sms.LogSender{Logger: logger},

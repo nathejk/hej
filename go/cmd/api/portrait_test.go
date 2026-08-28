@@ -1,0 +1,157 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/jrgensen/cqrs"
+	"github.com/jrgensen/cqrs/cqrstest"
+
+	"nathejk.dk/internal/blob"
+	"nathejk.dk/internal/commands"
+	"nathejk.dk/nathejk/table/person"
+)
+
+// commandsWithPublisher wires a test publisher into the write facade.
+func commandsWithPublisher(t *testing.T, p cqrs.Publisher) commands.Commands {
+	t.Helper()
+	holder := commands.NewPublisherHolder()
+	holder.Set(p)
+	return commands.New(holder)
+}
+
+// publishedPortrait decodes the one event a test expects to have been published.
+//
+// It decodes rather than inspecting a captured struct, so the assertions run through
+// the same JSON round-trip a real consumer does — which is what makes them able to
+// catch a wrong or missing field tag.
+func publishedPortrait(t *testing.T, pub *cqrstest.Publisher) person.PortraitCaptured {
+	t.Helper()
+	if len(pub.Messages) != 1 {
+		t.Fatalf("published %d events, want 1", len(pub.Messages))
+	}
+	var body person.PortraitCaptured
+	if err := pub.Messages[0].Body(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	return body
+}
+
+// portraitTestApp is an app with a test publisher and a fixed event year.
+//
+// The year is set here rather than in `newTestApp` to follow the existing convention
+// (see `trackTestApp`, `raceAreaApp`): tests that care about the year state it, so it is
+// never unclear which value an assertion depends on.
+func portraitTestApp(t *testing.T, pub cqrs.Publisher) *application {
+	t.Helper()
+	app := newTestApp(t)
+	app.config.eventYear = "2026"
+	app.commands = commandsWithPublisher(t, pub)
+	return app
+}
+
+func TestStorePortraitStoresBytesAndPublishesTheRef(t *testing.T) {
+	pub := &cqrstest.Publisher{}
+	app := portraitTestApp(t, pub)
+
+	data := []byte("not really a jpeg, but bytes are bytes")
+	ref, err := app.storePortrait(context.Background(), "member-1", data,
+		portraitMeta{ContentType: "image/jpeg", Width: 1024, Height: 1024})
+	if err != nil {
+		t.Fatalf("storePortrait: %v", err)
+	}
+
+	// Content addressed: the ref is the hash of the bytes, not an opaque id.
+	if want := blob.ComputeRef(data); ref != want {
+		t.Errorf("ref = %q, want the content hash %q", ref, want)
+	}
+	if ok, _ := app.blobs.Exists(context.Background(), ref); !ok {
+		t.Error("bytes were not stored")
+	}
+
+	if got := pub.Subjects(); len(got) != 1 || got[0] != "NATHEJK.2026.portrait.member-1.captured" {
+		t.Errorf("subjects = %v", got)
+	}
+
+	body := publishedPortrait(t, pub)
+	if body.Ref != ref.String() {
+		t.Errorf("event ref = %q, want %q", body.Ref, ref)
+	}
+	if body.PersonID != "member-1" || body.Year != "2026" {
+		t.Errorf("event identifies %q/%q", body.PersonID, body.Year)
+	}
+	if body.Bytes != len(data) {
+		t.Errorf("event bytes = %d, want %d", body.Bytes, len(data))
+	}
+	if body.ContentType != "image/jpeg" || body.Width != 1024 || body.Height != 1024 {
+		t.Errorf("metadata lost in transit: %+v", body)
+	}
+	// The retention job (task 109) works from this timestamp, so its presence is a
+	// requirement rather than a nicety.
+	if body.CapturedAt.IsZero() {
+		t.Error("capturedAt must be set")
+	}
+}
+
+// Storing the same photo twice must converge on one object and one reference. This is
+// what makes a projection replay free of side effects.
+func TestStorePortraitIsContentAddressedAcrossCalls(t *testing.T) {
+	app := portraitTestApp(t, &cqrstest.Publisher{})
+
+	data := []byte("same bytes")
+	first, err := app.storePortrait(context.Background(), "member-1", data, portraitMeta{})
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	second, err := app.storePortrait(context.Background(), "member-1", data, portraitMeta{})
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if first != second {
+		t.Errorf("refs differ for identical bytes: %q vs %q", first, second)
+	}
+}
+
+// A failed publish must fail the call. The bytes are stored but nothing references
+// them, so as far as the app is concerned the portrait was not saved — and reporting
+// success would stop nudging a member for a photo nobody can look up.
+func TestStorePortraitFailsWhenThePublishFails(t *testing.T) {
+	app := portraitTestApp(t, &cqrstest.Publisher{Err: errors.New("broker gone")})
+
+	if _, err := app.storePortrait(context.Background(), "member-1", []byte("x"), portraitMeta{}); err == nil {
+		t.Fatal("want an error when the event cannot be published")
+	}
+}
+
+// With no broker at all the outcome must be the same: not saved.
+func TestStorePortraitFailsWithNoPublisher(t *testing.T) {
+	app := newTestApp(t)
+	app.config.eventYear = "2026"
+	app.commands = commands.New(commands.NewPublisherHolder())
+
+	_, err := app.storePortrait(context.Background(), "member-1", []byte("x"), portraitMeta{})
+	if !errors.Is(err, commands.ErrNoPublisher) {
+		t.Fatalf("err = %v, want ErrNoPublisher", err)
+	}
+}
+
+func TestStorePortraitRefusesBadInput(t *testing.T) {
+	app := portraitTestApp(t, &cqrstest.Publisher{})
+
+	if _, err := app.storePortrait(context.Background(), "", []byte("x"), portraitMeta{}); err == nil {
+		t.Error("want an error with no person")
+	}
+	if _, err := app.storePortrait(context.Background(), "member-1", nil, portraitMeta{}); err == nil {
+		t.Error("want an error with no data")
+	}
+	// A person id that cannot be a subject token must be refused rather than published:
+	// it would still match NATHEJK.> but no longer match the per-person purge pattern,
+	// quietly making that person's portrait unerasable.
+	if _, err := app.storePortrait(context.Background(), "member.1", []byte("x"), portraitMeta{}); err == nil {
+		t.Error("want an error for an id that is not a single subject token")
+	} else if !strings.Contains(err.Error(), "subject token") {
+		t.Errorf("error should explain the subject-token rule, got: %v", err)
+	}
+}

@@ -43,6 +43,10 @@ type Person struct {
 	VerifiedAt        *time.Time
 	AcknowledgedPhone *string
 	PortraitRef       string
+	// PortraitCapturedAt is when the current portrait was taken, or nil when there is
+	// none (or when the event carried no timestamp). The retention job reads it; see
+	// portrait.go.
+	PortraitCapturedAt *time.Time
 }
 
 // MemberStatusRacing is the one lifecycle value this projection writes.
@@ -139,7 +143,7 @@ const personColumns = `
 	teamId, teamName,
 	sectionSlug, sectionName,
 	memberStatus, armNumber,
-	verifiedAt, acknowledgedPhone, portraitRef`
+	verifiedAt, acknowledgedPhone, portraitRef, portraitCapturedAt`
 
 // Lookup finds people by phone number.
 //
@@ -228,7 +232,7 @@ func scanPerson(s scanner) (Person, error) {
 		&p.TeamID, &p.TeamName,
 		&p.SectionSlug, &p.SectionName,
 		&p.MemberStatus, &p.ArmNumber,
-		&p.VerifiedAt, &p.AcknowledgedPhone, &p.PortraitRef,
+		&p.VerifiedAt, &p.AcknowledgedPhone, &p.PortraitRef, &p.PortraitCapturedAt,
 	)
 	return p, err
 }

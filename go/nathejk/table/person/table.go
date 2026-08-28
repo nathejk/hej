@@ -100,6 +100,9 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer, opts
 	for _, col := range []struct{ name, ddl string }{
 		{"sectionSlug", `sectionSlug VARCHAR(99) NOT NULL DEFAULT ""`},
 		{"sectionName", `sectionName VARCHAR(199) NOT NULL DEFAULT ""`},
+		// Arrived with the portrait write path (task 103), after existing deployments
+		// had already created the table.
+		{"portraitCapturedAt", `portraitCapturedAt TIMESTAMP NULL DEFAULT NULL`},
 	} {
 		if err := cqrs.EnsureColumn(r, w, "person", col.name, col.ddl); err != nil {
 			return nil, fmt.Errorf("person: ensure column %s: %w", col.name, err)

@@ -130,7 +130,7 @@ func TestLookupReturnsAllOwnersOfASharedNumber(t *testing.T) {
 		"", "",
 		"", "",
 		"", "",
-		nil, nil, "",
+		nil, nil, "", nil,
 	)
 	mock.ExpectQuery(regexp.QuoteMeta("FROM person")).
 		WithArgs("2026", "+4530112233").
@@ -198,7 +198,7 @@ func personColumnNames() []string {
 		"teamId", "teamName",
 		"sectionSlug", "sectionName",
 		"memberStatus", "armNumber",
-		"verifiedAt", "acknowledgedPhone", "portraitRef",
+		"verifiedAt", "acknowledgedPhone", "portraitRef", "portraitCapturedAt",
 	}
 }
 
@@ -210,6 +210,6 @@ func personRows(phone string) *sqlmock.Rows {
 		"", "",
 		"", "",
 		"", "",
-		nil, nil, "",
+		nil, nil, "", nil,
 	)
 }
