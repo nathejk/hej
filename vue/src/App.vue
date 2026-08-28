@@ -113,12 +113,10 @@ async function signOut() {
     </header>
 
     <!-- In flow, so it never covers the map or collides with UpdatePrompt. On a
-         full-bleed route there is no header above it, so it carries the top safe-area
-         inset itself. -->
-    <div v-if="fullBleed" style="padding-top: env(safe-area-inset-top)">
-      <OfflineNotice />
-    </div>
-    <OfflineNotice v-else />
+         full-bleed route there is no header above it to clear the status bar, so it
+         carries the top safe-area inset itself — inside its own `v-if`, so nothing is
+         reserved while online. -->
+    <OfflineNotice :inset-top="fullBleed" />
 
     <main :class="fullBleed ? 'relative min-h-0 flex-1' : 'min-h-0 flex-1 overflow-y-auto'">
       <RouterView />

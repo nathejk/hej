@@ -15,6 +15,16 @@ import { useSessionStore } from '@/stores/session.store'
 const app = useAppStore()
 const session = useSessionStore()
 
+const props = defineProps<{
+  // Set on full-bleed routes (the map), where there is no top bar above this to
+  // clear the status bar. The inset lives here, on the element that is only in the
+  // DOM when the notice actually shows, rather than on a wrapper in App.vue: an
+  // always-rendered wrapper reserved the inset even when online, which left a band
+  // of blank white above the map in standalone mode where the map should reach the
+  // top of the screen.
+  insetTop?: boolean
+}>()
+
 // Only shown once we know who the user is. On the login screen the offline state is
 // explained in terms of what they were about to do (see LoginView) rather than as a
 // standalone warning.
@@ -23,11 +33,17 @@ const session = useSessionStore()
 // little of the map as possible. An earlier three-line version was honest and
 // unusable.
 const show = computed(() => !app.online && session.isAuthenticated)
+
+const insetStyle = computed(() =>
+  props.insetTop ? { paddingTop: 'env(safe-area-inset-top)' } : undefined,
+)
 </script>
 
 <template>
-  <Alert v-if="show" class="mx-4 mt-3 w-auto border-amber-300 bg-amber-50 text-amber-900">
-    <WifiOff aria-hidden="true" />
-    <AlertTitle>Ingen forbindelse — kort og regler virker stadig</AlertTitle>
-  </Alert>
+  <div v-if="show" :style="insetStyle">
+    <Alert class="mx-4 mt-3 w-auto border-amber-300 bg-amber-50 text-amber-900">
+      <WifiOff aria-hidden="true" />
+      <AlertTitle>Ingen forbindelse — kort og regler virker stadig</AlertTitle>
+    </Alert>
+  </div>
 </template>
