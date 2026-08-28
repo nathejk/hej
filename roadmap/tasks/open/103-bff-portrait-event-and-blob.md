@@ -6,7 +6,8 @@
 
 ## Description
 
-Blocked by task 102.
+Unblocked 2026-08-28 (task 102: consent held from sign-up, safety basis, purged
+after the event).
 
 Write side for the portrait: a domain event published through
 `internal/commands`, consumed by the `person` projection to set `portraitRef`

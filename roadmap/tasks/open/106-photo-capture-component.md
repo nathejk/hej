@@ -6,7 +6,9 @@
 
 ## Description
 
-Blocked by task 102.
+Unblocked 2026-08-28 (task 102). Note what the decision means for this component:
+there is **no in-app consent step** to build — consent is already held from sign-up
+— so the surface explains the purpose and takes the photo.
 
 The full-screen capture surface, **owned by PRD 003 and reused by PRD 005** — it
 must not be forked: live `getUserMedia` preview defaulting to the front camera, a

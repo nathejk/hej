@@ -6,7 +6,7 @@
 
 ## Description
 
-Blocked by task 102; depends on tasks 105 and 106.
+Depends on tasks 105 and 106. (Task 102's consent blocker was cleared 2026-08-28.)
 
 The portrait section of the profile page: current photo or a placeholder with a
 clear call to action, tapping opens `PhotoCapture.vue`, upload shows **inline**

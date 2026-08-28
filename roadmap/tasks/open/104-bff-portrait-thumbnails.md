@@ -6,7 +6,7 @@
 
 ## Description
 
-Blocked by task 102, depends on task 103.
+Depends on task 103. (Task 102's consent blocker was cleared 2026-08-28.)
 
 PRD 007 syncs portrait thumbnails to devices for offline identification, so the
 thumbnail must be produced once at upload rather than per request: EXIF-correct

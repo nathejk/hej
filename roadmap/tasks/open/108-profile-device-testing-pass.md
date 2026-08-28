@@ -6,7 +6,7 @@
 
 ## Description
 
-Blocked by task 102; runs after 107.
+Runs after 107. (Task 102's consent blocker was cleared 2026-08-28.)
 
 Camera, permissions and orientation cannot be verified in a desktop browser. Test
 on **iOS Safari as an installed standalone PWA** and on **Android Chrome**

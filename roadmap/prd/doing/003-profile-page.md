@@ -196,9 +196,22 @@ for the web app on this device — with a one-tap way to fix it when they are no
   must be explicitly initiated by the user, the purpose must be stated on the
   page, and the image must only ever be served to the owning user (and to
   whichever organizer surface is later authorised — out of scope here).
-- **GDPR:** define retention (see Open Questions — proposal: photos are deleted
-  after the event). Document the legal basis and the parental-consent position
-  before this ships.
+- **GDPR — settled 2026-08-28 (maintainer, task 102):** the **parental consent is
+  already held from sign-up**, captured by the guardian outside the app — which is
+  the only place it can work, since guardians do not use the app. The basis for
+  holding the portrait is **safety**: it is an in-race identification feature, not a
+  decorative one. The app therefore needs **no in-app consent gate**, and the
+  portrait step must not be built as one. **Retention:** the photo does not outlive
+  the event — portraits are purged afterwards, with the exact window as
+  configuration (task 109), because an in-race safety feature has no purpose the
+  day after the race.
+
+  Two things this does *not* license. Consent being in hand is no reason to relax
+  any safeguard below — they are what make the holding defensible, not a substitute
+  for consent. And "it is a security feature" justifies **staff** seeing a member's
+  face; whether spejdere and banditter may see *each other* is a race-integrity
+  question as much as a privacy one and remains **PRD 007's access matrix** to
+  decide.
 - **Security:** upload endpoint requires an authenticated session, validates
   content type and magic bytes, enforces a hard size limit, re-encodes rather
   than trusting the uploaded bytes, and strips EXIF (notably GPS) metadata.
@@ -389,7 +402,8 @@ portrait, not a modal spinner. **This component is owned here** and reused by PR
   - EXIF orientation: photos may come in rotated; canvas re-encode must respect
     orientation or faces will be sideways.
   - Sensitive-data handling of minors' portraits is the main *product* risk —
-    consent and retention must be settled before launch, not after.
+    consent and retention were settled before build, not after (task 102,
+    2026-08-28: consent held from sign-up, safety basis, purged after the event).
   - Depends on the real Nathejk directory for the details to be truthful; against
     the mock, the page shows seeded data.
 
@@ -411,15 +425,18 @@ portrait, not a modal spinner. **This component is owned here** and reused by PR
 
 **Progress (2026-08-28).** Track (a) — details + permission status — is
 implemented: tasks 093–101 are done, so the page exists, is reached from the new
-top-bar user menu, and shows real details and live device-permission status. Track
-(b) — the portrait — is created as tasks 103–109 and **blocked on task 102**, the
-consent/retention/access decision, which is a human call.
+top-bar user menu, and shows real details and live device-permission status.
+
+The consent/retention decision that blocked track (b) was **answered the same day**
+(task 102): consent is already held from sign-up, the portrait is a safety feature,
+and it is purged after the event. Tasks 103–109 are therefore unblocked.
 
 Two loosely coupled tracks: (a) details + permission status, which is
 low-risk and shippable on its own, and (b) photo capture + storage, which carries
 the platform and privacy risk. Ship (a) first so the page exists, then (b).
 
-The GDPR/consent decision is a **blocker for (b)**, not for (a).
+The GDPR/consent decision was a blocker for (b); it was **answered 2026-08-28**
+(see §6 Non-Functional and §11).
 
 Proposed tasks to create in `roadmap/tasks/open/`:
 
@@ -446,8 +463,8 @@ Proposed tasks to create in `roadmap/tasks/open/`:
 - [ ] Task: Frontend — platform-aware "blocked permission" guidance copy in one
       place.
 
-- [ ] Task: Decide + document photo consent, retention and access policy (GDPR
-      blocker for the photo tasks).
+- [x] Task: Decide + document photo consent, retention and access policy
+      (task 102 — done 2026-08-28; was the GDPR blocker for the photo tasks).
 - [ ] Task: BFF — portrait event + `portrait` projection + content-addressed blob
       store write path via `commands.Commands` (read side exposed through
       `data.Models`). No direct SQL write.
@@ -466,13 +483,18 @@ Proposed tasks to create in `roadmap/tasks/open/`:
 
 ## 11. Open Questions
 
-- **Consent & retention for portraits** — participants are frequently minors.
-  What is the legal basis, is parental consent needed (and captured where?), how
-  long are photos kept, and who besides the user may see them? **Escalated
-  2026-08-25:** PRD 005 makes the portrait operational (night-time identification)
-  and captures it during onboarding, and PRD 007 defines the audience — so this is
-  now blocking for three PRDs. "Who may see them" is answered by PRD 007's access
-  matrix; what is missing is the legal basis for that audience.
+- **Consent & retention for portraits** — **ANSWERED 2026-08-28 (maintainer, task
+  102).** Parental consent is already held from sign-up, captured by the guardian
+  outside the app; the portrait is an **in-race safety feature** (identifying a
+  member in the dark, including when something has gone wrong), which is the basis
+  on which it is held; and it is **purged after the event**, the window being
+  configuration (task 109). No in-app consent gate is needed or wanted. This
+  unblocks the portrait work here, PRD 005's onboarding step and PRD 007.
+
+  Still open, and deliberately not folded into the above: the exact purge window
+  (a number, not a policy), and whether participants may see *each other's*
+  portraits — "security feature" covers staff viewing and says nothing about the
+  race-integrity side, which stays PRD 007's matrix.
 - **Photo purpose** — **answered 2026-08-25:** identification of members during
   the race, much of which happens at night when faces are hard to see. Not
   decorative. This is why the consent question above is blocking, and why capture

@@ -6,7 +6,9 @@
 
 ## Description
 
-Blocked by task 102, depends on task 103.
+Depends on task 103. (Task 102's consent blocker was cleared 2026-08-28 — note that
+it relaxes **none** of the safeguards below: consent is what justifies holding the
+photo, not a reason to hold it carelessly.)
 
 Upload and retrieval of the caller's own portrait, both behind `requireAuth`.
 PRD 003 §6 Non-Functional is the spec for the upload: validate content type

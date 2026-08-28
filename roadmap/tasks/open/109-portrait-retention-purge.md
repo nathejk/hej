@@ -6,7 +6,10 @@
 
 ## Description
 
-Blocked by task 102 — the retention period is exactly what that task decides.
+Unblocked 2026-08-28 by task 102, which decided the rule: **the portrait does not
+outlive the event.** What is still missing is only the *number* — how long after the
+event the purge runs — and that is a config value, so it does not block the code.
+Use a conservative default and flag it for a maintainer number.
 
 Once decided, portraits (full image, thumbnail and `portraitRef`) must actually
 be removed when the period expires. Per the BFF conventions this belongs as a

@@ -484,9 +484,12 @@ All page-level headlines use `font-nathejk` per `.rules`; icons are Lucide
     materialised as a **projection of the verification event** rather than a direct
     write (PRD 008).
 - **Dependencies & risks:**
-  - **Risk: portrait consent is unresolved and blocking.** See §11. Photographs of
-    minors, shown to non-guardian adults, need a legal basis before capture — not
-    after. This is the single most likely thing to stop the portrait step shipping.
+  - ~~**Risk: portrait consent is unresolved and blocking.**~~ **Resolved 2026-08-28
+    (task 102, recorded in PRD 003 §6):** the parental consent is already held from
+    sign-up, and the portrait is an in-race safety feature, purged after the event.
+    The onboarding portrait step therefore needs **no consent gate of its own** — it
+    should explain the purpose (identification during the race, largely at night)
+    and take the photo.
   - **Risk: portraits are useless without a viewing surface** — now specified as
     PRD 007. Capturing before that ships means asking every member for a photo
     that nothing consumes, so sequence accordingly.
@@ -610,13 +613,13 @@ survives.
      without that viewing surface delivers none of the stated value. **That
      surface is now PRD 007** (offline portrait identification), which also settles
      that spejdere and banditter must not see each other.
-  2. **Consent and retention become blocking, not follow-up.** These are
-     photographs of identifiable minors, captured for an identification purpose
-     and shown to adults who are not their guardians. PRD 003 already lists this as
-     an open question; making the photo operational raises the stakes and it must
-     be answered before the step ships. The consent text must name the actual
-     audience, which is defined by PRD 007's access matrix — so the two are one
-     decision, not two.
+  2. **Consent and retention become blocking, not follow-up.** ~~These are
+     photographs of identifiable minors…~~ **Answered 2026-08-28 (task 102):**
+     consent is already held from sign-up, the basis is safety/identification, and
+     portraits are purged after the event. The step needs no in-app consent gate.
+     The consent text question collapses with it — what remains is *explaining the
+     purpose*, not obtaining permission. Whether participants may see each other's
+     portraits is still PRD 007's matrix.
   The step is **skippable** — a participant who declines still gets into the app,
   with the profile page as the place to add one later.
 - **2026-08-25 — Faster check-in is an explicit goal of this step.** The value of
@@ -730,11 +733,11 @@ survives.
    desktop Safari. Are we comfortable that some iPads will be classified as
    desktop and see the landing page instead of the app? This matters more now
    that desktop is a dead end rather than a usable surface.
-3. **Portrait consent & retention for minors** — legal basis, whether guardian
-   consent is needed and where it is captured, retention period, and who may see a
-   portrait. **Blocking** for the portrait step. Shared with PRD 003, but sharper
-   here because the purpose is now operational identification rather than
-   decoration.
+3. **Portrait consent & retention for minors** — **ANSWERED 2026-08-28 (task 102):**
+   consent is held from sign-up (captured by the guardian, outside the app), the
+   basis is safety/identification during the race, and portraits are purged after
+   the event. No longer blocking the portrait step. The one part still open is
+   whether participants may see each other's portraits — PRD 007's matrix.
 4. **Who owns the portrait *viewing* surface?** Answered: **PRD 007**. Its access
    matrix defines who may see a given member's face, which is what the consent
    text in question 3 has to state.

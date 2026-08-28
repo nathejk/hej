@@ -377,8 +377,10 @@ the outcome 009 exists to prevent, and a reason to sequence 009 first.
   answers* (§11.4/§11.5), not this PRD shipping. Coordinates with PRD 002 on the
   shared budget — coordination, not blocking. Realistically the last of the set to
   ship.
-- **Risk: consent is the gating item, not the code.** Photographs of minors, shown
-  to other minors and to adults who are not their guardians, cached on personal
+- **Risk: consent is the gating item, not the code.** ~~Photographs of minors…~~
+  **Narrowed 2026-08-28 (task 102):** the legal basis for *holding* the portrait is
+  settled (safety, consent from sign-up), so what remains a decision is only the
+  **audience**: photographs of minors shown to other minors and cached on personal
   devices. If the answer is "we cannot justify participants seeing participants",
   the access matrix shrinks to crew-only and the feature is still worth building —
   design it so that narrowing is a configuration change, not a rewrite.
@@ -439,9 +441,16 @@ Proposed tasks for `roadmap/tasks/open/`:
    crew? "Everyone accepted into the race has a right to see the portrait" could
    mean "everyone gets the feature" (which is how this PRD reads it) or "everyone
    may see everyone" (a much larger disclosure). Which?
-2. **Consent text and legal basis** — shared with PRDs 003 and 005 and blocking all
-   three. The wording must name the actual audience from the matrix. If guardian
-   consent is required, where is it captured, given guardians do not use the app?
+2. **Consent text and legal basis** — **the legal basis is ANSWERED 2026-08-28**
+   (task 102, PRD 003 §6): consent is held from sign-up and the portrait is an
+   in-race safety feature, purged after the event. That unblocks capture in PRDs 003
+   and 005.
+
+   What is **still this PRD's to settle** is the audience: "it is a security
+   feature" justifies *staff* viewing a member's face and says nothing about
+   participants viewing each other, which is a race-integrity question as much as a
+   privacy one. Design for that narrowing being a configuration change, as §8
+   already requires.
 3. **Where do gøglere fit?** They are participants at posts; do they need to
    identify members, and should anyone be able to identify them?
 4. **Thumbnail size** — what dimensions are sufficient to recognise a face on a
