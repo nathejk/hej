@@ -30,6 +30,26 @@ export const ALL_ROLES = [
 
 export type Role = (typeof ALL_ROLES)[number]
 
+// Danish display labels for the roles.
+//
+// Kept next to the enum rather than in each component that needs one, so "gøgler"
+// is capitalised and spelled the same way on the profile page, in the user menu
+// and in the login chooser. `Record<Role, string>` is load-bearing: adding a role
+// to ALL_ROLES without a label is a type error rather than a blank badge.
+//
+// `crew` reads "Crew" deliberately, with no function named — an account lands on
+// that role because its section slug could not be classified, so inventing a
+// specific job title here would state something we do not know.
+export const ROLE_LABELS: Record<Role, string> = {
+  spejder: 'Spejder',
+  bandit: 'Bandit',
+  postmandskab: 'Postmandskab',
+  guide: 'Guide',
+  samarit: 'Samarit',
+  'gøgler': 'Gøgler',
+  crew: 'Crew',
+}
+
 // Who is signed in. The id is opaque to the frontend; the role decides what the nav
 // offers. Never treated as proof of anything — the BFF authorizes each request.
 export interface Identity {

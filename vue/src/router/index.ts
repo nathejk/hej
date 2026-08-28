@@ -49,6 +49,15 @@ const router = createRouter({
       meta: { public: true },
     },
     ...destinationRoutes,
+    // Min profil (PRD 003). Deliberately NOT a `destination`: it is reached from the
+    // user menu in the top bar, so it takes no bottom-nav slot — which matters,
+    // because the service roles are already close to the five visible slots.
+    // Open to every role, hence no `meta.roles`.
+    {
+      path: '/profil',
+      name: 'profile',
+      component: () => import('@/views/ProfileView.vue'),
+    },
     // Diagnostic page for the position track (task 082). Deliberately NOT a
     // `destination`: it is a measurement tool for the device tests, not a feature, so it
     // stays out of the nav and is reached from the privacy page. If the recorder turns
