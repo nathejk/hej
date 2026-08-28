@@ -14,6 +14,9 @@ import { useRoute } from 'vue-router'
 //
 //   app.h     the shell's height, and the document's scrollable height next to it. They
 //             must be equal: if the document is taller, the whole shell can be dragged.
+//   nav.gap   distance from the bottom of the nav to the bottom of the screen. This is
+//             what the bottom inset protects, so it must stay >= the raw sa.bottom (34 on
+//             a device with a home indicator) even after the padding reduction.
 //   main.top  where the shell's <main> starts. On a full-bleed route it should be 0; a
 //             non-zero value means something in our own layout is reserving space.
 
@@ -27,6 +30,7 @@ const effective = ref('')
 const mainTop = ref('')
 const mode = ref('')
 const appH = ref('')
+const navGap = ref('')
 const where = ref('')
 
 // Safe-area insets cannot be read from JS: `env()` is only valid in CSS values, and
@@ -80,6 +84,17 @@ function sample() {
   // the whole app becomes draggable — the failure mode that reverting the height hack fixed.
   const h = el ? Math.round(el.getBoundingClientRect().height) : 0
   appH.value = `${h} doc ${document.documentElement.scrollHeight}`
+
+  // How much clear space is left below the nav, in screen terms. The bottom inset is
+  // reduced by the viewport's shortfall (see @/helpers/safeArea), so this is the check
+  // that the reduction did not eat into the home-indicator clearance it assumes.
+  const nav = document.querySelector('nav[aria-label]')
+  if (nav) {
+    const bottom = nav.getBoundingClientRect().bottom
+    navGap.value = `${Math.round(window.screen.height - bottom)}`
+  } else {
+    navGap.value = 'no nav'
+  }
 
   void top
 
@@ -143,6 +158,7 @@ onBeforeUnmount(() => {
       <div>sa {{ insets }}</div>
       <div>use {{ effective }}</div>
       <div>app.h {{ appH }}</div>
+      <div>nav.gap {{ navGap }}</div>
       <div>main.top {{ mainTop }}</div>
       <div>{{ mode }} / {{ where }}</div>
     </div>
