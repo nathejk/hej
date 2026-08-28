@@ -1,11 +1,16 @@
 # 086 — Post-race team track view
 
-**Status:** open
+> **CLOSED 2026-08-28 WITHOUT BEING IMPLEMENTED — superseded by PRD 011.**
+> Filed under `done/` because the board defines only `open | doing | done` and this task is
+> off it; nothing here was built. The acceptance criteria below are left **unchecked** on
+> purpose, and the analysis they rest on was carried into PRD 011 — see the progress log.
+
+**Status:** done
 **Priority:** medium
 **Created:** 2026-08-26
-**Picked up by:**
+**Picked up by:** —
 **Started:**
-**Completed:**
+**Completed:** 2026-08-28 (closed, not implemented)
 
 ## Description
 
@@ -52,9 +57,6 @@ it were a route.
 The PRD's phrase "the team's entire track" cannot be delivered literally; what is deliverable
 is honest coverage of when the app was open.
 
-The PRD's phrase "the team's entire track" cannot be delivered literally; what is
-deliverable is honest coverage of when the app was open.
-
 ## Access
 
 The team sees its own track and no other team's. Same race-dynamic reasoning that keeps
@@ -96,3 +98,24 @@ gate.
 ## Progress Log
 
 - 2026-08-26 — Task created from PRD 002 §11.1.
+- 2026-08-28 — **Closed at the maintainer's request, superseded by PRD 011 (post-race
+  experience).** Not abandoned: the scope grew. A post-race view is to show a **diploma**, the
+  tracks of **all team members**, and **all scans the team collected** (checkpoints, bandits and
+  whatever else registered them) — three things that only make sense together, which is a PRD's
+  job to define rather than a task's.
+- 2026-08-28 — Everything of value in this task has been carried into PRD 011 rather than left
+  here to rot, specifically:
+  * the **read-from-the-stream-not-a-projection** decision and the measurement behind it (one
+    team of six is ~8,600 points across ~2,160 messages, against millions of rows if projected),
+    plus the warning not to generalise the exception;
+  * the requirement that **gaps are rendered as gaps** and never interpolated into a confident
+    straight line through terrain nobody walked;
+  * resolving the team from the **session, never a parameter**, with a test proving a member
+    cannot read another team's data;
+  * simplification, legibility on both base layers, and not blocking the live map;
+  * the open question of **when** "after the race" begins, which is now PRD 011 §11 Q1.
+- 2026-08-28 — Also fixed while here: a paragraph in this file was duplicated verbatim.
+- 2026-08-28 — One thing this task did not consider and PRD 011 now raises as a blocking
+  question: showing a member's route to their **teammates** is a disclosure PRD 002's consent
+  copy does not cover — it promises the route goes to *the organizers*. It also silently reveals
+  who declined location and who left the group. PRD 011 §11 Q3.
