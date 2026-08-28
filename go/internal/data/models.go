@@ -7,6 +7,7 @@ import (
 	"nathejk.dk/internal/scans"
 	"nathejk.dk/internal/users"
 	"nathejk.dk/nathejk/table/checkpoint"
+	"nathejk.dk/nathejk/table/person"
 )
 
 // Models is the read-only facade passed to handlers.
@@ -32,12 +33,29 @@ type Models struct {
 	// checkpoint positions it came from — that boundary is the projection's, not this
 	// facade's, so it cannot be widened by accident here.
 	RaceAreas checkpoint.Queries
+
+	// People is the person projection's read API, for the one thing `Users` cannot
+	// express: a field that is not part of "who is this and what do they do".
+	//
+	// It exists for the portrait (task 105), which needs `portraitRef` for the caller
+	// alone. Deliberately NOT added to `users.User`: that struct is handed to the login
+	// chooser, which shows one holder of a shared phone number something about the
+	// others, so every field on it is a field that has to be safe to show a stranger.
+	//
+	// **May be nil**, like RaceAreas and for the same reason: it needs a database, and
+	// running without one is a supported mode (PRD 008 §5). Handlers must check.
+	People person.Queries
 }
 
 // NewModels constructs the read-side facade with the given read sources.
 // Additional read models will be wired in here as aggregates are added.
 //
-// raceAreas may be nil; see the field's doc.
-func NewModels(usersDir users.Directory, scanSource scans.Source, raceAreas checkpoint.Queries) Models {
-	return Models{Users: usersDir, Scans: scanSource, RaceAreas: raceAreas}
+// raceAreas and people may be nil; see the fields' docs.
+func NewModels(
+	usersDir users.Directory,
+	scanSource scans.Source,
+	raceAreas checkpoint.Queries,
+	people person.Queries,
+) Models {
+	return Models{Users: usersDir, Scans: scanSource, RaceAreas: raceAreas, People: people}
 }

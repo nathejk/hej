@@ -35,7 +35,7 @@ func raceAreaApp(t *testing.T, areas checkpoint.Queries, year string) *applicati
 	t.Helper()
 	app := newTestApp(t)
 	app.config.eventYear = year
-	app.models = data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), areas)
+	app.models = data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), areas, nil)
 	return app
 }
 

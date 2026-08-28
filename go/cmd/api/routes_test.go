@@ -39,7 +39,7 @@ func newTestApp(t *testing.T) *application {
 		config:  config{env: "testing", webRoot: webRoot},
 		// nil race areas: the routing tests run without a database, which is exactly the
 		// degraded mode the handler must answer 503 for rather than panic in.
-		models:   data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil),
+		models:   data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil, nil),
 		commands: commands.New(commands.NewPublisherHolder()),
 		// In-memory blobs: the portrait write path (task 103) needs a store, and no test
 		// should be writing image bytes to a real directory.

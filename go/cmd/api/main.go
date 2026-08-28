@@ -306,7 +306,7 @@ func run(logger *slog.Logger) error {
 	app := &application{
 		JsonApi:  bff.JsonApi{Logger: logger},
 		config:   cfg,
-		models:   data.NewModels(directory, scans.NewMockSource(), raceAreasOrNil(checkpoints)),
+		models:   data.NewModels(directory, scans.NewMockSource(), raceAreasOrNil(checkpoints), peopleOrNil(persons)),
 		commands: commands.New(publisherFor(ev)),
 		db:       db,
 		eventing: ev,

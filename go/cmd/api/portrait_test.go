@@ -22,6 +22,11 @@ func commandsWithPublisher(t *testing.T, p cqrs.Publisher) commands.Commands {
 	return commands.New(holder)
 }
 
+// commandsWithNoPublisher is the "broker never arrived" state handlers must cope with.
+func commandsWithNoPublisher() commands.Commands {
+	return commands.New(commands.NewPublisherHolder())
+}
+
 // publishedPortrait decodes the one event a test expects to have been published.
 //
 // It decodes rather than inspecting a captured struct, so the assertions run through
@@ -129,7 +134,7 @@ func TestStorePortraitFailsWhenThePublishFails(t *testing.T) {
 func TestStorePortraitFailsWithNoPublisher(t *testing.T) {
 	app := newTestApp(t)
 	app.config.eventYear = "2026"
-	app.commands = commands.New(commands.NewPublisherHolder())
+	app.commands = commandsWithNoPublisher()
 
 	_, err := app.storePortrait(context.Background(), "member-1", []byte("x"), portraitMeta{})
 	if !errors.Is(err, commands.ErrNoPublisher) {

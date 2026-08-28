@@ -77,6 +77,18 @@ func (app *application) storePortrait(
 	return ref, nil
 }
 
+// peopleOrNil adapts the person projection to the read interface, preserving nil-ness.
+//
+// Same Go trap as raceAreasOrNil above: a nil *person.Table assigned to an interface is
+// not a nil interface, so the handler's `app.models.People == nil` check would pass and
+// then dereference.
+func peopleOrNil(t *person.Table) person.Queries {
+	if t == nil {
+		return nil
+	}
+	return t
+}
+
 // portraitMeta is what the event records about the stored object beyond its hash.
 //
 // Dimensions are carried so a consumer — PRD 007's offline thumbnail sync, an audit —

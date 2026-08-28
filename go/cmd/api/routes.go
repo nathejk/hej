@@ -41,6 +41,12 @@ func (app *application) routes() http.Handler {
 	// The caller's own details (PRD 003). Session-scoped by construction: there is no
 	// user id in the path, so no caller can ask for somebody else's profile.
 	router.HandlerFunc(http.MethodGet, "/api/me/profile", app.requireAuth(app.showProfileHandler))
+	// The caller's own portrait (PRD 003). Both are session-scoped: no user id in the
+	// path, so neither can be pointed at somebody else's face. Cross-person viewing is
+	// PRD 007, with its own access matrix and audit — it must not arrive as a parameter
+	// on these.
+	router.HandlerFunc(http.MethodPut, "/api/me/photo", app.requireAuth(app.updatePhotoHandler))
+	router.HandlerFunc(http.MethodGet, "/api/me/photo", app.requireAuth(app.showPhotoHandler))
 	router.HandlerFunc(http.MethodGet, "/api/patrol/scans", app.requireAuth(app.listPatrolScansHandler))
 	// Position track ingest (PRD 002 §11.1, task 084). Publishes to the telemetry stream
 	// and writes no SQL; the person is taken from the session, never from the body.
