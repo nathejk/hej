@@ -40,6 +40,42 @@ export const useNotificationsStore = defineStore('notifications', {
       this.permission = Notification.permission as NotifPermission
     },
 
+    // syncSubscription reads the live PushSubscription and sets `subscribed` from it.
+    //
+    // Without this, `subscribed` is only ever set inside enable(), so after a reload
+    // the store believes nobody is subscribed — and PRD 003's status row would then
+    // tell a subscribed user that push is off.
+    //
+    // Note that permission and subscription are genuinely independent:
+    // `permission === 'granted'` with **no** subscription is a real state (the browser
+    // can drop a subscription, and replacing the service worker loses it), and it is
+    // precisely the state where push silently does not work. The row has to be able to
+    // say so, so this must not be collapsed into syncPermission().
+    //
+    // Never throws — a status row is not worth breaking a page over.
+    async syncSubscription() {
+      if (!this.available) {
+        this.subscribed = false
+        return
+      }
+      try {
+        // getRegistration(), not `ready`: `ready` never resolves when no service
+        // worker is registered, which would hang this call forever instead of
+        // answering "not subscribed".
+        const registration = await navigator.serviceWorker.getRegistration()
+        if (!registration) {
+          this.subscribed = false
+          return
+        }
+        const subscription = await registration.pushManager.getSubscription()
+        this.subscribed = subscription !== null
+      } catch {
+        // A refused pushManager (private mode, or an unsupported build) is not
+        // evidence of a subscription.
+        this.subscribed = false
+      }
+    },
+
     // enable requests permission and, if granted, subscribes to push and sends
     // the subscription to the BFF. Returns whether the user is now subscribed.
     // Degrades gracefully (never throws) so callers can handle a false result.

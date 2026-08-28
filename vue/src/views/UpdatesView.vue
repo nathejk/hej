@@ -9,7 +9,13 @@ const notifications = useNotificationsStore()
 const DISMISS_KEY = 'hej.prompt.notifications.dismissed'
 const dismissed = ref(localStorage.getItem(DISMISS_KEY) === '1')
 
-onMounted(() => notifications.syncPermission())
+onMounted(() => {
+  notifications.syncPermission()
+  // The prompt below is hidden once the user is subscribed, so it has to know
+  // whether a subscription survives from an earlier visit (task 100) — otherwise a
+  // subscribed user is asked to enable push again after every reload.
+  void notifications.syncSubscription()
+})
 
 const showPrompt = computed(
   () =>
