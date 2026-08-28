@@ -100,7 +100,9 @@ async function signOut() {
        on. Rendered outside the shell so it is present on the login screen too. -->
   <LayoutDebug v-if="showLayoutDebug" />
 
-  <div v-if="showShell" class="flex h-full flex-col">
+  <!-- `.app-shell` is a fixed, out-of-flow layer sized to the physical screen rather than
+       the reported viewport; see main.css for why that is not `h-full`. -->
+  <div v-if="showShell" class="app-shell flex flex-col">
     <header
       v-if="!fullBleed"
       class="flex items-center justify-between border-b border-slate-200 bg-white px-4 pb-3"

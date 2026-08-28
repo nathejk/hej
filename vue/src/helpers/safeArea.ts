@@ -17,21 +17,32 @@
 // whole shell could be dragged, and resizing the shell after first paint left the scroll
 // container in `main` mis-measured on a cold open. See the note in main.css.
 //
-// THE BOTTOM INSET IS REDUCED BY THE VIEWPORT'S SHORTFALL, which is geometry rather than
-// an inference about platform behaviour:
+// THE BOTTOM INSET PASSES THROUGH UNCHANGED TOO. An earlier version reduced it by the
+// viewport's shortfall, reasoning that a shell ending 59px above the screen edge was
+// already clear of the 34px home indicator. True at the time, but it is the wrong fix for
+// the wrong problem: the shell now extends to the physical bottom (see `.app-shell` in
+// main.css), so the nav really does sit over the indicator and really does need the full
+// 34px. Reducing it would put tap targets in the swipe-up area.
 //
-//   * `env(safe-area-inset-bottom)` exists to keep content clear of the home indicator at
-//     the physical bottom of the screen.
-//   * The viewport starts at screen y=0 (established above), so the whole of
-//     `screen.height - innerHeight` is empty space at the BOTTOM.
-//   * If the shell already ends 59px above the screen edge, it is already clear of a 34px
-//     indicator. Padding the nav by another 34px just makes it look bloated — which is
-//     what "the bottom nav has way too much padding" was.
+// THE ONE THING THIS COMPUTES is `--vh-extra`: the shortfall between the reported viewport
+// height and the screen, which `.app-shell` adds to its own height so it reaches the
+// bottom of the display.
 //
-// So the padding still needed is `max(0, inset.bottom - shortfall)`. This can only ever
-// *reduce* padding that is provably unnecessary; when the viewport does fill the screen
-// (shortfall 0) it is the full inset, unchanged. Android reports no bottom inset, so it is
-// 0 either way.
+// In an iOS standalone web app with a translucent status bar, `innerHeight` (and therefore
+// `100dvh`) report `screen.height - topInset` while the web view is laid out from the very
+// top of the screen. The shell consequently stops `topInset` short of the bottom, leaving a
+// strip of blank background under the nav — the residue of task 036, which switching from
+// `height: 100%` to `100dvh` reduced from ~100px to 59 without eliminating.
+//
+//   iOS, translucent status bar   short by sa.top   sa.top 59   extend the shell
+//   Android standalone            short by ~24      sa.top 0    leave it alone
+//   Browser tab / desktop         not short         sa.top 0    leave it alone
+//
+// The shortfall is only added back when it equals a non-zero top inset. That equality is
+// what separates iOS from Android: Android is short too, by its status bar, but reports no
+// top inset — and there the viewport genuinely does begin below the status bar, so
+// extending the shell would push content underneath it. A bare "is the viewport short?"
+// test would break Android.
 
 const EDGES = ['top', 'right', 'bottom', 'left'] as const
 
@@ -64,16 +75,17 @@ function readInsets(): Record<(typeof EDGES)[number], number> {
 
 function apply() {
   const inset = readInsets()
-  // Empty space below the shell, i.e. how far the viewport already stops short of the
-  // screen's bottom edge. Clamped: a negative value (viewport taller than the screen,
-  // which desktop reports) must not inflate the padding.
+  // How far the reported viewport stops short of the screen's bottom edge. Clamped
+  // because desktop reports a viewport taller than screen.height.
   const shortfall = Math.max(0, window.screen.height - window.innerHeight)
+  const heightUnderReported = inset.top > 0 && shortfall === inset.top
 
   const root = document.documentElement.style
   root.setProperty('--sat', `${inset.top}px`)
   root.setProperty('--sar', `${inset.right}px`)
-  root.setProperty('--sab', `${Math.max(0, inset.bottom - shortfall)}px`)
+  root.setProperty('--sab', `${inset.bottom}px`)
   root.setProperty('--sal', `${inset.left}px`)
+  root.setProperty('--vh-extra', `${heightUnderReported ? shortfall : 0}px`)
 }
 
 let frame = 0
