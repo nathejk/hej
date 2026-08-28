@@ -123,7 +123,16 @@ async function signOut() {
          reserved while online. -->
     <OfflineNotice :inset-top="fullBleed" />
 
-    <main :class="fullBleed ? 'relative min-h-0 flex-1' : 'min-h-0 flex-1 overflow-y-auto'">
+    <!-- `overscroll-behavior: contain` on the scrolling variant: without it a swipe that
+         reaches the end of this container (or starts on a page shorter than the viewport)
+         chains to the document and drags the whole shell. -->
+    <main
+      :class="
+        fullBleed
+          ? 'relative min-h-0 flex-1'
+          : 'min-h-0 flex-1 overflow-y-auto [overscroll-behavior:contain]'
+      "
+    >
       <RouterView />
     </main>
 

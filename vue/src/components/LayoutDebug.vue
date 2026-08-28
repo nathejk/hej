@@ -12,10 +12,8 @@ import { useRoute } from 'vue-router'
 //
 // The two derived values are the ones worth reading:
 //
-//   vh-extra  the shortfall added back to the shell height. On iOS the reported viewport
-//             height excludes the top inset even though the content extends into it, so
-//             `100dvh` leaves the shell short of the bottom of the display.
-//   app.h     the shell's resulting height. Should equal the screen height.
+//   app.h     the shell's height, and the document's scrollable height next to it. They
+//             must be equal: if the document is taller, the whole shell can be dragged.
 //   main.top  where the shell's <main> starts. On a full-bleed route it should be 0; a
 //             non-zero value means something in our own layout is reserving space.
 
@@ -28,7 +26,6 @@ const insets = ref('')
 const effective = ref('')
 const mainTop = ref('')
 const mode = ref('')
-const extra = ref('')
 const appH = ref('')
 const where = ref('')
 
@@ -73,15 +70,16 @@ function sample() {
   const { text, top } = readInsets()
   insets.value = text
 
-  // What the app is actually using, and the height correction derived from it.
+  // What the app is actually using.
   const rootStyle = getComputedStyle(document.documentElement)
   const v = (name: string) => Math.round(Number.parseFloat(rootStyle.getPropertyValue(name)) || 0)
   effective.value = `${v('--sat')}/${v('--sar')}/${v('--sab')}/${v('--sal')}`
-  extra.value = `${v('--vh-extra')}`
 
   const el = document.getElementById('app')
-  // Should match screen height. If it is short, the strip below the nav is back.
-  appH.value = el ? String(Math.round(el.getBoundingClientRect().height)) : '?'
+  // Shell height vs the document's scroll height. A difference is document overflow, i.e.
+  // the whole app becomes draggable — the failure mode that reverting the height hack fixed.
+  const h = el ? Math.round(el.getBoundingClientRect().height) : 0
+  appH.value = `${h} doc ${document.documentElement.scrollHeight}`
 
   void top
 
@@ -144,7 +142,6 @@ onBeforeUnmount(() => {
       <div>scr {{ scr }} @{{ dpr }}</div>
       <div>sa {{ insets }}</div>
       <div>use {{ effective }}</div>
-      <div>vh-extra {{ extra }}</div>
       <div>app.h {{ appH }}</div>
       <div>main.top {{ mainTop }}</div>
       <div>{{ mode }} / {{ where }}</div>

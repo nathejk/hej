@@ -1,46 +1,26 @@
-// Safe-area custom properties, plus a viewport-height correction.
+// Safe-area custom properties.
 //
 // Components must use `var(--sat)` / `var(--sar)` / `var(--sab)` / `var(--sal)` rather
-// than `env(safe-area-inset-*)` directly, and the shell's height must include
-// `var(--vh-extra)`. main.css seeds all of them, so the CSS-only behaviour is sane if
-// this never runs.
+// than `env(safe-area-inset-*)` directly. main.css seeds them, so the CSS-only result is
+// correct before this runs; the indirection exists so that a platform correction can be
+// applied in one place instead of at a dozen call sites.
 //
-// THE PROBLEM
+// The values are currently passed through UNCHANGED, and that is the conclusion of a
+// wrong turn worth recording. Measured on an iPhone 16 standalone: screen 393x852,
+// innerHeight 793, sa.top 59. That looks like a double-counted inset, and an earlier
+// version zeroed `--sat` accordingly — but `main.getBoundingClientRect().top` was 0 with
+// the map visibly drawing behind the status bar, which proves nothing in our layout
+// reserves it. The insets are right; zeroing them would have pulled the map controls up
+// under the clock.
 //
-// In an iOS standalone web app with a translucent status bar and `viewport-fit=cover`,
-// the content genuinely extends to the top of the screen — but `window.innerHeight`
-// (and therefore `100dvh`) reports the *safe-area* height, not the screen height.
-// Measured on an iPhone 16: screen 393x852, innerHeight 793, sa.top 59, and
-// `main.getBoundingClientRect().top === 0` with the map visibly drawing behind the
-// status bar.
+// A second attempt then added the 59px shortfall to the shell's height to close the strip
+// of background below the nav. That was also reverted: it gave the document scrollable
+// overflow, so the whole shell could be dragged, and resizing the shell in a rAF after
+// first paint left the scroll container in `main` mis-measured on a cold open. See the
+// note in main.css.
 //
-// So the viewport starts at the top of the screen and is 59px too short. A shell sized
-// with `100dvh` ends 59px above the bottom of the display, which is the strip of blank
-// background below the bottom nav (first seen in task 036, where switching from
-// `height: 100%` to `100dvh` reduced it from ~100px to 59 without removing it).
-//
-// What this is NOT: a double-counted inset. `main.top` is 0, so nothing in our own
-// layout reserves the status bar, and `--sat` is genuinely needed — it is what keeps the
-// map controls clear of the clock. An earlier version of this file zeroed `--sat` on
-// this evidence and was wrong; the insets are correct and the height is not.
-//
-// THE THREE STATES
-//
-//   iOS, translucent status bar   short by sa.top   sa.top 59   extend the shell
-//   Android standalone            short by ~24      sa.top 0    leave everything alone
-//   Browser tab / desktop         not short         sa.top 0    leave everything alone
-//
-// THE RULE
-//
-// Add the shortfall back to the shell height only when it is exactly the top inset and
-// that inset is non-zero. That combination is the signature of "the view covers the
-// screen but the reported height excludes the top inset".
-//
-// Android is short too — by its status bar — but reports no top inset, so the condition
-// does not match and nothing is added. That matters: on Android the viewport really does
-// begin below the status bar, so extending the shell there would push content underneath
-// it. The equality test is what separates the two cases; a bare "is it short?" check
-// would break Android.
+// So this file deliberately does very little. It reads the insets and publishes them.
+// Keep it that way unless a measurement — not an inference — says otherwise.
 
 const EDGES = ['top', 'right', 'bottom', 'left'] as const
 
@@ -73,19 +53,11 @@ function readInsets(): Record<(typeof EDGES)[number], number> {
 
 function apply() {
   const inset = readInsets()
-  const shortfall = window.screen.height - window.innerHeight
-
-  // See THE RULE above. The `> 0` term is what excludes Android, where shortfall and
-  // inset would otherwise both be 0 and match meaninglessly.
-  const heightUnderReported = inset.top > 0 && shortfall === inset.top
-
   const root = document.documentElement.style
-  // Insets pass through untouched — they are correct as reported.
   root.setProperty('--sat', `${inset.top}px`)
   root.setProperty('--sar', `${inset.right}px`)
   root.setProperty('--sab', `${inset.bottom}px`)
   root.setProperty('--sal', `${inset.left}px`)
-  root.setProperty('--vh-extra', `${heightUnderReported ? shortfall : 0}px`)
 }
 
 let frame = 0
