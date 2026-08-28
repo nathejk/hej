@@ -105,6 +105,8 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer, opts
 		{"portraitCapturedAt", `portraitCapturedAt TIMESTAMP NULL DEFAULT NULL`},
 		{"portraitThumbRef", `portraitThumbRef VARCHAR(64) NOT NULL DEFAULT ""`},
 		{"portraitThumbs", `portraitThumbs TEXT NULL DEFAULT NULL`},
+		{"portraitOriginalRef", `portraitOriginalRef VARCHAR(64) NOT NULL DEFAULT ""`},
+		{"portraitOrientation", `portraitOrientation TINYINT NOT NULL DEFAULT 0`},
 	} {
 		if err := cqrs.EnsureColumn(r, w, "person", col.name, col.ddl); err != nil {
 			return nil, fmt.Errorf("person: ensure column %s: %w", col.name, err)

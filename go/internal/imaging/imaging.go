@@ -51,7 +51,8 @@ type Rendition struct {
 	Height int
 }
 
-// Portrait is a prepared portrait: the display image plus every thumbnail asked for.
+// Portrait is a prepared portrait: the display image, every thumbnail asked for, and
+// optionally the original.
 type Portrait struct {
 	// Full is the display image, bounded by the caller's edge limit. Its Name is empty:
 	// it is the portrait itself, not a variant of it.
@@ -65,42 +66,230 @@ type Portrait struct {
 	// Generated from the same decode as Full, so no rendition can disagree with another
 	// about orientation.
 	Thumbs []Rendition
+
+	// Original is the uploaded image at its own resolution, with **all metadata
+	// segments removed** and its pixels untouched. Empty when the format has no
+	// metadata scrubber here — see StripMetadata.
+	//
+	// Kept because renditions are produced at upload and cannot be produced again from
+	// a 1024px re-encode: without the original, adding a thumbnail size (or wanting more
+	// detail on a face at 03:00) can only apply to portraits taken *after* the change.
+	// The original is what makes a backfill possible at all.
+	//
+	// It is NOT the uploaded file. Stripping metadata is not optional — see the
+	// package doc's note on originals — and it is why Orientation below exists.
+	Original Rendition
+
+	// Orientation is the EXIF orientation the upload declared (1–8).
+	//
+	// Load-bearing, and easy to overlook: Full and Thumbs have the rotation *applied*,
+	// while Original holds the sensor's pixels with the tag stripped out. Without this
+	// number recorded outside the file, a future re-render from the original would not
+	// know which way up it goes — which is the one way keeping the original could still
+	// lose information.
+	Orientation int
+
+	// Format is the decoded format of the upload ("jpeg", "png", "gif"). It describes
+	// Original's bytes; every other rendition is JPEG.
+	Format string
 }
 
 // Prepare decodes raw, corrects its orientation, and encodes the display image plus one
-// thumbnail per entry in thumbEdges.
+// thumbnail per entry in thumbEdges. When keepOriginal is set it also returns the
+// metadata-stripped original.
 //
 // edge bounds the longest side of the display image; each thumbEdge does the same for one
 // thumbnail. Nothing is ever upscaled: a small upload stays small rather than being blown
 // up into a blurry "large" image — which also means a thumbnail can legitimately come back
 // the same size as the full image when someone uploads a tiny picture.
-func Prepare(raw []byte, edge int, thumbEdges []int, quality int) (Portrait, error) {
+func Prepare(raw []byte, edge int, thumbEdges []int, quality int, keepOriginal bool) (Portrait, error) {
 	img, format, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {
 		return Portrait{}, ErrNotAnImage
 	}
 
-	// Orientation first, so every rendition inherits it from one correction. Only JPEG
-	// carries the tag; for anything else this is a no-op.
+	orientation := 1
 	if format == "jpeg" {
-		img = applyOrientation(img, ReadOrientation(raw))
+		// Only JPEG carries the tag. Read before anything else, because both the applied
+		// rotation below and the recorded Orientation come from it.
+		orientation = ReadOrientation(raw)
+		img = applyOrientation(img, orientation)
 	}
 
-	full, err := render(img, "", edge, quality)
+	out := Portrait{Orientation: orientation, Format: format}
+
+	out.Full, err = render(img, "", edge, quality)
 	if err != nil {
 		return Portrait{}, err
 	}
 
-	thumbs := make([]Rendition, 0, len(thumbEdges))
+	out.Thumbs = make([]Rendition, 0, len(thumbEdges))
 	for _, thumbEdge := range thumbEdges {
-		thumb, err := render(img, ThumbName(thumbEdge), thumbEdge, quality)
-		if err != nil {
-			return Portrait{}, err
+		thumb, terr := render(img, ThumbName(thumbEdge), thumbEdge, quality)
+		if terr != nil {
+			return Portrait{}, terr
 		}
-		thumbs = append(thumbs, thumb)
+		out.Thumbs = append(out.Thumbs, thumb)
 	}
 
-	return Portrait{Full: full, Thumbs: thumbs}, nil
+	if keepOriginal {
+		stripped, ok := StripMetadata(raw, format)
+		if ok {
+			// Dimensions are the *decoded* image's, i.e. before rotation is applied — they
+			// describe the bytes being stored, not how they should be displayed. Taking
+			// them from `img` after applyOrientation would describe neither.
+			b, _, derr := image.DecodeConfig(bytes.NewReader(stripped))
+			if derr != nil {
+				// The scrubber produced something undecodable. Refusing to store it is the
+				// only safe answer: an "original" that cannot be read is worse than none,
+				// because it looks like a backfill is possible when it is not.
+				return Portrait{}, fmt.Errorf("stripped original is not decodable: %w", derr)
+			}
+			out.Original = Rendition{
+				Name:   "original",
+				Bytes:  stripped,
+				Width:  b.Width,
+				Height: b.Height,
+			}
+		}
+	}
+
+	return out, nil
+}
+
+// StripMetadata removes every metadata block from an encoded image, leaving the compressed
+// pixel data byte-for-byte intact. ok is false for a format with no scrubber here.
+//
+// # Why not just store the uploaded file
+//
+// PRD 003 §6 requires EXIF — notably GPS — to be gone. For the display renditions that
+// comes free, because they are re-encoded from pixels. An original cannot be re-encoded
+// (that would defeat the point of keeping it), so the metadata has to be removed from the
+// container instead. A phone photograph routinely carries the location it was taken,
+// which for a photograph of a child at a scouting event is exactly the field that must not
+// be retained.
+//
+// This is lossless: it drops whole segments/chunks and copies the entropy-coded data
+// unchanged, so the stored original decodes to the identical pixels.
+//
+// The orientation tag goes with everything else, which is why Prepare records it in the
+// event instead — metadata we control and can audit, rather than metadata riding along
+// inside a file.
+func StripMetadata(raw []byte, format string) ([]byte, bool) {
+	switch format {
+	case "jpeg":
+		return stripJPEGSegments(raw)
+	case "png":
+		return stripPNGChunks(raw)
+	default:
+		// GIF and anything else: no scrubber, so no original is kept. Deliberately a
+		// refusal rather than "store it as-is" — the whole point is that nothing
+		// unexamined is retained. In practice every camera path produces JPEG.
+		return nil, false
+	}
+}
+
+// stripJPEGSegments copies a JPEG without its APPn (EXIF, XMP, ICC, JFIF thumbnails) and
+// COM segments.
+func stripJPEGSegments(raw []byte) ([]byte, bool) {
+	if len(raw) < 4 || raw[0] != 0xFF || raw[1] != 0xD8 {
+		return nil, false
+	}
+
+	out := make([]byte, 0, len(raw))
+	out = append(out, 0xFF, 0xD8)
+
+	i := 2
+	for i+4 <= len(raw) {
+		if raw[i] != 0xFF {
+			return nil, false
+		}
+		marker := raw[i+1]
+
+		// Start of scan: everything from here is compressed pixel data (plus the EOI, and
+		// possibly trailing junk). Copied verbatim — this is the part that must not be
+		// touched.
+		if marker == 0xDA {
+			out = append(out, raw[i:]...)
+			return out, true
+		}
+		if marker == 0x01 || (marker >= 0xD0 && marker <= 0xD9) {
+			out = append(out, raw[i], raw[i+1])
+			i += 2
+			continue
+		}
+
+		length := int(binary.BigEndian.Uint16(raw[i+2 : i+4]))
+		if length < 2 || i+2+length > len(raw) {
+			return nil, false
+		}
+		// APPn (0xE0–0xEF) is where EXIF, XMP and ICC live; COM (0xFE) is a free-text
+		// comment. Everything else — quantisation tables, Huffman tables, frame headers —
+		// is needed to decode the image.
+		drop := (marker >= 0xE0 && marker <= 0xEF) || marker == 0xFE
+		if !drop {
+			out = append(out, raw[i:i+2+length]...)
+		}
+		i += 2 + length
+	}
+
+	// Ran out of bytes without reaching a scan: not a usable JPEG.
+	return nil, false
+}
+
+// pngKeptChunks is the allowlist: critical chunks plus the ancillary ones that affect how
+// the pixels are interpreted.
+//
+// An allowlist rather than a blocklist, deliberately. A blocklist has to enumerate every
+// metadata chunk that exists now and every one added later; this way an unknown chunk is
+// dropped, which is the safe default for data whose whole purpose is not being retained.
+var pngKeptChunks = map[string]bool{
+	// Critical.
+	"IHDR": true, "PLTE": true, "IDAT": true, "IEND": true,
+	// Affect rendering, carry nothing about the photographer or the place.
+	"tRNS": true, "gAMA": true, "cHRM": true, "sRGB": true, "iCCP": true, "sBIT": true,
+	"pHYs": true,
+}
+
+// stripPNGChunks copies a PNG keeping only the chunks in pngKeptChunks.
+//
+// Also removes anything appended after IEND, which is a favourite place to hide a payload
+// and is ignored by decoders — so a file can be a valid image and carry something else
+// entirely.
+func stripPNGChunks(raw []byte) ([]byte, bool) {
+	const signatureLen = 8
+	if len(raw) < signatureLen+12 {
+		return nil, false
+	}
+
+	out := make([]byte, 0, len(raw))
+	out = append(out, raw[:signatureLen]...)
+
+	i := signatureLen
+	for i+8 <= len(raw) {
+		length := int(binary.BigEndian.Uint32(raw[i : i+4]))
+		if length < 0 {
+			return nil, false
+		}
+		end := i + 12 + length // length + type + data + crc
+		if end > len(raw) {
+			return nil, false
+		}
+		chunkType := string(raw[i+4 : i+8])
+
+		if pngKeptChunks[chunkType] {
+			out = append(out, raw[i:end]...)
+		}
+		if chunkType == "IEND" {
+			// Stop here rather than continuing: whatever follows IEND is not part of the
+			// image.
+			return out, true
+		}
+		i = end
+	}
+
+	// No IEND found.
+	return nil, false
 }
 
 // ThumbName is the canonical name for a thumbnail of the given longest edge.

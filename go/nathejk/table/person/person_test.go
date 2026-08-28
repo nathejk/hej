@@ -19,7 +19,7 @@ func TestSchemaCarriesTheExpectedColumns(t *testing.T) {
 		"teamId", "teamName",
 		"memberStatus", "armNumber",
 		"verifiedAt", "acknowledgedPhone", "portraitRef", "portraitThumbRef",
-		"portraitThumbs", "portraitCapturedAt",
+		"portraitThumbs", "portraitOriginalRef", "portraitOrientation", "portraitCapturedAt",
 		"deleted",
 	} {
 		if !strings.Contains(tableSchema, col) {

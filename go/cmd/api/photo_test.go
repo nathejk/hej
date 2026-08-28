@@ -188,7 +188,7 @@ func TestUploadPhoto_ReEncodesToJpegAndDropsMetadata(t *testing.T) {
 	}
 	tagged := append(pngBuf.Bytes(), []byte("GPSLatitudeSecretMarker")...)
 
-	encoded, meta, err := normalizePortrait(tagged)
+	encoded, meta, err := normalizePortrait(tagged, false)
 	if err != nil {
 		t.Fatalf("normalizePortrait: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestUploadPhoto_ReEncodesToJpegAndDropsMetadata(t *testing.T) {
 // Oversized images are downscaled server-side. The client also does this, but the server
 // cannot assume it did — and PRD 007 sizes its offline cache against what is stored.
 func TestUploadPhoto_DownscalesToTheEdgeLimit(t *testing.T) {
-	encoded, meta, err := normalizePortrait(testImage(t, 2000, 1000))
+	encoded, meta, err := normalizePortrait(testImage(t, 2000, 1000), false)
 	if err != nil {
 		t.Fatalf("normalizePortrait: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestShowPhoto_FallsBackWhenThereIsNoThumbnail(t *testing.T) {
 
 // A small image is left at its own size rather than being blown up.
 func TestNormalizePortraitDoesNotUpscale(t *testing.T) {
-	_, meta, err := normalizePortrait(testImage(t, 80, 60))
+	_, meta, err := normalizePortrait(testImage(t, 80, 60), false)
 	if err != nil {
 		t.Fatalf("normalizePortrait: %v", err)
 	}

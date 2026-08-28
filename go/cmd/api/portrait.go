@@ -74,6 +74,27 @@ func (app *application) storePortrait(
 		})
 	}
 
+	// The original (task 111), when one was kept. Also stored before the event.
+	var original *person.PortraitOriginal
+	if len(meta.Original.Bytes) > 0 {
+		originalRef, oerr := app.blobs.Put(ctx, meta.Original.Bytes)
+		if oerr != nil {
+			// Fails the upload. The alternative — keep the portrait, silently drop the
+			// original — would leave one member quietly un-backfillable, discovered only
+			// when a future re-render skipped them for no visible reason.
+			return "", fmt.Errorf("store portrait original: %w", oerr)
+		}
+		original = &person.PortraitOriginal{
+			Ref: originalRef.String(),
+			// The upload's own format, not image/jpeg: the original is not re-encoded.
+			ContentType: meta.OriginalContentType,
+			Bytes:       len(meta.Original.Bytes),
+			Width:       meta.Original.Width,
+			Height:      meta.Original.Height,
+			Orientation: meta.Orientation,
+		}
+	}
+
 	subject, err := person.PortraitSubject(app.config.eventYear, personID)
 	if err != nil {
 		// A configured year or person id that cannot be a subject token is our
@@ -91,6 +112,7 @@ func (app *application) storePortrait(
 		Width:       meta.Width,
 		Height:      meta.Height,
 		Thumbs:      thumbs,
+		Original:    original,
 		CapturedAt:  time.Now().UTC(),
 	}
 	if err := app.commands.Publish(subject, body); err != nil {
@@ -148,4 +170,12 @@ type portraitMeta struct {
 	// generated here because they come from the *same decode* as the full image, which is
 	// what guarantees no rendition disagrees with another about orientation.
 	Thumbs []imaging.Rendition
+
+	// Original is the metadata-stripped upload to keep (task 111), zero when none was
+	// kept. OriginalContentType is the *upload's* format, since those bytes are not
+	// re-encoded, and Orientation is the EXIF value the file declared before its metadata
+	// was removed.
+	Original            imaging.Rendition
+	OriginalContentType string
+	Orientation         int
 }

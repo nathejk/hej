@@ -50,6 +50,13 @@ type Person struct {
 	// PortraitThumbs is every thumbnail rendition, each with its own size and byte count.
 	// Empty for a portrait captured before the list existed.
 	PortraitThumbs []PortraitThumb
+	// PortraitOriginalRef is the content hash of the stored original (task 111), or empty
+	// when none was kept. Never served to a client — it exists so renditions can be
+	// produced again later.
+	PortraitOriginalRef string
+	// PortraitOrientation is the EXIF orientation the upload declared (1–8; 0 unknown).
+	// Needed to re-render from the original, whose metadata was stripped.
+	PortraitOrientation int
 	// PortraitCapturedAt is when the current portrait was taken, or nil when there is
 	// none (or when the event carried no timestamp). The retention job reads it; see
 	// portrait.go.
@@ -172,7 +179,7 @@ const personColumns = `
 	sectionSlug, sectionName,
 	memberStatus, armNumber,
 	verifiedAt, acknowledgedPhone, portraitRef, portraitThumbRef, portraitThumbs,
-	portraitCapturedAt`
+	portraitOriginalRef, portraitOrientation, portraitCapturedAt`
 
 // Lookup finds people by phone number.
 //
@@ -257,7 +264,7 @@ func (q querier) ExpiredPortraits(year string, before time.Time, limit int) ([]E
 	// that must still expire — filtering it out would make deletion a way to keep an
 	// image forever.
 	rows, err := q.db.Query(`
-		SELECT personId, portraitRef, portraitThumbRef, portraitThumbs
+		SELECT personId, portraitRef, portraitThumbRef, portraitThumbs, portraitOriginalRef
 		FROM person
 		WHERE year = ? AND portraitRef <> ""
 		  AND (portraitCapturedAt IS NULL OR portraitCapturedAt < ?)
@@ -274,7 +281,8 @@ func (q querier) ExpiredPortraits(year string, before time.Time, limit int) ([]E
 			p      Person
 			thumbs *string
 		)
-		if err := rows.Scan(&p.PersonID, &p.PortraitRef, &p.PortraitThumbRef, &thumbs); err != nil {
+		if err := rows.Scan(&p.PersonID, &p.PortraitRef, &p.PortraitThumbRef, &thumbs,
+			&p.PortraitOriginalRef); err != nil {
 			return nil, err
 		}
 		p.PortraitThumbs = decodeThumbs(thumbs)
@@ -303,6 +311,7 @@ func scanPerson(s scanner) (Person, error) {
 		&p.SectionSlug, &p.SectionName,
 		&p.MemberStatus, &p.ArmNumber,
 		&p.VerifiedAt, &p.AcknowledgedPhone, &p.PortraitRef, &p.PortraitThumbRef, &thumbs,
+		&p.PortraitOriginalRef, &p.PortraitOrientation,
 		&p.PortraitCapturedAt,
 	)
 	if err != nil {
@@ -353,8 +362,10 @@ func (p Person) PortraitRefs() []string {
 	refs := []string{p.PortraitRef}
 	seen := map[string]bool{p.PortraitRef: true}
 	// PortraitThumbRef duplicates one of the renditions, so dedupe rather than returning
-	// the same object twice.
-	candidates := append([]string{p.PortraitThumbRef}, thumbRefs(p.PortraitThumbs)...)
+	// the same object twice. The original is included: retention deletes the portrait
+	// entirely, and an original left behind is a full-resolution face still on disk.
+	candidates := append([]string{p.PortraitThumbRef, p.PortraitOriginalRef},
+		thumbRefs(p.PortraitThumbs)...)
 	for _, ref := range candidates {
 		if ref == "" || seen[ref] {
 			continue

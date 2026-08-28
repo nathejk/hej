@@ -216,6 +216,32 @@ for the web app on this device — with a one-tap way to fix it when they are no
   content type and magic bytes, enforces a hard size limit, re-encodes rather
   than trusting the uploaded bytes, and strips EXIF (notably GPS) metadata.
   Stored images must not be publicly enumerable.
+
+  **Amended 2026-08-28 (task 111): the original upload is also retained**, so that
+  renditions can be regenerated later — a 1024px re-encode cannot yield a new
+  thumbnail size or a sharper crop, which would otherwise make any change to the
+  rendition set apply only to portraits taken after it.
+
+  This does **not** relax the rule above, and the distinction matters:
+
+  - Validation is unchanged — the bytes are still proven to be an image by decoding
+    them, and the declared content type is still ignored.
+  - The original's **metadata is stripped losslessly** (whole EXIF/XMP/ICC/comment
+    blocks dropped, compressed pixel data copied unchanged) rather than by
+    re-encoding, which would defeat the purpose of keeping it. GPS is therefore gone
+    from the original too. A test asserts pixel-for-pixel identity, which is what
+    makes "lossless" a property rather than a claim.
+  - The EXIF **orientation** is recorded in the event and the row, because stripping
+    removes it from the file. It is the one field worth keeping, and it lives where it
+    can be audited instead of riding along inside a file.
+  - The original is **never served**. The renditions are re-encoded from pixels and
+    are provably images; the original is bytes we decoded once, so keeping it off the
+    response path removes the polyglot question rather than arguing about it.
+  - A format with no metadata scrubber keeps **no** original.
+
+  Cost, since it lands on the one thing that must be backed up (PRD 008 §8): ~15 KB
+  of renditions per member becomes 1–4 MB, i.e. roughly 12 MB → ~2 GB for a full
+  event. Hence `PORTRAIT_KEEP_ORIGINAL` (default true).
 - **Performance:** the profile fetch is a single request; the photo is served at
   a display-appropriate size, not full resolution.
 - **Accessibility:** each permission row states its status in text (not colour
@@ -445,9 +471,9 @@ changed with an env var, not a deploy.
 **Thumbnail sizes are configuration** (`thumbnailEdges`, task 110). Today one 256px
 rendition is generated; the event, projection and endpoint all carry a *set*, each
 entry with its own byte count and dimensions, so adding the size PRD 007's
-identification grid wants is a one-line change. Note it applies to portraits taken
-after the change — renditions are produced at upload, so a backfill would be its own
-task.
+identification grid wants is a one-line change. Since task 111 the **original** is
+kept too (metadata stripped, never served), so such a change can be **backfilled**
+for portraits already taken — which would otherwise have been impossible.
 
 Two loosely coupled tracks: (a) details + permission status, which is
 low-risk and shippable on its own, and (b) photo capture + storage, which carries

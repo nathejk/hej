@@ -80,6 +80,22 @@ CREATE TABLE IF NOT EXISTS person (
     -- *across* renditions, that is the moment to normalize.
     portraitThumbs TEXT NULL DEFAULT NULL,
 
+    -- Content hash of the ORIGINAL upload (task 111), stored at its own resolution with
+    -- all metadata stripped. Kept so renditions can be produced again later: portraitRef
+    -- is a 1024px re-encode, and no sharper crop or new thumbnail size can come from it.
+    --
+    -- Empty when no original was kept (an upload in a format with no metadata scrubber,
+    -- or a portrait captured before this column existed).
+    portraitOriginalRef VARCHAR(64) NOT NULL DEFAULT "",
+
+    -- The EXIF orientation the upload declared (1-8, 0 = unknown/none).
+    --
+    -- Stripping metadata removes the tag from the stored original, so this is the one
+    -- piece of it worth keeping: without it a re-render from the original would not know
+    -- which way up the face goes. The display renditions already have the rotation
+    -- applied, so nothing reading portraitRef needs this.
+    portraitOrientation TINYINT NOT NULL DEFAULT 0,
+
     -- When that portrait was captured. The retention job (task 109) works from this:
     -- "the portrait does not outlive the event" needs an age on the row, and the
     -- message's delivery time is not usable because it changes on every replay. NULL

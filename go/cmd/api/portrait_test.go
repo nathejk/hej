@@ -206,6 +206,61 @@ func TestStorePortraitStoresEveryRendition(t *testing.T) {
 	}
 }
 
+// The original is stored as its own object and referenced from the event, with the
+// orientation recorded outside the file (task 111).
+func TestStorePortraitStoresTheOriginal(t *testing.T) {
+	pub := &cqrstest.Publisher{}
+	app := portraitTestApp(t, pub)
+
+	original := []byte("the untouched-pixel original, minus its metadata")
+	_, err := app.storePortrait(context.Background(), "member-1", []byte("display image"),
+		portraitMeta{
+			ContentType:         "image/jpeg",
+			Original:            imaging.Rendition{Name: "original", Bytes: original, Width: 3000, Height: 4000},
+			OriginalContentType: "image/jpeg",
+			Orientation:         6,
+		})
+	if err != nil {
+		t.Fatalf("storePortrait: %v", err)
+	}
+
+	body := publishedPortrait(t, pub)
+	if body.Original == nil {
+		t.Fatal("the event carries no original")
+	}
+	if body.Original.Ref != blob.ComputeRef(original).String() {
+		t.Errorf("original ref = %q, want its content hash", body.Original.Ref)
+	}
+	if body.Original.Ref == body.Ref {
+		t.Error("the original must be its own object, not the display image's hash")
+	}
+	if body.Original.Bytes != len(original) ||
+		body.Original.Width != 3000 || body.Original.Height != 4000 {
+		t.Errorf("original metadata lost: %+v", body.Original)
+	}
+	// The one piece of EXIF worth keeping, kept in the log rather than in the file.
+	if body.Original.Orientation != 6 {
+		t.Errorf("orientation = %d, want 6 — a re-render could not turn it upright without this",
+			body.Original.Orientation)
+	}
+	if ok, _ := app.blobs.Exists(context.Background(), blob.Ref(body.Original.Ref)); !ok {
+		t.Error("original bytes were not stored")
+	}
+}
+
+func TestStorePortraitWithoutAnOriginal(t *testing.T) {
+	pub := &cqrstest.Publisher{}
+	app := portraitTestApp(t, pub)
+
+	if _, err := app.storePortrait(context.Background(), "member-1", []byte("display"),
+		portraitMeta{ContentType: "image/jpeg"}); err != nil {
+		t.Fatalf("storePortrait: %v", err)
+	}
+	if body := publishedPortrait(t, pub); body.Original != nil {
+		t.Errorf("original = %+v, want none", body.Original)
+	}
+}
+
 func TestStorePortraitRefusesBadInput(t *testing.T) {
 	app := portraitTestApp(t, &cqrstest.Publisher{})
 

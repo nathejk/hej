@@ -76,8 +76,16 @@ var errNotAnImage = errors.New("filen er ikke et billede vi kan læse")
 // photo a phone stored rotated arrives upright. Doing it server-side covers the path the
 // client cannot: the `<input capture>` fallback hands over an untouched camera file.
 //
+// # What is stored
+//
+// Three kinds of object, all content-addressed: the 1024px display image, one thumbnail
+// per configured size (task 104), and — unless disabled — the **original** upload at its
+// own resolution with all metadata stripped (task 111). The original is never served; it
+// exists so renditions can be produced again later, which a 1024px re-encode cannot
+// support.
+//
 // @Summary      Upload own portrait
-// @Description  Accepts a multipart form with a `photo` file field, or a raw image body. The bytes are validated by decoding them, turned upright per their EXIF orientation, re-encoded to JPEG (which strips all EXIF, including GPS), downscaled to a longest edge of 1024px, and stored content-addressed together with a 256px thumbnail. The declared content type is ignored in favour of the actual bytes. Max 4 MiB.
+// @Description  Accepts a multipart form with a `photo` file field, or a raw image body. The bytes are validated by decoding them, turned upright per their EXIF orientation, re-encoded to JPEG (which strips all EXIF, including GPS), downscaled to a longest edge of 1024px, and stored content-addressed together with a 256px thumbnail. The original is also retained at full resolution with its metadata stripped, for future re-rendering, and is never served. The declared content type is ignored in favour of the actual bytes. Max 4 MiB.
 // @Tags         me
 // @Accept       mpfd
 // @Produce      json
@@ -106,7 +114,7 @@ func (app *application) updatePhotoHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	encoded, meta, err := normalizePortrait(raw)
+	encoded, meta, err := normalizePortrait(raw, app.config.portraitKeepOriginal)
 	if err != nil {
 		app.BadRequestResponse(w, r, err)
 		return
@@ -282,8 +290,8 @@ func readCapped(src io.Reader) ([]byte, error) {
 // The decode is the validation: bytes that are not an image cannot get past it, and no
 // header or filename is consulted. What comes out is always JPEG. The work itself lives
 // in internal/imaging, where it is testable without a request.
-func normalizePortrait(raw []byte) ([]byte, portraitMeta, error) {
-	prepared, err := imaging.Prepare(raw, maxPortraitEdge, thumbnailEdges, jpegQuality)
+func normalizePortrait(raw []byte, keepOriginal bool) ([]byte, portraitMeta, error) {
+	prepared, err := imaging.Prepare(raw, maxPortraitEdge, thumbnailEdges, jpegQuality, keepOriginal)
 	if err != nil {
 		if errors.Is(err, imaging.ErrNotAnImage) {
 			// Translated to the Danish message the client shows; the packaged error is
@@ -294,9 +302,12 @@ func normalizePortrait(raw []byte) ([]byte, portraitMeta, error) {
 	}
 
 	return prepared.Full.Bytes, portraitMeta{
-		ContentType: "image/jpeg",
-		Width:       prepared.Full.Width,
-		Height:      prepared.Full.Height,
-		Thumbs:      prepared.Thumbs,
+		ContentType:         "image/jpeg",
+		Width:               prepared.Full.Width,
+		Height:              prepared.Full.Height,
+		Thumbs:              prepared.Thumbs,
+		Original:            prepared.Original,
+		OriginalContentType: "image/" + prepared.Format,
+		Orientation:         prepared.Orientation,
 	}, nil
 }

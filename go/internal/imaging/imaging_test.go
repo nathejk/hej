@@ -133,7 +133,7 @@ func TestPrepareRotatesAccordingToExif(t *testing.T) {
 	// Landscape source: 40 wide, 20 high.
 	raw := jpegWithOrientation(t, gradient(40, 20), 6, false)
 
-	out, err := imaging.Prepare(raw, 1024, []int{256}, 85)
+	out, err := imaging.Prepare(raw, 1024, []int{256}, 85, false)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestPrepareRotatesAccordingToExif(t *testing.T) {
 
 func TestPrepareLeavesUprightImagesAlone(t *testing.T) {
 	raw := jpegWithOrientation(t, gradient(40, 20), 1, false)
-	out, err := imaging.Prepare(raw, 1024, []int{256}, 85)
+	out, err := imaging.Prepare(raw, 1024, []int{256}, 85, false)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestPrepareLeavesUprightImagesAlone(t *testing.T) {
 func TestPrepareHandlesAllOrientations(t *testing.T) {
 	for orientation := 1; orientation <= 8; orientation++ {
 		raw := jpegWithOrientation(t, gradient(30, 10), orientation, false)
-		out, err := imaging.Prepare(raw, 1024, []int{256}, 85)
+		out, err := imaging.Prepare(raw, 1024, []int{256}, 85, false)
 		if err != nil {
 			t.Fatalf("orientation %d: %v", orientation, err)
 		}
@@ -188,7 +188,7 @@ func TestPrepareProducesBothSizes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := imaging.Prepare(buf.Bytes(), 1024, []int{256}, 85)
+	out, err := imaging.Prepare(buf.Bytes(), 1024, []int{256}, 85, false)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestPrepareProducesEveryRequestedSize(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := imaging.Prepare(buf.Bytes(), 1024, []int{512, 256, 96}, 85)
+	out, err := imaging.Prepare(buf.Bytes(), 1024, []int{512, 256, 96}, 85, false)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestPrepareWithNoThumbnailSizes(t *testing.T) {
 	if err := jpeg.Encode(&buf, gradient(300, 300), nil); err != nil {
 		t.Fatal(err)
 	}
-	out, err := imaging.Prepare(buf.Bytes(), 1024, nil, 85)
+	out, err := imaging.Prepare(buf.Bytes(), 1024, nil, 85, false)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestPrepareAcceptsPngAndDropsTrailingBytes(t *testing.T) {
 	}
 	tagged := append(buf.Bytes(), []byte("GPSLatitudeSecretMarker")...)
 
-	out, err := imaging.Prepare(tagged, 1024, []int{256}, 85)
+	out, err := imaging.Prepare(tagged, 1024, []int{256}, 85, false)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
@@ -301,8 +301,151 @@ func TestPrepareAcceptsPngAndDropsTrailingBytes(t *testing.T) {
 }
 
 func TestPrepareRejectsNonImages(t *testing.T) {
-	if _, err := imaging.Prepare([]byte("MZ\x90\x00 not an image"), 1024, []int{256}, 85); err != imaging.ErrNotAnImage {
+	if _, err := imaging.Prepare([]byte("MZ\x90\x00 not an image"), 1024, []int{256}, 85, false); err != imaging.ErrNotAnImage {
 		t.Fatalf("err = %v, want ErrNotAnImage", err)
+	}
+}
+
+// The original is kept at full resolution, with metadata gone and pixels intact. Those
+// two properties are the whole design: quality is why we keep it, and the missing GPS is
+// why we are allowed to.
+func TestPrepareKeepsTheOriginal(t *testing.T) {
+	// A large JPEG carrying EXIF, so both properties are observable at once.
+	raw := jpegWithOrientation(t, gradient(1600, 1200), 1, false)
+
+	out, err := imaging.Prepare(raw, 1024, []int{256}, 85, true)
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+
+	if len(out.Original.Bytes) == 0 {
+		t.Fatal("no original was kept")
+	}
+	// Full resolution, i.e. NOT the 1024px display image — which is the reason it exists.
+	if out.Original.Width != 1600 || out.Original.Height != 1200 {
+		t.Errorf("original is %dx%d, want the uploaded 1600x1200",
+			out.Original.Width, out.Original.Height)
+	}
+	if out.Full.Width != 1024 {
+		t.Errorf("display image is %dpx wide, want it downscaled to 1024", out.Full.Width)
+	}
+	if out.Format != "jpeg" {
+		t.Errorf("format = %q, want jpeg", out.Format)
+	}
+
+	// Metadata gone.
+	if bytes.Contains(out.Original.Bytes, []byte("Exif")) {
+		t.Error("the stored original still contains an EXIF segment")
+	}
+	if got := imaging.ReadOrientation(out.Original.Bytes); got != 1 {
+		t.Errorf("stripped original still declares orientation %d", got)
+	}
+
+	// Pixels intact: the stripped file must decode to the same image as the upload.
+	before, _, err := image.Decode(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("decode upload: %v", err)
+	}
+	after, _, err := image.Decode(bytes.NewReader(out.Original.Bytes))
+	if err != nil {
+		t.Fatalf("decode stored original: %v", err)
+	}
+	assertSamePixels(t, before, after)
+}
+
+// Orientation must be recorded in the struct, because stripping removed it from the file.
+// Without this a re-render from the original could not know which way up the face goes.
+func TestPrepareRecordsOrientationForTheStrippedOriginal(t *testing.T) {
+	raw := jpegWithOrientation(t, gradient(800, 400), 6, false)
+
+	out, err := imaging.Prepare(raw, 1024, nil, 85, true)
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+
+	if out.Orientation != 6 {
+		t.Errorf("Orientation = %d, want 6", out.Orientation)
+	}
+	// The stored original keeps the sensor's landscape pixels…
+	if out.Original.Width != 800 || out.Original.Height != 400 {
+		t.Errorf("original is %dx%d, want the unrotated 800x400",
+			out.Original.Width, out.Original.Height)
+	}
+	// …while the display image is turned upright.
+	if out.Full.Width >= out.Full.Height {
+		t.Errorf("display image is %dx%d, want it rotated to portrait",
+			out.Full.Width, out.Full.Height)
+	}
+	// And the tag is gone from the file, so nothing can rotate it twice.
+	if got := imaging.ReadOrientation(out.Original.Bytes); got != 1 {
+		t.Errorf("stripped original still declares orientation %d — a reader would rotate twice", got)
+	}
+}
+
+func TestPrepareSkipsTheOriginalWhenNotAsked(t *testing.T) {
+	raw := jpegWithOrientation(t, gradient(600, 600), 1, false)
+	out, err := imaging.Prepare(raw, 1024, nil, 85, false)
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if len(out.Original.Bytes) != 0 {
+		t.Error("an original was stored despite keepOriginal being false")
+	}
+}
+
+// PNG originals are scrubbed by chunk allowlist, which also removes anything appended
+// after IEND — a favourite hiding place, since decoders ignore it.
+func TestStripMetadataOnPng(t *testing.T) {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, gradient(120, 90)); err != nil {
+		t.Fatal(err)
+	}
+	// A text chunk before IEND would be the realistic case; appended junk after IEND is
+	// the nastier one. Test the latter, plus a fake ancillary chunk.
+	tagged := append(buf.Bytes(), []byte("trailing GPS payload")...)
+
+	stripped, ok := imaging.StripMetadata(tagged, "png")
+	if !ok {
+		t.Fatal("png should be strippable")
+	}
+	if bytes.Contains(stripped, []byte("trailing GPS payload")) {
+		t.Error("data after IEND survived")
+	}
+
+	before, err := png.Decode(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("decode source: %v", err)
+	}
+	after, err := png.Decode(bytes.NewReader(stripped))
+	if err != nil {
+		t.Fatalf("stripped png is not decodable: %v", err)
+	}
+	assertSamePixels(t, before, after)
+}
+
+// A format with no scrubber keeps no original rather than storing something unexamined.
+func TestStripMetadataRefusesUnknownFormats(t *testing.T) {
+	if _, ok := imaging.StripMetadata([]byte("GIF89a..."), "gif"); ok {
+		t.Error("gif should not be strippable — no scrubber exists for it")
+	}
+	if _, ok := imaging.StripMetadata(nil, "jpeg"); ok {
+		t.Error("empty input must not be accepted")
+	}
+}
+
+// assertSamePixels fails if two images differ anywhere — the property that makes metadata
+// stripping lossless rather than a re-encode.
+func assertSamePixels(t *testing.T, a, b image.Image) {
+	t.Helper()
+	if a.Bounds() != b.Bounds() {
+		t.Fatalf("bounds differ: %v vs %v", a.Bounds(), b.Bounds())
+	}
+	for y := a.Bounds().Min.Y; y < a.Bounds().Max.Y; y++ {
+		for x := a.Bounds().Min.X; x < a.Bounds().Max.X; x++ {
+			if a.At(x, y) != b.At(x, y) {
+				t.Fatalf("pixel %d,%d differs: %v vs %v", x, y, a.At(x, y), b.At(x, y))
+			}
+		}
 	}
 }
 

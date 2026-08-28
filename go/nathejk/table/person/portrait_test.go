@@ -212,10 +212,67 @@ func TestDecodeThumbsToleratesRubbish(t *testing.T) {
 	}
 }
 
+// The original's ref reaches the row, and its orientation with it — the row is where a
+// future re-render will look.
+func TestPortraitCapturedRecordsTheOriginal(t *testing.T) {
+	original := strings.Repeat("e", 64)
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.portrait.member-1.captured",
+		PortraitCaptured{
+			PersonID: "member-1",
+			Ref:      testRef,
+			Original: &PortraitOriginal{
+				Ref: original, ContentType: "image/jpeg",
+				Bytes: 2_400_000, Width: 3000, Height: 4000, Orientation: 6,
+			},
+		}))
+
+	if !strings.Contains(stmt, `portraitOriginalRef="`+original+`"`) {
+		t.Errorf("original ref not written: %s", stmt)
+	}
+	if !strings.Contains(stmt, "portraitOrientation=6") {
+		t.Errorf("orientation not written: %s", stmt)
+	}
+}
+
+// A malformed original ref costs the original, not the portrait: the consequence is that
+// this one member cannot be backfilled later, which is much better than losing the photo.
+func TestPortraitCapturedDropsABadOriginalRef(t *testing.T) {
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.portrait.member-1.captured",
+		PortraitCaptured{
+			PersonID: "member-1",
+			Ref:      testRef,
+			Original: &PortraitOriginal{Ref: "../../etc/passwd", Orientation: 3},
+		}))
+
+	if strings.Contains(stmt, "passwd") {
+		t.Errorf("the bad ref must not be written: %s", stmt)
+	}
+	if !strings.Contains(stmt, testRef) {
+		t.Errorf("the portrait must survive: %s", stmt)
+	}
+	if !strings.Contains(stmt, `portraitOriginalRef=""`) {
+		t.Errorf("want an empty original ref: %s", stmt)
+	}
+}
+
+// An event with no original at all — keepOriginal off, an unstrippable format, or an event
+// predating the field — must apply cleanly.
+func TestPortraitCapturedWithoutAnOriginal(t *testing.T) {
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.portrait.member-1.captured",
+		PortraitCaptured{PersonID: "member-1", Ref: testRef}))
+	if !strings.Contains(stmt, `portraitOriginalRef=""`) {
+		t.Errorf("want an empty original ref: %s", stmt)
+	}
+	if !strings.Contains(stmt, "portraitOrientation=0") {
+		t.Errorf("want an unknown orientation: %s", stmt)
+	}
+}
+
 // PortraitRefs is what the purge deletes, so it must cover every object exactly once.
 func TestPortraitRefsCoversEveryObjectOnce(t *testing.T) {
 	medium := strings.Repeat("b", 64)
 	small := strings.Repeat("c", 64)
+	original := strings.Repeat("e", 64)
 	p := Person{
 		PortraitRef: testRef,
 		// A copy of one of the renditions, as the projection denormalizes it.
@@ -224,17 +281,20 @@ func TestPortraitRefsCoversEveryObjectOnce(t *testing.T) {
 			{Name: "thumb256", Ref: medium},
 			{Name: "thumb96", Ref: small},
 		},
+		// The original must be deleted too: leaving it behind means a full-resolution
+		// face still on disk after the record says the portrait is gone.
+		PortraitOriginalRef: original,
 	}
 
 	got := p.PortraitRefs()
-	if len(got) != 3 {
-		t.Fatalf("refs = %v, want 3 distinct objects", got)
+	if len(got) != 4 {
+		t.Fatalf("refs = %v, want 4 distinct objects", got)
 	}
 	seen := map[string]int{}
 	for _, ref := range got {
 		seen[ref]++
 	}
-	for _, want := range []string{testRef, medium, small} {
+	for _, want := range []string{testRef, medium, small, original} {
 		if seen[want] != 1 {
 			t.Errorf("%s appears %d times, want exactly once", want, seen[want])
 		}

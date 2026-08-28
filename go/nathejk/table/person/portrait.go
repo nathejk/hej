@@ -60,6 +60,33 @@ type PortraitThumb struct {
 	Height      int    `json:"height"`
 }
 
+// PortraitOriginal is the uploaded image as stored: original pixels, no metadata.
+type PortraitOriginal struct {
+	// Ref is the blob store's content hash for the stored original.
+	Ref string `json:"ref"`
+
+	// ContentType is the format it is stored in — the *upload's* format, since the bytes
+	// were not re-encoded. So this can differ from the renditions' image/jpeg.
+	ContentType string `json:"contentType"`
+
+	Bytes int `json:"bytes"`
+
+	// Width and Height describe the stored bytes, **before** rotation is applied. They
+	// are therefore swapped relative to the display image for a photo taken sideways —
+	// see Orientation.
+	Width  int `json:"width"`
+	Height int `json:"height"`
+
+	// Orientation is the EXIF orientation the upload declared (1–8, 1 meaning upright).
+	//
+	// Recorded here because stripping metadata removes the tag from the file. It is the
+	// one piece of that metadata worth keeping — without it, a future re-render from the
+	// original would not know which way up the face goes, which is the only way keeping
+	// the original could still lose information. Kept in the log, where it is auditable,
+	// rather than inside a file where it travels unnoticed.
+	Orientation int `json:"orientation"`
+}
+
 // PortraitCaptured says that a person now has this portrait.
 //
 // "Captured", not "uploaded": the event records a fact about the person, not the
@@ -93,6 +120,22 @@ type PortraitCaptured struct {
 	// a replayed event from that era. Consumers must degrade to the full image rather
 	// than treat it as a broken record.
 	Thumbs []PortraitThumb `json:"thumbs"`
+
+	// Original is the uploaded image at its own resolution, metadata stripped (task 111).
+	//
+	// It exists so renditions can be produced again later: `Ref` above is a 1024px
+	// re-encode, and no new thumbnail size or sharper crop can be derived from it. Without
+	// the original, changing the rendition set only ever applies to portraits taken after
+	// the change.
+	//
+	// **Not the uploaded file.** All EXIF/XMP/ICC and comment blocks are removed before
+	// storage — a phone photograph carries the location it was taken, and for a
+	// photograph of a child that is precisely the field that must not be retained. The
+	// pixels are byte-identical to the upload; only the metadata containers are gone.
+	//
+	// Zero value means no original was kept: an upload in a format with no metadata
+	// scrubber, or a portrait captured before this field existed.
+	Original *PortraitOriginal `json:"original,omitempty"`
 
 	// ThumbRef is the single thumbnail hash the first version of this event carried.
 	//
@@ -176,7 +219,8 @@ func (c consumer) handlePortraitPurged(msg cqrs.Message, year string) error {
 	// comes *later* in the stream and re-sets these columns. Comparing refs here would
 	// make the outcome depend on replay timing rather than on stream order.
 	return c.w.Consume(fmt.Sprintf(
-		`UPDATE person SET portraitRef="", portraitThumbRef="", portraitThumbs="", portraitCapturedAt=NULL `+
+		`UPDATE person SET portraitRef="", portraitThumbRef="", portraitThumbs="", `+
+			`portraitOriginalRef="", portraitOrientation=0, portraitCapturedAt=NULL `+
 			"WHERE personId=%s AND year=%s",
 		quote(personID), quote(year),
 	))
@@ -292,9 +336,21 @@ func (c consumer) handlePortraitCaptured(msg cqrs.Message, year string) error {
 		defaultRef = smallestThumb(thumbs).Ref
 	}
 
+	// The original is optional, and a malformed ref costs the original rather than the
+	// portrait — same rule as a rendition. Its consequence is narrower than it looks: no
+	// original means no future backfill for this person, not a broken profile.
+	originalRef := ""
+	originalOrientation := 0
+	if body.Original != nil && validPortraitRef(body.Original.Ref) {
+		originalRef = body.Original.Ref
+		originalOrientation = body.Original.Orientation
+	}
+
 	columns := fmt.Sprintf(
-		"portraitRef=%s, portraitThumbRef=%s, portraitThumbs=%s",
+		"portraitRef=%s, portraitThumbRef=%s, portraitThumbs=%s, "+
+			"portraitOriginalRef=%s, portraitOrientation=%d",
 		quote(body.Ref), quote(defaultRef), quote(encoded),
+		quote(originalRef), originalOrientation,
 	)
 
 	capturedAt := body.CapturedAt

@@ -121,6 +121,21 @@ type config struct {
 	// number.** Zero or negative disables the purge, which exists for a database-only
 	// diagnostic run — not as a supported production setting.
 	portraitRetention time.Duration
+
+	// portraitKeepOriginal decides whether the uploaded image is retained at its own
+	// resolution alongside the display renditions (task 111).
+	//
+	// Default true: without the original, a change to the rendition set can only ever
+	// apply to portraits taken after the change, so "add a smaller thumbnail for the
+	// identification grid" would silently mean "for next year's members".
+	//
+	// Configurable because it is the one setting with a large storage consequence. The
+	// blob store is the only thing in this service that cannot be rebuilt from the log
+	// and therefore the only thing that must be backed up (PRD 008 §8); an original is
+	// roughly two orders of magnitude larger than the renditions, so a full event turns
+	// megabytes of backup into gigabytes. An operator who cannot afford that should be
+	// able to say so without a deploy.
+	portraitKeepOriginal bool
 }
 
 func loadConfig() config {
@@ -146,6 +161,7 @@ func loadConfig() config {
 	flag.StringVar(&cfg.blobPath, "blob-path", envStr("BLOB_PATH", ""), "Directory for binary objects such as portraits (empty keeps them in memory)")
 	flag.StringVar(&cfg.eventYear, "event-year", envStr("EVENT_YEAR", currentYear()), "Event year the member directory reads (defaults to the current year)")
 	flag.DurationVar(&cfg.portraitRetention, "portrait-retention", envDuration("PORTRAIT_RETENTION", 30*24*time.Hour), "How long a portrait is kept after capture before it is purged (0 disables the purge)")
+	flag.BoolVar(&cfg.portraitKeepOriginal, "portrait-keep-original", envBool("PORTRAIT_KEEP_ORIGINAL", true), "Retain the uploaded image at full resolution (metadata stripped) so renditions can be regenerated later")
 	flag.Parse()
 	return cfg
 }

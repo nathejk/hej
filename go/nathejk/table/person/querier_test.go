@@ -192,7 +192,7 @@ func personColumnNames() []string {
 		"sectionSlug", "sectionName",
 		"memberStatus", "armNumber",
 		"verifiedAt", "acknowledgedPhone", "portraitRef", "portraitThumbRef", "portraitThumbs",
-		"portraitCapturedAt",
+		"portraitOriginalRef", "portraitOrientation", "portraitCapturedAt",
 	}
 }
 
@@ -231,6 +231,9 @@ func addPersonRow(rows *sqlmock.Rows, personID, name, phone string) {
 			values = append(values, "2026")
 		case column == "appRole":
 			values = append(values, string(RoleSpejder))
+		case column == "portraitOrientation":
+			// Numeric, unlike every other column this fixture fills with "".
+			values = append(values, 0)
 		case column == "name":
 			values = append(values, name)
 		case column == "phone":
