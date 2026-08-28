@@ -93,3 +93,58 @@ func TestMockDirectory_PatrolOnlyForPatrolRoles(t *testing.T) {
 		}
 	}
 }
+
+// The three guardian-number states must all be reachable from the mock, because
+// they are what PRD 003's profile page branches on and "nil" vs pointer-to-"" is
+// exactly the distinction a careless change flattens.
+func TestMockDirectory_GuardianPhoneStates(t *testing.T) {
+	dir := users.NewMockDirectory()
+
+	// A spejder with a guardian number on file.
+	if u, _ := dir.Lookup("+4530000001"); u.PhoneParent == nil || *u.PhoneParent == "" {
+		t.Errorf("seeded spejder should have a guardian number, got %v", u.PhoneParent)
+	}
+
+	// Populations that have none at all: nil, not empty string.
+	for _, phone := range []string{"+4530000002", "+4530000003", "+4530000006", "+4530000007"} {
+		if u, _ := dir.Lookup(phone); u.PhoneParent != nil {
+			t.Errorf("%s: guardian number = %q, want nil (no such number in this population)", phone, *u.PhoneParent)
+		}
+	}
+
+	// Expected but missing: present pointer, empty value.
+	var villads users.User
+	for _, u := range dir.LookupAll(users.MockSharedPhone) {
+		if u.ID == "mock-sibling-b" {
+			villads = u
+		}
+	}
+	if villads.PhoneParent == nil || *villads.PhoneParent != "" {
+		t.Errorf("mock-sibling-b should carry an empty-but-present guardian number, got %v", villads.PhoneParent)
+	}
+}
+
+// Every seeded user needs the details the profile page reads back to them; a new
+// seed entry that forgets them would otherwise render a blank page in dev.
+func TestMockDirectory_SeedsOwnDetails(t *testing.T) {
+	dir := users.NewMockDirectory()
+
+	for _, phone := range []string{
+		"+4530000001", "+4530000002", "+4530000003", "+4530000004",
+		"+4530000005", "+4530000006", "+4530000007",
+	} {
+		u, _ := dir.Lookup(phone)
+		if u.Name == "" {
+			t.Errorf("%s: name must not be empty", phone)
+		}
+		if u.Phone != phone {
+			t.Errorf("%s: own phone = %q, want the number it is seeded under", phone, u.Phone)
+		}
+	}
+
+	// Address is only seeded for the member roles — crew addresses are not something
+	// the app shows — so assert it where it is expected rather than everywhere.
+	if u, _ := dir.Lookup("+4530000001"); u.Address == "" || u.PostalCode == "" || u.City == "" {
+		t.Errorf("seeded spejder should have a full address, got %+v", u)
+	}
+}

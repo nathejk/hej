@@ -121,6 +121,15 @@ func (d *personDirectory) toUser(p person.Person) (users.User, bool) {
 		PatrolID:   p.TeamID,
 		PatrolName: p.TeamName,
 		Section:    p.SectionName,
+		// Own details for PRD 003's profile page. PhoneParent is passed through as a
+		// pointer, not dereferenced with a default: nil ("no guardian number in this
+		// population") and "" ("expected, missing") are rendered differently, and
+		// flattening them here is exactly the information loss the projection avoids.
+		Phone:       p.Phone,
+		PhoneParent: p.PhoneParent,
+		Address:     p.Address,
+		PostalCode:  p.PostalCode,
+		City:        p.City,
 	}, true
 }
 

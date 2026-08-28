@@ -111,6 +111,34 @@ type User struct {
 	// two candidates apart, and two siblings in the same patrol or two crew in the
 	// same section need something better than identical rows (task 079).
 	Section string
+
+	// The fields below are the user's *own* details, shown back to them on the
+	// profile page (PRD 003). Unlike Name and Section they are never shown to
+	// anybody else — in particular the login chooser must keep displaying only
+	// Name + PatrolName/Section, because that list shows one person something
+	// about the others on their number.
+
+	// Phone is the user's own normalized number. Note it is NOT a login key for
+	// PhoneParent's holder — see person.querier.Lookup on why the guardian number
+	// never authenticates anyone.
+	Phone string
+
+	// PhoneParent is the guardian's number, and is a pointer because nil and ""
+	// mean different things:
+	//
+	//	nil — this population has no guardian number (bandit, crew, gøgler)
+	//	"" — one is expected and missing (a spejder with nothing on file)
+	//
+	// The profile page hides the row for the first and shows "Ikke registreret"
+	// for the second, so collapsing them here would destroy the distinction the
+	// person projection deliberately preserves.
+	PhoneParent *string
+
+	// Address, PostalCode and City are the postal address as held upstream. Kept as
+	// three fields rather than one pre-joined string so the client owns formatting.
+	Address    string
+	PostalCode string
+	City       string
 }
 
 // Directory resolves users, either by their **normalized** phone number (login)

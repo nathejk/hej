@@ -31,20 +31,38 @@ const MockSharedCrewPhone = "+4530000009"
 // Only the two patrol-bearing roles get a patrol; the personnel roles are
 // seeded without one on purpose, so the "no patrol" path stays exercised.
 //
+// The same applies to the guardian number (task 093): spejder get one, everybody
+// else is seeded with nil, and one spejder is seeded with a pointer to "" — the
+// "expected but missing" case the profile page renders as "Ikke registreret".
+// Without that fixture the distinction would first be exercised on real data.
+//
 // Phone numbers must be normalized (see internal/phone) before lookup.
 func NewMockDirectory() Directory {
+	parentPhone := "+4520000001"
+	noParentOnFile := ""
+
 	single := map[string]User{
-		"+4530000001": {ID: "mock-spejder-1", Role: RoleSpejder, PatrolID: MockSpejderPatrolID, PatrolName: "Patrulje Ravnene"},
-		"+4530000002": {ID: "mock-bandit-1", Role: RoleBandit, PatrolID: MockBanditPatrolID, PatrolName: "Banditgruppe Nord"},
-		"+4530000003": {ID: "mock-postmandskab-1", Name: "Mads Post", Role: RolePostmandskab, Section: "Postmandskab"},
-		"+4530000004": {ID: "mock-guide-1", Name: "Gitte Guide", Role: RoleGuide, Section: "Guider"},
-		"+4530000005": {ID: "mock-samarit-1", Name: "Sara Samarit", Role: RoleSamarit, Section: "Samaritter"},
-		"+4530000006": {ID: "mock-goegler-1", Name: "Gørn Gøgler", Role: RoleGoegler},
+		"+4530000001": {
+			ID: "mock-spejder-1", Name: "Signe Spejder", Role: RoleSpejder,
+			PatrolID: MockSpejderPatrolID, PatrolName: "Patrulje Ravnene",
+			Phone: "+4530000001", PhoneParent: &parentPhone,
+			Address: "Spejdervej 12", PostalCode: "8600", City: "Silkeborg",
+		},
+		"+4530000002": {
+			ID: "mock-bandit-1", Name: "Bo Bandit", Role: RoleBandit,
+			PatrolID: MockBanditPatrolID, PatrolName: "Banditgruppe Nord",
+			Phone:   "+4530000002",
+			Address: "Klanvej 3", PostalCode: "8000", City: "Aarhus C",
+		},
+		"+4530000003": {ID: "mock-postmandskab-1", Name: "Mads Post", Role: RolePostmandskab, Section: "Postmandskab", Phone: "+4530000003"},
+		"+4530000004": {ID: "mock-guide-1", Name: "Gitte Guide", Role: RoleGuide, Section: "Guider", Phone: "+4530000004"},
+		"+4530000005": {ID: "mock-samarit-1", Name: "Sara Samarit", Role: RoleSamarit, Section: "Samaritter", Phone: "+4530000005"},
+		"+4530000006": {ID: "mock-goegler-1", Name: "Gørn Gøgler", Role: RoleGoegler, Phone: "+4530000006"},
 		// Unclassified crew: seeded so the least-privileged fallback path is
 		// exercised in dev rather than only appearing in production the first time an
 		// organizer renames a section. Its section label is deliberately one the
 		// classifier does not recognise.
-		"+4530000007": {ID: "mock-crew-1", Name: "Kim Krew", Role: RoleCrew, Section: "Kagebord"},
+		"+4530000007": {ID: "mock-crew-1", Name: "Kim Krew", Role: RoleCrew, Section: "Kagebord", Phone: "+4530000007"},
 	}
 
 	entries := make(map[string][]User, len(single)+1)
@@ -52,15 +70,26 @@ func NewMockDirectory() Directory {
 		entries[p] = []User{u}
 	}
 	// Two siblings on one phone, same patrol — only the first name distinguishes them.
+	// Villads carries an empty-but-present guardian number, i.e. the "missing" state.
 	entries[MockSharedPhone] = []User{
-		{ID: "mock-sibling-a", Name: "Freja Mikkelsen", Role: RoleSpejder, PatrolID: MockSpejderPatrolID, PatrolName: "Patrulje Ravnene"},
-		{ID: "mock-sibling-b", Name: "Villads Mikkelsen", Role: RoleSpejder, PatrolID: MockSpejderPatrolID, PatrolName: "Patrulje Ravnene"},
+		{
+			ID: "mock-sibling-a", Name: "Freja Mikkelsen", Role: RoleSpejder,
+			PatrolID: MockSpejderPatrolID, PatrolName: "Patrulje Ravnene",
+			Phone: MockSharedPhone, PhoneParent: &parentPhone,
+			Address: "Mosevej 7", PostalCode: "8600", City: "Silkeborg",
+		},
+		{
+			ID: "mock-sibling-b", Name: "Villads Mikkelsen", Role: RoleSpejder,
+			PatrolID: MockSpejderPatrolID, PatrolName: "Patrulje Ravnene",
+			Phone: MockSharedPhone, PhoneParent: &noParentOnFile,
+			Address: "Mosevej 7", PostalCode: "8600", City: "Silkeborg",
+		},
 	}
 	// Two crew on one phone in different sections — here the section is what tells
 	// them apart, and a chooser showing only names would leave the user guessing.
 	entries[MockSharedCrewPhone] = []User{
-		{ID: "mock-crew-samarit", Name: "Anne Jensen", Role: RoleSamarit, Section: "Samaritter"},
-		{ID: "mock-crew-guide", Name: "Anne Jensen", Role: RoleGuide, Section: "Guider"},
+		{ID: "mock-crew-samarit", Name: "Anne Jensen", Role: RoleSamarit, Section: "Samaritter", Phone: MockSharedCrewPhone},
+		{ID: "mock-crew-guide", Name: "Anne Jensen", Role: RoleGuide, Section: "Guider", Phone: MockSharedCrewPhone},
 	}
 
 	// Second index so a session (which carries only the user id) resolves
