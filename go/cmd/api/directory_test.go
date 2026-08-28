@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"nathejk.dk/internal/users"
 	"nathejk.dk/nathejk/table/person"
@@ -30,6 +31,11 @@ func (f fakeQueries) Get(_, id string) (person.Person, bool, error) {
 	}
 	p, ok := f.byID[id]
 	return p, ok, nil
+}
+
+// The directory adapter never calls this; it is here to satisfy person.Queries.
+func (f fakeQueries) ExpiredPortraits(string, time.Time, int) ([]person.ExpiredPortrait, error) {
+	return nil, nil
 }
 
 // Every app role the projection can produce must survive the trip to users.Role. The
@@ -185,6 +191,11 @@ func (r yearRecorder) Lookup(year, _ string) ([]person.Person, error) {
 func (r yearRecorder) Get(year, _ string) (person.Person, bool, error) {
 	*r.seen = append(*r.seen, year)
 	return person.Person{}, false, nil
+}
+
+// Unused by the directory adapter; present to satisfy person.Queries.
+func (r yearRecorder) ExpiredPortraits(string, time.Time, int) ([]person.ExpiredPortrait, error) {
+	return nil, nil
 }
 
 // The switch starts on the mock so the app is usable before — or without — a broker, and

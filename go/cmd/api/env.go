@@ -102,6 +102,25 @@ type config struct {
 	// year keeps the common case zero-config while leaving an override that does not
 	// require a code change (PRD 006 §11 Q7).
 	eventYear string
+
+	// portraitRetention is how long a portrait is kept after it was captured, before the
+	// purge job deletes it (task 109).
+	//
+	// The *rule* was decided by the maintainer (task 102): the portrait is an in-race
+	// safety feature and does not outlive the event. The number implementing that rule
+	// lives here because it is the part that wants a human's answer, and because
+	// shortening it must not require a deploy.
+	//
+	// Measured from **capture**, not from a configured event end date. That is a
+	// deliberate simplification: an end date is one more thing to keep correct every
+	// year, and getting it wrong fails in the bad direction (photos kept). Capture time
+	// is already on the row and is replay-stable.
+	//
+	// The 30-day default is conservative rather than chosen: it is comfortably past any
+	// post-race need and well short of "indefinitely". **Flagged for a maintainer
+	// number.** Zero or negative disables the purge, which exists for a database-only
+	// diagnostic run — not as a supported production setting.
+	portraitRetention time.Duration
 }
 
 func loadConfig() config {
@@ -126,6 +145,7 @@ func loadConfig() config {
 	flag.StringVar(&cfg.jetstreamDSN, "jetstream-dsn", envStr("JETSTREAM_DSN", ""), "NATS JetStream DSN (empty runs without a broker)")
 	flag.StringVar(&cfg.blobPath, "blob-path", envStr("BLOB_PATH", ""), "Directory for binary objects such as portraits (empty keeps them in memory)")
 	flag.StringVar(&cfg.eventYear, "event-year", envStr("EVENT_YEAR", currentYear()), "Event year the member directory reads (defaults to the current year)")
+	flag.DurationVar(&cfg.portraitRetention, "portrait-retention", envDuration("PORTRAIT_RETENTION", 30*24*time.Hour), "How long a portrait is kept after capture before it is purged (0 disables the purge)")
 	flag.Parse()
 	return cfg
 }

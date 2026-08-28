@@ -433,10 +433,14 @@ and it is purged after the event. Track (b) then landed too — tasks 103, 105, 
 107 are done, so a member can take a portrait and it is stored, event-sourced and
 served back.
 
-Still open: **104** (server-side thumbnails, wanted by PRD 007 rather than by this
-page), **108** (device pass — needs real phones; the camera paths cannot be verified
-in a container), and **109** (purge job — needs a maintainer number for how long
-after the event).
+Still open: **108** (device pass — needs real phones; the camera paths cannot be
+verified in a container). Everything else is done: 093–107 and 109 shipped on
+2026-08-28.
+
+**One number still wants a maintainer's answer:** portrait retention defaults to
+**30 days after capture** (`PORTRAIT_RETENTION`, task 109). The rule — the photo does
+not outlive the event — is settled; the number is a conservative placeholder and is
+changed with an env var, not a deploy.
 
 Two loosely coupled tracks: (a) details + permission status, which is
 low-risk and shippable on its own, and (b) photo capture + storage, which carries

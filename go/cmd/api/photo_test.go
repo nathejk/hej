@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jrgensen/cqrs/cqrstest"
 
@@ -29,6 +30,12 @@ type stubPeople struct {
 	found bool
 	err   error
 	asked []string
+
+	// expired is what ExpiredPortraits returns, and expiredCutoffs records what it was
+	// asked for — the cutoff is the whole retention policy, so a test asserts on it.
+	expired        []person.ExpiredPortrait
+	expiredErr     error
+	expiredCutoffs []time.Time
 }
 
 func (s *stubPeople) Get(year, personID string) (person.Person, bool, error) {
@@ -37,6 +44,18 @@ func (s *stubPeople) Get(year, personID string) (person.Person, bool, error) {
 }
 
 func (s *stubPeople) Lookup(string, string) ([]person.Person, error) { return nil, nil }
+
+func (s *stubPeople) ExpiredPortraits(_ string, before time.Time, _ int) ([]person.ExpiredPortrait, error) {
+	s.expiredCutoffs = append(s.expiredCutoffs, before)
+	if s.expiredErr != nil {
+		return nil, s.expiredErr
+	}
+	// Returned once: the real query stops finding a row after its purge event is
+	// projected, and a stub that kept returning it would hide a runaway loop.
+	out := s.expired
+	s.expired = nil
+	return out, nil
+}
 
 // testImage builds a real JPEG, because the handler validates by decoding: a fixture of
 // arbitrary bytes would test nothing.

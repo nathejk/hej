@@ -78,6 +78,76 @@ type PortraitCaptured struct {
 	CapturedAt time.Time `json:"capturedAt"`
 }
 
+// PortraitPurged says that a person's portrait has been deleted under the retention
+// policy (task 109).
+//
+// A separate event rather than a `PortraitCaptured` with an empty Ref: a replay must be
+// able to tell "deleted" from "malformed message", and an empty-ref capture is
+// indistinguishable from the latter. It also means the log records *why* the portrait went
+// — retention, not replacement — which is the question anyone auditing a deletion of a
+// minor's photograph will actually ask.
+type PortraitPurged struct {
+	PersonID string `json:"personId"`
+	Year     string `json:"year"`
+
+	// Ref is the object that was deleted. Recorded for the audit trail, not for the
+	// projection, which simply clears the row.
+	Ref string `json:"ref"`
+
+	// Reason is free text for the log, e.g. "retention". Deliberately not an enum: this
+	// is a note to a human reading the stream a year later, and the set of reasons is
+	// not something to pin down before there is a second one.
+	Reason string `json:"reason"`
+
+	PurgedAt time.Time `json:"purgedAt"`
+}
+
+// PortraitPurgeSubject builds the subject a purge is published on:
+//
+//	NATHEJK.<year>.portrait.<personId>.purged
+//
+// Same stream and same per-person shape as PortraitSubject — see that function for why.
+func PortraitPurgeSubject(year, personID string) (cqrs.Subject, error) {
+	if err := validSubjectToken(year, "year"); err != nil {
+		return nil, err
+	}
+	if err := validSubjectToken(personID, "person id"); err != nil {
+		return nil, err
+	}
+	return cqrs.SubjectFromStr(
+		fmt.Sprintf("NATHEJK.%s.portrait.%s.purged", year, personID)), nil
+}
+
+// handlePortraitPurged clears the person's portrait columns.
+//
+// Ordering on replay takes care of itself: `captured` then `purged` in stream order
+// converges on "no portrait", which is the truth. During the window in between, the row
+// briefly references bytes that are already gone — which serves as a 404, i.e. "no
+// photo", exactly the degradation PRD 008 §8 requires.
+func (c consumer) handlePortraitPurged(msg cqrs.Message, year string) error {
+	var body PortraitPurged
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+
+	personID := body.PersonID
+	if personID == "" {
+		personID = subjectEntityID(msg.Subject())
+	}
+	if personID == "" {
+		return fmt.Errorf("portrait purged with no personId")
+	}
+
+	// Unconditional on the ref: if a newer portrait exists, its own `captured` event
+	// comes *later* in the stream and re-sets these columns. Comparing refs here would
+	// make the outcome depend on replay timing rather than on stream order.
+	return c.w.Consume(fmt.Sprintf(
+		`UPDATE person SET portraitRef="", portraitThumbRef="", portraitCapturedAt=NULL `+
+			"WHERE personId=%s AND year=%s",
+		quote(personID), quote(year),
+	))
+}
+
 // PortraitSubject builds the subject a portrait event is published on:
 //
 //	NATHEJK.<year>.portrait.<personId>.captured

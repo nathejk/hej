@@ -132,6 +132,25 @@ type Queries interface {
 
 	// Get resolves a person by id, scoped to a year.
 	Get(year, personID string) (Person, bool, error)
+
+	// ExpiredPortraits returns the portraits that are due to be deleted: captured
+	// before `before`, or with no capture time recorded at all.
+	//
+	// Scoped to portraits rather than returning whole people, because the retention job
+	// (task 109) needs three fields and has no business holding a member's address
+	// while it deletes an image.
+	//
+	// A NULL capture time counts as expired. "Unknown age" must not mean "kept
+	// forever" — for a photograph of a minor held on a safety basis, the failure that
+	// matters is the one where a row quietly becomes immortal.
+	ExpiredPortraits(year string, before time.Time, limit int) ([]ExpiredPortrait, error)
+}
+
+// ExpiredPortrait is one portrait the retention job should remove.
+type ExpiredPortrait struct {
+	PersonID string
+	Ref      string
+	ThumbRef string
 }
 
 type querier struct {
@@ -219,6 +238,38 @@ func (q querier) Get(year, personID string) (Person, bool, error) {
 		return Person{}, false, err
 	}
 	return p, true, nil
+}
+
+func (q querier) ExpiredPortraits(year string, before time.Time, limit int) ([]ExpiredPortrait, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+
+	// Deleted members are NOT excluded here, unlike in Lookup. A member removed from
+	// the event still has a photograph of them on disk, and that is precisely a record
+	// that must still expire — filtering it out would make deletion a way to keep an
+	// image forever.
+	rows, err := q.db.Query(`
+		SELECT personId, portraitRef, portraitThumbRef
+		FROM person
+		WHERE year = ? AND portraitRef <> ""
+		  AND (portraitCapturedAt IS NULL OR portraitCapturedAt < ?)
+		ORDER BY personId
+		LIMIT ?`, year, before.UTC(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ExpiredPortrait
+	for rows.Next() {
+		var e ExpiredPortrait
+		if err := rows.Scan(&e.PersonID, &e.Ref, &e.ThumbRef); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // scanner covers both *sql.Row and *sql.Rows so one scan body serves Get and Lookup.

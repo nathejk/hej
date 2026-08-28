@@ -121,6 +121,7 @@ func (c consumer) Consumes() []cqrs.Subject {
 		// The one subject this app publishes itself (task 103): a member's portrait.
 		// See portrait.go for why it lives on NATHEJK rather than a sibling stream.
 		cqrs.SubjectFromStr("NATHEJK.*.portrait.*.captured"),
+		cqrs.SubjectFromStr("NATHEJK.*.portrait.*.purged"),
 	}
 }
 
@@ -181,6 +182,8 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 		return c.handleGoeglerUpdated(msg, year)
 	case subject.Match("nathejk.*.portrait.*.captured"):
 		return c.handlePortraitCaptured(msg, year)
+	case subject.Match("nathejk.*.portrait.*.purged"):
+		return c.handlePortraitPurged(msg, year)
 	case subject.Match("nathejk.*.spejder.*.updated"):
 		return c.handleSpejderUpdated(msg, year)
 	case subject.Match("nathejk.*.senior.*.updated"):

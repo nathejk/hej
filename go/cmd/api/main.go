@@ -237,6 +237,13 @@ func run(logger *slog.Logger) error {
 		}
 	}
 
+	// One process-scoped context for the background workers: the broker connector and
+	// projections below, and the portrait purge further down. Hoisted out of the eventing
+	// block so both share a single cancellation point rather than one of them running with
+	// a context nothing can cancel.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	if err == nil {
 		defer func() {
 			if cerr := ev.close(); cerr != nil {
@@ -247,8 +254,6 @@ func run(logger *slog.Logger) error {
 		// Connect in the background so a broker that is slow or not yet up cannot
 		// delay the API. Projections are registered and the dead-letter writer armed
 		// from the callback, i.e. only once there is something to consume from.
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 
 		ev.connectInBackground(ctx, cfg, logger, func() {
 			// Step 2 of the three-way registration described in eventing.go.
@@ -336,6 +341,15 @@ func run(logger *slog.Logger) error {
 	}
 
 	logger.Info("configuration loaded", "env", cfg.env, "port", cfg.port, "web_root", cfg.webRoot, "version", vcs.Version())
+
+	// Portrait retention (task 109). Started here rather than as a second binary: per the
+	// BFF conventions, extra work belongs in this process, and this one needs exactly the
+	// dependencies the app already holds.
+	//
+	// Six-hourly is deliberately unhurried. Retention is measured in days, so the only
+	// thing a shorter interval would buy is more log noise and more load; the only thing a
+	// longer one would cost is a few hours of a portrait outliving its window.
+	app.runPortraitPurge(ctx, 6*time.Hour, logger)
 
 	return app.Serve(app.routes(), cfg.port)
 }
