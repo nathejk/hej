@@ -205,12 +205,7 @@
   (`BottomNav.vue`), applied exactly once via `var(--sab)`. Adding it here as well would
   double-pad.
 
-  DO NOT make this taller than the viewport to chase the remaining strip of background
-  below the nav. Sizing the document that way gives it scrollable overflow, so the whole app
-  shell can be dragged — `overflow: hidden` on `body` does not reliably prevent that on iOS.
-  The strip is closed by `.app-shell` instead, which is out of flow.
-*/
-`overflow: hidden` and `overscroll-behavior: none` are what keep the document itself
+  `overflow: hidden` and `overscroll-behavior: none` are what keep the document itself
   inert: this app scrolls in inner containers (`main`), never at the document level, and
   should not rubber-band.
 
