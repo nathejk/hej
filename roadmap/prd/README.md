@@ -117,8 +117,15 @@ Repo specifics to respect:
 | # | Title | Status |
 |---|---|---|
 | 001 | "Hej Nathejk" event app skeleton (PWA shell + phone login) | done |
-| 002 | Event map (position, Danish topo + aerial layers, patrol scan history) | draft |
-| 003 | Profile page (own details, self-portrait, device permission status) | draft |
-| 004 | Migrate the component library from PrimeVue to shadcn-vue (and upgrade Tailwind to v4) | doing |
+| 002 | Event map (position, Danish topo + aerial layers, patrol scan history) | doing |
+| 003 | Profile page (own details, self-portrait, device permission status) | doing |
+| 004 | Migrate the component library from PrimeVue to shadcn-vue (and upgrade Tailwind to v4) | done |
+| 005 | Install-first mobile onboarding (install, confirm, permissions) | draft |
+| 006 | Member directory for the app (person lookup by phone, app roles) | done |
+| 007 | Portrait identification | draft |
+| 008 | Persistence and event-stream infrastructure | done |
+| 009 | Offline-first client data layer | draft |
+| 010 | Vehicle registration | draft |
+| 011 | Post-race experience | draft |
 
 Keep this table current when a PRD is added or changes folder.

@@ -1,10 +1,10 @@
 # PRD 003 — Profile Page (own details, self-portrait, device permission status)
 
-**Status:** draft
+**Status:** doing
 **Author:** agent session (Zed / Claude Opus 5)
 **Created:** 2026-08-24
 **Last updated:** 2026-08-28
-**Approved:**
+**Approved:** 2026-08-28
 **Shipped:**
 **Target users:** all signed-in roles (spejder, bandit, postmandskab, guide, samarit)
 
