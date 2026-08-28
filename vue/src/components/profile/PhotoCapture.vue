@@ -10,7 +10,7 @@
 // The face guide is a circle, matching the fixed circular crop decided in PRD 003 §11.
 // It is a guide only: the emitted image is the full frame, so a badly framed shot is
 // recoverable without re-taking it.
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Camera, RefreshCw, X } from '@lucide/vue'
 import { blockedGuidance } from '@/config/permissions'
 
@@ -40,7 +40,23 @@ const preview = ref<{ blob: Blob; url: string } | null>(null)
 
 const canFlip = computed(() => hasMultipleCameras.value && !preview.value)
 
+// getUserMedia exists only in a **secure context**. Checked explicitly rather than left to
+// the catch below, because the failure it produces is a bare TypeError and the message
+// would then be the generic "kunne ikke startes" — which sends someone hunting for a
+// camera-permission problem that does not exist. The realistic way to hit this is reaching
+// a dev stack over plain http (an IP address, say), where the camera, the service worker
+// and geolocation all quietly stop existing at once.
+const cameraSupported = () =>
+  typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia)
+
 async function start() {
+  if (!cameraSupported()) {
+    error.value = window.isSecureContext
+      ? 'Denne browser giver ikke adgang til kameraet. Brug knappen nedenfor.'
+      : 'Kameraet kræver en sikker forbindelse (https). Brug knappen nedenfor.'
+    return
+  }
+
   starting.value = true
   error.value = ''
   blocked.value = false
@@ -179,9 +195,16 @@ onUnmounted(() => {
   releasePreview()
 })
 
-// Autostart: the component is only mounted in response to the user tapping the portrait,
-// so this is not an unprompted camera access.
-void start()
+// Started on mount, not during setup: the stream is attached to the <video> element, so
+// the ref has to exist by the time getUserMedia resolves. It does either way in practice,
+// but depending on that ordering is how a working camera turns into a black rectangle
+// after an unrelated refactor.
+//
+// This component is only mounted in response to the user tapping the portrait, so this is
+// not an unprompted camera access.
+onMounted(() => {
+  void start()
+})
 </script>
 
 <template>

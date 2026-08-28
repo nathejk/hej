@@ -110,7 +110,16 @@ async function syncCamera() {
 
 const cameraRow = computed(() => {
   if (!cameraAvailable) {
-    return { status: 'Ikke understøttet', detail: 'Denne browser giver ikke adgang til kameraet.' }
+    // Distinguishes "this browser cannot" from "this connection cannot": on an
+    // insecure origin getUserMedia simply does not exist, and telling someone their
+    // browser lacks a camera API would send them looking in the wrong place.
+    return {
+      status: 'Ikke understøttet',
+      detail:
+        typeof window !== 'undefined' && !window.isSecureContext
+          ? 'Kameraet kræver en sikker forbindelse (https).'
+          : 'Denne browser giver ikke adgang til kameraet.',
+    }
   }
   if (cameraPermission.value === 'denied') {
     return { status: 'Blokeret', detail: blockedGuidance('camera') }
