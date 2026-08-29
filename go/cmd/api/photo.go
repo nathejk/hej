@@ -13,12 +13,21 @@ import (
 
 // maxPortraitUpload bounds the request body.
 //
-// The client downscales to ~1024px before uploading (task 106), which lands well under
-// 500 KB; 4 MiB leaves generous room for a client that has not been updated, or a
-// fallback `<input capture>` that hands over an untouched camera file, while staying far
-// from a size that could exhaust memory. The limit is enforced on the *reader*, not on
-// Content-Length, because a header is a claim rather than a fact.
-const maxPortraitUpload = 4 << 20
+// The app's own capture path sends a few hundred KB (client-side 2048px re-encode), so
+// this limit exists for the **fallback**: `<input capture>` hands over the untouched
+// camera file, and since task 112 that path is the only route to a camera-native
+// original. A modern phone's "most compatible" JPEG is routinely 2–5 MB, which made the
+// previous 4 MiB cap a coin flip — and a 413 on a photo the user just took reads as a
+// bug, not as a limit.
+//
+// 8 MiB rather than unbounded because the cost here is *pixels*, not bytes: decoding is
+// what allocates, so an 8 MiB JPEG (~12–20 MP) is tens of MB of transient RGBA per
+// upload. That is comfortable for an authenticated, low-frequency endpoint and would not
+// be if this were open or bulk.
+//
+// Enforced on the *reader*, not on Content-Length, because a header is a claim rather
+// than a fact.
+const maxPortraitUpload = 8 << 20
 
 // maxPortraitEdge is the longest edge of the stored image.
 //
@@ -85,7 +94,7 @@ var errNotAnImage = errors.New("filen er ikke et billede vi kan læse")
 // support.
 //
 // @Summary      Upload own portrait
-// @Description  Accepts a multipart form with a `photo` file field, or a raw image body. The bytes are validated by decoding them, turned upright per their EXIF orientation, re-encoded to JPEG (which strips all EXIF, including GPS), downscaled to a longest edge of 1024px, and stored content-addressed together with a 256px thumbnail. The original is also retained at full resolution with its metadata stripped, for future re-rendering, and is never served. The declared content type is ignored in favour of the actual bytes. Max 4 MiB.
+// @Description  Accepts a multipart form with a `photo` file field, or a raw image body. The bytes are validated by decoding them, turned upright per their EXIF orientation, re-encoded to JPEG (which strips all EXIF, including GPS), downscaled to a longest edge of 1024px, and stored content-addressed together with a 256px thumbnail. The original is also retained at full resolution with its metadata stripped — but only when it holds more pixels than the display image — for future re-rendering, and is never served. The declared content type is ignored in favour of the actual bytes. Max 8 MiB.
 // @Tags         me
 // @Accept       mpfd
 // @Produce      json
