@@ -405,15 +405,15 @@ func Fit(img image.Image, edge int) image.Image {
 				x1 = x0 + 1
 			}
 
-			var r, g, b, a, n uint32
+			var r, g, b, a, n uint64
 			for sy := y0; sy < y1; sy++ {
 				offset := src.PixOffset(x0, sy)
 				for sx := x0; sx < x1; sx++ {
 					p := src.Pix[offset : offset+4]
-					r += uint32(p[0])
-					g += uint32(p[1])
-					b += uint32(p[2])
-					a += uint32(p[3])
+					r += uint64(p[0])
+					g += uint64(p[1])
+					b += uint64(p[2])
+					a += uint64(p[3])
 					n++
 					offset += 4
 				}
@@ -422,13 +422,39 @@ func Fit(img image.Image, edge int) image.Image {
 				continue
 			}
 			o := dst.PixOffset(x, y)
-			dst.Pix[o+0] = uint8(r / n)
-			dst.Pix[o+1] = uint8(g / n)
-			dst.Pix[o+2] = uint8(b / n)
-			dst.Pix[o+3] = uint8(a / n)
+			dst.Pix[o+0] = mean(r, n)
+			dst.Pix[o+1] = mean(g, n)
+			dst.Pix[o+2] = mean(b, n)
+			dst.Pix[o+3] = mean(a, n)
 		}
 	}
 	return dst
+}
+
+// mean returns sum/n as a byte, clamped.
+//
+// # Why uint64 and why the clamp
+//
+// gosec flagged the previous `uint8(r / n)` on a uint32 accumulator (G115), and it was
+// right — not for the reason the arithmetic suggests, but for a reachable one. Each
+// channel sums bytes, so `sum/n ≤ 255` always; the hazard is `sum` itself overflowing.
+// With uint32 that happens once a single destination pixel averages more than ~16.8 M
+// source pixels (255 × n > 2³²).
+//
+// Today's call sites cannot reach it — `Fit` always makes the long edge 1024 or 256, so a
+// box is at most (w×h)/1024 pixels — but that is an argument from the callers, not from
+// the function, and it would stop being true the first time someone called `Fit(img, 1)`
+// or `Fit(img, 8)` for an icon. uint64 removes the class outright at no measurable cost.
+//
+// The clamp is then unreachable by construction, and kept anyway: it makes the narrowing
+// conversion provably safe to a reader (and to the linter) instead of requiring them to
+// redo the algebra above.
+func mean(sum, n uint64) uint8 {
+	v := sum / n
+	if v > 255 {
+		v = 255
+	}
+	return uint8(v)
 }
 
 // toRGBA returns img as an *image.RGBA anchored at (0,0).

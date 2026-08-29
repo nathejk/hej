@@ -17,7 +17,7 @@ import (
 // Constructed byte by byte rather than committed as a fixture: the point of the parser is
 // that it reads a *structure*, so the test has to be able to vary byte order, tag order
 // and the value itself — which a binary fixture cannot.
-func jpegWithOrientation(t *testing.T, img image.Image, orientation int, bigEndian bool) []byte {
+func jpegWithOrientation(t testing.TB, img image.Image, orientation int, bigEndian bool) []byte {
 	t.Helper()
 
 	var body bytes.Buffer

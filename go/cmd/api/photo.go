@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"nathejk.dk/internal/blob"
 	"nathejk.dk/internal/imaging"
@@ -28,6 +29,14 @@ import (
 // Enforced on the *reader*, not on Content-Length, because a header is a claim rather
 // than a fact.
 const maxPortraitUpload = 8 << 20
+
+// portraitUploadTimeout is how long the body of an upload may take to arrive.
+//
+// Sized against the worst case this app is actually used in rather than a round number:
+// 8 MiB at roughly 50 KB/s, which is a realistic single-bar mobile link, is a little over
+// two and a half minutes. Three gives it room without letting a connection linger
+// indefinitely.
+const portraitUploadTimeout = 3 * time.Minute
 
 // maxPortraitEdge is the longest edge of the stored image.
 //
@@ -109,6 +118,24 @@ func (app *application) updatePhotoHandler(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		app.AuthenticationRequiredResponse(w, r)
 		return
+	}
+
+	// This one endpoint gets minutes, while the server keeps a 30-second default for
+	// everything else (see app.Serve).
+	//
+	// A portrait is up to 8 MiB and is uploaded from wherever the member happens to be —
+	// which for this app means a field at night on one bar of signal. At ~50 KB/s that is
+	// well over two minutes, and the server-wide deadline would abort the read partway:
+	// the member sees an upload that failed for no stated reason, intermittently, in the
+	// place where it is hardest to reproduce.
+	//
+	// Set before the body is touched, or the deadline the read runs under is the old one.
+	// A server that does not support deadline control (a test double, say) reports that
+	// here and simply keeps its default, so this is deliberately not fatal.
+	if derr := http.NewResponseController(w).SetReadDeadline(
+		time.Now().Add(portraitUploadTimeout),
+	); derr != nil {
+		app.Logger.Warn("could not extend the upload read deadline", "err", derr)
 	}
 
 	raw, err := readPortraitUpload(w, r)
@@ -268,6 +295,17 @@ func readPortraitUpload(w http.ResponseWriter, r *http.Request) ([]byte, error) 
 		mediaType[:19] == "multipart/form-data" {
 		file, _, err := r.FormFile("photo")
 		if err != nil {
+			// An over-limit multipart body surfaces here, from inside the form parser,
+			// rather than at the read below — so without this it was reported as "we
+			// expected an image in the photo field" with a 400. Which is doubly wrong: the
+			// field was there, and the client is told to fix its request instead of being
+			// told the picture is too big.
+			//
+			// Caught live on 2026-08-29 with an 11.6 MB upload; the existing test missed it
+			// because it sent a raw body, which takes the other branch.
+			if isTooLarge(err) {
+				return nil, errUploadTooLarge
+			}
 			return nil, fmt.Errorf("forventede et billede i feltet \"photo\": %w", err)
 		}
 		defer file.Close()
@@ -277,12 +315,32 @@ func readPortraitUpload(w http.ResponseWriter, r *http.Request) ([]byte, error) 
 	return readCapped(r.Body)
 }
 
+// isTooLarge reports whether err is MaxBytesReader's limit being hit.
+//
+// Checks the typed error first. The string comparison is a fallback because the error
+// travels up through mime/multipart, which is not documented to preserve wrapping — and
+// getting this wrong means a 400 where the user needed a 413, i.e. "your request is
+// malformed" where the truth is "your photo is too big".
+func isTooLarge(err error) bool {
+	var maxBytes *http.MaxBytesError
+	if errors.As(err, &maxBytes) {
+		return true
+	}
+	return strings.Contains(err.Error(), "request body too large")
+}
+
 func readCapped(src io.Reader) ([]byte, error) {
 	data, err := io.ReadAll(src)
 	if err != nil {
 		// MaxBytesReader's error is what a too-large body surfaces as, whether it came
 		// via multipart or raw.
-		return nil, errUploadTooLarge
+		if isTooLarge(err) {
+			return nil, errUploadTooLarge
+		}
+		// Anything else is a connection that died mid-upload — common on a weak mobile
+		// link, and worth distinguishing so the client can retry rather than shrink the
+		// picture it already downscaled.
+		return nil, fmt.Errorf("kunne ikke læse billedet: %w", err)
 	}
 	if len(data) == 0 {
 		return nil, errors.New("tomt billede")

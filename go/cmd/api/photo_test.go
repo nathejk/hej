@@ -372,6 +372,33 @@ func TestUploadPhoto_RejectsOversizedBodies(t *testing.T) {
 	}
 }
 
+// The same, sent as MULTIPART — which is what the app actually sends, and which takes a
+// different path through the form parser.
+//
+// Caught live on 2026-08-29: an 11.6 MB upload came back as 400 "forventede et billede i
+// feltet photo", because the limit error surfaces inside r.FormFile rather than at the
+// body read. The test above passed throughout, since a raw body takes the other branch.
+// That gap is the reason this test exists.
+func TestUploadPhoto_RejectsOversizedMultipartBodies(t *testing.T) {
+	app := photoTestApp(t, &cqrstest.Publisher{}, nil)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	cookies := authedCookies(t, app, srv, "30000001", "+4530000001")
+	ct, body := multipartPhoto(t, bytes.Repeat([]byte{0xff}, maxPortraitUpload+1024))
+	resp := putWithCookies(t, srv.URL+"/api/me/photo", ct, body, cookies)
+	payload, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413 — got body %s", resp.StatusCode, payload)
+	}
+	// And the message must be the one about size, not the one about a missing field.
+	if !bytes.Contains(payload, []byte("st\u00f8rre end")) {
+		t.Errorf("error should say the image is too big, got: %s", payload)
+	}
+}
+
 // With no broker the upload must fail as retryable, not report success: the bytes are
 // stored but nothing references them, so the portrait is not on file.
 func TestUploadPhoto_FailsRetryablyWithoutABroker(t *testing.T) {
