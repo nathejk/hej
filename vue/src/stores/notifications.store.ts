@@ -15,6 +15,54 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   return out
 }
 
+// The reverse, so a subscription's own key can be compared with the server's.
+function uint8ArrayToUrlBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte)
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+// Where the key a subscription was created with is remembered.
+//
+// A fallback for `PushSubscription.options.applicationServerKey`, which is the
+// authoritative answer but is not guaranteed to be exposed on every engine we support.
+// Between the two, "which key is this subscription bound to?" is always answerable.
+const SUBSCRIBED_KEY_STORAGE = 'hej.push.serverKey'
+
+function rememberSubscribedKey(key: string) {
+  try {
+    localStorage.setItem(SUBSCRIBED_KEY_STORAGE, key)
+  } catch {
+    // Private mode can refuse. Costs only the fallback; options.applicationServerKey
+    // still answers on engines that expose it.
+  }
+}
+
+function subscribedKeyFallback(): string | null {
+  try {
+    return localStorage.getItem(SUBSCRIBED_KEY_STORAGE)
+  } catch {
+    return null
+  }
+}
+
+// keyBehind returns the VAPID public key a subscription was created with, or null when it
+// cannot be determined.
+function keyBehind(subscription: PushSubscription): string | null {
+  const applied = subscription.options?.applicationServerKey
+  if (applied) {
+    try {
+      return uint8ArrayToUrlBase64(applied)
+    } catch {
+      // Fall through to the remembered value.
+    }
+  }
+  return subscribedKeyFallback()
+}
+
 // notifications.store owns Web Push: requesting permission, subscribing via the
 // service worker with the server VAPID key, and registering the subscription
 // with the BFF (tied to the signed-in user). Delivery/fan-out is a later PRD.
@@ -28,6 +76,20 @@ export const useNotificationsStore = defineStore('notifications', {
     // matter how many times they tap. Found on a real device 2026-08-29, where a granted
     // permission plus an unconfigured server produced a Tilmeld button that did nothing.
     configured: null as boolean | null,
+    // serverKey is the VAPID public key the server currently advertises.
+    //
+    // Kept, not just "is it configured", because it is what makes a stale subscription
+    // detectable: a PushSubscription is bound to the key it was created with, so
+    // comparing the two answers "can this subscription still receive anything?".
+    //
+    // This is why no VAPID_SEQUENCE or key-id is needed — the key identifies itself, and
+    // a counter would be a second source of truth that can drift from the keys it
+    // describes (rotate and forget to bump, and every client keeps a dead subscription).
+    serverKey: null as string | null,
+    // registeredEndpoint is the endpoint last successfully handed to the BFF in this
+    // session. In memory on purpose: it must not survive a reload, because a reload is
+    // exactly when re-registering is useful (see syncSubscription).
+    registeredEndpoint: null as string | null,
     permission: 'unknown' as NotifPermission,
     subscribed: false,
     error: '',
@@ -76,11 +138,71 @@ export const useNotificationsStore = defineStore('notifications', {
           return
         }
         const subscription = await registration.pushManager.getSubscription()
-        this.subscribed = subscription !== null
+        if (!subscription) {
+          this.subscribed = false
+          return
+        }
+
+        // A subscription bound to a key the server no longer uses cannot receive
+        // anything, and nothing about it looks broken from here — which is the trap: it
+        // still exists, so the naive check reports "subscribed" and the profile row says
+        // notifications are on while delivery is silently impossible.
+        //
+        // Detected by comparing keys rather than by a rotation counter, because the key
+        // is its own identifier and cannot fall out of step with itself.
+        const boundTo = keyBehind(subscription)
+        if (this.serverKey && boundTo && boundTo !== this.serverKey) {
+          // Self-healing, and it costs the member nothing: permission is already
+          // granted, so re-subscribing raises no prompt. They never learn a rotation
+          // happened.
+          try {
+            await subscription.unsubscribe()
+          } catch {
+            // Unsubscribing can fail while offline. Leaving the old subscription in
+            // place is harmless — the next sync tries again.
+          }
+          this.subscribed = false
+          await this.enable()
+          return
+        }
+
+        this.subscribed = true
+
+        // Re-register the subscription the server already has.
+        //
+        // Not redundant: the BFF's subscription store is in-memory today
+        // (push.NewMemoryStore), so **every restart forgets every subscriber** while
+        // their browsers keep a perfectly valid subscription. Without this, a deploy
+        // silently unsubscribes the whole event and every client still displays "Til".
+        //
+        // Cheap and safe to repeat: the endpoint is idempotent per (user, endpoint).
+        // Guarded per endpoint so returning to the page does not re-post on every
+        // visibility change; a page load re-posts once, which is the frequency that
+        // matters since a restarted server needs exactly one.
+        if (this.registeredEndpoint !== subscription.endpoint) {
+          await this.registerSubscription(subscription)
+        }
       } catch {
         // A refused pushManager (private mode, or an unsupported build) is not
         // evidence of a subscription.
         this.subscribed = false
+      }
+    },
+
+    // registerSubscription hands a subscription to the BFF.
+    //
+    // Never throws: failing to register is worth retrying, not worth breaking the profile
+    // page for, and `registeredEndpoint` is only set on success so the next sync retries.
+    async registerSubscription(subscription: PushSubscription) {
+      const json = subscription.toJSON()
+      try {
+        await fetchWrapper.post('/api/push/subscription', {
+          endpoint: json.endpoint,
+          keys: json.keys,
+        })
+        this.registeredEndpoint = subscription.endpoint
+      } catch {
+        this.registeredEndpoint = null
       }
     },
 
@@ -94,6 +216,7 @@ export const useNotificationsStore = defineStore('notifications', {
         const { public_key: publicKey } = await fetchWrapper.get<{ public_key: string }>(
           '/api/push/public-key',
         )
+        this.serverKey = publicKey || null
         this.configured = Boolean(publicKey)
       } catch {
         this.configured = null
@@ -125,6 +248,7 @@ export const useNotificationsStore = defineStore('notifications', {
           return false
         }
         this.configured = true
+        this.serverKey = publicKey
 
         const registration = await navigator.serviceWorker.ready
         const subscription = await registration.pushManager.subscribe({
@@ -132,11 +256,20 @@ export const useNotificationsStore = defineStore('notifications', {
           applicationServerKey: urlBase64ToUint8Array(publicKey),
         })
 
-        const json = subscription.toJSON()
-        await fetchWrapper.post('/api/push/subscription', {
-          endpoint: json.endpoint,
-          keys: json.keys,
-        })
+        // Remembered here, next to the subscribe that used it, so a later sync can tell
+        // whether the server has rotated away from it. The engine's own
+        // `options.applicationServerKey` is preferred when available; this is the
+        // fallback that is always under our control.
+        rememberSubscribedKey(publicKey)
+
+        await this.registerSubscription(subscription)
+        if (!this.registeredEndpoint) {
+          // The subscription exists in the browser but the server does not know about it,
+          // so push would not arrive. Reported as a failure rather than a success — the
+          // profile row now shows this instead of silently repeating "Tilmeld".
+          this.error = 'Tilmeldingen kunne ikke gemmes. Prøv igen.'
+          return false
+        }
 
         this.subscribed = true
         this.error = ''

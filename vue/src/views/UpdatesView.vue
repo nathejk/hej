@@ -9,12 +9,15 @@ const notifications = useNotificationsStore()
 const DISMISS_KEY = 'hej.prompt.notifications.dismissed'
 const dismissed = ref(localStorage.getItem(DISMISS_KEY) === '1')
 
-onMounted(() => {
+onMounted(async () => {
   notifications.syncPermission()
-  // The prompt below is hidden once the user is subscribed, so it has to know
-  // whether a subscription survives from an earlier visit (task 100) — otherwise a
-  // subscribed user is asked to enable push again after every reload.
-  void notifications.syncSubscription()
+  // Same order as the profile page, and for the same reason: the server key has to be
+  // known before a subscription can be judged stale (see notifications.store).
+  //
+  // The prompt below hides once `subscribed` is true, so without this a subscription
+  // bound to a rotated key would keep it hidden while push quietly did nothing.
+  await notifications.syncConfigured()
+  await notifications.syncSubscription()
 })
 
 const showPrompt = computed(

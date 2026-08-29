@@ -165,14 +165,12 @@ async function enablePush() {
 // only reliable moment to re-read all of them is when the user comes back to it.
 async function syncAll() {
   notifications.syncPermission()
-  await Promise.all([
-    notifications.syncSubscription(),
-    // Asked here rather than only inside enable(), so the row can say "not set up"
-    // *before* the member taps a button that cannot succeed.
-    notifications.syncConfigured(),
-    location.syncPermission(),
-    syncCamera(),
-  ])
+  // The server key first, and awaited: syncSubscription compares a subscription against
+  // it to spot one bound to a rotated key, so running these in parallel would leave the
+  // key unknown on first load and skip that check exactly when it matters — the first
+  // visit after a rotation.
+  await notifications.syncConfigured()
+  await Promise.all([notifications.syncSubscription(), location.syncPermission(), syncCamera()])
 }
 
 function onVisibility() {
