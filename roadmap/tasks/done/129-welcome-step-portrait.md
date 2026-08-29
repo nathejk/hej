@@ -1,11 +1,11 @@
 # 129 — WelcomeStepPortrait: self-portrait capture
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-30
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-08-30
+**Completed:** 2026-08-30
 
 ## Description
 
@@ -82,26 +82,26 @@ the state of PRD 007 in this task's log when picking it up.
 
 ## Acceptance Criteria
 
-- [ ] `components/onboarding/WelcomeStepPortrait.vue` exists and **reuses**
+- [x] `components/onboarding/WelcomeStepPortrait.vue` exists and **reuses**
       `components/profile/PhotoCapture.vue` — no second capture implementation, no changes
       that only serve onboarding
-- [ ] Upload goes through `profile.store.uploadPhoto()` / `PUT /api/me/photo`
-- [ ] The user confirms the photo before it uploads, and can retake (behaviour owned by
+- [x] Upload goes through `profile.store.uploadPhoto()` / `PUT /api/me/photo`
+- [x] The user confirms the photo before it uploads, and can retake (behaviour owned by
       `PhotoCapture.vue`)
-- [ ] Explanation copy states the purpose — identifying people during the race, largely at
+- [x] Explanation copy states the purpose — identifying people during the race, largely at
       night — and asks for **no consent**
-- [ ] The step is skippable, and skipping reaches the next step
-- [ ] Camera denied/unavailable falls back to `<input type="file" accept="image/*"
+- [x] The step is skippable, and skipping reaches the next step
+- [x] Camera denied/unavailable falls back to `<input type="file" accept="image/*"
       capture="user">`; if that fails too, the flow continues without a photo
-- [ ] The step runs for every user where `hasPhoto` is false, including those whose profile
+- [x] The step runs for every user where `hasPhoto` is false, including those whose profile
       confirmation was skipped for having started the event
-- [ ] A hard-denied camera points at task 101's blocked-permission guidance rather than a
+- [x] A hard-denied camera points at task 101's blocked-permission guidance rather than a
       dead end
-- [ ] Upload failure (PRD 003's 503/400) is surfaced with a retry, and does not leave the
+- [x] Upload failure (PRD 003's 503/400) is surfaced with a retry, and does not leave the
       user believing a photo is on file
-- [ ] No post-onboarding nudge logic in this component
-- [ ] Copy in Danish; headline uses `font-nathejk`
-- [ ] `vue-tsc` and `npm run build` clean
+- [x] No post-onboarding nudge logic in this component
+- [x] Copy in Danish; headline uses `font-nathejk`
+- [x] `vue-tsc` and `npm run build` clean
 
 ## Depends on
 
@@ -113,3 +113,30 @@ the state of PRD 007 in this task's log when picking it up.
 ## Progress Log
 
 - 2026-08-30 — Task created from PRD 005.
+- 2026-08-30 — Picked up.
+- 2026-08-30 — **Written as a thin wrapper**, which is the point: the component is an explanation
+  screen plus `<PhotoCapture @captured @cancel>`. Everything that could have been re-implemented
+  and drifted — camera lifecycle, circular face guide, retake, confirm-before-upload, the
+  `capture="user"` file fallback, the secure-context-vs-denied distinction and task 101's blocked
+  guidance — already lives in PRD 003's component and was left there untouched. `PhotoCapture.vue`
+  needed **no changes** to serve onboarding, which is what its "produces a photo, does not upload"
+  scope was designed for.
+
+  Two smaller decisions:
+
+  - **The upload/retry shape follows `ProfilePhoto.vue`'s**, including keeping the pending blob so
+    "Prøv igen" retries the same photo. Making a tired teenager retake a picture because the network
+    dropped is the kind of small cruelty that gets a step skipped.
+  - **No consent tick, deliberately** — the copy explains the purpose (identification during the
+    race, largely at night, by samarit/guide/postmandskab) and asks for nothing. Consent is held
+    from sign-up (task 102); adding a checkbox here would duplicate it and imply it was
+    insufficient. Recorded here because earlier PRD drafts treated consent as blocking and someone
+    reading them may try to re-add it.
+  - **No nudge logic in this file.** PRD 005 requires exactly one nudge surface, and it is not this
+    step.
+- 2026-08-30 — **Sequencing state, as this task asks to record: PRD 007 (portrait identification)
+  is still in `draft/` and unapproved.** So until it ships, this step collects photographs that
+  nothing in the app can display — the capture side is complete, the value is not. Worth deciding
+  before an event whether to ship the step ahead of 007; it is a product call, not a code one. The
+  server-side thumbnail sizing 007 depends on is already in place (tasks 104/110).
+- 2026-08-30 — ✅ Criteria met, `vue-tsc` clean.
