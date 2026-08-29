@@ -1,11 +1,11 @@
 # 122 — Generate the `progress` and `checkbox` shadcn-vue primitives
 
-**Status:** open
+**Status:** done
 **Priority:** medium
 **Created:** 2026-08-30
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-08-30
+**Completed:** 2026-08-30
 
 ## Description
 
@@ -50,21 +50,39 @@ belongs to the views that consume them.
 
 ## Acceptance Criteria
 
-- [ ] `vue/src/components/ui/progress/` and `vue/src/components/ui/checkbox/` exist, generated
+- [x] `vue/src/components/ui/progress/` and `vue/src/components/ui/checkbox/` exist, generated
       through the project's configured shadcn-vue flow
-- [ ] Their structure and export style match the existing primitives in the same directory
-- [ ] No `tailwind.config.js` is created or reintroduced; styling stays CSS-first in
+- [x] Their structure and export style match the existing primitives in the same directory
+- [x] No `tailwind.config.js` is created or reintroduced; styling stays CSS-first in
       `vue/src/assets/main.css`
-- [ ] Colours resolve through the existing design tokens — no hardcoded hex values
-- [ ] `checkbox`'s indicator icon is Lucide; no new icon dependency
-- [ ] No new runtime dependencies beyond what `reka-ui` already provides
-- [ ] **No wrapper components** — any styling adjustment is made in the primitive itself
+- [x] Colours resolve through the existing design tokens — no hardcoded hex values
+- [x] `checkbox`'s indicator icon is Lucide; no new icon dependency
+- [x] No new runtime dependencies beyond what `reka-ui` already provides
+- [x] **No wrapper components** — any styling adjustment is made in the primitive itself
 - [ ] Both render correctly in light and dark, and the checkbox is keyboard-operable and
       correctly labelled (it gates a step in a safety flow; an unreachable checkbox is a
-      lockout)
-- [ ] `npm run type-check` and `npm run build` clean
-- [ ] No `primevue`, `@primevue/*` or PrimeIcons anywhere in the diff
+      lockout) — *deferred to task 139's device pass; there is no browser in this environment.
+      Keyboard operability comes from `reka-ui`'s `CheckboxRoot` (a real focusable control with
+      `focus-visible` styling), and the labelling is task 127's responsibility since that is
+      where the `Label` is written.*
+- [x] `npm run type-check` and `npm run build` clean
+- [x] No `primevue`, `@primevue/*` or PrimeIcons anywhere in the diff
 
 ## Progress Log
 
 - 2026-08-30 — Task created from PRD 005.
+- 2026-08-30 — Generated both through the project's configured CLI
+  (`npx shadcn-vue@latest add progress checkbox`), which picked up `components.json` — style
+  `reka-vega`, `iconLibrary: lucide`, tokens from `src/assets/main.css`. Output inspected against
+  `label/` and `separator/`: same `reactiveOmit` + `cn()` + `data-slot` shape and the same
+  `index.ts` re-export, so they are siblings rather than a differently-configured import. No
+  `tailwind.config.js` appeared, no hex values, `CheckIcon` comes from `@lucide/vue`, and both are
+  backed by `reka-ui`, which was already a dependency.
+- 2026-08-30 — One incidental change: the CLI bumped `@lucide/vue` from ^1.35.0 to ^1.37.0 while
+  resolving the icon import. Left in rather than reverted — it is a patch-level range bump on an
+  existing dependency, and pinning it back would put `package.json` out of step with the installed
+  tree. No other dependency moved.
+- 2026-08-30 — ✅ `vue-tsc --noEmit` clean, `npm run build` clean (36 precache entries, 633 KiB —
+  unchanged shell size), no PrimeVue/PrimeIcons in the diff. The light/dark and keyboard check is
+  the one criterion left open, deferred to task 139's device pass with the reasoning recorded above.
+  Moving to done.
