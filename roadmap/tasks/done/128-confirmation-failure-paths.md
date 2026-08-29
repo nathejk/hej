@@ -1,11 +1,11 @@
 # 128 — Non-punitive "wrong number" and "I don't know it" paths
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-30
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-08-30
+**Completed:** 2026-08-30
 
 ## Description
 
@@ -67,20 +67,20 @@ is a decision for whoever answers that phone, not for this task.
 
 ## Acceptance Criteria
 
-- [ ] Both **"nummeret er forkert"** and **"jeg kender ikke nummeret"** are offered from the
+- [x] Both **"nummeret er forkert"** and **"jeg kender ikke nummeret"** are offered from the
       confirmation step
-- [ ] Neither is styled or worded as an error or a failure; no punitive copy anywhere in the
+- [x] Neither is styled or worded as an error or a failure; no punitive copy anywhere in the
       step, including after wrong digits
-- [ ] Each posts to `POST /api/me/profile/report-incorrect` with a reason distinguishing
+- [x] Each posts to `POST /api/me/profile/report-incorrect` with a reason distinguishing
       "reported wrong" from "could not confirm"
-- [ ] The user continues into the app on every path — reported wrong, could not confirm, and
+- [x] The user continues into the app on every path — reported wrong, could not confirm, and
       wrong digits — and is never blocked
-- [ ] A 429 from the rate-limited confirm endpoint is handled without implying wrongdoing
-- [ ] The correction channel is surfaced, so a report has a visible consequence
-- [ ] Copy Danish, plain, and readable on a phone; headline (if any) uses `font-nathejk`
-- [ ] The report call failing (offline, server error) still lets the user continue, and the
+- [x] A 429 from the rate-limited confirm endpoint is handled without implying wrongdoing
+- [x] The correction channel is surfaced, so a report has a visible consequence
+- [x] Copy Danish, plain, and readable on a phone; headline (if any) uses `font-nathejk`
+- [x] The report call failing (offline, server error) still lets the user continue, and the
       report is not silently reported as sent
-- [ ] The open channel question is recorded in this task's log rather than resolved by
+- [x] The open channel question is recorded in this task's log rather than resolved by
       inventing a contact
 
 ## Depends on
@@ -94,3 +94,36 @@ is a decision for whoever answers that phone, not for this task.
 ## Progress Log
 
 - 2026-08-30 — Task created from PRD 005.
+- 2026-08-30 — Picked up.
+- 2026-08-30 — **`WelcomeStepConfirmProblem.vue` added**, reached from the affordance task 127
+  placed under the confirm button ("Nummeret er forkert, eller jeg kender det ikke") — visible
+  up front rather than only after a failure, so a member who knows they cannot answer does not have
+  to guess wrongly first.
+
+  Decisions:
+
+  - **Two buttons, two reason codes, no shared "report a problem".** `wrong` is a record to fix,
+    `unknown` is a record to check; merging them would throw away the only distinction that makes
+    the flag actionable. Both are offered as equal choices with a plain description underneath,
+    styled as ordinary options — no red, no warning iconography, nothing that reads as an error
+    state. The header says "Det er helt normalt", because it is.
+  - **`sent` is tri-state (`null` / `true` / `false`) and the confirmation copy branches on it.**
+    Telling a member "Nathejk har fået besked" when the POST failed offline would be a lie that
+    costs an organizer a phone call at 02:00. The failure branch names the likely cause (no signal)
+    and gives a human fallback instead.
+  - **The store clears `confirmationRequired` on a successful report.** Re-asking a question
+    somebody has already answered "I don't know" to is how a flow becomes a trap; the follow-up now
+    belongs to a human, not to the member.
+  - Task 127 handles the wrong-digits (400) and rate-limit (429) responses as information rather
+    than accusation — "De to cifre passer ikke til nummeret, vi har" and "For mange forsøg. Prøv
+    igen om lidt" — with this screen one tap away.
+- 2026-08-30 — **The correction channel is still open** (PRD 005 §12, and the same question in PRD
+  003): phone, email, patrol leader, or purely the in-app flag. No contact was invented. The copy
+  states the honest minimum — Nathejk has been told and will check it before the event, and the
+  member hears from their leader if something needs changing — with a `NOTE` in the template
+  marking the sentence to revisit. The nødtelefon in `config/contact.ts` was deliberately **not**
+  used: it is for emergencies during the event, and pointing pre-event data corrections at it is a
+  decision for whoever answers that phone.
+- 2026-08-30 — ✅ Criteria met, `vue-tsc` clean. The endpoint itself is task 136; until it lands
+  every report takes the honest "kunne ikke sende" branch, which is the correct behaviour rather
+  than a workaround.
