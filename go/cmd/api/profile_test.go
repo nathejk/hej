@@ -152,3 +152,37 @@ type emptyDirectory struct{}
 func (emptyDirectory) LookupAll(string) []users.User    { return nil }
 func (emptyDirectory) Lookup(string) (users.User, bool) { return users.User{}, false }
 func (emptyDirectory) Get(string) (users.User, bool)    { return users.User{}, false }
+
+// The two PRD 005 fields must always be present, even with no projection behind the
+// request (newTestApp has no database). A missing key is not the same as `false`/`null` to a
+// client that uses `?? true` as a default — and defaulting the wrong way here means either
+// nagging every member or nagging none.
+func TestProfile_CarriesVerificationFields(t *testing.T) {
+	app := newTestApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	cookies := authedCookies(t, app, srv, "30000001", "+4530000001")
+	resp := getWithCookies(t, srv.URL+"/api/me/profile", cookies)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body := decodeProfile(t, resp)
+
+	required, present := body["confirmation_required"]
+	if !present {
+		t.Fatal("confirmation_required must be present in the JSON")
+	}
+	// With no projection there is nothing to derive from, and the degradation is
+	// deliberately "do not ask": a step whose endpoint cannot record anything is worse
+	// than no step (see confirmationRequired in verification.go).
+	if required != false {
+		t.Errorf("confirmation_required = %v, want false with no projection", required)
+	}
+
+	if v, present := body["verified_at"]; !present {
+		t.Error("verified_at must be present in the JSON, as null")
+	} else if v != nil {
+		t.Errorf("verified_at = %v, want null", v)
+	}
+}
