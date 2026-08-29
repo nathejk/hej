@@ -39,6 +39,12 @@ interface ProfileResponse {
   phone: string
   phone_parent: string | null
   has_photo: boolean
+  // Added by PRD 005 (task 134). Optional here on purpose: until the BFF sends it, an
+  // absent field must mean "the confirmation step does not apply" rather than
+  // "confirmation is required" — otherwise deploying the frontend first would put every
+  // user in front of a step whose endpoint does not exist yet.
+  confirmation_required?: boolean
+  verified_at?: string | null
 }
 
 // profile.store owns the signed-in user's own details (PRD 003).
@@ -55,6 +61,13 @@ export const useProfileStore = defineStore('profile', {
     // Whether a portrait is on file. Comes from GET /api/me/profile's `has_photo`, and
     // is set directly by a successful upload.
     hasPhoto: false,
+    // Whether this user still has to confirm their profile (PRD 005). **Server-derived**
+    // from "has verified" OR "has started the event" — the client must not reimplement
+    // that rule, and must not persist the answer: a localStorage copy would let a
+    // reinstall skip the step, or re-ask a member who already confirmed, possibly
+    // mid-event (PRD 005 §11).
+    confirmationRequired: false,
+    verifiedAt: null as string | null,
     // Bumped on every upload and appended to the image URL as a cache-buster.
     //
     // Necessary because the URL (`/api/me/photo`) is stable while its contents are not:
@@ -109,6 +122,8 @@ export const useProfileStore = defineStore('profile', {
           phoneParent: data.phone_parent,
         }
         this.hasPhoto = data.has_photo
+        this.confirmationRequired = data.confirmation_required ?? false
+        this.verifiedAt = data.verified_at ?? null
         this.error = ''
         this.loaded = true
       } catch {
