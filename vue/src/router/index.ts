@@ -18,9 +18,6 @@ declare module 'vue-router' {
     roles?: Role[]
     // render edge-to-edge: no top bar, no scroll wrapper (see App.vue).
     fullBleed?: boolean
-    // the desktop placeholder (PRD 005). Marked so the guard can tell the one route a
-    // non-mobile visitor is allowed to see from the app routes it must keep them out of.
-    desktop?: boolean
   }
 }
 
@@ -68,14 +65,6 @@ const router = createRouter({
       component: () => import('@/views/WelcomeView.vue'),
       meta: { public: true },
     },
-    // The desktop placeholder (PRD 005 §4). Not the desktop website — that is a separate
-    // PRD; this only keeps desktop visitors away from a login form for a phone app.
-    {
-      path: '/desktop',
-      name: 'desktop',
-      component: () => import('@/views/DesktopView.vue'),
-      meta: { public: true, desktop: true },
-    },
     ...destinationRoutes,
     // Min profil (PRD 003). Deliberately NOT a `destination`: it is reached from the
     // user menu in the top bar, so it takes no bottom-nav slot — which matters,
@@ -98,27 +87,38 @@ const router = createRouter({
   ],
 })
 
+// The desktop placeholder is a **static page outside this app** (task 140):
+// `public/desktop.html`, no Vue, no bundle. So leaving for it is a full-page navigation, not
+// a route change — routing to it inside the SPA is precisely what that task removed.
+//
+// The URL is the file's own path rather than a tidier `/desktop`, and that is load-bearing:
+// a path the SPA fallback would answer with `index.html` would boot the app, which would
+// redirect here again — a loop. A real file cannot be caught by the fallback. The service
+// worker's navigation fallback excludes it for the same reason (see vite.config.ts).
+const DESKTOP_PAGE = '/desktop.html'
+
 // Steps 2–4 of the guard order, factored out so the guard body reads as the six numbered
 // steps rather than as one long chain of returns.
 //
-// Returns `true` to fall through to auth, or a redirect target.
+// Returns `true` to fall through to auth, `false` when the browser is being sent out of the
+// app entirely, or a redirect target.
 //
 // Wrapped in try/catch by the caller: these read `navigator`/`matchMedia`, and the one thing
 // this guard must never do is throw (task 090).
-function deviceAndInstallGates(to: RouteLocationNormalized): true | RouteLocationRaw {
+function deviceAndInstallGates(to: RouteLocationNormalized): boolean | RouteLocationRaw {
   const install = useInstallStore()
   const onboarding = useOnboardingStore()
 
-  // 2. Device class. Desktop gets the placeholder and nothing else — in particular not
-  //    /install or /welcome: showing a laptop how to add a phone app to its home screen is
-  //    worse than the placeholder.
+  // 2. Device class. A desktop computer is not an app user: it gets the plain placeholder
+  //    page, which is not part of this application. In particular it never sees /install or
+  //    /welcome — showing a laptop how to add a phone app to its home screen is worse than
+  //    the placeholder.
   if (!isMobileDevice()) {
-    return to.name === 'desktop' ? true : { name: 'desktop' }
-  }
-
-  // A mobile visitor has no business on the desktop placeholder.
-  if (to.meta.desktop) {
-    return { name: 'install' }
+    window.location.replace(DESKTOP_PAGE)
+    // Aborts the in-app navigation, so nothing renders in the moment before the browser
+    // leaves. Safe here, unlike the blank-screen case of task 090: the page is on its way
+    // out, and the destination is a static file rather than something that has to boot.
+    return false
   }
 
   // 3. Standalone. The app is not usable in a browser tab, so every route leads to the wall
@@ -179,7 +179,7 @@ function deviceAndInstallGates(to: RouteLocationNormalized): true | RouteLocatio
 // start.
 router.beforeEach(async (to) => {
   if (gatesEnabled()) {
-    let outcome: true | RouteLocationRaw = true
+    let outcome: boolean | RouteLocationRaw = true
     try {
       outcome = deviceAndInstallGates(to)
     } catch {

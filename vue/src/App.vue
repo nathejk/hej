@@ -102,8 +102,9 @@ watch(
   { immediate: true },
 )
 
-// The app shell (top bar + bottom nav) frames authenticated pages. Onboarding, the install
-// wall and the desktop placeholder render bare.
+// The app shell (top bar + bottom nav) frames authenticated pages. Onboarding and the
+// install wall render bare; the desktop placeholder is not part of this app at all
+// (task 140).
 //
 // Spelled out as three conditions because the old form was
 // `isAuthenticated && route.name !== 'login'`, and the `login` term died with that route

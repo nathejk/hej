@@ -179,9 +179,12 @@ the app on the home screen onwards is the same.
 ### Desktop
 
 1. User opens the site in a desktop browser.
-2. Device is not mobile → they land on a placeholder page: brand header and one
-   short paragraph saying Hej Nathejk is an in-event app for your phone. The real
-   desktop website is a separate PRD.
+2. Device is not mobile → the browser leaves the app for a **static placeholder page**
+   (`/desktop.html`) that is not part of the SPA: brand headline and "more to come…". On a
+   device that would qualify for the PWA it also carries a top **"Installér app"** banner back
+   to the install instructions, so a misclassified tablet has a route in. The real desktop
+   website is a separate PRD. *(Revised 2026-08-30 — originally a Vue route inside the app;
+   see task 140.)*
 3. No login form, no bottom nav, no map, no app content.
 
 ### Edge cases
@@ -261,10 +264,13 @@ the app on the home screen onwards is the same.
       unblocks login for that browser. This is the single non-install escape
       affordance on the wall — there is deliberately no second "desktop version"
       link, since `/desktop` is a placeholder and cannot rescue anyone (§11).
-- [ ] Desktop → `/desktop`, a static unauthenticated placeholder page. Desktop never
-      reaches `/welcome` or `/install`, and no role may log in there
-      (§11). The page renders no participant-facing app content, so it carries no
-      data-exposure decision.
+- [ ] Desktop → a **static placeholder page outside the SPA** (`/desktop.html`), reached by a
+      full-page navigation rather than a route change. Desktop never reaches `/welcome` or
+      `/install`, and no role may log in there (§11). The page renders no participant-facing
+      app content, so it carries no data-exposure decision. It shows an **"Installér app"**
+      banner — only on devices that qualify for the PWA — linking back to the install
+      instructions, which is also the way back for a device the detection misread.
+      *(Revised 2026-08-30, task 140: the placeholder must not be the app or part of it.)*
 - [ ] Mobile + standalone → `/welcome`, a linear onboarding flow, resumable, each
       permission step preceded by an in-app explanation
       (extend `PermissionPrompt.vue`) before any native dialog. The canonical step
@@ -354,7 +360,7 @@ New routes:
 |---|---|---|---|
 | `/install` | `install` | `public` | Mobile install wall |
 | `/welcome` | `welcome` | `public` | Post-install onboarding (owns login) |
-| `/desktop` | `desktop` | `public`, `desktop` | Desktop placeholder page (real desktop site: separate PRD) |
+| `/desktop.html` | — | *(not a route)* | Static placeholder **outside the app** — a plain file, no Vue (task 140). The real desktop site is a separate PRD. |
 
 **`/login` is removed as a standalone route.** The credential step lives *inside*
 `/welcome`: `LoginView.vue` is refactored into `WelcomeStepLogin.vue` so the SMS-PIN
@@ -379,9 +385,10 @@ states; hand-rolled only for the platform install illustration):
 - `views/InstallView.vue` — install wall.
 - `views/WelcomeView.vue` — onboarding shell; renders the current step and
   progress.
-- `views/DesktopView.vue` — static placeholder page. Intentionally thin and
-  self-contained: it shares no components with the mobile app so replacing it
-  with the real desktop site cannot regress the app.
+- The desktop placeholder is **not a component and not a view** — it is
+  `public/desktop.html`, a plain file outside the app (task 140). A route inside the SPA
+  would still boot Pinia, the router, the guard and the service worker to render one
+  sentence, and the real desktop site will not be a Vue view in this repo.
 - `components/onboarding/InstallInstructions.vue` — platform-specific steps.
 - `components/onboarding/WelcomeStepLogin.vue`, `…StepConfirmProfile.vue`,
   `…StepPortrait.vue`, `…StepLocation.vue`, `…StepNotifications.vue`. The
@@ -406,7 +413,8 @@ states; hand-rolled only for the platform install illustration):
   on-demand rule.
 
 Shell behaviour (`App.vue`): the top bar **and** `BottomNav` are hidden on
-`/install`, `/welcome` and `/desktop`. `showShell` becomes
+`/install` and `/welcome` — the desktop placeholder needs no mention, being outside the app
+entirely. `showShell` becomes
 `isAuthenticated && onboardingComplete && !route.meta.public` — stated as a full
 expression because today it is `isAuthenticated && route.name !== 'login'`, and the
 `login` term disappears with the route. Note `fullBleed` is **not** used on the
@@ -432,11 +440,12 @@ All page-level headlines use `font-nathejk` per `.rules`; icons are Lucide
     `location.store.permission` and `notifications.store.permission` so it is
     self-healing rather than a blindly persisted cursor.
   - `router/index.ts` — extend the global guard: device/install/onboarding gates
-    run **before** the existing auth check; add `desktop?: boolean` to
-    `RouteMeta`. Guard order: dev override → device class → standalone →
-    onboarding complete → auth → roles. The device gate is session-independent by
+    run **before** the existing auth check. Guard order: dev override → device class →
+    standalone → onboarding complete → auth → roles. The device gate is session-independent by
     design (§11), so it can short-circuit before `session.ensureReady()` and
-    spare desktop visitors a pointless `/api/me` round-trip.
+    spare desktop visitors a pointless `/api/me` round-trip — and for a desktop visitor it
+    leaves the app entirely (a full-page navigation to the static placeholder), rather than
+    routing within it.
   - `helpers/pwa.ts` — unchanged; `UpdatePrompt` must not overlay the wall.
 - **BFF (Go):** this PRD **does** require BFF work, for the profile-confirmation
   step only — the install and device gates remain pure client state, and the BFF
@@ -612,8 +621,9 @@ Proposed tasks for `roadmap/tasks/open/`:
 - [ ] Task: generate the `progress` and `checkbox` shadcn-vue primitives
 - [ ] Task: PermissionPrompt full-screen variant
 - [ ] Task: DesktopView — static placeholder page for non-mobile visitors
-- [ ] Task: router guard — device / standalone / onboarding gates + `desktop` route meta
-- [ ] Task: App.vue shell — hide chrome on install/welcome/desktop routes
+      *(shipped, then replaced by task 140: a plain page outside the app)*
+- [ ] Task: router guard — device / standalone / onboarding gates
+- [ ] Task: App.vue shell — hide chrome on install/welcome routes
 - [ ] Task: runtime flag + dev/QA gate bypass
 - [ ] Task: manual test matrix — iOS Safari, Android Chrome, Android Firefox, desktop, in-app webview
 
@@ -648,13 +658,22 @@ survives.
   worth naming: nothing downstream reacts to a verification on the day this ships —
   the value until then is the data-quality signal and the member having checked their
   own record.
-- **2026-08-30 — The desktop side of this PRD is a placeholder only.** The scope of
-  this PRD is: on a phone or tablet, prompt for installation and deliver the app
-  experience only when installed; on anything else, show an ordinary website. Building
-  that website is a separate PRD. The install wall therefore carries **one** non-install
-  affordance, the "Fortsæt i browseren" escape hatch — the earlier low-prominence link to
-  the "desktop version" is dropped, since pointing a stranded user at a placeholder
-  page helps nobody and two adjacent escape links get confused with each other.
+- **2026-08-30 — The desktop side of this PRD is a placeholder only, and it is not part of
+  the app.** The scope of this PRD is: on a phone or tablet, prompt for installation and
+  deliver the app experience only when installed; on anything else, show an ordinary website.
+  Building that website is a separate PRD. **Clarified by the maintainer later the same day
+  (task 140): the placeholder is a plain static page, not a view in the SPA** — for now
+  "Hej Nathejk — more to come…", with an "Installér app" banner shown only on devices that
+  qualify for the PWA, linking back to the install instructions. A route inside the app would
+  boot the whole application to render one sentence, sit inside the service worker's scope, and
+  be thrown away rather than replaced when the real site arrives.
+
+  The install wall therefore carries **one** non-install affordance, the "Fortsæt i browseren"
+  escape hatch — the earlier low-prominence link to the "desktop version" is dropped, since
+  pointing a stranded user at a placeholder page helps nobody and two adjacent escape links
+  get confused with each other. Note the placeholder's own banner is the mirror image and is
+  *not* redundant with it: it exists so a device wrongly classified as desktop still has a
+  route to the wall.
 
 - **2026-08-25 — Verification is published as a domain event.** Not written to a
   database by the app, per the architecture rule that nothing writes directly to SQL

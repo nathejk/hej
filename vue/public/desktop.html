@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hej Nathejk</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="robots" content="noindex" />
+
+    <!--
+      The desktop placeholder (PRD 005 §4, task 140).
+
+      NOT part of the app, and that is the point. This is a plain file with no Vue, no
+      bundle, no router, no stores and no service-worker registration — a visitor who is not
+      an app user gets a page, not an application. The real desktop website is a separate PRD
+      and will not be a Vue view in this repo, so anything built as one would be thrown away
+      rather than replaced.
+
+      It is also deliberately outside the service worker's navigation fallback (see
+      `navigateFallbackDenylist` in vite.config.ts). Without that exclusion an installed
+      client would be served index.html for this URL, boot the app, and be redirected here
+      again — a loop.
+
+      Styles are inline for the same reason: no build step, nothing shared with the app, and
+      nothing that can break when the app's CSS changes.
+    -->
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #f8fafc;
+        --muted: #94a3b8;
+        --bg: #0f172a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family:
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+        display: flex;
+        flex-direction: column;
+      }
+      /* Impact plus narrow-bold fallbacks, mirroring the app's --font-nathejk. Duplicated
+         rather than shared: this page has no access to the app's Tailwind theme, and one
+         font stack in a <style> block is a smaller cost than a build step. */
+      h1 {
+        font-family: Impact, 'Haettenschweiler', 'Arial Narrow Bold', sans-serif;
+        font-size: clamp(2.5rem, 8vw, 4.5rem);
+        letter-spacing: 0.03em;
+        margin: 0;
+        font-weight: 400;
+      }
+      main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        padding: 4rem 1.5rem;
+        text-align: center;
+      }
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 1.125rem;
+      }
+      /* Hidden by default and revealed by the script below, so a mouse-only desktop never
+         sees a flash of an install invitation it cannot act on. */
+      #install-banner {
+        display: none;
+        background: var(--ink);
+        color: var(--bg);
+        padding: 0.75rem 1rem;
+        text-align: center;
+        font-size: 0.9375rem;
+      }
+      #install-banner a {
+        color: inherit;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      Back to the install instructions. Shown only on devices that qualify for the PWA: a
+      mouse-only desktop must not be invited to install something it cannot use, and a tablet
+      that the app's detection misread as desktop needs a route back to the wall — which is
+      otherwise unreachable from here.
+    -->
+    <div id="install-banner">
+      <a href="/install">Installér app</a> — Hej Nathejk virker på din telefon eller tablet
+    </div>
+
+    <main>
+      <h1>Hej Nathejk</h1>
+      <p>more to come…</p>
+    </main>
+
+    <script>
+      // Minimal, on purpose. `src/helpers/platform.ts` is the AUTHORITY on device
+      // classification — this is not, and must not grow into a second one.
+      //
+      // The duplication is accepted rather than accidental: this page cannot import app code
+      // without dragging the bundle back in, and the two answer different questions.
+      // platform.ts decides whether somebody is *gated*; this decides whether a *link* is
+      // visible. A false positive here shows an install link to a desktop user (a shrug); a
+      // false negative loses nothing the address bar cannot fix.
+      ;(function () {
+        var nav = window.navigator
+        var touch = (nav.maxTouchPoints || 0) > 0
+        var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches
+        // iPadOS reports itself as macOS Safari, so the touch-point count is the only tell —
+        // and an iPad is exactly the visitor who should see this banner.
+        var iPadOS = nav.platform === 'MacIntel' && (nav.maxTouchPoints || 0) > 1
+        if (touch || coarse || iPadOS) {
+          document.getElementById('install-banner').style.display = 'block'
+        }
+      })()
+    </script>
+  </body>
+</html>

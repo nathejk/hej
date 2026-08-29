@@ -105,6 +105,12 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // The desktop placeholder (task 140) is a plain file, not part of this app, so the
+        // navigation fallback must not answer for it. Without this exclusion an installed
+        // client asking for /desktop.html would be served index.html, boot the app, and be
+        // redirected straight back here — a loop, and the one failure mode of moving that
+        // page out of the SPA.
+        navigateFallbackDenylist: [/^\/desktop\.html$/],
         // Pull in custom push / notificationclick handlers (public/push-sw.js).
         importScripts: ['push-sw.js'],
         // Map tiles are cached as they are browsed (PRD 002 §11.2, task 087).

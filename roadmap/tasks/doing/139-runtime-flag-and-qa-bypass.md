@@ -135,8 +135,8 @@ The webview row is a pass/fail on the escape hatch, not on installation.
   | iOS Safari | add-to-home-screen, `navigator.standalone`, push on 16.4+ | not run |
   | Android Chrome | `beforeinstallprompt` captured **before mount**, `appinstalled` seen | not run |
   | Android Firefox | no prompt → manual instructions correct and readable | not run |
-  | Desktop | classified desktop, lands on `/desktop`, never sees `/welcome` or `/install` | not run |
-  | iPadOS | reports as macOS Safari — must still classify as **mobile** | not run |
+  | Desktop | classified desktop, leaves the app for `/desktop.html`, never sees `/welcome` or `/install`, and the install banner stays **hidden** | not run |
+  | iPadOS | reports as macOS Safari — must still classify as **mobile**; if it does not, the placeholder's install banner must be visible as the way back | not run |
   | In-app webview (Facebook) | install impossible; escape hatch reachable and sufficient | not run |
 
   Two rows are worth more attention than the rest. **iPadOS** is the one most likely to fail and the
@@ -148,5 +148,6 @@ The webview row is a pass/fail on the escape hatch, not on installation.
 
   Also unverified for the same reason, carried over from the tasks that deferred them here:
   light/dark rendering and keyboard operability of the new `checkbox` (task 122), the full-screen
-  `PermissionPrompt` variant (task 130), grant/deny on both permission steps (task 131), and that
-  `UpdatePrompt` no longer overlays the wall (task 138).
+  `PermissionPrompt` variant (task 130), grant/deny on both permission steps (task 131), that
+  `UpdatePrompt` no longer overlays the wall (task 138), and the desktop placeholder's install
+  banner appearing on a tablet but not on a desktop (task 140).

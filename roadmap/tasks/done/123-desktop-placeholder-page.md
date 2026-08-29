@@ -95,3 +95,9 @@ improvement. No new dependencies (PRD 005 §8: the placeholder needs none).
   centred `min-h-full` with generous padding instead.
 - 2026-08-30 — ✅ All criteria met, `vue-tsc --noEmit` clean. Moving to done. Reaching it by
   redirect (rather than by typing the URL) arrives with task 137.
+- 2026-08-30 — **Superseded by task 140.** The maintainer clarified that the desktop side is a
+  regular website and must not be the app or part of it, so `DesktopView.vue` and the `/desktop`
+  route were removed and replaced by a static `public/desktop.html` outside the SPA. The instinct
+  recorded above — keep it isolated so the real site can replace it — was right; it was applied at
+  the wrong layer, since a route inside the SPA still boots Pinia, the router, the guard and the
+  service worker to render one sentence. See task 140.
