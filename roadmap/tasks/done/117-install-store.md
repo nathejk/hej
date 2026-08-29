@@ -1,11 +1,11 @@
 # 117 — Install store: beforeinstallprompt capture and browser override
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-30
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-08-30
+**Completed:** 2026-08-30
 
 ## Description
 
@@ -55,20 +55,20 @@ This store is device-scoped only.
 
 ## Acceptance Criteria
 
-- [ ] `vue/src/stores/install.store.ts` exposes `canPrompt`, `promptInstall()`, `installed`
+- [x] `vue/src/stores/install.store.ts` exposes `canPrompt`, `promptInstall()`, `installed`
       and `continueInBrowser` (+ setter)
-- [ ] The `beforeinstallprompt` listener is registered from `main.ts` **before**
+- [x] The `beforeinstallprompt` listener is registered from `main.ts` **before**
       `app.mount('#app')`, with a comment explaining why the position is load-bearing
-- [ ] The event is `preventDefault()`ed so Chromium's own mini infobar does not compete with
+- [x] The event is `preventDefault()`ed so Chromium's own mini infobar does not compete with
       the wall
-- [ ] `promptInstall()` awaits `userChoice`, then clears the stored event and `canPrompt`
+- [x] `promptInstall()` awaits `userChoice`, then clears the stored event and `canPrompt`
       whether the user accepted or dismissed — the event cannot be reused
-- [ ] `installed` is set from the `appinstalled` event
-- [ ] `continueInBrowser` persists under a `hej.install.*` key and survives a reload
-- [ ] Every `localStorage` read/write is wrapped so a throwing/blocked storage cannot break
+- [x] `installed` is set from the `appinstalled` event
+- [x] `continueInBrowser` persists under a `hej.install.*` key and survives a reload
+- [x] Every `localStorage` read/write is wrapped so a throwing/blocked storage cannot break
       the router gate
-- [ ] No per-user state in this store
-- [ ] `npm run type-check` clean (`BeforeInstallPromptEvent` is not in the DOM lib — declare a
+- [x] No per-user state in this store
+- [x] `npm run type-check` clean (`BeforeInstallPromptEvent` is not in the DOM lib — declare a
       local type rather than casting to `any`)
 
 ## Depends on
@@ -80,3 +80,35 @@ This store is device-scoped only.
 ## Progress Log
 
 - 2026-08-30 — Task created from PRD 005.
+- 2026-08-30 — Picked up.
+- 2026-08-30 — **Store written**, plus `initInstallPrompt()` called from `main.ts` immediately
+  before `app.mount()`, following the shape of the existing `initSafeArea()` ordering comment and
+  saying explicitly why it must not be moved below the mount.
+
+  Three decisions:
+
+  - **The captured event is held in a module-level variable, not in Pinia state.** It is a live
+    DOM event whose `prompt()` must be called on the original object; putting it in state would
+    have Vue wrap it in a reactive proxy and would drag it into devtools serialisation. The store
+    keeps a boolean mirror (`canPrompt`), which is all any consumer needs. The task warned against
+    a "free-floating module-level variable that the store then has to reach into" — the variable
+    stays, but it is private to the module and only the exported `initInstallPrompt()` and the
+    store's own action touch it, so nothing reaches in from outside.
+  - **`canPrompt` is cleared in a `finally`.** The event is single-use: Chromium refuses a second
+    `prompt()` and only issues a fresh event on a later page load. Clearing it on the happy path
+    alone would leave a live-looking button that does nothing after a throw — which reads as a
+    broken app rather than a declined prompt.
+  - **`continueInBrowser` is read eagerly in `state()`,** because the router guard needs it
+    synchronously on the very first navigation. Both accesses are wrapped: Safari throws on
+    `localStorage` in some privacy modes, and an exception on that path would white-screen the app
+    before anything renders — the same failure shape as task 090.
+
+  Also noted in the code: `appinstalled` only fires in the tab that did the installing, so it is
+  not an answer to "is this app installed?" — which is exactly why the wall still needs "jeg har
+  allerede installeret appen" (task 119).
+- 2026-08-30 — ✅ All criteria met. `vue-tsc --noEmit` clean; `npm test` still green (17).
+
+  Not verifiable from here: that the event is actually captured before mount on real Chromium.
+  There is no browser in this environment and the behaviour is timing-dependent, so it belongs to
+  task 139's device matrix — where the check is simply that Android Chrome shows the one-tap
+  button rather than the manual instructions.

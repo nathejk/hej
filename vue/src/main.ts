@@ -7,6 +7,7 @@ import App from '@/App.vue'
 import router from '@/router'
 import { initPwa } from '@/helpers/pwa'
 import { useAppStore } from '@/stores/app.store'
+import { initInstallPrompt } from '@/stores/install.store'
 import { loadRuntimeConfig } from '@/config/runtime'
 import { initSafeArea } from '@/helpers/safeArea'
 
@@ -19,6 +20,13 @@ app.use(router)
 // those from env(). This corrects the seed for the one case CSS cannot detect (see
 // @/helpers/safeArea), and doing it first avoids a visible reflow of the shell.
 initSafeArea()
+
+// Before mount, and this position is load-bearing: `beforeinstallprompt` fires once and
+// early, so a listener registered after the app has mounted misses it outright. When that
+// happens nothing errors — the install wall just silently shows the manual
+// add-to-home-screen instructions instead of the one-tap button, on Chromium, the only
+// platform where one tap exists (PRD 005 §8). Do not move this below `app.mount()`.
+initInstallPrompt()
 
 app.mount('#app')
 
