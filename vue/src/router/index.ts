@@ -14,6 +14,9 @@ declare module 'vue-router' {
     roles?: Role[]
     // render edge-to-edge: no top bar, no scroll wrapper (see App.vue).
     fullBleed?: boolean
+    // the desktop placeholder (PRD 005). Marked so the guard can tell the one route a
+    // non-mobile visitor is allowed to see from the app routes it must keep them out of.
+    desktop?: boolean
   }
 }
 
@@ -56,6 +59,14 @@ const router = createRouter({
       name: 'install',
       component: () => import('@/views/InstallView.vue'),
       meta: { public: true },
+    },
+    // The desktop placeholder (PRD 005 §4). Not the desktop website — that is a separate
+    // PRD; this only keeps desktop visitors away from a login form for a phone app.
+    {
+      path: '/desktop',
+      name: 'desktop',
+      component: () => import('@/views/DesktopView.vue'),
+      meta: { public: true, desktop: true },
     },
     ...destinationRoutes,
     // Min profil (PRD 003). Deliberately NOT a `destination`: it is reached from the

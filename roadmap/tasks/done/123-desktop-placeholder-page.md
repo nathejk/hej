@@ -1,11 +1,11 @@
 # 123 — DesktopView: placeholder for non-mobile visitors
 
-**Status:** open
+**Status:** done
 **Priority:** low
 **Created:** 2026-08-30
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-08-30
+**Completed:** 2026-08-30
 
 ## Description
 
@@ -58,18 +58,18 @@ improvement. No new dependencies (PRD 005 §8: the placeholder needs none).
 
 ## Acceptance Criteria
 
-- [ ] `vue/src/views/DesktopView.vue` exists and `/desktop` is registered with
+- [x] `vue/src/views/DesktopView.vue` exists and `/desktop` is registered with
       `meta: { public: true, desktop: true }` and a lazy import
-- [ ] Content is the brand header plus **one short Danish paragraph** explaining that Hej
+- [x] Content is the brand header plus **one short Danish paragraph** explaining that Hej
       Nathejk is an in-event app for the phone, and to open the site on a phone
-- [ ] **No login form**, no bottom nav, no app content, no participant data
-- [ ] Imports **no components from the mobile app** — only brand config; a comment states that
+- [x] **No login form**, no bottom nav, no app content, no participant data
+- [x] Imports **no components from the mobile app** — only brand config; a comment states that
       this isolation is the point, so the real desktop site can replace it safely
-- [ ] Does not manage shell visibility itself and does not use `fullBleed`
-- [ ] No new runtime dependencies
-- [ ] `font-nathejk` headline, Lucide icon if any, all copy Danish
-- [ ] Renders correctly at desktop widths without the mobile layout's safe-area assumptions
-- [ ] `npm run type-check` clean
+- [x] Does not manage shell visibility itself and does not use `fullBleed`
+- [x] No new runtime dependencies
+- [x] `font-nathejk` headline, Lucide icon if any, all copy Danish
+- [x] Renders correctly at desktop widths without the mobile layout's safe-area assumptions
+- [x] `npm run type-check` clean
 
 ## Depends on
 
@@ -80,3 +80,18 @@ improvement. No new dependencies (PRD 005 §8: the placeholder needs none).
 ## Progress Log
 
 - 2026-08-30 — Task created from PRD 005.
+- 2026-08-30 — Written and registered, plus `desktop?: boolean` added to `RouteMeta` so the guard
+  (task 137) can tell the one route a non-mobile visitor may see from the app routes it must keep
+  them out of.
+
+  Kept deliberately plain: no `Card`, no shared header, three elements and a paragraph. The whole
+  import list is `Monitor` from Lucide and `APP_NAME` — the isolation is stated in a comment at the
+  top, because the value of this file is that the real desktop site can delete it without reading
+  the mobile app first. A `Card` would have been the easy reflex and would have added nothing.
+
+  Also avoided the mobile layout's `var(--sat)`/`var(--sab)` safe-area padding and its
+  `max-w-sm h-full` frame: those exist for a phone viewport with a notch, and applying them to a
+  desktop window is how a placeholder ends up rendering as a narrow column in the corner. Plain
+  centred `min-h-full` with generous padding instead.
+- 2026-08-30 — ✅ All criteria met, `vue-tsc --noEmit` clean. Moving to done. Reaching it by
+  redirect (rather than by typing the URL) arrives with task 137.
