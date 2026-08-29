@@ -129,6 +129,24 @@ services:
       # here that cannot be rebuilt from the event log, and therefore the entire
       # backup scope (task 063).
       BLOB_PATH: /blobs
+      # Portrait retention (task 109). The rule is settled — an in-race safety
+      # feature has no purpose the day after the race — but the *number* is
+      # deliberately here rather than in code, because shortening it must not
+      # require a deploy. Measured from capture. 0 disables the purge, which is a
+      # diagnostic setting, not a supported production one.
+      #
+      # 30 days is a conservative placeholder awaiting a maintainer's number.
+      PORTRAIT_RETENTION: ${PORTRAIT_RETENTION:-720h}
+      # Retain the uploaded image at full resolution, metadata stripped (task 111),
+      # so thumbnail sizes can be regenerated later instead of applying only to
+      # portraits taken after a change.
+      #
+      # **This is the setting that decides how big the backup is.** Renditions are
+      # ~15 KB per member; an original is 1-4 MB, so a full event turns roughly
+      # 12 MB of ${BLOB_DIR} into ~2 GB. Set to false if that is not affordable on
+      # this host — the app works either way, it just loses the ability to
+      # backfill.
+      PORTRAIT_KEEP_ORIGINAL: ${PORTRAIT_KEEP_ORIGINAL:-true}
     volumes:
       # Bind mount rather than a named volume: chosen so the bytes are visible on
       # host for backup (task 063) without going through a container. Absolute
