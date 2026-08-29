@@ -1,10 +1,10 @@
 # PRD 005 — Install-first mobile onboarding (install, confirm, permissions)
 
-**Status:** draft
+**Status:** doing
 **Author:** agent session (Zed)
 **Created:** 2026-08-25
-**Last updated:** 2026-08-25
-**Approved:**
+**Last updated:** 2026-08-30
+**Approved:** 2026-08-30
 **Shipped:**
 **Target users:** participant (spejder, bandit), postmandskab, guide, samarit — i.e. every in-event app user
 
@@ -24,10 +24,11 @@ to their home screen and reopen it from there before they can sign in. Once
 running installed, a short **onboarding flow** takes them through login, a
 one-time **confirmation of their profile and contact number**, a **self-portrait**
 for night-time identification, then location, then push notifications. That mobile
-flow is the whole point of this
-PRD. Desktop is deliberately minimal: a single unauthenticated landing page that
-explains the app is for your phone and points you at it. What desktop should
-*eventually* offer is not decided and is not decided here.
+flow is the whole point of this PRD.
+
+Desktop visitors get a **normal website** rather than the app. Building that
+website is **not part of this PRD** — all this PRD ships is a placeholder page so
+desktop visitors are not dumped at a login form for an app they cannot use.
 
 ## 2. Problem & Motivation
 
@@ -44,10 +45,10 @@ explains the app is for your phone and points you at it. What desktop should
   ever grants location or notifications is incidental. During an event we need
   both settled *before* the user needs them, not the first time they open the
   map at 02:00 in a forest with no signal.
-- **Why now?** PRD 002 (map, position reporting) and push (task set behind
-  `notifications.store`) are landing in `doing/`. Both are worthless without an
-  installed app and granted permissions, so the gate must exist before they
-  ship. Desktop visitors also currently hit a login screen for an app that is
+- **Why now?** PRD 002 (map, position reporting) is in `doing/` and push
+  subscription has shipped (tasks 016/017/100). Both are worthless without an
+  installed app and granted permissions, so the gate must exist before the event.
+  Desktop visitors also currently hit a login screen for an app that is
   not meant to be used on desktop.
 - **Evidence.** Codebase: `vue/vite.config.ts` already ships a `standalone`
   manifest and `public/push-sw.js`; `notifications.store.ts` `available` getter
@@ -61,15 +62,16 @@ explains the app is for your phone and points you at it. What desktop should
 - Every mobile/tablet user who is signed in is running the app installed, with a
   live service worker.
 - A user's registered contact number is deliberately acknowledged as reachable
-  before they start using the app.
-- **Check-in at the start is measurably faster**, because members arrive at the
-  counter with their own data already verified instead of having it read back to
-  them one field at a time.
+  before they start using the app, and members arrive at check-in having already
+  looked at their own data instead of having it read back to them field by field.
+  *(Revised 2026-08-30: this was previously stated as a measurable check-in speed
+  goal. Realising that requires the admin portal to surface the flag, which is out
+  of scope — see §4. The verification is still recorded and published; who consumes
+  it is a later decision.)*
 - Location and push permission decisions happen once, up front, in a
   predictable, explained order — never as an unexplained native dialog.
 - A desktop visitor is not shown a login form for an app they cannot use — they
-  get a short, honest explanation and a way to reach the app on their phone.
-  Nothing more is promised.
+  get a short, honest placeholder. Nothing more is promised.
 - The gate is legible: a user who is blocked always sees *why* and *what to do
   next*, with platform-correct instructions.
 - The gate is safe: no user can be permanently locked out by a false negative in
@@ -82,11 +84,16 @@ explains the app is for your phone and points you at it. What desktop should
   separate later PRD; this PRD only settles subscription at onboarding time.
 - Reworking the login mechanism itself (phone + SMS PIN stays as is, see
   `session.store.requestPin`/`verify`).
-- **Any real desktop experience.** Desktop scope is undecided; this PRD ships
-  only a static landing page so desktop visitors are not dumped at a login
-  screen. No read-only content browsing, no desktop login, no organizer console.
-  Whatever desktop becomes is a separate PRD, and the landing page is built so it
-  can be replaced wholesale without touching the mobile flow.
+- **Any real desktop website.** Desktop scope is undecided and belongs to its own
+  PRD; this PRD ships only a placeholder page so desktop visitors are not dumped at
+  a login screen. No read-only content browsing, no desktop login, no organizer
+  console. The placeholder is built so it can be replaced wholesale without touching
+  the mobile flow.
+- **Any change to the admin portal (`hq`).** *(Added 2026-08-30.)* Verification is
+  recorded here and published as a domain event; surfacing it at the check-in
+  counter is a separate piece of work on `hq`'s own board, not a requirement of this
+  PRD and not a condition for shipping it. Changes to `shared-go` **are** in scope,
+  since the event and the member field have to be declared somewhere shared.
 - Building offline content sync. This PRD **hosts** PRD 009's first-sync step as
   an optional onboarding step (step 6); the mechanism, budget and readiness UI are
   009's. *(Revised 2026-08-25 — previously this non-goal excluded offline sync
@@ -104,9 +111,6 @@ explains the app is for your phone and points you at it. What desktop should
 - As a **participant logging in for the first time**, I want to see the details
   Nathejk holds for me and confirm my parent's number is reachable, so that an
   adult can actually be reached if I get hurt or need to go home early.
-- As an **organizer on the check-in counter**, I want to see at a glance that a
-  member already verified their own data, so that I can wave them through instead
-  of reading fields back to them.
 - As an **organizer**, I want stale guardian numbers surfaced before the event
   rather than discovered at 02:00 when I need to arrange a pickup.
 - As a **participant**, I want to take a photo of myself during setup so that the
@@ -118,7 +122,7 @@ explains the app is for your phone and points you at it. What desktop should
   my location and notifications before it asks, so that I say yes deliberately.
 - As a **parent or curious visitor on a laptop**, I want to understand what this
   site is and that the app lives on my phone, so that I am not stuck at a login
-  form.
+  form. *(Anything beyond that is a later desktop PRD.)*
 
 ### Happy path — Android / Chrome phone
 
@@ -140,7 +144,8 @@ W4. User accepts; Chrome installs. The wall switches to "Åbn appen" / "Du kan n
 2. **Profile confirmation** (first login only, **spejder only**): the registered
    details are shown, with the **parent/guardian emergency contact number** masked
    to its last two digits (`11 22 33 **`). They type the two missing digits and
-   tick *"Dette nummer kan kontaktes i løbet af Nathejk"*. Skipped for users who
+   tick *"Dette nummer kan kontaktes i løbet af Nathejk"*. This is a **recognition
+   check, not a security check** (§11). Skipped for users who
    have already started the event (§11) — note that skipping **this** step does not
    skip step 3.
 3. **Portrait**: explanation, then the camera. The photo is for identifying people
@@ -151,11 +156,11 @@ W4. User accepts; Chrome installs. The wall switches to "Åbn appen" / "Du kan n
    Granted or denied, the flow continues.
 5. **Notifications**: explanation screen, then `notifications.store.enable()`
    (permission + push subscription + POST to BFF).
-6. **Offline preparation**: PRD 009's first sync — portraits, map tiles, the
-   rulebook and the rest — with one combined progress view and a size estimate.
-   Skippable, and best done here because the user is usually on wifi with the app
-   open. *(Added 2026-08-25: PRD 009 placed a first-sync step inside this flow while
-   this PRD's sequence did not contain one.)*
+6. **Offline preparation** (slot, owned by PRD 009): its first sync — portraits, map
+   tiles, the rulebook and the rest — with one combined progress view and a size
+   estimate. Skippable, and best done here because the user is usually on wifi with
+   the app open. Absent from the flow until 009 is approved, and **tracked on 009's
+   tasks, not this PRD's** *(revised 2026-08-30)*.
 
 A **vehicle step** also belongs in this flow, for bandit/gøgler/crew only — owned by
 PRD 010, which specifies it. It is not numbered here because its position depends on
@@ -174,9 +179,9 @@ the app on the home screen onwards is the same.
 ### Desktop
 
 1. User opens the site in a desktop browser.
-2. Device is not mobile → they land on a static landing page: brand header, one
-   short paragraph saying Hej Nathejk is an in-event app for your phone, and a
-   way to get there (see Open Questions).
+2. Device is not mobile → they land on a placeholder page: brand header and one
+   short paragraph saying Hej Nathejk is an in-event app for your phone. The real
+   desktop website is a separate PRD.
 3. No login form, no bottom nav, no map, no app content.
 
 ### Edge cases
@@ -192,8 +197,7 @@ the app on the home screen onwards is the same.
   low-prominence **"Fortsæt i browseren"** escape hatch that sets a persisted
   override and lets the user proceed to normal login. Non-installed users are a
   degraded experience, not a forbidden one — being unable to help someone at
-  02:00 is worse than an unsubscribed push. This is **separate from** the
-  "desktop version" link below; see §11.
+  02:00 is worse than an unsubscribed push.
 - **User already started the event.** Profile confirmation is skipped — starting
   implies the data was already verified. **The portrait step still runs**, and so do
   the location and notification steps: those are per-device facts and say nothing about
@@ -243,6 +247,10 @@ the app on the home screen onwards is the same.
 - [ ] Classify the visiting device as `mobile` (phone/tablet) or `desktop`, using
       coarse-pointer + touch capability and, where available,
       `navigator.userAgentData.mobile`; never viewport width alone.
+- [ ] **Ambiguous devices are classified as `mobile`** (§11, decided 2026-08-30).
+      Touch devices where a PWA makes sense — phones and tablets — are the target;
+      desktop computers are not. When the signals disagree (iPadOS reporting itself as
+      macOS Safari, a touchscreen laptop), the tie-break is `mobile`.
 - [ ] Detect installed/standalone via `matchMedia('(display-mode: standalone)')`
       (plus `minimal-ui`/`fullscreen`) OR the iOS-only `navigator.standalone`.
 - [ ] Mobile + not standalone → all app routes redirect to `/install`.
@@ -250,23 +258,37 @@ the app on the home screen onwards is the same.
       captured, and platform-specific manual instructions otherwise (iOS Safari,
       Android non-Chrome, in-app webview).
 - [ ] `/install` includes a persisted **"Fortsæt i browseren"** override that
-      unblocks login for that browser.
-- [ ] `/install` includes a small, low-prominence link to the **desktop version**
-      (`/desktop`) for visitors who do not want to install. Distinct from the
-      override above: it leads out of the app flow rather than into it (§11).
-- [ ] Desktop → `/desktop`, a static unauthenticated landing page. Desktop never
-      reaches `/login`, `/install`, or `/welcome`, and no role may log in there
+      unblocks login for that browser. This is the single non-install escape
+      affordance on the wall — there is deliberately no second "desktop version"
+      link, since `/desktop` is a placeholder and cannot rescue anyone (§11).
+- [ ] Desktop → `/desktop`, a static unauthenticated placeholder page. Desktop never
+      reaches `/welcome` or `/install`, and no role may log in there
       (§11). The page renders no participant-facing app content, so it carries no
       data-exposure decision.
-- [ ] Mobile + standalone → `/welcome`, a linear onboarding flow with steps
-      `login` → `confirm profile` → `portrait` → `location` → `notifications`,
-      resumable, each permission step preceded by an in-app explanation
-      (reuse/extend `PermissionPrompt.vue`) before any native dialog.
+- [ ] Mobile + standalone → `/welcome`, a linear onboarding flow, resumable, each
+      permission step preceded by an in-app explanation
+      (extend `PermissionPrompt.vue`) before any native dialog. The canonical step
+      order is:
+      1. `login` (mandatory)
+      2. `confirm profile` (spejder, first run — skippable by rule, see below)
+      3. `portrait`
+      4. *(slot)* `vehicle` — bandit/gøgler/crew only, specified by PRD 010; absent
+         until 010 is approved
+      5. `location`
+      6. `notifications`
+      7. `offline first sync` — specified by PRD 009; absent until 009 is approved
+      Steps 4 and 7 are **flag-gated slots**: the step machine must treat the
+      sequence as data, so an unapproved PRD cannot change this list
+      *(clarified 2026-08-30 — §5 and §6 previously disagreed on the step count)*.
 - [ ] The **profile confirmation** step shows the user's registered details and
       the **parent/guardian emergency contact number** masked to its last two
       digits (`11 22 33 **`), requires those two digits to be typed, and requires
       a checkbox *"Dette nummer kan kontaktes i løbet af Nathejk"*. Both are
       needed to advance.
+- [ ] The masking is a **recognition device, not a confidentiality control**
+      (§11, decided 2026-08-30). `GET /api/me/profile` continues to return
+      `phone_parent` in full to its owner, as PRD 003 shipped it; the step is not
+      required to be tamper-proof and must not be described as if it were.
 - [ ] The step explains **why** the number matters — emergencies *and* arranging
       pickup if the member resigns mid-event.
 - [ ] Profile confirmation applies to **spejder only** — they are the only
@@ -293,9 +315,11 @@ the app on the home screen onwards is the same.
       one-shot prompt means the members most likely to decline are exactly the ones
       who stay unidentifiable. The nudge must be dismissible per session and must
       stop permanently once a portrait exists — a prompt that cannot be silenced
-      trains people to ignore it.
-- [ ] Portrait capture reuses PRD 003's capture component and upload endpoint
-      rather than implementing a second one.
+      trains people to ignore it. It reads `profile.store.hasPhoto` (already shipped
+      by PRD 003 via `has_photo`); this PRD owns the nudge surface itself, of which
+      there must be exactly one.
+- [ ] Portrait capture reuses PRD 003's `components/profile/PhotoCapture.vue` and
+      `PUT /api/me/photo` rather than implementing a second one.
 - [ ] Details are **read-only** at confirmation time; in-app editing is out of
       scope here (§12).
 - [ ] Onboarding never hard-blocks on a permission decline or a failed profile
@@ -330,7 +354,7 @@ New routes:
 |---|---|---|---|
 | `/install` | `install` | `public` | Mobile install wall |
 | `/welcome` | `welcome` | `public` | Post-install onboarding (owns login) |
-| `/desktop` | `desktop` | `public`, `desktop` | Desktop landing page (placeholder scope) |
+| `/desktop` | `desktop` | `public`, `desktop` | Desktop placeholder page (real desktop site: separate PRD) |
 
 **`/login` is removed as a standalone route.** The credential step lives *inside*
 `/welcome`: `LoginView.vue` is refactored into `WelcomeStepLogin.vue` so the SMS-PIN
@@ -355,17 +379,17 @@ states; hand-rolled only for the platform install illustration):
 - `views/InstallView.vue` — install wall.
 - `views/WelcomeView.vue` — onboarding shell; renders the current step and
   progress.
-- `views/DesktopView.vue` — static landing page. Intentionally thin and
+- `views/DesktopView.vue` — static placeholder page. Intentionally thin and
   self-contained: it shares no components with the mobile app so replacing it
-  later cannot regress the app.
+  with the real desktop site cannot regress the app.
 - `components/onboarding/InstallInstructions.vue` — platform-specific steps.
 - `components/onboarding/WelcomeStepLogin.vue`, `…StepConfirmProfile.vue`,
-  `…StepPortrait.vue`, `…StepLocation.vue`, `…StepNotifications.vue`,
-  `…StepOfflineSync.vue` (step 6, driven by PRD 009's `offline.store`).
-- `…StepPortrait.vue` wraps PRD 003's capture component; it must not fork it. The
-  face guide, retake affordance and explicit confirm-before-upload are requirements
-  **on that component**, specified in PRD 003 §7 — people will not accept a photo
-  they did not get to approve.
+  `…StepPortrait.vue`, `…StepLocation.vue`, `…StepNotifications.vue`. The
+  offline-sync step is a slot filled by PRD 009 and specified there.
+- `…StepPortrait.vue` wraps PRD 003's `components/profile/PhotoCapture.vue`; it must
+  not fork it. The face guide, retake affordance and explicit confirm-before-upload
+  are requirements **on that component**, specified in PRD 003 §7 — people will not
+  accept a photo they did not get to approve.
 - The confirm-profile step uses shadcn-vue `Card`, `Input` (a 2-digit numeric
   input with `inputmode="numeric"`), `Checkbox` and `Label`; the masked number is
   rendered as text, never as an editable field.
@@ -373,9 +397,13 @@ states; hand-rolled only for the platform install illustration):
   a `variant` prop so it serves both the existing compact card and a full-screen
   onboarding explanation. PRD 002 (map repair affordance) and PRD 003 (status rows)
   are consumers of that API, not co-owners. Today the props are
-  `{ title, message, cta, icon? }` with `accept`/`dismiss` emits.
+  `{ title, message, cta, icon?, moreTo?, moreLabel? }` with `accept`/`dismiss`
+  emits — `moreTo`/`moreLabel` arrived with task 085's location copy, and task 101
+  shipped the blocked-permission guidance, so the full-screen variant extends that
+  work rather than replacing it *(corrected 2026-08-30)*.
 - Primitives needed that are **not yet generated** in `vue/src/components/ui/`:
-  `progress`, `alert`, `checkbox`. Generate them per PRD 004's on-demand rule.
+  `progress` and `checkbox` (`alert` now exists). Generate them per PRD 004's
+  on-demand rule.
 
 Shell behaviour (`App.vue`): the top bar **and** `BottomNav` are hidden on
 `/install`, `/welcome` and `/desktop`. `showShell` becomes
@@ -414,67 +442,69 @@ All page-level headlines use `font-nathejk` per `.rules`; icons are Lucide
   step only — the install and device gates remain pure client state, and the BFF
   continues to authorize every endpoint independently (the install gate is UX,
   never security).
-  - Per `go-bff-layout`, extend `go/cmd/api/profile.go` (introduced by PRD 003)
-    rather than adding a parallel handler file. Note the write path needs the
-    persistence from **PRD 008** — `commands.Commands` is an empty struct today.
+  - Per `go-bff-layout`, extend `go/cmd/api/profile.go` (shipped by PRD 003)
+    rather than adding a parallel handler file. The write facade
+    `commands.Commands` is real as of PRD 008 (task 056), so the publish path
+    exists *(corrected 2026-08-30)*.
   - Confirmation state is **derived, not just stored**: the response must report
     `confirmation_required` computed from "has verified" **OR** "has started the
     event" (`types.MemberStatusRacing` onwards). The client must not reimplement that
     rule. The stored field is `verified_at` — one name across PRDs 003, 005 and 006.
   - **The verification flag is published as a domain event** (decided 2026-08-25;
     see PRD 008 §8 — nothing writes directly to the database). `hej` is therefore a
-    publisher, and `hq` learns about verification by consuming the same log. This is
-    what makes the check-in goal reachable without one service calling another's
-    API, which is forbidden.
+    publisher. Any other service that wants to know about verification learns it by
+    consuming the same log; no service calls another's API. Building that consumer is
+    not part of this PRD (§4).
   - **Cross-repo.** Verification is a fact about a *member*, and members are not
     owned by this repo. `types.MemberStatus` and the member read model live in
-    `github.com/nathejk/shared-go` (`types/member.go`,
-    `tables/spejder/`); the lifecycle projection and the organizer-facing views
-    live in `hq`. `hej`'s Go tree does not import shared-go at all today — its
-    `internal/users.Directory` returns `{ID, Role, PatrolID, PatrolName}` from a
-    mock. So recording verification means:
-    1. shared-go: add the field to the member type + querier, and a
-       `member.verified` style message.
-    2. `hej`: depend on shared-go, publish the event on confirm, and project
-       `verified_at` onto **PRD 006's `person` read model in `hej`** — not onto a
-       shared-go table. The shared-go member type gains the field only when PRD 006's
-       projection is lifted there. *(Clarified 2026-08-25: this and PRD 006 named two
-       different homes for the same column, which is a data-migration risk.)*
-    3. `hq`: surface it on the check-in view — without which the check-in speed
-       goal is not realised, since the counter cannot see the flag.
+    `github.com/nathejk/shared-go` (`types/member.go`, `tables/spejder/`); `hej`
+    already depends on shared-go (`go/go.mod`, task 052) *(corrected 2026-08-30 —
+    this previously said `hej` did not import it at all)*. So recording verification
+    means:
+    1. shared-go: a `member.verified` style message, plus the field on the member
+       type/querier if and when it is needed there. Changes to shared-go are in
+       scope for this PRD (§4).
+    2. `hej`: publish the event on confirm, and project `verified_at` onto **PRD
+       006's `person` read model in `hej`** — not onto a shared-go table. The
+       shared-go member type gains the field only when PRD 006's projection is
+       lifted there. *(Clarified 2026-08-25: this and PRD 006 named two different
+       homes for the same column, which is a data-migration risk.)*
+    No `hq` work is required to ship this PRD; surfacing the flag at the check-in
+    counter is `hq`'s own board *(revised 2026-08-30)*.
     Remember the two-repo release loop from `go-bff-layout`: shared-go must be
     committed, pushed and version-bumped before a `GOWORK=off` build sees it.
-  - **Directory dependency.** Everything the confirmation step reads comes from
-    the member directory, which is **mocked today**. PRD 006 replaces it. The
-    shared-go survey (2026-08-25) also established two facts that constrain this
-    PRD directly:
+  - **Directory dependency.** Everything the confirmation step reads comes from the
+    member directory, which is **real** as of PRD 006 (task 077 swapped the mock for
+    the `person` projection) *(corrected 2026-08-30)*. Two facts from that work
+    constrain this PRD directly:
     - `PhoneParent` exists **only** on `spejder` — hence the spejder-only rule in
-      §6.
-    - **No photo storage exists anywhere** in shared-go, `hq` or `tilmelding`, and
-      **no per-person verification flag exists**. Both are entirely new write-side
-      work, not fields to be read.
+      §6. It is nullable on `person`, and null means "not applicable".
+    - Portrait storage now exists (PRD 003, tasks 103–105), but **no per-person
+      verification flag exists** — that remains new write-side work.
   - See §11 for **why this is a member field rather than a new `MemberStatus`**.
-  - "Has started the event" needs a source. This is the one unknown on the Go
-    side — it likely already exists as event/patrol state (PRD 002 touches the
-    directory for patrol identity); coordinate rather than adding a second
-    notion of "started".
+  - "Has started the event" is available: PRD 006's `person` projection carries
+    member status (task 080), and `types.MemberStatusRacing` onwards means started.
+    Read that rather than introducing a second notion of "started".
 - **API endpoints (OpenAPI annotations mandatory, per `.rules` and the style in
   `go/cmd/api/auth.go`):**
-  - `GET /api/me/profile` — **owned by PRD 003**; this PRD adds
-    `confirmation_required` and `verified_at`, plus the contact number in masked
-    form. `200` / `401`.
+  - `GET /api/me/profile` — **owned by PRD 003 and already shipped**; this PRD adds
+    `confirmation_required` and `verified_at`. It keeps returning `phone_parent` in
+    full to its owner — masking happens in the UI (§11). `200` / `401` / `404`.
   - `POST /api/me/profile/confirm` — body carries the two digits and the
     acknowledgement flag. `204` / `400` (wrong digits) / `401` / `409` (already
-    confirmed). Wrong digits must be rate-limited like the PIN endpoint.
+    confirmed). Wrong digits must be rate-limited like the PIN endpoint — not as a
+    secrecy measure, just so the endpoint cannot be hammered.
   - `POST /api/me/profile/report-incorrect` — flags the record for organizer
     follow-up, with a reason distinguishing "wrong" from "unknown to me". `204` /
     `401`. **Required**, not optional: a guardian number nobody can confirm is an
     operational problem that must reach a human before the event, not just a dead
-    end in the UI.
+    end in the UI. The flag is stored in this repo; how organizers read it is a
+    follow-up, not a blocker.
   - `PUT /api/me/photo` — **owned by PRD 003**; consumed unchanged here.
-  - **The full contact number must never be sent to the client for this step.**
-    Send it masked; verify the digits server-side. Otherwise the check is
-    theatre — the answer would be in the network response.
+  - The digits are verified **server-side** so the acknowledgement is recorded
+    against a real answer, but the number is deliberately **not** kept from the
+    client (§11). This is a sanity check that the member looked at the number and
+    recognised it — not an authentication factor.
 - **Data / storage:**
   - Client: `localStorage` keys only, namespaced `hej.install.*` /
     `hej.onboarding.*`. Per-user confirmation is **not** stored client-side.
@@ -497,24 +527,17 @@ All page-level headlines use `font-nathejk` per `.rules`; icons are Lucide
     looking up a face at 03:00 in a forest may have no signal. PRD 007 treats this
     as its central requirement; it also constrains how portraits are sized here,
     since the thumbnail served for identification should be generated at upload.
-  - **Risk: the check-in benefit depends on `hq`, not on this repo.** The app can
-    collect verifications perfectly and check-in gets no faster until the counter
-    view shows the flag and the staff procedure changes to trust it. Treat the
-    `hq` change and the procedural change as part of the rollout, not as
-    follow-up.
-  - **Risk: verification is only as useful as it is trusted.** If staff keep
-    reading fields back anyway, the step costs members time and saves nobody any.
-    Worth agreeing the counter procedure with the organizers before building.
-  - **Risk: this PRD now depends on PRD 003.** The confirmation step needs
-    `GET /api/me/profile` and the extended user directory. PRD 003 is still in
-    `draft/` and unapproved, so either it lands first or the confirmation step
-    ships in a second phase behind the runtime flag. The install + permission
-    flow must not be held hostage to it.
-  - **Risk: "has started the event" may not exist** as a queryable fact yet. If
-    not, the skip rule cannot be implemented as specified and every returning
-    user gets confirmed once instead — acceptable, but confirm before building.
-  - No new runtime dependencies. If the desktop page ends up wanting a QR code,
-    generate it as a static build-time asset rather than adding a library.
+  - **Risk: the verification is not consumed by anyone yet.** The app can collect
+    verifications perfectly and nothing downstream changes until some organizer
+    surface reads the published event. That is accepted: the data-quality signal and
+    the member having looked at their own record stand on their own, and the
+    consumer is a later, separate piece of work (§4).
+  - **Risk: PRD 003's endpoints are the foundation here** — `GET /api/me/profile`,
+    `PUT /api/me/photo` and `PhotoCapture.vue`. PRD 003 is `done`, so this is no
+    longer a sequencing risk *(corrected 2026-08-30)*.
+  - **Risk: "has started the event"** — resolved: member status is projected onto
+    `person` (task 080) *(corrected 2026-08-30)*.
+  - No new runtime dependencies. The desktop placeholder needs none.
   - **Risk: detection is heuristic.** iPadOS reports itself as macOS Safari;
     desktops with touchscreens exist; `display-mode` can be unreliable in
     embedded webviews. Mitigated by the escape hatch, not by better sniffing.
@@ -531,6 +554,10 @@ All page-level headlines use `font-nathejk` per `.rules`; icons are Lucide
 
 ## 9. Success Metrics
 
+All session-level figures below need a reporting path that does not exist yet (§12
+Q11). Until one is agreed they are **stated intentions, not measurements** — either
+add a metrics task or accept that this section cannot be evaluated.
+
 - ≥ 95% of authenticated sessions during an event originate from a standalone
   display mode (i.e. the wall works and the escape hatch is rare).
 - ≥ 85% of onboarded users have an active push subscription registered with the
@@ -538,10 +565,8 @@ All page-level headlines use `font-nathejk` per `.rules`; icons are Lucide
 - ≥ 80% of onboarded users have granted location.
 - ≥ 90% of first-time users complete the guardian-number confirmation without
   using the "wrong"/"unknown" paths.
-- **Median check-in time per member falls measurably** versus the previous event,
-  and verified members are visibly faster through the counter than unverified
-  ones. Needs a baseline measured *before* rollout, or the claim is unfalsifiable.
-- ≥ 70% of members verify before arriving at check-in.
+- ≥ 70% of members verify before arriving at check-in. Countable in this repo from
+  `verified_at` versus member status, with no `hq` involvement.
 - Every unconfirmed guardian number is surfaced to organizers before event start,
   with zero cases of a pickup or emergency call failing on a number the app had
   already flagged.
@@ -552,41 +577,35 @@ All page-level headlines use `font-nathejk` per `.rules`; icons are Lucide
 
 Sequencing: platform detection and stores first (they are what everything else
 consumes), then the wall, then onboarding, then the router gate wiring. The
-desktop landing page is the smallest and least certain piece — build it last, and
-keep it a stub rather than delaying the mobile flow on an undecided scope. Ship
-behind a runtime flag in `config/runtime.ts` so the gate can be disabled without a
-rollback if it misfires during an event.
+desktop placeholder is the smallest piece — build it as a stub and do not delay the
+mobile flow on it. Ship behind a runtime flag in `config/runtime.ts` so the gate can
+be disabled without a rollback if it misfires during an event.
 
 Proposed tasks for `roadmap/tasks/open/`:
 
 - [ ] Task: platform detection helper (`helpers/platform.ts`) + unit tests
 - [ ] Task: install store — capture `beforeinstallprompt`, `promptInstall`, browser override
 - [ ] Task: onboarding store — resumable step machine derived from permission state
-- [ ] Task: shared-go — `verified_at` + acknowledged number on the member type & querier
-- [ ] Task: shared-go — `member.verified` event message; bump version in `hej` and `hq`
-- [ ] Task: BFF — publish the verification event via `commands.Commands` (PRD 008)
-- [ ] Task: BFF — project `verified_at` + `confirmation_required` onto the member read model
+- [ ] Task: shared-go — `member.verified` event message; bump version in `hej`
+- [ ] Task: BFF — publish the verification event via `commands.Commands`
+- [ ] Task: BFF — project `verified_at` + derive `confirmation_required` onto PRD
+      006's `person` read model
 - [ ] Task: BFF — `POST /api/me/profile/confirm` with server-side digit check and rate limiting
-- [ ] Task: WelcomeStepPortrait — camera capture, retake, skip, reuse PRD 003 upload
-- [ ] Task: portrait nudge — re-prompt after onboarding while no portrait exists
+- [ ] Task: WelcomeStepPortrait — wrap `PhotoCapture.vue`, retake, skip, reuse `PUT /api/me/photo`
+- [ ] Task: portrait nudge — re-prompt after onboarding while `hasPhoto` is false
       (dismissible per session, silenced permanently once one is uploaded)
-- [ ] Task: hq — surface verification on the check-in view. **Tracked on `hq`'s
-      board, not this one**; listed here as a rollout dependency, since the check-in
-      goal is not realised without it.
-- [ ] Task: measure baseline check-in time before rollout
 - [ ] Task: WelcomeStepConfirmProfile — masked number, 2-digit input, acknowledgement checkbox
 - [ ] Task: "nummeret er forkert" / "jeg kender ikke nummeret" paths + follow-up flag
 - [ ] Task: InstallView — one-tap install (Chromium) with platform instructions fallback
-- [ ] Task: InstallView — "fortsæt til desktop-version" link + browser override
+- [ ] Task: InstallView — "fortsæt i browseren" override
 - [ ] Task: InstallInstructions component — iOS Safari / Android / webview variants
 - [ ] Task: refactor LoginView into an onboarding login step
 - [ ] Task: WelcomeView shell + location and notification explanation steps
-- [ ] Task: WelcomeStepOfflineSync — host PRD 009's first sync as step 6 (skippable)
 - [ ] Task: remove the `/login` route; repoint the router guard fallback and
       `App.vue`'s `signOut()` at `welcome`
-- [ ] Task: generate the `progress`, `alert` and `checkbox` shadcn-vue primitives
+- [ ] Task: generate the `progress` and `checkbox` shadcn-vue primitives
 - [ ] Task: PermissionPrompt full-screen variant
-- [ ] Task: DesktopView — static landing page for non-mobile visitors
+- [ ] Task: DesktopView — static placeholder page for non-mobile visitors
 - [ ] Task: router guard — device / standalone / onboarding gates + `desktop` route meta
 - [ ] Task: App.vue shell — hide chrome on install/welcome/desktop routes
 - [ ] Task: runtime flag + dev/QA gate bypass
@@ -597,11 +616,45 @@ Proposed tasks for `roadmap/tasks/open/`:
 Answered questions are recorded here rather than deleted, so the reasoning
 survives.
 
+- **2026-08-30 — Ambiguous devices are classified as mobile.** The target is touch
+  devices where a PWA makes sense — phones and tablets; desktop computers are not.
+  Since iPadOS reports itself as macOS Safari and touchscreen laptops exist, detection
+  cannot be exact, so the tie-break has to be chosen deliberately: **ambiguous →
+  mobile**. A false positive costs a desktop user one click on the "Fortsæt i
+  browseren" escape hatch; a false negative leaves an iPad user at a placeholder page
+  with no route into the app at all. The asymmetry decides it. This also means the
+  escape hatch is load-bearing rather than a nicety — it is what makes the aggressive
+  tie-break safe, and it must stay discoverable enough for support to talk someone
+  through it over the phone.
+- **2026-08-30 — The masked number is a sanity check, not a security check.**
+  `GET /api/me/profile` already returns `phone_parent` in full to its owner (PRD 003,
+  shipped), so a determined user can read the two hidden digits out of the network
+  response. That is accepted. The purpose of the step is to make the member *look at
+  the number and recognise it*; nobody is being authenticated by it, and the number is
+  the user's own guardian's, not a secret being protected from them. The PRD
+  previously required the full number never to reach the client and called the
+  alternative "theatre" — that framing is withdrawn, and PRD 003's endpoint is
+  unchanged.
+- **2026-08-30 — No `hq` work is in scope, and faster check-in is not a goal of
+  this PRD.** Verification is recorded here and published as a domain event; any
+  organizer-facing consumer is separate work on `hq`'s own board. `shared-go` changes
+  are in scope, since the message has to be declared somewhere shared. Consequence
+  worth naming: nothing downstream reacts to a verification on the day this ships —
+  the value until then is the data-quality signal and the member having checked their
+  own record.
+- **2026-08-30 — The desktop side of this PRD is a placeholder only.** The scope of
+  this PRD is: on a phone or tablet, prompt for installation and deliver the app
+  experience only when installed; on anything else, show an ordinary website. Building
+  that website is a separate PRD. The install wall therefore carries **one** non-install
+  affordance, the "Fortsæt i browseren" escape hatch — the earlier low-prominence link to
+  the "desktop version" is dropped, since pointing a stranded user at a placeholder
+  page helps nobody and two adjacent escape links get confused with each other.
+
 - **2026-08-25 — Verification is published as a domain event.** Not written to a
   database by the app, per the architecture rule that nothing writes directly to SQL
-  and that services may not call each other's APIs. This is also what makes the
-  check-in goal achievable: `hq` sees verification by consuming the same log, with
-  no coupling between the two services. See PRD 008 §8.
+  and that services may not call each other's APIs. It also means any future
+  consumer — a check-in view, a pre-event report — can be added without coupling to
+  this service. See PRD 008 §8.
 - **2026-08-25 — The portrait is an onboarding step, and its purpose is
   night-time identification.** Much of the race runs at night, when faces are hard
   to see, so personnel need to know who they are talking to. This settles PRD 003's
@@ -622,12 +675,11 @@ survives.
      portraits is still PRD 007's matrix.
   The step is **skippable** — a participant who declines still gets into the app,
   with the profile page as the place to add one later.
-- **2026-08-25 — Faster check-in is an explicit goal of this step.** The value of
-  pre-arrival verification is not only data quality: it is that a member who has
-  verified can be waved through the counter instead of having every field read
-  back to them. This means the flag must be **visible to check-in staff in `hq`**,
-  or the goal is not realised — see §8, and note that this puts work outside this
-  repo.
+- **2026-08-25 — Faster check-in was an explicit goal of this step.**
+  **Superseded 2026-08-30** (see above): the counter-side change lives in `hq` and is
+  out of scope, so check-in speed is a possible downstream benefit rather than a goal
+  or a metric here. The reasoning is kept because it is why verification is recorded
+  as a durable, published fact rather than a client-side flag.
 - **2026-08-25 — Verification is a member *field*, not a new `MemberStatus`.**
   Recorded as `verified_at` (plus the acknowledged number), orthogonal to the
   lifecycle. `MemberStatusVerified = "verified"` was proposed and rejected for
@@ -680,8 +732,9 @@ survives.
   than a copying exercise: a user who cannot complete it has discovered that the
   number on file is not one they know. Paired with an explicit acknowledgement
   checkbox (*"Dette nummer kan kontaktes i løbet af Nathejk"*), the step captures
-  both attention and consent. The digits must be verified **server-side** and the
-  full number never sent to the client, or the answer is in the payload.
+  both attention and consent. The digits are checked server-side so the
+  acknowledgement is recorded against a real answer — but see the 2026-08-30
+  decision above: this is not a confidentiality control.
 - **2026-08-25 — Confirmation is skipped for users who have started the event.**
   Starting implies the data was already verified. Permissions are still requested,
   since they are per-device facts and say nothing about the profile.
@@ -701,13 +754,12 @@ survives.
 - **2026-08-25 — Confirmation state is per-user and server-side.** Per-device
   `localStorage` would re-prompt a participant after a reinstall or a new phone,
   potentially mid-event. This is why the PRD acquired BFF scope (§8).
-- **2026-08-25 — The install wall links to the desktop version.** A small,
-  low-prominence "fortsæt til desktop-version" link for people who do not want to
-  install. Note this is **not** the lockout escape hatch: it leads to the
-  `/desktop` stub, so it cannot rescue a user whose device wrongly fails the
-  install check. Both affordances are therefore kept, and they must be worded
-  distinctly. If `/desktop` ever becomes a real content surface, revisit whether
-  they should merge.
+- **2026-08-25 — The install wall linked to the desktop version.** **Superseded
+  2026-08-30:** the link is dropped. It could never rescue a user whose device
+  wrongly failed the install check (it leads to the `/desktop` placeholder), and two
+  similar-looking low-prominence links invite exactly the mix-up support cannot
+  untangle over the phone. If `/desktop` ever becomes a real website, revisit whether
+  the wall should point at it.
 - **2026-08-25 — No desktop login, for any role.** Organizers on a laptop were
   considered and rejected for this PRD. The device gate is therefore a plain
   redirect, not role-aware: it runs before authentication and needs no knowledge
@@ -720,51 +772,26 @@ survives.
 
 ## 12. Open Questions
 
-1. **What is desktop actually for?** Undecided, and out of scope here — but it
-   needs an owner before anyone invests in `/desktop`. Candidates: a read-only
-   public content surface (rulebook/FAQ/schedule), or permanently just a
-   signpost. An organizer console is off the table (see §11). Until that is
-   answered the page stays a stub. Note that any content surface reopens a
-   data-exposure question: `contacts` holds named organizers' phone numbers and
-   `updates` may carry operational information, so "just show the public pages"
-   is not automatically safe.
-2. **Is tablet really the same as phone here?** iPadOS supports installation and
-   Web Push 16.4+, so functionally yes — but iPadOS is hard to distinguish from
-   desktop Safari. Are we comfortable that some iPads will be classified as
-   desktop and see the landing page instead of the app? This matters more now
-   that desktop is a dead end rather than a usable surface.
-3. **Portrait consent & retention for minors** — **ANSWERED 2026-08-28 (task 102):**
-   consent is held from sign-up (captured by the guardian, outside the app), the
-   basis is safety/identification during the race, and portraits are purged after
-   the event. No longer blocking the portrait step. The one part still open is
-   whether participants may see each other's portraits — PRD 007's matrix.
-4. **Who owns the portrait *viewing* surface?** Answered: **PRD 007**. Its access
-   matrix defines who may see a given member's face, which is what the consent
-   text in question 3 has to state.
-5. **Are the permissions truly optional?** This PRD assumes login is mandatory,
+Answered items are moved to §11 rather than kept here, so this list is only what
+still gates the work.
+
+1. **Are the permissions truly optional?** This PRD assumes login is mandatory,
    and that the portrait and both permissions are skippable. If push is considered
    mandatory for participants during an event, the flow needs a blocking variant
    and a different escape story.
-6. **What is the correction channel** when a number is wrong — a phone number, an
+2. **What is the correction channel** when a number is wrong — a phone number, an
    email, the patrol leader, or purely the in-app flag
    (`POST /api/me/profile/report-incorrect`)? PRD 003 has the same open question;
    answering it there answers it here.
-7. **Where does verification live — field or status?** Answered in §11 (field).
-   Listed here only because it was proposed as
-   `MemberStatusVerified = "verified"` and reversing later is a data migration.
-8. **Does "has started the event" exist** as a queryable fact? Partly answered:
-   `types.MemberStatusRacing` means "signed in at the start and on the trail", so
-   the skip rule can read the member's status — which arrives with PRD 006.
-9. **Who else should see the verification flag** besides check-in — patrol
-   leaders chasing their own members, an organizer dashboard counting unverified
-   members before event start?
-10. **Will editing open up later?** Noted as likely for a few fields. If so, a
-    number change should probably invalidate the verification and re-trigger this
-    step — worth designing the storage for now (§8) even if editing ships later.
-11. **Do we want server-side install/permission metrics** (§9), or is client-side
-    sufficient? The §9 metrics are not measurable without one.
-12. **Does the escape hatch need rate-limiting or an expiry** (e.g. re-ask after
-    7 days) so it does not become the default path?
-13. **What does the desktop page link to** — a QR code, a plain URL, or nothing at
-    all? An "SMS me the link" affordance would reuse the existing SMS
-    infrastructure but adds an endpoint, so it is not assumed.
+3. **Who eventually consumes the verification event** — a check-in view, patrol
+   leaders chasing their own members, a pre-event report counting unverified members?
+   Out of scope here (§4), but it decides what the event payload has to carry, so it
+   is worth a rough answer before the message is declared in shared-go: a message is
+   cheap to add fields to and expensive to reshape.
+4. **Will editing open up later?** Noted as likely for a few fields. If so, a
+   number change should probably invalidate the verification and re-trigger this
+   step — worth designing the storage for now (§8) even if editing ships later.
+5. **Do we want server-side install/permission metrics** (§9), or is client-side
+   sufficient? Most of §9 is not measurable without one.
+6. **Does the escape hatch need rate-limiting or an expiry** (e.g. re-ask after
+   7 days) so it does not become the default path?

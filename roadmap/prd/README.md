@@ -120,7 +120,7 @@ Repo specifics to respect:
 | 002 | Event map (position, Danish topo + aerial layers, patrol scan history) | doing |
 | 003 | Profile page (own details, self-portrait, device permission status) | done |
 | 004 | Migrate the component library from PrimeVue to shadcn-vue (and upgrade Tailwind to v4) | done |
-| 005 | Install-first mobile onboarding (install, confirm, permissions) | draft |
+| 005 | Install-first mobile onboarding (install, confirm, permissions) | doing |
 | 006 | Member directory for the app (person lookup by phone, app roles) | done |
 | 007 | Portrait identification | draft |
 | 008 | Persistence and event-stream infrastructure | done |
