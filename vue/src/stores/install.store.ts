@@ -26,13 +26,21 @@ let pendingPrompt: BeforeInstallPromptEvent | null = null
 
 const OVERRIDE_KEY = 'hej.install.continue-in-browser'
 
+// The override is stored as the epoch-ms moment it was set, not as a bare '1'.
+//
+// PRD 005 §12 asks — and deliberately leaves open — whether the escape hatch should expire
+// (e.g. re-ask after 7 days) so it does not quietly become the default path. No policy is
+// implemented here, on purpose. Storing the timestamp now means a policy can be added
+// later by reading a value that is already there, rather than by introducing a second key
+// and having to decide what an existing override without a timestamp means.
+
 // Every localStorage access is wrapped: Safari throws on access in some privacy modes,
 // and this value is read by the router guard on every navigation. An exception there
 // would white-screen the app before anything is rendered — the same failure shape as
 // task 090.
 function readOverride(): boolean {
   try {
-    return localStorage.getItem(OVERRIDE_KEY) === '1'
+    return localStorage.getItem(OVERRIDE_KEY) !== null
   } catch {
     return false
   }
@@ -40,7 +48,7 @@ function readOverride(): boolean {
 
 function writeOverride(on: boolean) {
   try {
-    if (on) localStorage.setItem(OVERRIDE_KEY, '1')
+    if (on) localStorage.setItem(OVERRIDE_KEY, String(Date.now()))
     else localStorage.removeItem(OVERRIDE_KEY)
   } catch {
     // Private mode can refuse. The override then lasts for this session only, which is
@@ -88,6 +96,10 @@ export const useInstallStore = defineStore('install', {
     installed: false,
     // The persisted escape hatch. Read eagerly: the router guard needs it synchronously
     // on the very first navigation.
+    //
+    // It unblocks the **install** gate only — auth, roles and onboarding still apply, so
+    // the user lands in the normal login flow rather than past it. The install gate is UX;
+    // the BFF authorizes every endpoint independently (PRD 005 §8).
     continueInBrowser: readOverride(),
   }),
   actions: {

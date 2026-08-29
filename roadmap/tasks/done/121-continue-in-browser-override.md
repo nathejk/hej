@@ -1,11 +1,11 @@
 # 121 — Escape hatch: "Fortsæt i browseren"
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-30
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-08-30
+**Completed:** 2026-08-30
 
 ## Description
 
@@ -65,20 +65,21 @@ second key.
 
 ## Acceptance Criteria
 
-- [ ] The wall carries a single "Fortsæt i browseren" action that sets `continueInBrowser` and
+- [x] The wall carries a single "Fortsæt i browseren" action that sets `continueInBrowser` and
       routes the user into the normal login flow
-- [ ] The override persists across reloads and app restarts under `hej.install.*`, with a
+- [x] The override persists across reloads and app restarts under `hej.install.*`, with a
       timestamp stored alongside it so a future expiry (§12 Q6) needs no migration
 - [ ] The router's install gate honours it; the auth, role and onboarding gates are unaffected
-- [ ] It is the **only** non-install affordance on the wall — no "desktop version" link (§11)
-- [ ] Visually subordinate to the install action (link/ghost button, below it), but reachable
+      — **not yet true: the gate is task 137.** See the log.
+- [x] It is the **only** non-install affordance on the wall — no "desktop version" link (§11)
+- [x] Visually subordinate to the install action (link/ghost button, below it), but reachable
       by plain description over the phone: no hidden gesture, no repeated taps, no console
-- [ ] One short Danish line states the trade-off (degraded notifications and offline
+- [x] One short Danish line states the trade-off (degraded notifications and offline
       behaviour in a browser tab)
-- [ ] The override is reversible — there is a documented way back to the wall, and it is not a
+- [x] The override is reversible — there is a documented way back to the wall, and it is not a
       one-way door
-- [ ] No rate-limiting or expiry implemented; a comment points at PRD 005 §12 Q6 as open
-- [ ] `npm run type-check` clean
+- [x] No rate-limiting or expiry implemented; a comment points at PRD 005 §12 Q6 as open
+- [x] `npm run type-check` clean
 
 ## Depends on
 
@@ -91,3 +92,28 @@ second key.
 ## Progress Log
 
 - 2026-08-30 — Task created from PRD 005.
+- 2026-08-30 — Picked up.
+- 2026-08-30 — **Hatch added to the wall**, as a shadcn-vue `variant="link"` button below the
+  install content with one line of Danish stating what is lost. Three decisions:
+
+  - **The timestamp *is* the stored value.** Task 117 wrote `'1'`; the key now holds
+    `String(Date.now())` and presence-not-equality is what the store reads. Preferred over a
+    second `…-at` key: with two keys a future expiry policy has to decide what an override with no
+    timestamp means, which is exactly the migration this was meant to avoid. No expiry is
+    implemented — the comment names PRD 005 §12 as the open question.
+  - **The trade-off copy is specific rather than a generic warning.** "Du får ingen beskeder fra
+    løbet på iPhone, og den virker ikke uden signal" — both are true consequences (iOS Web Push
+    requires a home-screen app; the service worker is what makes the app work without coverage). A
+    vague "nogle funktioner virker måske ikke" would be ignored, and the point is that the choice
+    is made knowingly.
+  - **The way back is a row on the profile page's "På denne enhed" section**, which PRD 003 had
+    already left a comment reserving for exactly this. Without it the override is a one-way door:
+    the wall never reappears, so the only remaining route to installing would be clearing site
+    data — which also signs the member out. The row reads `isStandalone()` for its status rather
+    than store state, since "is this an installed launch" is a fact about the current window, not
+    something we should be recording.
+- 2026-08-30 — ✅ UI and persistence done; `vue-tsc` clean, 27 tests still pass. **One criterion is
+  deliberately left unchecked**: the router install gate does not exist yet (task 137), so today
+  the hatch sets a flag nothing reads. Per this task's own instruction, that is recorded rather
+  than closed over — the hatch is not functionally an escape until 137 lands, and 137 must read
+  `install.continueInBrowser`.

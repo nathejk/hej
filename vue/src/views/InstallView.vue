@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { Download, Smartphone, HousePlus } from '@lucide/vue'
 
 import InstallInstructions from '@/components/onboarding/InstallInstructions.vue'
@@ -20,6 +21,7 @@ import { useInstallStore } from '@/stores/install.store'
 // the header *inside* `showShell` and would be a no-op here (PRD 005 §7).
 
 const install = useInstallStore()
+const router = useRouter()
 
 // The platform is read once: it cannot change during the life of this view, and
 // `installPlatform()` is a pure function over `navigator` (task 116).
@@ -40,6 +42,23 @@ async function promptInstall() {
   } finally {
     prompting.value = false
   }
+}
+
+// The escape hatch (task 121). Load-bearing, not a courtesy for power users: PRD 005 §11
+// chose an aggressive detection tie-break — ambiguous devices classify as mobile —
+// *because* this exists, and PRD 005 §6 states the rule outright: no lockout, every gate
+// has a user-reachable escape hatch. During an event this is a safety app, and a false
+// negative in device or install detection must never be the reason somebody cannot reach
+// it.
+//
+// It unblocks the install gate only; the user lands in the normal login flow, not past it.
+//
+// Deliberately NOT implemented here: rate-limiting or an expiry. PRD 005 §12 leaves that
+// open, and the store records *when* the override was set so a policy can be added later
+// without a migration.
+async function continueInBrowser() {
+  install.setContinueInBrowser(true)
+  await router.replace({ name: 'login' })
 }
 </script>
 
@@ -104,6 +123,28 @@ async function promptInstall() {
       <p class="text-xs leading-relaxed text-slate-500">
         Luk denne fane og åbn <strong>{{ APP_NAME }}</strong> fra hjemmeskærmen. Så er du
         det rigtige sted, og du bliver ikke spurgt igen.
+      </p>
+    </div>
+
+    <!--
+      The escape hatch. Two hard edges on its prominence, and it has to sit between them:
+
+      - Not so hidden that support cannot talk a user through it over the phone in a noisy
+        field. Hence plain visible text at the bottom, no gesture and no repeated taps.
+      - Not so prominent that it reads as an equal alternative to installing, or it becomes
+        the default path and the wall stops working (PRD 005 §9 targets < 2% of sessions).
+
+      The trade-off is stated rather than hidden, so the choice is made knowingly instead of
+      discovered later when a notification never arrives.
+    -->
+    <div class="flex flex-col items-center gap-1">
+      <Button variant="link" size="sm" class="text-slate-500" @click="continueInBrowser">
+        Fortsæt i browseren
+      </Button>
+      <p class="max-w-xs text-center text-xs leading-relaxed text-slate-400">
+        Så virker appen dårligere: du får ingen beskeder fra løbet på iPhone, og den virker
+        ikke uden signal. Du kan altid installere den bagefter under <strong>Min
+        profil</strong>.
       </p>
     </div>
   </main>
