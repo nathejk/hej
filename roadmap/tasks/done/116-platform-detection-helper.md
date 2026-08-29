@@ -1,11 +1,11 @@
 # 116 — Platform and install detection helper
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-30
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-08-30
+**Completed:** 2026-08-30
 
 ## Description
 
@@ -70,23 +70,23 @@ polyfills or shims for older engines.
 
 ## Acceptance Criteria
 
-- [ ] `vue/src/helpers/platform.ts` exports `isMobileDevice()`, `isStandalone()` and
+- [x] `vue/src/helpers/platform.ts` exports `isMobileDevice()`, `isStandalone()` and
       `installPlatform()` with the return union `'chromium' | 'ios-safari' | 'other' | 'webview'`
-- [ ] All three take an injectable environment (`navigator`, `matchMedia`) defaulting to the
+- [x] All three take an injectable environment (`navigator`, `matchMedia`) defaulting to the
       real globals; no module-level global access and no import-time caching
-- [ ] Classification uses coarse pointer + touch capability and `navigator.userAgentData.mobile`
+- [x] Classification uses coarse pointer + touch capability and `navigator.userAgentData.mobile`
       where present; **no viewport-width test anywhere in the file**
-- [ ] Ambiguous signals resolve to **mobile**, with the §11 reasoning stated in a comment at
+- [x] Ambiguous signals resolve to **mobile**, with the §11 reasoning stated in a comment at
       the tie-break itself, not just in this task file
-- [ ] `isStandalone()` returns true for `display-mode: standalone`, `minimal-ui` and
+- [x] `isStandalone()` returns true for `display-mode: standalone`, `minimal-ui` and
       `fullscreen`, **or** iOS `navigator.standalone`
-- [ ] Everything is synchronous; no promises, no store or config imports
-- [ ] Unit tests cover, at minimum: **iPadOS reporting as macOS Safari**, a **touchscreen
+- [x] Everything is synchronous; no promises, no store or config imports
+- [x] Unit tests cover, at minimum: **iPadOS reporting as macOS Safari**, a **touchscreen
       desktop**, an **in-app webview** (Facebook/Instagram), standalone via **`display-mode`**,
       and standalone via **iOS `navigator.standalone`**
-- [ ] Tests also cover a plain mouse-only desktop and a plain Android Chrome phone, so the
+- [x] Tests also cover a plain mouse-only desktop and a plain Android Chrome phone, so the
       easy cases are pinned and cannot regress while the hard ones are being tuned
-- [ ] `npm run type-check` clean
+- [x] `npm run type-check` clean
 
 ## Notes
 
@@ -100,3 +100,34 @@ this task does not need.
 ## Progress Log
 
 - 2026-08-30 — Task created from PRD 005.
+- 2026-08-30 — Picked up. Plan: helper first, then stand up Vitest, then the awkward-case tests.
+- 2026-08-30 — **Vitest added** as the frontend's first test runner: `vitest@2` (matching Vite 5),
+  a `test`/`test:watch` script, and a separate `vitest.config.ts` rather than a `test` block in
+  `vite.config.ts`. Deliberate: the Vite config loads the PWA and Tailwind plugins, so reusing it
+  would make every unit test run depend on a service-worker build that can fail for reasons
+  unrelated to the code under test. `environment: 'node'`, no jsdom — the environment is injected,
+  so there is nothing for jsdom to provide. `vitest.config.ts` added to `tsconfig.json`'s include.
+- 2026-08-30 — **`helpers/platform.ts` written.** Three decisions worth the reasoning:
+
+  - **`userAgentData.mobile` is only trusted when `true`.** Chrome reports `mobile: false` on
+    Android *tablets*, so the obvious `return nav.userAgentData.mobile` would have excluded
+    exactly the tablets PRD 005 targets. There is a test pinning this.
+  - **iPadOS is detected as `platform === 'MacIntel' && maxTouchPoints > 1`,** since iPadOS 13+
+    sends a Macintosh user agent. A real Mac has no touch points, which is what keeps the pair
+    from swallowing desktop Safari — also pinned by a test, because getting this wrong in the
+    other direction would send every Mac user into the install wall.
+  - **The negative branch is the narrow one.** `isMobileDevice` returns `false` only for a device
+    with no touch capability at all, so anything ambiguous lands on mobile per PRD 005 §11. The
+    reasoning (asymmetric harms; the escape hatch is what makes it safe) is in a comment at the
+    tie-break itself, not only in this file.
+
+  Also: `installPlatform` checks for a webview **before** anything else, because in-app browsers
+  are usually Chromium underneath and would otherwise be shown an install button they will never
+  be offered. And iOS returns `ios-safari` regardless of which browser is showing it — every iOS
+  browser is WebKit but only Safari can add to the home screen, so the wall's copy needs to be
+  able to tell a Chrome-on-iOS user to switch.
+- 2026-08-30 — ✅ All criteria met. 17 tests pass, `vue-tsc --noEmit` clean. Moving to done.
+
+  Not verified from here: real-device behaviour. That is deliberate — the whole file is pure
+  functions over an injected environment precisely because the interesting cases cannot be
+  reproduced on this machine, and the real-hardware pass is task 139's matrix.
