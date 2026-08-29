@@ -19,6 +19,17 @@ type runtimeConfigResponse struct {
 	// ShowLayoutDebug toggles the client's viewport/safe-area diagnostic overlay.
 	// Off by default; see config.showLayoutDebug for why this is not a URL parameter.
 	ShowLayoutDebug bool `json:"show_layout_debug"`
+
+	// InstallGate says whether the client should require the app to be installed before it
+	// can be used (PRD 005). True unless it has been switched off.
+	//
+	// Served rather than built in because it is a kill switch: if the device or install
+	// detection misfires during an event, participants cannot reach the map, the SOS page or
+	// their contacts, and waiting for a redeploy is not an acceptable response to that.
+	//
+	// Note the client remembers the last value it saw, so an offline start does not silently
+	// flip the gate's behaviour.
+	InstallGate bool `json:"install_gate"`
 }
 
 // runtimeConfigHandler serves configuration the SPA needs but must not have
@@ -38,6 +49,7 @@ func (app *application) runtimeConfigHandler(w http.ResponseWriter, r *http.Requ
 		DataforsyningenToken: app.config.dataforsyningenToken,
 		ShowBuildId:          app.config.showBuildId,
 		ShowLayoutDebug:      app.config.showLayoutDebug,
+		InstallGate:          app.config.installGate,
 	}
 	if err := app.WriteJSON(w, http.StatusOK, cfg, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)

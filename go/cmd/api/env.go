@@ -60,6 +60,20 @@ type config struct {
 	// genuinely noisy, so it is opt-in with SHOW_LAYOUT_DEBUG=true.
 	showLayoutDebug bool
 
+	// installGate switches PRD 005's install-first gate on or off at runtime: the device
+	// classification, the install wall redirect and the onboarding redirect, all three.
+	//
+	// **A kill switch, not a feature toggle.** The failure mode it exists for is
+	// participants unable to reach a safety app: an over-eager device classification, or an
+	// unreliable `display-mode` in some webview, and a member standing in a forest cannot
+	// get to the map, the SOS page or their contacts. A redeploy is not an acceptable
+	// response time for that during an event, so this has to be flippable from the server.
+	//
+	// Defaults **on**, including in development: a gate that is off by default is a gate
+	// nobody tests, and the whole point of PRD 005 is that the installed app is the only
+	// supported way to use this.
+	installGate bool
+
 	// MariaDB connection. dbDSN is a go-sql-driver/mysql DSN; empty means "run
 	// without a database", which is a legitimate mode: everything served today
 	// comes from mocks (PRD 008 is what introduces persistence), so a missing DSN
@@ -152,6 +166,7 @@ func loadConfig() config {
 	// yet at this point, so cfg.env still holds its zero value.
 	flag.BoolVar(&cfg.showBuildId, "show-build-id", envBool("SHOW_BUILD_ID", envStr("ENV", "development") != "production"), "Overlay the build id on the bottom nav (diagnostic)")
 	flag.BoolVar(&cfg.showLayoutDebug, "show-layout-debug", envBool("SHOW_LAYOUT_DEBUG", false), "Overlay viewport/safe-area/geometry values on the client (diagnostic)")
+	flag.BoolVar(&cfg.installGate, "install-gate", envBool("INSTALL_GATE", true), "Require the app to be installed before it can be used (PRD 005). Set INSTALL_GATE=false to disable the gate without a redeploy.")
 	flag.StringVar(&cfg.dbDSN, "db-dsn", envStr("DB_DSN", ""), "MariaDB DSN (empty runs without a database)")
 	flag.IntVar(&cfg.dbMaxOpenConns, "db-max-open-conns", envInt("DB_MAX_OPEN_CONNS", 25), "Maximum open database connections")
 	flag.IntVar(&cfg.dbMaxIdleConns, "db-max-idle-conns", envInt("DB_MAX_IDLE_CONNS", 25), "Maximum idle database connections")

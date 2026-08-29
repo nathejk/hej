@@ -9,6 +9,7 @@ import { initPwa } from '@/helpers/pwa'
 import { useAppStore } from '@/stores/app.store'
 import { initInstallPrompt } from '@/stores/install.store'
 import { loadRuntimeConfig } from '@/config/runtime'
+import { initGateOverride } from '@/config/gates'
 import { initSafeArea } from '@/helpers/safeArea'
 
 const app = createApp(App)
@@ -20,6 +21,10 @@ app.use(router)
 // those from env(). This corrects the seed for the one case CSS cannot detect (see
 // @/helpers/safeArea), and doing it first avoids a visible reflow of the shell.
 initSafeArea()
+
+// Before the router's first navigation, so `?nogate=1` is already persisted when the very
+// first gate check runs (task 139). Inert in production builds.
+initGateOverride()
 
 // Before mount, and this position is load-bearing: `beforeinstallprompt` fires once and
 // early, so a listener registered after the app has mounted misses it outright. When that
