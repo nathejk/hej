@@ -1,11 +1,11 @@
 # 120 — InstallInstructions: per-platform add-to-home-screen steps
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-30
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-08-30
+**Completed:** 2026-08-30
 
 ## Description
 
@@ -60,22 +60,22 @@ the existing views. Any headline uses `font-nathejk`.
 
 ## Acceptance Criteria
 
-- [ ] `vue/src/components/onboarding/InstallInstructions.vue` renders from a `platform` prop
+- [x] `vue/src/components/onboarding/InstallInstructions.vue` renders from a `platform` prop
       typed as `installPlatform()`'s return union
-- [ ] `ios-safari` variant: Share → Tilføj til hjemmeskærm → Tilføj, worded as a
+- [x] `ios-safari` variant: Share → Tilføj til hjemmeskærm → Tilføj, worded as a
       self-contained instruction that does not imply a pending state change
-- [ ] A comment records that iOS fires neither `beforeinstallprompt` nor an install-accepted
+- [x] A comment records that iOS fires neither `beforeinstallprompt` nor an install-accepted
       event, so this variant cannot confirm success
-- [ ] `other` variant: browser-menu install/add-to-home-screen, described without inventing an
+- [x] `other` variant: browser-menu install/add-to-home-screen, described without inventing an
       exact menu path, plus "open in Chrome" as the reliable route
-- [ ] `webview` variant: states that installing is not possible in an in-app browser and tells
+- [x] `webview` variant: states that installing is not possible in an in-app browser and tells
       the user to open the link in Safari/Chrome — no add-to-home-screen steps shown
-- [ ] Every step is **text**; icons and any illustration are supplementary and `aria-hidden`
-- [ ] Steps are an ordered list, readable and completable without any gesture
-- [ ] No screenshots or bitmap-only instructions
-- [ ] shadcn-vue primitives where one fits (`Alert` for the webview case), Lucide icons only,
+- [x] Every step is **text**; icons and any illustration are supplementary and `aria-hidden`
+- [x] Steps are an ordered list, readable and completable without any gesture
+- [x] No screenshots or bitmap-only instructions
+- [x] shadcn-vue primitives where one fits (`Alert` for the webview case), Lucide icons only,
       copy in Danish
-- [ ] `npm run type-check` clean
+- [x] `npm run type-check` clean
 
 ## Depends on
 
@@ -84,3 +84,28 @@ the existing views. Any headline uses `font-nathejk`.
 ## Progress Log
 
 - 2026-08-30 — Task created from PRD 005.
+- 2026-08-30 — Picked up.
+- 2026-08-30 — **Component written**, three variants keyed off the `platform` prop.
+
+  Copy decisions worth keeping:
+
+  - The iOS steps end with *"Luk Safari og åbn Hej Nathejk fra hjemmeskærmen"* — a final
+    instruction rather than a pending state, since there is no event that could ever confirm
+    success on iOS. The Share control is described as "firkanten med pilen op, nederst i Safari":
+    named by what the user sees and located explicitly, because on iPhone it is in the bottom
+    toolbar and that is not where people look.
+  - The iOS variant also tells a Chrome/Firefox-on-iOS user that the menu item does not exist for
+    them and to switch to Safari. `installPlatform()` returns `ios-safari` for every iOS browser
+    (they are all WebKit, but only Safari can add to the home screen), so this variant is the only
+    place that message can live.
+  - The Android/other variant deliberately does **not** claim a menu path. A wrong path is worse
+    than a described one: the user concludes the app is broken rather than that the menu moved.
+  - The webview variant shows **no** add-to-home-screen steps at all, only how to get out of the
+    webview — in an embedded browser those steps do not exist, so showing them would send the user
+    hunting for a control that is not there.
+- 2026-08-30 — One correction during implementation: `@lucide/vue` has no `Chrome` icon (it exists
+  in some Lucide distributions but not this package's exports — `vue-tsc` caught it). Swapped for
+  `Globe`, which is arguably better anyway: the advice is "open it in a real browser", and a
+  vendor-specific logo would read as a requirement to use that one vendor.
+- 2026-08-30 — ✅ All criteria met. `vue-tsc --noEmit` clean. Visual rendering is unverified from
+  here (no browser); it is part of task 139's matrix, which covers exactly these three platforms.
