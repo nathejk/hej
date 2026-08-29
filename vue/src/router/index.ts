@@ -48,6 +48,15 @@ const router = createRouter({
       component: () => import('@/views/LoginView.vue'),
       meta: { public: true },
     },
+    // The install wall (PRD 005). Public: it is what an unauthenticated mobile visitor
+    // sees before any login form exists for them. The gate that redirects here is the
+    // router guard (task 137); this entry only makes the route reachable.
+    {
+      path: '/install',
+      name: 'install',
+      component: () => import('@/views/InstallView.vue'),
+      meta: { public: true },
+    },
     ...destinationRoutes,
     // Min profil (PRD 003). Deliberately NOT a `destination`: it is reached from the
     // user menu in the top bar, so it takes no bottom-nav slot — which matters,

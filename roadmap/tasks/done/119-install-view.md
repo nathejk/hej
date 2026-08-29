@@ -1,11 +1,11 @@
 # 119 — InstallView: the install wall
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-30
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-08-30
+**Completed:** 2026-08-30
 
 ## Description
 
@@ -63,20 +63,20 @@ platform install illustration, and that lives in task 120.
 
 ## Acceptance Criteria
 
-- [ ] `vue/src/views/InstallView.vue` exists and `/install` is registered with
+- [x] `vue/src/views/InstallView.vue` exists and `/install` is registered with
       `meta: { public: true }` and a lazy import
-- [ ] With `canPrompt` true: one primary "Installér app" button calling `promptInstall()`
-- [ ] After the native prompt resolves (accepted **or** dismissed) the view shows the manual
+- [x] With `canPrompt` true: one primary "Installér app" button calling `promptInstall()`
+- [x] After the native prompt resolves (accepted **or** dismissed) the view shows the manual
       instructions instead of a dead button
-- [ ] With `canPrompt` false: `InstallInstructions` for the detected platform
-- [ ] **"Jeg har allerede installeret appen — åbn den"** is present in both states, and is
+- [x] With `canPrompt` false: `InstallInstructions` for the detected platform
+- [x] **"Jeg har allerede installeret appen — åbn den"** is present in both states, and is
       honest about what it can do — it explains how to open the installed app rather than
       pretending to launch it
-- [ ] No `getInstalledRelatedApps()`-based detection; the code comments why
-- [ ] The view assumes no shell chrome and does not use `fullBleed`
-- [ ] shadcn-vue `Card`/`Button`, Lucide icons, `font-nathejk` headline, all copy Danish
-- [ ] Reachable offline from the precached shell
-- [ ] `npm run type-check` clean
+- [x] No `getInstalledRelatedApps()`-based detection; the code comments why
+- [x] The view assumes no shell chrome and does not use `fullBleed`
+- [x] shadcn-vue `Card`/`Button`, Lucide icons, `font-nathejk` headline, all copy Danish
+- [x] Reachable offline from the precached shell
+- [x] `npm run type-check` clean
 
 ## Depends on
 
@@ -88,3 +88,33 @@ platform install illustration, and that lives in task 120.
 ## Progress Log
 
 - 2026-08-30 — Task created from PRD 005.
+- 2026-08-30 — Picked up.
+- 2026-08-30 — **View written and `/install` registered** (lazy import, `meta: { public: true }`).
+  The guard that redirects *to* it is task 137; this task only makes the route reachable.
+
+  Two decisions:
+
+  - **"Har du allerede installeret appen?" is text, not a button.** The task asked for it to be
+    honest about what it can do, and the honest answer is that a browser tab cannot launch its own
+    standalone instance — so a button could only pretend. It reads as a question with an
+    instruction under it ("Luk denne fane og åbn Hej Nathejk fra hjemmeskærmen"), which is
+    something support can also say down the phone. The reason detection is impossible —
+    `getInstalledRelatedApps()` is Chromium-only and reports related *native* apps, and iOS has no
+    install-accepted event — is recorded in the view itself, so nobody "fixes" this later by
+    reaching for that API.
+  - **A local `prompting` ref gates the button alongside `canPrompt`.** `canPrompt` only goes false
+    once `promptInstall()` resolves, so without it a second tap during the native dialog would be
+    possible. When it resolves the view falls through to the manual instructions, which is exactly
+    what a user who dismissed the dialog needs — the alternative is a button that no longer does
+    anything.
+
+  The headline copy states *why* installation is required rather than just demanding it: beskeder
+  from the event, and working without signal. A wall that does not explain itself is the kind of
+  thing users route around.
+- 2026-08-30 — **Offline reachability verified in the build**, not assumed: `npm run build` puts
+  `InstallView-41uagU_v.js` in `dist/sw.js`'s precache manifest (38 entries, 646 KiB). The lazy
+  import does not keep it out of the precache.
+- 2026-08-30 — ✅ Criteria met, `vue-tsc --noEmit` clean. Two notes for the tasks that follow:
+  the "Fortsæt i browseren" hatch is deliberately **not** in this view yet — it is task 121 — and
+  `UpdatePrompt` overlaying the wall has not been checked from here (no browser); the `showShell`
+  work in task 138 is where that gets settled.
