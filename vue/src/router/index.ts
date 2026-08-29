@@ -1,8 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { Component } from 'vue'
-import type { RouteRecordRaw } from 'vue-router'
+import type { RouteLocationNormalized, RouteLocationRaw, RouteRecordRaw } from 'vue-router'
 import { useSessionStore } from '@/stores/session.store'
 import { useOnboardingStore } from '@/stores/onboarding.store'
+import { useInstallStore } from '@/stores/install.store'
+import { isMobileDevice, isStandalone } from '@/helpers/platform'
+import { gatesEnabled } from '@/config/gates'
 import type { Role } from '@/stores/session.store'
 import { destinations } from '@/config/navigation'
 
@@ -95,30 +98,108 @@ const router = createRouter({
   ],
 })
 
-// Global gate: the app is unusable until signed in. Unauthenticated users are sent to
-// /welcome — which owns the login step (PRD 005 §7); there is no /login route any more.
-// Signed-in users who have finished onboarding are kept out of /welcome; role-scoped routes
-// redirect disallowed roles home. Client-side gating is UX only — the BFF authorizes every
-// protected endpoint independently.
+// Steps 2–4 of the guard order, factored out so the guard body reads as the six numbered
+// steps rather than as one long chain of returns.
+//
+// Returns `true` to fall through to auth, or a redirect target.
+//
+// Wrapped in try/catch by the caller: these read `navigator`/`matchMedia`, and the one thing
+// this guard must never do is throw (task 090).
+function deviceAndInstallGates(to: RouteLocationNormalized): true | RouteLocationRaw {
+  const install = useInstallStore()
+  const onboarding = useOnboardingStore()
+
+  // 2. Device class. Desktop gets the placeholder and nothing else — in particular not
+  //    /install or /welcome: showing a laptop how to add a phone app to its home screen is
+  //    worse than the placeholder.
+  if (!isMobileDevice()) {
+    return to.name === 'desktop' ? true : { name: 'desktop' }
+  }
+
+  // A mobile visitor has no business on the desktop placeholder.
+  if (to.meta.desktop) {
+    return { name: 'install' }
+  }
+
+  // 3. Standalone. The app is not usable in a browser tab, so every route leads to the wall
+  //    until it is installed — unless the user took the escape hatch, which unblocks *this*
+  //    gate only (task 121).
+  if (!isStandalone() && !install.continueInBrowser) {
+    return to.name === 'install' ? true : { name: 'install' }
+  }
+
+  // Installed (or overridden): the wall has nothing left to say.
+  if (to.name === 'install') {
+    return { name: onboarding.complete ? 'maps' : 'welcome' }
+  }
+
+  // 4. Onboarding. Not "done" merely because the user is signed in — login is only its first
+  //    step — so this asks the onboarding store, not the session store.
+  if (!onboarding.complete && to.name !== 'welcome') {
+    return { name: 'welcome' }
+  }
+  if (onboarding.complete && to.name === 'welcome') {
+    return { name: 'maps' }
+  }
+
+  return true
+}
+
+// Global gate (PRD 005 §6/§8). Order is fixed, and the order is the design:
+//
+//   1. dev override / runtime flag — nothing else can be debugged if this is not first
+//   2. device class      — phone/tablet vs desktop computer
+//   3. standalone        — installed vs a browser tab
+//   4. onboarding        — the flow at /welcome
+//   5. auth
+//   6. roles
+//
+// **The device gate runs before `session.ensureReady()`,** which it can only do because it
+// is session-independent by design: PRD 005 §11 decided there is no desktop login for any
+// role, so the gate needs to know nothing about who is asking. That saves every desktop
+// visitor a pointless /api/me round-trip.
+//
+// The consequence is worth naming rather than discovering: because the gate precedes auth,
+// **there is no role-based bypass** if an organizer needs laptop access mid-event. The
+// dev/QA override would be the only way in and is not intended for that. If organizer
+// desktop access is ever wanted, it is a new PRD revisiting this gate — not a flag added
+// here.
+//
+// **The install gate is UX, never security.** Nothing in this guard protects data: the BFF
+// authorizes every protected endpoint independently, and a user who reaches an app route by
+// any means still gets nothing they are not entitled to. Do not let a later change lean on
+// it.
 //
 // NOTHING IN HERE MAY REJECT (task 090). A rejected guard aborts the navigation, so
 // no route component mounts and the user is left looking at a blank white screen —
 // which is what happened offline, when `ensureReady()` propagated the failure of
 // GET /api/me. `ensureReady()` is now explicitly non-throwing; keep it that way, and
-// do not add an `await` here that can reject.
+// do not add an `await` here that can reject. The gates added above it are synchronous and
+// dependency-free, which is also what keeps them from adding a redirect flash on a cold
+// start.
 router.beforeEach(async (to) => {
+  if (gatesEnabled()) {
+    let outcome: true | RouteLocationRaw = true
+    try {
+      outcome = deviceAndInstallGates(to)
+    } catch {
+      // A missing `navigator`/`matchMedia`, or anything else unexpected, must not abort the
+      // navigation — that is a blank white screen (task 090). Falling through means a
+      // degraded gate, which is the right way to fail for a gate that is UX only.
+      outcome = true
+    }
+    if (outcome !== true) return outcome
+  }
+
+  // 5. Auth.
   const session = useSessionStore()
   await session.ensureReady()
 
   if (!to.meta.public && !session.isAuthenticated) {
     return { name: 'welcome' }
   }
-  // Onboarding is not "done" merely because the user is signed in — login is only its first
-  // step — so this asks the onboarding store rather than the session store. The device and
-  // install gates that also belong in front of this are task 137.
-  if (to.name === 'welcome' && session.isAuthenticated && useOnboardingStore().complete) {
-    return { name: 'maps' }
-  }
+
+  // 6. Roles.
   if (to.meta.roles && session.role && !to.meta.roles.includes(session.role)) {
     return { name: 'maps' }
   }
