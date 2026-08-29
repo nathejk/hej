@@ -49,6 +49,28 @@ const pushRow = computed(() => {
   if (notifications.permission === 'denied') {
     return { status: 'Blokeret', detail: blockedGuidance('notifications') }
   }
+  // Push not set up on the server: nothing the member can do, so say so and offer no
+  // button. Same rule as a blocked permission — never show an action that cannot work.
+  //
+  // Found on a real device 2026-08-29: permission granted, server without VAPID keys, and
+  // a Tilmeld button that silently did nothing however often it was tapped.
+  if (notifications.configured === false) {
+    return {
+      status: 'Ikke klar',
+      detail:
+        'Nathejk har ikke sat notifikationer op endnu. Det er ikke din telefon, der er noget i vejen med.',
+    }
+  }
+  // An attempt that failed for any other reason. Shown instead of the invitation, because
+  // repeating "Tilmeld" after a failure is what makes a broken button look like a broken
+  // app.
+  if (notifications.error) {
+    return {
+      status: 'Ikke tilmeldt',
+      detail: notifications.error,
+      action: 'Prøv igen',
+    }
+  }
   // Granted but not subscribed is its own state, not a rounding error: the browser can
   // drop a subscription, and it is precisely when push silently stops working (task 100).
   if (notifications.permission === 'granted' && !notifications.subscribed) {
@@ -143,7 +165,14 @@ async function enablePush() {
 // only reliable moment to re-read all of them is when the user comes back to it.
 async function syncAll() {
   notifications.syncPermission()
-  await Promise.all([notifications.syncSubscription(), location.syncPermission(), syncCamera()])
+  await Promise.all([
+    notifications.syncSubscription(),
+    // Asked here rather than only inside enable(), so the row can say "not set up"
+    // *before* the member taps a button that cannot succeed.
+    notifications.syncConfigured(),
+    location.syncPermission(),
+    syncCamera(),
+  ])
 }
 
 function onVisibility() {

@@ -20,6 +20,14 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
 // with the BFF (tied to the signed-in user). Delivery/fan-out is a later PRD.
 export const useNotificationsStore = defineStore('notifications', {
   state: () => ({
+    // configured records whether the SERVER has Web Push set up, i.e. whether a VAPID
+    // public key exists. null until asked.
+    //
+    // Worth knowing separately from `available` and `permission`, because it is the one
+    // failure the member can do nothing about: with no key, subscribing cannot succeed no
+    // matter how many times they tap. Found on a real device 2026-08-29, where a granted
+    // permission plus an unconfigured server produced a Tilmeld button that did nothing.
+    configured: null as boolean | null,
     permission: 'unknown' as NotifPermission,
     subscribed: false,
     error: '',
@@ -76,6 +84,22 @@ export const useNotificationsStore = defineStore('notifications', {
       }
     },
 
+    // syncConfigured asks the BFF whether push is set up at all.
+    //
+    // Never throws: an unreachable server leaves `configured` null, which the UI treats as
+    // "unknown" rather than as "broken" — being offline is not evidence that push is
+    // unconfigured.
+    async syncConfigured() {
+      try {
+        const { public_key: publicKey } = await fetchWrapper.get<{ public_key: string }>(
+          '/api/push/public-key',
+        )
+        this.configured = Boolean(publicKey)
+      } catch {
+        this.configured = null
+      }
+    },
+
     // enable requests permission and, if granted, subscribes to push and sends
     // the subscription to the BFF. Returns whether the user is now subscribed.
     // Degrades gracefully (never throws) so callers can handle a false result.
@@ -96,9 +120,11 @@ export const useNotificationsStore = defineStore('notifications', {
           '/api/push/public-key',
         )
         if (!publicKey) {
-          this.error = 'Push er ikke konfigureret på serveren.'
+          this.configured = false
+          this.error = 'Nathejk har ikke sat notifikationer op endnu.'
           return false
         }
+        this.configured = true
 
         const registration = await navigator.serviceWorker.ready
         const subscription = await registration.pushManager.subscribe({

@@ -41,13 +41,44 @@
 - [x] Orientation is correct — implied by the above: neither path produced a sideways
       portrait, which is what the server-side EXIF handling (task 104) was added for and
       the case the file-picker path would otherwise have failed.
-- [ ] Upload persists across a reload and on a second device.
-- [ ] Permission rows match real device state after changing it in settings.
+- [x] Upload persists across a reload and on a second device — **confirmed on device
+      2026-08-29** (reload).
+- [x] Permission rows match real device state after changing it in settings — **confirmed
+      2026-08-29**, tested with location.
 - [ ] A previously denied notification permission can be recovered following only the
-      on-page guidance.
+      on-page guidance. *Blocked on push being configured in the deployment — see
+      Findings.*
 - [x] Findings logged in this task; regressions filed as their own tasks.
 
 ## Findings
+
+**2026-08-29 — notifications: "Tilmeld" does nothing.** Two separate problems, one of
+them mine.
+
+*The likely cause is configuration.* `enable()` fetches the VAPID public key and gives up
+if it is empty; `docker-compose.prod.yml` defaults `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`
+to empty, so a deployment that never exported them cannot subscribe anybody. Confirm on
+the host with:
+
+```
+curl -s https://hej.nathejk.dk/api/push/public-key
+```
+
+An empty `public_key` means push was never configured in this deployment — not a code
+fault. Generate a pair (`npx web-push generate-vapid-keys`), export both, redeploy.
+
+*The bug that made it hard to diagnose is mine.* The profile row never read
+`notifications.error`, and `enablePush()` ignored `enable()`'s return value — so a failed
+subscribe repainted the same "Tilmeld" invitation with no explanation. Exactly the shape
+of "nothing happens when I tap it". Fixed:
+
+- the store now records whether the **server** has push configured
+  (`configured`), asked on page load rather than discovered inside a button press;
+- when it is not configured the row says "Ikke klar — Nathejk har ikke sat notifikationer
+  op endnu. Det er ikke din telefon, der er noget i vejen med." and offers **no button**,
+  following the same rule as a blocked permission: never show an action that cannot work;
+- any other failure shows the store's error text with a "Prøv igen" action, instead of
+  silently repeating the invitation.
 
 **2026-08-29 — "the photo stored are mirrored". Investigated, and kept as is.**
 
