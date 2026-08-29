@@ -30,6 +30,24 @@
 #   export SESSION_SECRET="$(openssl rand -hex 32)"
 #   export DB_PASSWORD="$(openssl rand -hex 24)" DB_ROOT_PASSWORD="$(openssl rand -hex 24)"
 #   export VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... DATAFORSYNINGEN_TOKEN=...
+#
+# Generating the VAPID pair (either way; both verified 2026-08-29):
+#
+#   docker run --rm node:22-alpine npx -y web-push generate-vapid-keys
+#
+#   # or with no network, using openssl. Note -w0: basenc wraps at 76 columns by
+#   # default, which silently splits the public key and produces an unusable value.
+#   openssl ecparam -genkey -name prime256v1 -noout -out vapid.pem
+#   openssl ec -in vapid.pem -outform DER | tail -c +8 | head -c 32 |
+#     basenc --base64url -w0 | tr -d '='          # private, 43 chars
+#   openssl ec -in vapid.pem -pubout -outform DER | tail -c 65 |
+#     basenc --base64url -w0 | tr -d '='          # public, 87 chars, starts with B
+#
+# Generate the pair ONCE and keep it: a push subscription is bound to the public
+# key it was created with, so replacing the pair invalidates every subscription
+# already handed out. Worse, the client cannot tell — `getSubscription()` still
+# returns the old one, so the profile page would report notifications as on while
+# nothing could be delivered. Rotating means every member has to re-subscribe.
 #   # pin the tag CI produced, don't drift on :latest:
 #   HEJ_VERSION=main.42 docker compose -f docker-compose.prod.yml -p prod-hej up -d
 #
