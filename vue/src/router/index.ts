@@ -60,6 +60,15 @@ const router = createRouter({
       component: () => import('@/views/InstallView.vue'),
       meta: { public: true },
     },
+    // Onboarding (PRD 005): login lives inside this flow, so the route is public — an
+    // unauthenticated user must be able to reach it. `fullBleed` is deliberately absent:
+    // see the comment in WelcomeView.vue.
+    {
+      path: '/welcome',
+      name: 'welcome',
+      component: () => import('@/views/WelcomeView.vue'),
+      meta: { public: true },
+    },
     // The desktop placeholder (PRD 005 §4). Not the desktop website — that is a separate
     // PRD; this only keeps desktop visitors away from a login form for a phone app.
     {
