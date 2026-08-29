@@ -1,11 +1,11 @@
 # 127 — WelcomeStepConfirmProfile: masked guardian number
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-30
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-08-30
+**Completed:** 2026-08-30
 
 ## Description
 
@@ -86,25 +86,25 @@ The failure paths ("nummeret er forkert" / "jeg kender ikke nummeret") are **tas
 
 ## Acceptance Criteria
 
-- [ ] `components/onboarding/WelcomeStepConfirmProfile.vue` renders the registered details
+- [x] `components/onboarding/WelcomeStepConfirmProfile.vue` renders the registered details
       read-only, with no editing affordance
-- [ ] The guardian number is displayed masked as `11 22 33 **`, as text, never in an input
-- [ ] A 2-digit `Input` with `inputmode="numeric"` plus the *"Dette nummer kan kontaktes i
+- [x] The guardian number is displayed masked as `11 22 33 **`, as text, never in an input
+- [x] A 2-digit `Input` with `inputmode="numeric"` plus the *"Dette nummer kan kontaktes i
       løbet af Nathejk"* `Checkbox` are **both** required to advance
-- [ ] The step is skipped entirely for non-spejder, and never renders an empty guardian
+- [x] The step is skipped entirely for non-spejder, and never renders an empty guardian
       field as missing data
-- [ ] Whether confirmation is required comes from the BFF's `confirmation_required`; the
+- [x] Whether confirmation is required comes from the BFF's `confirmation_required`; the
       "verified OR started the event" rule is not reimplemented client-side
-- [ ] Skipping this step does **not** skip the portrait step
-- [ ] Copy explains both reasons the number matters — emergencies **and** pickup on
+- [x] Skipping this step does **not** skip the portrait step
+- [x] Copy explains both reasons the number matters — emergencies **and** pickup on
       mid-event resignation
-- [ ] No change to `GET /api/me/profile`; nothing in the code or comments presents the
+- [x] No change to `GET /api/me/profile`; nothing in the code or comments presents the
       masking as a security control
-- [ ] Confirmation state is read from and written to the BFF, never persisted in
+- [x] Confirmation state is read from and written to the BFF, never persisted in
       `localStorage`
-- [ ] Built from shadcn-vue `Card`/`Input`/`Checkbox`/`Label`; headline uses `font-nathejk`;
+- [x] Built from shadcn-vue `Card`/`Input`/`Checkbox`/`Label`; headline uses `font-nathejk`;
       copy in Danish
-- [ ] `vue-tsc` and `npm run build` clean
+- [x] `vue-tsc` and `npm run build` clean
 
 ## Depends on
 
@@ -117,3 +117,32 @@ The failure paths ("nummeret er forkert" / "jeg kender ikke nummeret") are **tas
 ## Progress Log
 
 - 2026-08-30 — Task created from PRD 005.
+- 2026-08-30 — Picked up.
+- 2026-08-30 — **Component written**, plus `profile.store.confirm(digits)` (and
+  `reportIncorrect(reason)` for task 128) posting to the endpoints task 135/136 will serve.
+
+  Decisions:
+
+  - **Masking is done by regex on the formatted number** (`formatPhone(...).replace(/\d{2}$/,
+    '**')`), so it reuses the shipped 2-2-2-2 Danish grouping instead of inventing a second
+    formatter. Rendered inside a `<span>` — there is no input anywhere near the number itself.
+  - **The spejder-only rule is enforced by the step machine, not by this component.** Task 118's
+    descriptor already requires `isSpejder && confirmationRequired`, so a bandit never reaches this
+    file. Inside it, every detail row is `v-if`-guarded, so a null guardian number renders *nothing*
+    rather than an empty row — which is the difference between "not applicable" and "we lost your
+    data", and the whole reason the task called this out.
+  - **409 is treated as success.** Already-confirmed means confirmed — from another device or a
+    double submit — and showing an error for it would ask the member to fix something that is
+    already right.
+  - **400 is worded as information, not a scolding**: "De to cifre passer ikke til nummeret, vi
+    har." The likely explanation is that the number on file is not the one this member knows, which
+    is precisely what task 128's paths exist for — and the affordance leading to them sits directly
+    under the submit button, not hidden behind a failure.
+  - **Both inputs are required, and the comment says why**: digits without the tick is a memory
+    test nobody agreed to anything with; a tick without digits is a checkbox people click through.
+  - The store action carries an explicit comment that the server-side digit check is *not* a
+    confidentiality measure, since the full number is already in the store. That is aimed at
+    whoever reads this in a year and is tempted to treat `verified_at` as an identity check.
+- 2026-08-30 — ✅ `vue-tsc` clean. Note the endpoints do not exist yet (tasks 135/136), so the
+  submit path currently 404s; that is the intended sequencing, and the component's error handling
+  degrades to "Kunne ikke gemmes. Prøv igen." rather than breaking the flow.
