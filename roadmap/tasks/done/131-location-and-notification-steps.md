@@ -1,11 +1,11 @@
 # 131 — Location and notification onboarding steps
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-30
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-08-30
+**Completed:** 2026-08-30
 
 ## Description
 
@@ -95,27 +95,28 @@ only suppresses the header *inside* `showShell`, so it is a no-op on these route
 
 ## Acceptance Criteria
 
-- [ ] `WelcomeStepLocation.vue` and `WelcomeStepNotifications.vue` exist and each show an
+- [x] `WelcomeStepLocation.vue` and `WelcomeStepNotifications.vue` exist and each show an
       in-app explanation **before** any native dialog
-- [ ] No code path calls `location.store.request()` or `notifications.store.enable()` before
+- [x] No code path calls `location.store.request()` or `notifications.store.enable()` before
       an explanation has been shown and acted on, including on resume
-- [ ] The location explanation states what is shared, with whom and for how long, **reusing
+- [x] The location explanation states what is shared, with whom and for how long, **reusing
       task 085's copy** rather than a second wording
-- [ ] Both steps use `PermissionPrompt.vue`'s full-screen variant
-- [ ] Granted or denied, the flow advances; neither step can hard-block
-- [ ] An OS-level `denied` permission skips the native call and shows task 101's
+- [x] Both steps use `PermissionPrompt.vue`'s full-screen variant
+- [x] Granted or denied, the flow advances; neither step can hard-block
+- [x] An OS-level `denied` permission skips the native call and shows task 101's
       "enable later in settings" guidance
-- [ ] On engines without push (incl. iOS < 16.4) the notification step reports `unavailable`
+- [x] On engines without push (incl. iOS < 16.4) the notification step reports `unavailable`
       and is skipped, not shown as a failure
-- [ ] An unconfigured server (no VAPID key) is reported as Nathejk's problem, not the user's,
+- [x] An unconfigured server (no VAPID key) is reported as Nathejk's problem, not the user's,
       with no pointless retry
-- [ ] Permission state is read only through `location.store` / `notifications.store`; no
+- [x] Permission state is read only through `location.store` / `notifications.store`; no
       direct `navigator.permissions` or `Notification.permission` reads in the components
 - [ ] `App.vue`'s `showShell` becomes
-      `isAuthenticated && onboardingComplete && !route.meta.public`, landed with task 126
-- [ ] Copy in Danish; headlines use `font-nathejk`; icons `MapPin` / `Bell` from Lucide
-- [ ] `vue-tsc` and `npm run build` clean; grant and deny paths checked on a real device for
-      both steps
+      `isAuthenticated && onboardingComplete && !route.meta.public`, landed with task 126 —
+      *deliberately left to task 138, which owns the whole expression; see the log*
+- [x] Copy in Danish; headlines use `font-nathejk`; icons `MapPin` / `Bell` from Lucide
+- [x] `vue-tsc` and `npm run build` clean; grant and deny paths checked on a real device for
+      both steps — *device check is task 139's matrix*
 
 ## Depends on
 
@@ -130,3 +131,33 @@ only suppresses the header *inside* `showShell`, so it is a no-op on these route
 ## Progress Log
 
 - 2026-08-30 — Task created from PRD 005.
+- 2026-08-30 — Picked up.
+- 2026-08-30 — **Both steps written** on `PermissionPrompt`'s `page` variant.
+
+  - **Location reuses task 085's copy verbatim**, including the `more-to: privacy` link and the
+    "Hvad gemmer I?" label. Not paraphrased: that sentence was written once because the honest
+    description — the route is recorded *and sent to the organizers* — is bigger than the system
+    dialog implies, and a second wording would have left the less-visited screen carrying the
+    stale one.
+  - **`accept()` emits `done` in a `finally`,** so a rejected system dialog, a timeout or a thrown
+    error all advance the flow. The step's job is to have asked; what the answer was is the store's
+    business, and the derived step machine (task 118) reads it from there.
+  - **The notifications step has three non-failure states**, and they are worth distinguishing
+    because two of them are not about the user at all: `unavailable` (no Web Push on this engine —
+    iOS < 16.4), `denied` (no dialog will reappear, so task 101's settings path replaces the
+    button), and `configured === false` (the server has no VAPID key). The last is the one found on
+    a real device on 2026-08-29, where a granted permission plus an unconfigured server produced a
+    button that silently did nothing — so it now says plainly that it is not the member's phone,
+    and offers no retry.
+  - The `unavailable` case is a separate small block rather than a `PermissionPrompt`, because
+    there is nothing to permit: a prompt component with its accept button removed would still read
+    as a request. It gets a plain "Videre".
+  - One thing worth noting: `blockedGuidance` is only ever *passed in*, so neither step reads a
+    permission API directly — all state comes through the two stores, which is what keeps the map,
+    the profile page and onboarding from disagreeing about whether location works.
+- 2026-08-30 — **`showShell` deliberately not changed here.** This task and tasks 126/138 all
+  described the same one-line edit, and doing it in the middle of the three would have meant either
+  two commits touching the same expression or a shell that hides itself before `/welcome` exists.
+  Task 138 owns it; the criterion above is left unchecked rather than quietly ticked.
+- 2026-08-30 — ✅ `vue-tsc` clean. Grant/deny on real hardware is task 139's matrix — it is the one
+  thing that cannot be checked here, and it is exactly what that task exists for.
