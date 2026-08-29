@@ -68,13 +68,16 @@ type Portrait struct {
 	Thumbs []Rendition
 
 	// Original is the uploaded image at its own resolution, with **all metadata
-	// segments removed** and its pixels untouched. Empty when the format has no
-	// metadata scrubber here — see StripMetadata.
+	// segments removed** and its pixels untouched.
 	//
 	// Kept because renditions are produced at upload and cannot be produced again from
 	// a 1024px re-encode: without the original, adding a thumbnail size (or wanting more
 	// detail on a face at 03:00) can only apply to portraits taken *after* the change.
 	// The original is what makes a backfill possible at all.
+	//
+	// Empty when: the format has no metadata scrubber (see StripMetadata), or the upload
+	// is **no larger than the display image**, in which case storing it would double the
+	// backup for zero extra pixels (see Prepare).
 	//
 	// It is NOT the uploaded file. Stripping metadata is not optional — see the
 	// package doc's note on originals — and it is why Orientation below exists.
@@ -145,16 +148,41 @@ func Prepare(raw []byte, edge int, thumbEdges []int, quality int, keepOriginal b
 				// because it looks like a backfill is possible when it is not.
 				return Portrait{}, fmt.Errorf("stripped original is not decodable: %w", derr)
 			}
-			out.Original = Rendition{
-				Name:   "original",
-				Bytes:  stripped,
-				Width:  b.Width,
-				Height: b.Height,
+
+			// Only keep it if it actually holds more pixels than the display image.
+			//
+			// MEASURED IN PRODUCTION, 2026-08-29: without this, an upload the client had
+			// already downscaled to 1024px was stored twice — 141,970 bytes of "original"
+			// beside a 74,403-byte display image of **identical dimensions**. 1.9× the
+			// storage for no additional information, on the one directory that must be
+			// backed up.
+			//
+			// Compared on the longest edge rather than byte length: pixels are the
+			// information, and a same-size original that merely encodes at higher quality
+			// buys only a marginal reduction in generational loss when a future thumbnail
+			// is rendered — not worth doubling the backup for.
+			//
+			// So this makes "keep the original" self-limiting: it costs storage exactly
+			// when it buys something.
+			if maxInt(b.Width, b.Height) > maxInt(out.Full.Width, out.Full.Height) {
+				out.Original = Rendition{
+					Name:   "original",
+					Bytes:  stripped,
+					Width:  b.Width,
+					Height: b.Height,
+				}
 			}
 		}
 	}
 
 	return out, nil
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // StripMetadata removes every metadata block from an encoded image, leaving the compressed

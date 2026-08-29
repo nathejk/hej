@@ -355,8 +355,12 @@ func TestPrepareKeepsTheOriginal(t *testing.T) {
 
 // Orientation must be recorded in the struct, because stripping removed it from the file.
 // Without this a re-render from the original could not know which way up the face goes.
+//
+// The source is deliberately wider than the display limit, so the original survives the
+// "is it actually bigger?" guard — with a smaller source there would be no original to
+// carry an orientation.
 func TestPrepareRecordsOrientationForTheStrippedOriginal(t *testing.T) {
-	raw := jpegWithOrientation(t, gradient(800, 400), 6, false)
+	raw := jpegWithOrientation(t, gradient(1600, 800), 6, false)
 
 	out, err := imaging.Prepare(raw, 1024, nil, 85, true)
 	if err != nil {
@@ -367,8 +371,8 @@ func TestPrepareRecordsOrientationForTheStrippedOriginal(t *testing.T) {
 		t.Errorf("Orientation = %d, want 6", out.Orientation)
 	}
 	// The stored original keeps the sensor's landscape pixels…
-	if out.Original.Width != 800 || out.Original.Height != 400 {
-		t.Errorf("original is %dx%d, want the unrotated 800x400",
+	if out.Original.Width != 1600 || out.Original.Height != 800 {
+		t.Errorf("original is %dx%d, want the unrotated 1600x800",
 			out.Original.Width, out.Original.Height)
 	}
 	// …while the display image is turned upright.
@@ -380,6 +384,59 @@ func TestPrepareRecordsOrientationForTheStrippedOriginal(t *testing.T) {
 	if got := imaging.ReadOrientation(out.Original.Bytes); got != 1 {
 		t.Errorf("stripped original still declares orientation %d — a reader would rotate twice", got)
 	}
+}
+
+// An upload no larger than the display image must NOT be stored as an original.
+//
+// This is the production regression from 2026-08-29: the client downscaled to the same
+// 1024px the server stores, so every portrait was kept twice — 141,970 bytes of "original"
+// beside a 74,403-byte display image, identical dimensions, on the one directory that must
+// be backed up.
+func TestPrepareSkipsAnOriginalThatIsNoBigger(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		w, h, edge   int
+		wantOriginal bool
+	}{
+		// Exactly the display size: nothing to gain.
+		{"same size", 1024, 1024, 1024, false},
+		// Smaller than the display limit, so Fit leaves it alone and the two are equal.
+		{"smaller than the limit", 800, 600, 1024, false},
+		// Genuinely bigger: worth keeping.
+		{"larger", 2048, 1536, 1024, true},
+		// One pixel bigger is still bigger — the comparison must not be fuzzy.
+		{"one pixel larger", 1025, 1024, 1024, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := jpeg.Encode(&buf, gradient(tc.w, tc.h), nil); err != nil {
+				t.Fatal(err)
+			}
+
+			out, err := imaging.Prepare(buf.Bytes(), tc.edge, nil, 85, true)
+			if err != nil {
+				t.Fatalf("Prepare: %v", err)
+			}
+
+			got := len(out.Original.Bytes) > 0
+			if got != tc.wantOriginal {
+				t.Errorf("%dx%d against a %dpx display: original kept = %v, want %v",
+					tc.w, tc.h, tc.edge, got, tc.wantOriginal)
+			}
+			if got && maxOf(out.Original.Width, out.Original.Height) <=
+				maxOf(out.Full.Width, out.Full.Height) {
+				t.Errorf("kept an original that is not larger: %dx%d vs display %dx%d",
+					out.Original.Width, out.Original.Height, out.Full.Width, out.Full.Height)
+			}
+		})
+	}
+}
+
+func maxOf(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func TestPrepareSkipsTheOriginalWhenNotAsked(t *testing.T) {

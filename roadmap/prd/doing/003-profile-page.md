@@ -240,8 +240,15 @@ for the web app on this device — with a one-tap way to fix it when they are no
   - A format with no metadata scrubber keeps **no** original.
 
   Cost, since it lands on the one thing that must be backed up (PRD 008 §8): ~15 KB
-  of renditions per member becomes 1–4 MB, i.e. roughly 12 MB → ~2 GB for a full
-  event. Hence `PORTRAIT_KEEP_ORIGINAL` (default true).
+  of renditions per member becomes a few hundred KB more for the original — so of the
+  order of 12 MB → a few hundred MB for a full event, not the ~2 GB first estimated
+  (that figure assumed camera-native stills, which a live-preview capture cannot
+  produce on iOS). Hence `PORTRAIT_KEEP_ORIGINAL` (default true).
+
+  **Corrected 2026-08-29 (task 112)** after production showed the retained original was
+  a same-size duplicate of the display rendition: an original is now kept **only when it
+  holds more pixels than the display image**, so this setting costs storage exactly when
+  it buys the ability to re-render.
 - **Performance:** the profile fetch is a single request; the photo is served at
   a display-appropriate size, not full resolution.
 - **Accessibility:** each permission row states its status in text (not colour

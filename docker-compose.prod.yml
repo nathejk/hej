@@ -142,10 +142,14 @@ services:
       # portraits taken after a change.
       #
       # **This is the setting that decides how big the backup is.** Renditions are
-      # ~15 KB per member; an original is 1-4 MB, so a full event turns roughly
-      # 12 MB of ${BLOB_DIR} into ~2 GB. Set to false if that is not affordable on
-      # this host — the app works either way, it just loses the ability to
-      # backfill.
+      # ~15 KB per member; the original adds a few hundred KB — so a full event is of
+      # the order of a few hundred MB rather than tens of MB. Set to false if that is
+      # not affordable on this host; the app works either way, it just loses the
+      # ability to regenerate rendition sizes for portraits already taken.
+      #
+      # Since task 112 an original is stored **only when it holds more pixels than the
+      # 1024px display rendition**, so this cannot silently double the backup with
+      # duplicates the way it did on 2026-08-29.
       PORTRAIT_KEEP_ORIGINAL: ${PORTRAIT_KEEP_ORIGINAL:-true}
     volumes:
       # Bind mount rather than a named volume: chosen so the bytes are visible on

@@ -20,10 +20,18 @@ const emit = defineEmits<{
   cancel: []
 }>()
 
-// Longest edge of the emitted image. The server re-encodes and enforces its own limit
-// (task 105); doing it here as well is what keeps the upload small on a rural mobile
-// connection, which is the whole point of doing it on the client.
-const MAX_EDGE = 1024
+// Longest edge of the emitted image.
+//
+// 2048, not the display size. The server stores a 1024px display rendition, so uploading
+// at 1024 meant the retained "original" held **no extra pixels** — measured in production
+// on 2026-08-29: 141,970 bytes of original beside a 74,403-byte display image, both
+// 1024×1024. Sending more than the display needs is the whole point of keeping an
+// original: it is what a future thumbnail size or a sharper crop is rendered from.
+//
+// Not unbounded either. This uploads over rural mobile data, sometimes at night, so the
+// cost is real: ~2048px at q0.85 is a few hundred KB, against 1–4 MB for an untouched
+// camera still. The server's 4 MiB cap is the backstop.
+const MAX_EDGE = 2048
 const JPEG_QUALITY = 0.85
 
 const video = ref<HTMLVideoElement | null>(null)
@@ -66,7 +74,18 @@ async function start() {
       // Front camera by default: this is a self-portrait. `facingMode` as a plain value
       // rather than `exact`, so a laptop or a phone with one camera still works instead
       // of failing with OverconstrainedError.
-      video: { facingMode: facingMode.value, width: { ideal: 1280 }, height: { ideal: 1280 } },
+      //
+      // Only WIDTH is constrained, deliberately. Asking for `width: 1280` *and*
+      // `height: 1280` asks for a square, which fights the sensor's native aspect — in
+      // production that produced a 1024×1024 frame, i.e. field of view thrown away
+      // before we ever saw it. Naming one dimension lets the device pick its own aspect
+      // and give us the whole frame.
+      //
+      // 1920 rather than 1280 so there is detail left after the 2048px cap above; note
+      // this is still a *video* frame, which on iOS is the most a live preview can yield
+      // — `ImageCapture.takePhoto()` does not exist in Safari, so a camera-native still
+      // is only reachable via the file fallback below.
+      video: { facingMode: facingMode.value, width: { ideal: 1920 } },
       audio: false,
     })
     stream.value = media
