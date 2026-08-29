@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed)
 **Created:** 2026-08-25
-**Last updated:** 2026-08-30
+**Last updated:** 2026-08-30 (impl.)
 **Approved:** 2026-08-30
 **Shipped:**
 **Target users:** participant (spejder, bandit), postmandskab, guide, samarit — i.e. every in-event app user
@@ -455,24 +455,27 @@ All page-level headlines use `font-nathejk` per `.rules`; icons are Lucide
     publisher. Any other service that wants to know about verification learns it by
     consuming the same log; no service calls another's API. Building that consumer is
     not part of this PRD (§4).
-  - **Cross-repo.** Verification is a fact about a *member*, and members are not
-    owned by this repo. `types.MemberStatus` and the member read model live in
-    `github.com/nathejk/shared-go` (`types/member.go`, `tables/spejder/`); `hej`
-    already depends on shared-go (`go/go.mod`, task 052) *(corrected 2026-08-30 —
-    this previously said `hej` did not import it at all)*. So recording verification
-    means:
-    1. shared-go: a `member.verified` style message, plus the field on the member
-       type/querier if and when it is needed there. Changes to shared-go are in
-       scope for this PRD (§4).
-    2. `hej`: publish the event on confirm, and project `verified_at` onto **PRD
-       006's `person` read model in `hej`** — not onto a shared-go table. The
-       shared-go member type gains the field only when PRD 006's projection is
-       lifted there. *(Clarified 2026-08-25: this and PRD 006 named two different
-       homes for the same column, which is a data-migration risk.)*
-    No `hq` work is required to ship this PRD; surfacing the flag at the check-in
-    counter is `hq`'s own board *(revised 2026-08-30)*.
-    Remember the two-repo release loop from `go-bff-layout`: shared-go must be
-    committed, pushed and version-bumped before a `GOWORK=off` build sees it.
+  - **Cross-repo — revised 2026-08-30 during implementation (task 132).** Verification is a
+    fact about a *member*, and members are not owned by this repo, so the plan was to declare
+    a `member.verified` message in shared-go. It was **declared in `hej` instead**, following
+    the precedent `portrait.go` set in PRD 003: events this service publishes are owned by the
+    projection that consumes them, while shared-go carries the messages other services
+    publish. With `hq` out of scope (§4) there is no second party, so a shared-go type would
+    have been an unused export in a module three repos depend on, plus a version bump in each.
+    The message lives in `go/nathejk/table/person/verified.go`, and that whole package is bound
+    for shared-go anyway, so moving it later is mechanical.
+
+    `hej` already depends on shared-go (`go/go.mod`, task 052) *(corrected 2026-08-30 — this
+    previously said `hej` did not import it at all)*. Recording verification therefore means,
+    in this repo only:
+    1. Publish `person.MemberVerified` on `NATHEJK.<year>.member.<personId>.verified`.
+    2. Project `verified_at` (plus the acknowledged number) onto **PRD 006's `person` read
+       model in `hej`** — not onto a shared-go table. *(Clarified 2026-08-25: this and PRD 006
+       named two different homes for the same column, which is a data-migration risk.)*
+    No `hq` work is required to ship this PRD; surfacing the flag at the check-in counter is
+    `hq`'s own board *(revised 2026-08-30)*. If shared-go does gain the message later, the
+    two-repo release loop from `go-bff-layout` applies: commit, push and version-bump before a
+    `GOWORK=off` build sees it.
   - **Directory dependency.** Everything the confirmation step reads comes from the
     member directory, which is **real** as of PRD 006 (task 077 swapped the mock for
     the `person` projection) *(corrected 2026-08-30)*. Two facts from that work
@@ -492,8 +495,10 @@ All page-level headlines use `font-nathejk` per `.rules`; icons are Lucide
     full to its owner — masking happens in the UI (§11). `200` / `401` / `404`.
   - `POST /api/me/profile/confirm` — body carries the two digits and the
     acknowledgement flag. `204` / `400` (wrong digits) / `401` / `409` (already
-    confirmed). Wrong digits must be rate-limited like the PIN endpoint — not as a
-    secrecy measure, just so the endpoint cannot be hammered.
+    confirmed, already started, or no guardian number on file) / `429` / `503` (broker
+    down — a confirmation the log never saw must not answer `204`). Wrong digits are
+    rate-limited like the PIN endpoint — not as a secrecy measure, just so the endpoint
+    cannot be hammered.
   - `POST /api/me/profile/report-incorrect` — flags the record for organizer
     follow-up, with a reason distinguishing "wrong" from "unknown to me". `204` /
     `401`. **Required**, not optional: a guardian number nobody can confirm is an
@@ -587,6 +592,7 @@ Proposed tasks for `roadmap/tasks/open/`:
 - [ ] Task: install store — capture `beforeinstallprompt`, `promptInstall`, browser override
 - [ ] Task: onboarding store — resumable step machine derived from permission state
 - [ ] Task: shared-go — `member.verified` event message; bump version in `hej`
+      *(landed as a `hej`-local message instead — see §8 and task 132)*
 - [ ] Task: BFF — publish the verification event via `commands.Commands`
 - [ ] Task: BFF — project `verified_at` + derive `confirmation_required` onto PRD
       006's `person` read model
