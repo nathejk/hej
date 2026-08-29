@@ -62,6 +62,17 @@ type application struct {
 	// directory that must be backed up. Taking a portrait is a once-or-twice-per-event
 	// action, so a low ceiling costs nobody anything.
 	photoLimiter *ratelimit.Limiter
+	// confirmLimiter throttles the guardian-number confirmation and report endpoints
+	// (PRD 005, tasks 135/136), keyed by IP like the PIN limiter.
+	//
+	// Explicitly **not** a secrecy measure: the digits it protects are not a secret —
+	// /api/me/profile returns the whole number to its owner by design. It exists so the
+	// endpoint cannot be hammered, which is a different and much smaller job.
+	//
+	// Keyed by IP rather than by user, unlike the track and photo limiters: a member
+	// confirms once, so there is no legitimate per-user burst to accommodate, and the thing
+	// worth blunting is one client looping — not one member retrying twice.
+	confirmLimiter *ratelimit.Limiter
 	// choices issues the short-lived token that carries a user from "PIN verified" to
 	// "which of you is this?" when a phone number is shared (task 079).
 	choices *choice.Manager
@@ -349,6 +360,11 @@ func run(logger *slog.Logger) error {
 		// against the real use — take a photo, dislike it, retake it a few times — and
 		// far below what it would take to fill a disk or keep a CPU busy.
 		photoLimiter: ratelimit.New(10, time.Hour),
+		// Twenty confirmation attempts an hour per IP. Generous against the real use — a
+		// member types two digits once, perhaps twice, and may then report the number as
+		// wrong — while leaving room for a shared network: a patrol on one hotspot all
+		// confirming during the same briefing must not throttle each other.
+		confirmLimiter: ratelimit.New(20, time.Hour),
 
 		pushStore: push.NewMemoryStore(),
 	}

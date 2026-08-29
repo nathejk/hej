@@ -39,6 +39,26 @@ func (a *JsonApi) BadRequestResponse(w http.ResponseWriter, r *http.Request, err
 	a.errorResponse(w, r, http.StatusBadRequest, err.Error())
 }
 
+// ConflictResponse returns a 409 with a caller-supplied message.
+//
+// Takes a message for the same reason RateLimitMessageResponse does: PRD 005's confirmation
+// step surfaces the server's text to a member who is often twelve and Danish, so a generic
+// "conflict" is the wrong string to put in front of them.
+func (a *JsonApi) ConflictResponse(w http.ResponseWriter, r *http.Request, message string) {
+	a.errorResponse(w, r, http.StatusConflict, message)
+}
+
+// BadRequestMessageResponse returns a 400 with a caller-supplied message rather than an
+// error's text.
+//
+// Exists so a 400 that a human reads can be phrased for them. The wrong-digits case in PRD
+// 005 is the motivating example: it is not really a client error at all — the likely
+// explanation is that the number on file is not one the member knows — so the text must not
+// read as an accusation, and wrapping a Go error string would.
+func (a *JsonApi) BadRequestMessageResponse(w http.ResponseWriter, r *http.Request, message string) {
+	a.errorResponse(w, r, http.StatusBadRequest, message)
+}
+
 // RateLimitResponse returns a 429 JSON error.
 func (a *JsonApi) RateLimitResponse(w http.ResponseWriter, r *http.Request) {
 	a.errorResponse(w, r, http.StatusTooManyRequests, "rate limit exceeded; please try again later")

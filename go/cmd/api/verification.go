@@ -78,6 +78,46 @@ func (app *application) storeVerification(
 	return nil
 }
 
+// storeGuardianReport publishes a member's report that the guardian number on file is
+// wrong or unknown (PRD 005 §8, task 136).
+//
+// Nothing consumes this event yet, and that is the intended state: the organizer-facing
+// surface is out of scope for PRD 005 (§4) and §12 has not settled who reads the flag. The
+// log keeps the reports — with reasons and timestamps — until there is a consumer to project
+// them for, which is cheaper and less presumptuous than guessing at a column shape now.
+//
+// The endpoint surfaces a failure rather than swallowing it: task 128's UI tells the member
+// honestly that the report could not be sent and points them at a human, which is only
+// possible if this reports the truth.
+func (app *application) storeGuardianReport(ctx context.Context, personID, reason string) error {
+	_ = ctx
+
+	if personID == "" {
+		return fmt.Errorf("store guardian report: no person")
+	}
+	if reason == "" {
+		// A report with no reason is indistinguishable from a mis-serialized one, and the
+		// reason is the entire content: "fix this" and "check this" are different jobs.
+		return fmt.Errorf("store guardian report: no reason")
+	}
+
+	subject, err := person.GuardianReportSubject(app.config.eventYear, personID)
+	if err != nil {
+		return fmt.Errorf("store guardian report: %w", err)
+	}
+
+	body := person.GuardianReported{
+		PersonID:   personID,
+		Year:       app.config.eventYear,
+		Reason:     reason,
+		ReportedAt: time.Now().UTC(),
+	}
+	if err := app.commands.Publish(subject, body); err != nil {
+		return fmt.Errorf("publish guardian report: %w", err)
+	}
+	return nil
+}
+
 // confirmationRequired reports whether this member still has to confirm their guardian
 // number.
 //

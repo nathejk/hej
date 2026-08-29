@@ -41,6 +41,11 @@ func (app *application) routes() http.Handler {
 	// The caller's own details (PRD 003). Session-scoped by construction: there is no
 	// user id in the path, so no caller can ask for somebody else's profile.
 	router.HandlerFunc(http.MethodGet, "/api/me/profile", app.requireAuth(app.showProfileHandler))
+	// PRD 005's guardian-number confirmation. Both are session-scoped like the profile read:
+	// the member is taken from the cookie, so nobody can confirm or flag on somebody else's
+	// behalf. Neither writes SQL — both publish a domain event (PRD 008 §8).
+	router.HandlerFunc(http.MethodPost, "/api/me/profile/confirm", app.requireAuth(app.confirmProfileHandler))
+	router.HandlerFunc(http.MethodPost, "/api/me/profile/report-incorrect", app.requireAuth(app.reportIncorrectHandler))
 	// The caller's own portrait (PRD 003). Both are session-scoped: no user id in the
 	// path, so neither can be pointed at somebody else's face. Cross-person viewing is
 	// PRD 007, with its own access matrix and audit — it must not arrive as a parameter
