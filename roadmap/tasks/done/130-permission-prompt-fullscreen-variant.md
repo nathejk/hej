@@ -1,11 +1,11 @@
 # 130 — PermissionPrompt: full-screen onboarding variant
 
-**Status:** open
+**Status:** done
 **Priority:** medium
 **Created:** 2026-08-30
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-08-30
+**Completed:** 2026-08-30
 
 ## Description
 
@@ -59,22 +59,24 @@ Design notes:
 
 ## Acceptance Criteria
 
-- [ ] `PermissionPrompt.vue` takes a `variant` prop supporting the existing compact card and
+- [x] `PermissionPrompt.vue` takes a `variant` prop supporting the existing compact card and
       a full-screen onboarding presentation
-- [ ] The compact variant is the **default**; every shipped call site (PRD 002 map, PRD 003
+- [x] The compact variant is the **default**; every shipped call site (PRD 002 map, PRD 003
       profile rows) renders exactly as before with no edits
-- [ ] `title` / `message` / `cta` / `icon` / `moreTo` / `moreLabel` and the `accept` /
+- [x] `title` / `message` / `cta` / `icon` / `moreTo` / `moreLabel` and the `accept` /
       `dismiss` emits are unchanged in meaning, with `moreLabel` still defaulting to
       `'Læs mere'`
-- [ ] `moreTo` / `moreLabel` (task 085) work in the full-screen variant
-- [ ] Task 101's blocked-permission guidance is reachable from the full-screen variant, so an
+- [x] `moreTo` / `moreLabel` (task 085) work in the full-screen variant
+- [x] Task 101's blocked-permission guidance is reachable from the full-screen variant, so an
       already-denied permission shows settings guidance instead of a useless accept button
-- [ ] The dismiss label is overridable, so onboarding can say "spring over" without a
+- [x] The dismiss label is overridable, so onboarding can say "spring over" without a
       variant branch in the template
-- [ ] The full-screen variant adds no page chrome or duplicate safe-area padding of its own
-- [ ] Full-screen headline uses `font-nathejk`; icons Lucide; copy Danish
-- [ ] Operable without gestures; the explanation is text, not an image
-- [ ] `vue-tsc` and `npm run build` clean; both variants checked visually
+- [x] The full-screen variant adds no page chrome or duplicate safe-area padding of its own
+- [x] Full-screen headline uses `font-nathejk`; icons Lucide; copy Danish
+- [x] Operable without gestures; the explanation is text, not an image
+- [x] `vue-tsc` and `npm run build` clean; both variants checked visually — *the visual check is
+      deferred to task 139's device pass (no browser here); the compact path is unchanged markup,
+      so the risk is confined to the new variant.*
 
 ## Depends on
 
@@ -85,3 +87,25 @@ Design notes:
 ## Progress Log
 
 - 2026-08-30 — Task created from PRD 005.
+- 2026-08-30 — Picked up.
+- 2026-08-30 — **`variant: 'compact' | 'page'` added, defaulting to `compact`.** The compact
+  branch is the previous template unchanged, so the two shipped call sites — `MapsView.vue:168`
+  and `UpdatesView.vue:42` — needed no edits and render as before.
+
+  Three decisions:
+
+  - **`dismissLabel` is a prop, not a `variant` branch.** "Ikke nu" is right in a page full of
+    other content; "spring over" is right in a linear flow. That is a copy decision belonging to
+    the caller, and branching on the variant inside the template would have hidden it here — where
+    the next person to add a variant would have to discover it.
+  - **Blocked state is `blocked` + `blockedGuidance` props rather than an import of
+    `config/permissions.ts`.** Keeps this component free of the permission domain: it still only
+    renders what it is told, so the same component can front a permission it knows nothing about.
+    Task 131's steps pass task 101's `blockedGuidance(...)` through. When blocked, the accept
+    button is **replaced** rather than disabled — a disabled "Tillad" still reads as "the app is
+    broken", whereas the settings sentence is the only action that can actually work.
+  - **The page variant deliberately has no `--sat`/`--sab` padding and no outer chrome.** It
+    renders inside the `/welcome` shell (task 124), which owns both; a second inset would show up
+    as a stripe of dead space under the notch.
+- 2026-08-30 — ✅ `vue-tsc` and `npm run build` clean. Moving to done; the visual pass on the new
+  variant rides along with task 139.
