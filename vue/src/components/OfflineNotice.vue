@@ -26,7 +26,7 @@ const props = defineProps<{
 }>()
 
 // Only shown once we know who the user is. On the login screen the offline state is
-// explained in terms of what they were about to do (see LoginView) rather than as a
+// explained in terms of what they were about to do (see the onboarding login step) rather than as a
 // standalone warning.
 // Deliberately ONE LINE. During the event, offline is the normal state, not an
 // incident — a participant can be without signal for hours — so this has to cost as

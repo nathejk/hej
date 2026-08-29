@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { Component } from 'vue'
 import type { RouteRecordRaw } from 'vue-router'
 import { useSessionStore } from '@/stores/session.store'
+import { useOnboardingStore } from '@/stores/onboarding.store'
 import type { Role } from '@/stores/session.store'
 import { destinations } from '@/config/navigation'
 
@@ -45,12 +46,7 @@ const router = createRouter({
   routes: [
     // Landing → first destination.
     { path: '/', redirect: { name: 'maps' } },
-    {
-      path: '/login',
-      name: 'login',
-      component: () => import('@/views/LoginView.vue'),
-      meta: { public: true },
-    },
+    // Onboarding (PRD 005): login lives inside this flow, so the route is public — an
     // The install wall (PRD 005). Public: it is what an unauthenticated mobile visitor
     // sees before any login form exists for them. The gate that redirects here is the
     // router guard (task 137); this entry only makes the route reachable.
@@ -99,10 +95,11 @@ const router = createRouter({
   ],
 })
 
-// Global gate: the app is unusable until signed in. Unauthenticated users are
-// sent to /login; signed-in users are kept out of /login; role-scoped routes
-// redirect disallowed roles home. Client-side gating is UX only — the BFF
-// authorizes every protected endpoint independently.
+// Global gate: the app is unusable until signed in. Unauthenticated users are sent to
+// /welcome — which owns the login step (PRD 005 §7); there is no /login route any more.
+// Signed-in users who have finished onboarding are kept out of /welcome; role-scoped routes
+// redirect disallowed roles home. Client-side gating is UX only — the BFF authorizes every
+// protected endpoint independently.
 //
 // NOTHING IN HERE MAY REJECT (task 090). A rejected guard aborts the navigation, so
 // no route component mounts and the user is left looking at a blank white screen —
@@ -114,9 +111,12 @@ router.beforeEach(async (to) => {
   await session.ensureReady()
 
   if (!to.meta.public && !session.isAuthenticated) {
-    return { name: 'login' }
+    return { name: 'welcome' }
   }
-  if (to.name === 'login' && session.isAuthenticated) {
+  // Onboarding is not "done" merely because the user is signed in — login is only its first
+  // step — so this asks the onboarding store rather than the session store. The device and
+  // install gates that also belong in front of this are task 137.
+  if (to.name === 'welcome' && session.isAuthenticated && useOnboardingStore().complete) {
     return { name: 'maps' }
   }
   if (to.meta.roles && session.role && !to.meta.roles.includes(session.role)) {

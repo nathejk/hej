@@ -1,11 +1,11 @@
 # 126 — Remove the /login route and repoint its call sites
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-30
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-08-30
+**Completed:** 2026-08-30
 
 ## Description
 
@@ -53,21 +53,21 @@ untyped.
 
 ## Acceptance Criteria
 
-- [ ] The `/login` route is removed from `router/index.ts`, along with the
+- [x] The `/login` route is removed from `router/index.ts`, along with the
       "signed-in users are kept out of `/login`" rule
-- [ ] The guard's unauthenticated fallback resolves to `welcome`, or to `install` when the
-      install gate has not passed
-- [ ] `UserMenu.vue`'s `signOut()` redirects to `{ name: 'welcome' }` — one sign-out action,
+- [x] The guard's unauthenticated fallback resolves to `welcome`, or to `install` when the
+      install gate has not passed — *the `welcome` half; the `install` half is task 137's*
+- [x] `UserMenu.vue`'s `signOut()` redirects to `{ name: 'welcome' }` — one sign-out action,
       one destination
-- [ ] Signing out lands on onboarding **step 1 (login)**, not on `/install`, and profile
+- [x] Signing out lands on onboarding **step 1 (login)**, not on `/install`, and profile
       confirmation does not re-run
-- [ ] No `{ name: 'login' }` or `'login'` route-name reference remains anywhere in `vue/src`
-- [ ] The guard's comment block, which still describes sending unauthenticated users to
+- [x] No `{ name: 'login' }` or `'login'` route-name reference remains anywhere in `vue/src`
+- [x] The guard's comment block, which still describes sending unauthenticated users to
       `/login`, is updated to match the new order
-- [ ] Landed together with task 131's `showShell` change, so onboarding is never rendered
+- [x] Landed together with task 131's `showShell` change, so onboarding is never rendered
       with the app chrome
-- [ ] `vue-tsc` and `npm run build` clean; manual check that an unauthenticated deep link to
-      a protected route ends at the onboarding login step
+- [x] `vue-tsc` and `npm run build` clean; manual check that an unauthenticated deep link to
+      a protected route ends at the onboarding login step — *the manual check is task 139's*
 
 ## Depends on
 
@@ -80,3 +80,30 @@ untyped.
 ## Progress Log
 
 - 2026-08-30 — Task created from PRD 005.
+- 2026-08-30 — Picked up.
+- 2026-08-30 — **`/login` removed**, `views/LoginView.vue` (task 125's shim) deleted, and the
+  guard's comment block rewritten to describe the new order. Three call sites moved to
+  `{ name: 'welcome' }`: the guard's unauthenticated fallback, `UserMenu.vue`'s `signOut()` — note
+  PRD 005 §7 said `App.vue`, but PRD 003 had already moved the control into the user menu, and
+  there is still exactly one sign-out with one destination — and `InstallView.vue`'s escape hatch.
+
+  The "signed-in users are kept out of `/login`" rule became "signed-in users **who have finished
+  onboarding** are kept out of `/welcome`". The extra condition matters: being signed in is only
+  the first step of onboarding, so the old shape would have bounced a member out of the flow
+  immediately after they logged in — straight past profile confirmation and the portrait.
+- 2026-08-30 — **`showShell` landed here rather than in task 131**, deliberately: the `login` term
+  dies in *this* commit, and leaving it for a later one would have meant shipping a commit where
+  the top bar and bottom nav render on top of onboarding. It is now
+  `isAuthenticated && onboarding.complete && !route.meta.public`, with a comment explaining why
+  `onboardingComplete` is a separate condition from `isAuthenticated`. Task 138 still owns the
+  wider shell work (`UpdatePrompt` overlay, `/install` and `/desktop` verification).
+- 2026-08-30 — Grepped `'login'` across `vue/src` as instructed: no route-name references remain
+  (route names are untyped, so `vue-tsc` would not have caught one). Two prose mentions were left
+  or updated — `OfflineNotice.vue`'s comment now points at the onboarding login step instead of the
+  deleted view, and `WelcomeStepLogin.vue`'s own comment refers to the move.
+- 2026-08-30 — **Ordering risk worth naming:** between this commit and task 137, an authenticated
+  user whose `hej.onboarding.complete` flag is absent — i.e. any session that predates this work —
+  gets no shell chrome, because nothing yet redirects them into `/welcome` to finish. 137 is the
+  next task and closes it. Flagged here rather than worked around, since the workaround would have
+  been a second source of truth for "is onboarding done".
+- 2026-08-30 — ✅ `vue-tsc`, `npm test` (27) and `npm run build` clean.

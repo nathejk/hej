@@ -49,7 +49,7 @@ async function signOut() {
   // Drop the cached details, or the next person to sign in on a shared handset sees
   // the previous user's name in this menu until the first request comes back.
   profile.clear()
-  await router.replace({ name: 'login' })
+  await router.replace({ name: 'welcome' })
 }
 </script>
 

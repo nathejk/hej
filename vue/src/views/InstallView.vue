@@ -58,7 +58,7 @@ async function promptInstall() {
 // without a migration.
 async function continueInBrowser() {
   install.setContinueInBrowser(true)
-  await router.replace({ name: 'login' })
+  await router.replace({ name: 'welcome' })
 }
 </script>
 

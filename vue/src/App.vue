@@ -5,6 +5,7 @@ import { useSessionStore } from '@/stores/session.store'
 import { useAppStore } from '@/stores/app.store'
 import { useLocationStore } from '@/stores/location.store'
 import { useTrackStore } from '@/stores/track.store'
+import { useOnboardingStore } from '@/stores/onboarding.store'
 import { logEvent } from '@/helpers/trackDb'
 import BottomNav from '@/components/BottomNav.vue'
 import UpdatePrompt from '@/components/UpdatePrompt.vue'
@@ -18,6 +19,7 @@ const session = useSessionStore()
 const app = useAppStore()
 const location = useLocationStore()
 const track = useTrackStore()
+const onboarding = useOnboardingStore()
 const route = useRoute()
 
 // Connectivity (task 090). The browser events are a hint, not the truth —
@@ -100,9 +102,20 @@ watch(
   { immediate: true },
 )
 
-// The app shell (top bar + bottom nav) frames authenticated pages. The login
-// screen renders bare.
-const showShell = computed(() => session.isAuthenticated && route.name !== 'login')
+// The app shell (top bar + bottom nav) frames authenticated pages. Onboarding, the install
+// wall and the desktop placeholder render bare.
+//
+// Spelled out as three conditions because the old form was
+// `isAuthenticated && route.name !== 'login'`, and the `login` term died with that route
+// (task 126): comparing against a route name that no longer exists is always true, which
+// would have put the top bar and bottom nav on top of `/welcome`.
+//
+// `onboardingComplete` is separate from `isAuthenticated` on purpose — login is only the
+// *first* step of onboarding, so a signed-in user part-way through the flow must still see
+// no chrome (PRD 005 §7).
+const showShell = computed(
+  () => session.isAuthenticated && onboarding.complete && !route.meta.public,
+)
 
 // Full-bleed routes (the map) get everything above the bottom nav: no top bar,
 // no scroll container. The top bar's trailing user menu (PRD 003: profile +
