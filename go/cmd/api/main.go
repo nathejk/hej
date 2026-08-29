@@ -53,6 +53,15 @@ type application struct {
 	// behind one carrier NAT — so an IP limit would punish groups while still letting a
 	// single runaway client flood the broker.
 	trackLimiter *ratelimit.Limiter
+	// photoLimiter throttles portrait uploads, keyed by user for the same reason as
+	// trackLimiter: participants share networks, so an IP limit would throttle a whole
+	// patrol because one member is retrying.
+	//
+	// Unlike the others this protects *work* rather than a broker: each upload decodes up
+	// to ~20 MP, resamples it several times, and writes two or three objects into the one
+	// directory that must be backed up. Taking a portrait is a once-or-twice-per-event
+	// action, so a low ceiling costs nobody anything.
+	photoLimiter *ratelimit.Limiter
 	// choices issues the short-lived token that carries a user from "PIN verified" to
 	// "which of you is this?" when a phone number is shared (task 079).
 	choices *choice.Manager
@@ -336,6 +345,10 @@ func run(logger *slog.Logger) error {
 		// (task 083), which is exactly when a tight limit would throttle the data it is
 		// most important not to lose.
 		trackLimiter: ratelimit.New(20, time.Minute),
+		// Ten portrait uploads an hour, per member (maintainer's number). Generous
+		// against the real use — take a photo, dislike it, retake it a few times — and
+		// far below what it would take to fill a disk or keep a CPU busy.
+		photoLimiter: ratelimit.New(10, time.Hour),
 
 		pushStore: push.NewMemoryStore(),
 	}

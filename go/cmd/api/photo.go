@@ -110,13 +110,27 @@ var errNotAnImage = errors.New("filen er ikke et billede vi kan læse")
 // @Success      200  {object}  map[string]string  "content hash of the stored portrait"
 // @Failure      400  {object}  map[string]string  "not a decodable image"
 // @Failure      401  {object}  map[string]string
-// @Failure      413  {object}  map[string]string  "larger than 4 MiB"
+// @Failure      413  {object}  map[string]string  "larger than 8 MiB"
+// @Failure      429  {object}  map[string]string  "more than 10 uploads in the past hour"
 // @Failure      503  {object}  map[string]string  "event stream unavailable — retry"
 // @Router       /me/photo [put]
 func (app *application) updatePhotoHandler(w http.ResponseWriter, r *http.Request) {
 	s, ok := contextGetSession(r)
 	if !ok {
 		app.AuthenticationRequiredResponse(w, r)
+		return
+	}
+
+	// Checked before the body is read, which is the point: a member who has hit the
+	// ceiling should not get to push another 8 MiB up a mobile link first, and the server
+	// should not spend a decode on it. Keyed by user, so a shared network is not throttled
+	// as one client.
+	//
+	// A denied request is not recorded (see ratelimit.Allow), so retrying does not push the
+	// window out — the wait is bounded by the ten uploads they actually made.
+	if !app.photoLimiter.Allow(s.UserID) {
+		app.RateLimitMessageResponse(w, r,
+			"Du kan uploade 10 billeder i timen. Prøv igen senere.")
 		return
 	}
 

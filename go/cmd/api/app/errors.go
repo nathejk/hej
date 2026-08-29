@@ -44,6 +44,19 @@ func (a *JsonApi) RateLimitResponse(w http.ResponseWriter, r *http.Request) {
 	a.errorResponse(w, r, http.StatusTooManyRequests, "rate limit exceeded; please try again later")
 }
 
+// RateLimitMessageResponse returns a 429 with a caller-supplied message.
+//
+// Exists because some 429s are read by a human and some by a client. The generic message
+// above is fine for the auth endpoints, whose text the UI never surfaces — but the
+// portrait upload shows the server's message directly to the member, and that member is
+// often twelve years old and Danish, so "rate limit exceeded" is the wrong string to put
+// in front of them.
+//
+// Mirrors ServiceUnavailableResponse, which takes a message for the same reason.
+func (a *JsonApi) RateLimitMessageResponse(w http.ResponseWriter, r *http.Request, message string) {
+	a.errorResponse(w, r, http.StatusTooManyRequests, message)
+}
+
 // PayloadTooLargeResponse returns a 413 JSON error.
 //
 // Distinct from a 400 because the client can act on it: "too big" tells an uploader to split

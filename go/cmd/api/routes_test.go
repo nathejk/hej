@@ -51,7 +51,10 @@ func newTestApp(t *testing.T) *application {
 		choices:           choice.NewManager([]byte("test-secret"), choice.DefaultTTL),
 		requestPinLimiter: ratelimit.New(100, time.Minute),
 		trackLimiter:      ratelimit.New(100, time.Minute),
-		pushStore:         push.NewMemoryStore(),
+		// Deliberately generous, so no test trips a limit it is not testing. The tests
+		// that DO test a limit build their own.
+		photoLimiter: ratelimit.New(100, time.Minute),
+		pushStore:    push.NewMemoryStore(),
 	}
 }
 

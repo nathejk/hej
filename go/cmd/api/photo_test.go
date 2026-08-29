@@ -18,6 +18,7 @@ import (
 
 	"nathejk.dk/internal/blob"
 	"nathejk.dk/internal/data"
+	"nathejk.dk/internal/ratelimit"
 	"nathejk.dk/internal/scans"
 	"nathejk.dk/internal/users"
 	"nathejk.dk/nathejk/table/person"
@@ -396,6 +397,72 @@ func TestUploadPhoto_RejectsOversizedMultipartBodies(t *testing.T) {
 	// And the message must be the one about size, not the one about a missing field.
 	if !bytes.Contains(payload, []byte("st\u00f8rre end")) {
 		t.Errorf("error should say the image is too big, got: %s", payload)
+	}
+}
+
+// Ten uploads an hour, per member. The eleventh is refused — with a Danish message,
+// because the client puts the server's text straight in front of the user.
+func TestUploadPhoto_RateLimited(t *testing.T) {
+	app := photoTestApp(t, &cqrstest.Publisher{}, nil)
+	app.photoLimiter = ratelimit.New(10, time.Hour)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	cookies := authedCookies(t, app, srv, "30000001", "+4530000001")
+
+	for i := 1; i <= 10; i++ {
+		ct, body := multipartPhoto(t, testImage(t, 32, 32))
+		resp := putWithCookies(t, srv.URL+"/api/me/photo", ct, body, cookies)
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("upload %d: status = %d, want 200", i, resp.StatusCode)
+		}
+	}
+
+	ct, body := multipartPhoto(t, testImage(t, 32, 32))
+	resp := putWithCookies(t, srv.URL+"/api/me/photo", ct, body, cookies)
+	payload, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("11th upload: status = %d, want 429", resp.StatusCode)
+	}
+	if !bytes.Contains(payload, []byte("10 billeder i timen")) {
+		t.Errorf("want the Danish limit message, got: %s", payload)
+	}
+}
+
+// The limit is per user, not global: one member exhausting theirs must not lock out the
+// rest of the event. This is the mistake an IP-keyed limiter would make, and a patrol
+// sharing one phone's hotspot is the normal case here.
+func TestUploadPhoto_RateLimitIsPerUser(t *testing.T) {
+	app := photoTestApp(t, &cqrstest.Publisher{}, nil)
+	app.photoLimiter = ratelimit.New(1, time.Hour)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	upload := func(t *testing.T, cookies []*http.Cookie) int {
+		t.Helper()
+		ct, body := multipartPhoto(t, testImage(t, 32, 32))
+		resp := putWithCookies(t, srv.URL+"/api/me/photo", ct, body, cookies)
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	spejder := authedCookies(t, app, srv, "30000001", "+4530000001")
+	if code := upload(t, spejder); code != http.StatusOK {
+		t.Fatalf("first upload: %d", code)
+	}
+	if code := upload(t, spejder); code != http.StatusTooManyRequests {
+		t.Fatalf("same user again: %d, want 429", code)
+	}
+
+	// A different member, unaffected.
+	bandit := authedCookies(t, app, srv, "30000002", "+4530000002")
+	if code := upload(t, bandit); code != http.StatusOK {
+		t.Errorf("another member: %d, want 200 — the limit must not be global", code)
 	}
 }
 
