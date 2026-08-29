@@ -137,6 +137,23 @@ async function flip() {
 // frame the way it is displayed, so the rotation an EXIF tag would have described is
 // already applied. That matters because the server re-encodes and therefore drops EXIF
 // (task 105) — an image relying on the tag would arrive sideways.
+//
+// # The stored photo is NOT mirrored, and that is deliberate
+//
+// `drawImage` ignores CSS transforms, so this captures the camera's **true** frame while
+// the live preview below is mirrored (`-scale-x-100`) to feel like a mirror. The two
+// therefore disagree, and a member notices it at the confirm step: "the photo is
+// mirrored".
+//
+// Reported from a real device on 2026-08-29 and **kept as is** by the maintainer. The
+// reason not to mirror what we store: this photo exists so staff can identify a member in
+// the dark. Mirroring puts a parting, a scar, a badge or an arm number written on skin on
+// the wrong side for the person doing the identifying — and iOS's own camera saves the
+// true image by default for the same reason.
+//
+// So if this is re-reported: the unflattering version is the correct one. Do not add a
+// `scale(-1, 1)` here. If it must be addressed, remove the mirror from the *preview*
+// instead, so what you aim is what you get.
 async function shoot() {
   const el = video.value
   if (!el || !el.videoWidth) return
@@ -255,7 +272,11 @@ onMounted(() => {
       />
 
       <template v-else>
-        <!-- muted + playsinline are required for inline autoplay on iOS. -->
+        <!-- muted + playsinline are required for inline autoplay on iOS.
+
+             The `-scale-x-100` mirrors the PREVIEW only, so aiming feels like a mirror.
+             The canvas captures the camera's true frame, so the stored photo is not
+             mirrored — deliberate, see the note on shoot(). -->
         <video
           ref="video"
           class="h-full w-full object-cover"

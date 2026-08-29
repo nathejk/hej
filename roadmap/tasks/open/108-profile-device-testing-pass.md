@@ -33,6 +33,41 @@
    Home Screen" is a manual Safari step, and the "Installed as app" row is
    deliberately absent (task 099).
 
+## Acceptance Criteria
+
+- [x] Capture works on both platforms — **confirmed on a real phone 2026-08-29:** both
+      the in-app camera and the OS camera (`<input capture>`) upload successfully against
+      the production-like stack at `hej.nathejk.dk`.
+- [x] Orientation is correct — implied by the above: neither path produced a sideways
+      portrait, which is what the server-side EXIF handling (task 104) was added for and
+      the case the file-picker path would otherwise have failed.
+- [ ] Upload persists across a reload and on a second device.
+- [ ] Permission rows match real device state after changing it in settings.
+- [ ] A previously denied notification permission can be recovered following only the
+      on-page guidance.
+- [x] Findings logged in this task; regressions filed as their own tasks.
+
+## Findings
+
+**2026-08-29 — "the photo stored are mirrored". Investigated, and kept as is.**
+
+Not a bug in the stored bytes. `ctx.drawImage` ignores CSS transforms, so the capture is
+the camera's **true** frame while the live preview is mirrored to feel like a mirror — the
+two disagree, and it shows at the confirm step. The decisive evidence was the report that
+*both* paths look the same: the OS-camera path never touches our canvas, and iOS also
+saves the true image by default, so two independent paths agreeing points at expectation
+rather than code.
+
+Maintainer's decision: **leave it.** Mirroring what we store would match how people expect
+to see themselves, but this photo exists so staff can identify a member in the dark, and a
+mirrored image puts a parting, a scar, a badge or an arm number written on skin on the
+wrong side for whoever is doing the identifying.
+
+Recorded as a comment on `shoot()` in `PhotoCapture.vue`, because "the photo is mirrored"
+is certain to be re-reported and the tempting fix is the wrong one. If it is ever
+addressed, the correct change is to remove the mirror from the *preview* — not to add a
+flip to the capture.
+
 ## Description
 
 Runs after 107. (Task 102's consent blocker was cleared 2026-08-28.)
