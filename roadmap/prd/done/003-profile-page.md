@@ -1,11 +1,11 @@
 # PRD 003 — Profile Page (own details, self-portrait, device permission status)
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed / Claude Opus 5)
 **Created:** 2026-08-24
-**Last updated:** 2026-08-28
+**Last updated:** 2026-08-29
 **Approved:** 2026-08-28
-**Shipped:**
+**Shipped:** 2026-08-29
 **Target users:** all signed-in roles (spejder, bandit, postmandskab, guide, samarit)
 
 <!--
@@ -456,31 +456,39 @@ portrait, not a modal spinner. **This component is owned here** and reused by PR
 
 ## 10. Rollout / Task Breakdown
 
-**Progress (2026-08-28).** Track (a) — details + permission status — is
-implemented: tasks 093–101 are done, so the page exists, is reached from the new
-top-bar user menu, and shows real details and live device-permission status.
+**Progress — SHIPPED 2026-08-29.** Tasks 093–115 are done. The page exists, is reached
+from the top-bar user menu, shows real details and live device-permission status, and
+takes, stores, serves and purges a portrait. Verified on a real phone against a
+production deployment: both capture paths, the portrait surviving a reload, permission
+rows tracking real settings changes, and push subscribing successfully once VAPID keys
+were configured.
 
-The consent/retention decision that blocked track (b) was **answered the same day**
-(task 102): consent is already held from sign-up, the portrait is a safety feature,
-and it is purged after the event. Track (b) then landed too — tasks 103, 105, 106 and
-107 are done, so a member can take a portrait and it is stored, event-sourced and
-served back.
+The device pass (task 108) earned its keep — it produced three defects no amount of
+container testing would have found:
 
-Still open: **108** (device pass — needs real phones; the camera paths cannot be
-verified in a container). Everything else is done: 093–107 and 109 shipped on
-2026-08-28.
+- the retained "original" was a same-size duplicate of the display image (task 112);
+- a failed push subscribe was **silently swallowed** by the status row;
+- the deployment had no VAPID keys, so subscribing could never succeed — and nothing
+  said so.
 
-**One number still wants a maintainer's answer:** portrait retention defaults to
-**30 days after capture** (`PORTRAIT_RETENTION`, task 109). The rule — the photo does
-not outlive the event — is settled; the number is a conservative placeholder and is
-changed with an env var, not a deploy.
+It also produced one question that turned out to be a decision rather than a bug: the
+stored portrait is not mirrored, deliberately, because mirroring puts a parting, a scar or
+an arm number on the wrong side for whoever is identifying the member.
 
-**Thumbnail sizes are configuration** (`thumbnailEdges`, task 110). Today one 256px
-rendition is generated; the event, projection and endpoint all carry a *set*, each
-entry with its own byte count and dimensions, so adding the size PRD 007's
-identification grid wants is a one-line change. Since task 111 the **original** is
-kept too (metadata stripped, never served), so such a change can be **backfilled**
-for portraits already taken — which would otherwise have been impossible.
+**Two things deliberately left open, neither blocking:**
+
+- **Portrait retention is a placeholder.** `PORTRAIT_RETENTION` defaults to 30 days from
+  capture. The *rule* is settled (task 102: the photo does not outlive the event); the
+  number still wants a maintainer's answer, and changing it is an env var rather than a
+  deploy.
+- **Push subscriptions are stored in memory** (`push.NewMemoryStore`), so a restart
+  forgets them. Task 115 makes clients re-register on load, so a restarted server relearns
+  its subscribers as members open the app — but a phone in a pocket stays unreachable
+  until then. Persisting the store belongs with the delivery work that will read it.
+
+**Deferred by design:** the "Installed as app" row (needs PRD 005's `install.store`),
+`Offline-parathed` (PRD 009), `Mine køretøjer` (PRD 010), and cross-person portrait
+viewing (PRD 007, which also owns whether participants may see each other).
 
 Two loosely coupled tracks: (a) details + permission status, which is
 low-risk and shippable on its own, and (b) photo capture + storage, which carries
