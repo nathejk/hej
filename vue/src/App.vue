@@ -121,12 +121,22 @@ const showShell = computed(
 // no scroll container. The top bar's trailing user menu (PRD 003: profile +
 // sign-out) is therefore absent here; the bottom nav is the way out.
 const fullBleed = computed(() => route.meta.fullBleed === true)
+
+// The update banner is fixed to the top of the viewport at z-60, so on the install wall it
+// would sit directly over the explanation and the install button — the one screen where the
+// user has exactly one thing to do and cannot yet do anything else (PRD 005 §8). Suppressed
+// there rather than restyled: an update is not urgent for a tab whose only purpose is to get
+// the app onto the home screen, and the new build will be picked up the moment they open it
+// from there.
+//
+// Left visible everywhere else, including onboarding, where reloading is harmless.
+const showUpdatePrompt = computed(() => route.name !== 'install')
 </script>
 
 <template>
-  <UpdatePrompt />
+  <UpdatePrompt v-if="showUpdatePrompt" />
   <!-- Diagnostic only, and teleported+fixed so it never affects the layout it reports
-       on. Rendered outside the shell so it is present on the login screen too. -->
+       on. Rendered outside the shell so it is present on the onboarding routes too. -->
   <LayoutDebug v-if="showLayoutDebug" />
 
   <div v-if="showShell" class="flex h-full flex-col">
