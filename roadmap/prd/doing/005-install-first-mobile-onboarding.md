@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed)
 **Created:** 2026-08-25
-**Last updated:** 2026-08-30 (impl. — see §11, 2026-08-30 "the website is anonymous")
+**Last updated:** 2026-08-30 (impl. — §10 carries the shipped/outstanding state)
 **Approved:** 2026-08-30
 **Shipped:**
 **Target users:** participant (spejder, bandit), postmandskab, guide, samarit — i.e. every in-event app user
@@ -623,38 +623,41 @@ desktop placeholder is the smallest piece — build it as a stub and do not dela
 mobile flow on it. Ship behind a runtime flag in `config/runtime.ts` so the gate can
 be disabled without a rollback if it misfires during an event.
 
-Proposed tasks for `roadmap/tasks/open/`:
+Tasks, with their board ids and state as of 2026-08-30. Two are outstanding; everything else
+shipped. Later fixes against this PRD: **141** (gate redirect loop), **142** (browser tab read as
+installed), **143** (website anonymous / login PWA-only), **144** (flow ended after the portrait),
+**145** (top bar behind the status bar).
 
-- [ ] Task: platform detection helper (`helpers/platform.ts`) + unit tests
-- [ ] Task: install store — capture `beforeinstallprompt`, `promptInstall`
-- [ ] Task: onboarding store — resumable step machine derived from permission state
-- [ ] Task: shared-go — `member.verified` event message; bump version in `hej`
+- [x] Task: platform detection helper (`helpers/platform.ts`) + unit tests — **116**
+- [x] Task: install store — capture `beforeinstallprompt`, `promptInstall` — **117**
+- [x] Task: onboarding store — resumable step machine derived from permission state — **118**
+- [x] Task: shared-go — `member.verified` event message; bump version in `hej` — **132**
       *(landed as a `hej`-local message instead — see §8 and task 132)*
-- [ ] Task: BFF — publish the verification event via `commands.Commands`
-- [ ] Task: BFF — project `verified_at` + derive `confirmation_required` onto PRD
+- [x] Task: BFF — publish the verification event via `commands.Commands` — **133**
+- [x] Task: BFF — project `verified_at` + derive `confirmation_required` onto PRD
       006's `person` read model
-- [ ] Task: BFF — `POST /api/me/profile/confirm` with server-side digit check and rate limiting
-- [ ] Task: WelcomeStepPortrait — wrap `PhotoCapture.vue`, retake, skip, reuse `PUT /api/me/photo`
-- [ ] Task: portrait nudge — re-prompt after onboarding while `hasPhoto` is false
+- [x] Task: BFF — `POST /api/me/profile/confirm` with server-side digit check and rate limiting — **135**
+- [x] Task: WelcomeStepPortrait — wrap `PhotoCapture.vue`, retake, skip, reuse `PUT /api/me/photo` — **129**
+- [ ] Task: portrait nudge — re-prompt after onboarding while `hasPhoto` is false — **146, NOT DONE**
       (dismissible per session, silenced permanently once one is uploaded)
-- [ ] Task: WelcomeStepConfirmProfile — masked number, 2-digit input, acknowledgement checkbox
-- [ ] Task: "nummeret er forkert" / "jeg kender ikke nummeret" paths + follow-up flag
-- [ ] Task: InstallView — one-tap install (Chromium) with platform instructions fallback
-- [ ] Task: InstallView — link to the anonymous website *(shipped first as a "fortsæt i
+- [x] Task: WelcomeStepConfirmProfile — masked number, 2-digit input, acknowledgement checkbox — **127**
+- [x] Task: "nummeret er forkert" / "jeg kender ikke nummeret" paths + follow-up flag — **128, 136**
+- [x] Task: InstallView — one-tap install (Chromium) with platform instructions fallback — **119**
+- [x] Task: InstallView — link to the anonymous website — **121, 143** *(shipped first as a "fortsæt i
       browseren" override, removed by task 143)*
-- [ ] Task: InstallInstructions component — iOS Safari / Android / webview variants
-- [ ] Task: refactor LoginView into an onboarding login step
-- [ ] Task: WelcomeView shell + location and notification explanation steps
-- [ ] Task: remove the `/login` route; repoint the router guard fallback and
+- [x] Task: InstallInstructions component — iOS Safari / Android / webview variants — **120**
+- [x] Task: refactor LoginView into an onboarding login step — **125**
+- [x] Task: WelcomeView shell + location and notification explanation steps — **124, 131**
+- [x] Task: remove the `/login` route; repoint the router guard fallback and
       `App.vue`'s `signOut()` at `welcome`
-- [ ] Task: generate the `progress` and `checkbox` shadcn-vue primitives
-- [ ] Task: PermissionPrompt full-screen variant
-- [ ] Task: DesktopView — static placeholder page for non-mobile visitors
+- [x] Task: generate the `progress` and `checkbox` shadcn-vue primitives — **122**
+- [x] Task: PermissionPrompt full-screen variant — **130**
+- [x] Task: DesktopView — static placeholder page for non-mobile visitors — **123**, replaced by **140**
       *(shipped, then replaced by task 140: a plain page outside the app)*
-- [ ] Task: router guard — device / standalone / onboarding gates
-- [ ] Task: App.vue shell — hide chrome on install/welcome routes
-- [ ] Task: runtime flag + dev/QA gate bypass
-- [ ] Task: manual test matrix — iOS Safari, Android Chrome, Android Firefox, desktop, in-app webview
+- [x] Task: router guard — device / standalone / onboarding gates — **137**, fixed by **141**
+- [x] Task: App.vue shell — hide chrome on install/welcome routes — **138**
+- [x] Task: runtime flag + dev/QA gate bypass — **139**
+- [ ] Task: manual test matrix — iOS Safari, Android Chrome, Android Firefox, desktop, in-app webview — **139, NOT RUN**
 
 ## 11. Decisions
 

@@ -63,8 +63,8 @@ On completion the store marks onboarding complete and the shell redirects to `/m
       counts only the steps that apply to the current user
 - [x] Resuming after the app is killed mid-flow lands on the first unsettled step, not
       back at the beginning of the flow
-- [ ] Top bar and `BottomNav` are absent on `/welcome` — *relies on task 138's `showShell`
-      change, which has not landed yet*
+- [x] Top bar and `BottomNav` are absent on `/welcome` — *landed with task 126's `showShell`
+      change and verified by task 138*
 - [x] `fullBleed` is **not** set on the route, and a comment records why (no-op outside
       `showShell`)
 - [x] Completing the last applicable step marks onboarding complete and redirects to
@@ -112,3 +112,6 @@ On completion the store marks onboarding complete and the shell redirects to `/m
 - 2026-08-30 — ✅ `vue-tsc` and `npm run build` clean. One criterion left unchecked on purpose: the
   top bar and `BottomNav` are still rendered on `/welcome` until task 138 replaces `showShell`'s
   `route.name !== 'login'` term. The route deliberately does not work around that with `fullBleed`.
+- 2026-08-30 — Criterion closed: `showShell` landed in task 126 (it had to, since the `login`
+  term died there), so the chrome is absent on `/welcome`. Task 138 owns the rest of the shell
+  work.

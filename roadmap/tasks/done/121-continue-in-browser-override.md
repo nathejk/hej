@@ -69,8 +69,8 @@ second key.
       routes the user into the normal login flow
 - [x] The override persists across reloads and app restarts under `hej.install.*`, with a
       timestamp stored alongside it so a future expiry (§12 Q6) needs no migration
-- [ ] The router's install gate honours it; the auth, role and onboarding gates are unaffected
-      — **not yet true: the gate is task 137.** See the log.
+- [~] The router's install gate honours it — *briefly true (task 137), then **moot**: task 143
+      deleted the override entirely. Left as an unmet criterion would misread as unfinished work.*
 - [x] It is the **only** non-install affordance on the wall — no "desktop version" link (§11)
 - [x] Visually subordinate to the install action (link/ghost button, below it), but reachable
       by plain description over the phone: no hidden gesture, no repeated taps, no console

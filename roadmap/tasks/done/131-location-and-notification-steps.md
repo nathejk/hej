@@ -111,9 +111,9 @@ only suppresses the header *inside* `showShell`, so it is a no-op on these route
       with no pointless retry
 - [x] Permission state is read only through `location.store` / `notifications.store`; no
       direct `navigator.permissions` or `Notification.permission` reads in the components
-- [ ] `App.vue`'s `showShell` becomes
-      `isAuthenticated && onboardingComplete && !route.meta.public`, landed with task 126 —
-      *deliberately left to task 138, which owns the whole expression; see the log*
+- [x] `App.vue`'s `showShell` becomes
+      `isAuthenticated && onboardingComplete && !route.meta.public` — *landed in task 126, which
+      is the commit where the `login` term it replaced stopped existing*
 - [x] Copy in Danish; headlines use `font-nathejk`; icons `MapPin` / `Bell` from Lucide
 - [x] `vue-tsc` and `npm run build` clean; grant and deny paths checked on a real device for
       both steps — *device check is task 139's matrix*
@@ -161,3 +161,6 @@ only suppresses the header *inside* `showShell`, so it is a no-op on these route
   Task 138 owns it; the criterion above is left unchecked rather than quietly ticked.
 - 2026-08-30 — ✅ `vue-tsc` clean. Grant/deny on real hardware is task 139's matrix — it is the one
   thing that cannot be checked here, and it is exactly what that task exists for.
+- 2026-08-30 — Criterion closed: the expression landed in task 126 rather than here, for the
+  reason recorded in that task — it is the commit where `route.name !== 'login'` stopped being
+  meaningful, so deferring it would have shipped onboarding with the app chrome over it.
