@@ -17,6 +17,7 @@ function world(overrides: {
   hasPhoto?: boolean
   location?: 'unknown' | 'granted' | 'denied'
   notifications?: 'unknown' | 'granted' | 'denied'
+  subscribed?: boolean
 }) {
   const session = useSessionStore()
   const profile = useProfileStore()
@@ -31,6 +32,9 @@ function world(overrides: {
   profile.hasPhoto = overrides.hasPhoto ?? true
   location.permission = overrides.location ?? 'granted'
   notifications.permission = overrides.notifications ?? 'granted'
+  // Defaults to true so the existing cases keep meaning "notifications are done"; the tests
+  // below that care about the distinction set it explicitly.
+  notifications.subscribed = overrides.subscribed ?? true
 }
 
 describe('onboarding.store', () => {
@@ -99,8 +103,29 @@ describe('onboarding.store', () => {
     expect(onboarding.currentStep).toBe('notifications')
   })
 
+  // REGRESSION (task 144). Permission and subscription are independent: a member can have
+  // granted notifications long ago and have no subscription registered with the BFF, in which
+  // case nothing is ever delivered to them. Treating the grant alone as settled skipped the one
+  // step whose job is to create that subscription — silently, and for exactly the people who
+  // look most set up.
+  it('still asks for notifications when permission is granted but nothing is subscribed', () => {
+    world({ notifications: 'granted', subscribed: false })
+    expect(useOnboardingStore().currentStep).toBe('notifications')
+  })
+
+  it('does not ask when a granted permission already has a subscription behind it', () => {
+    world({ notifications: 'granted', subscribed: true })
+    expect(useOnboardingStore().currentStep).toBe(null)
+  })
+
+  // Nothing further can be done in either state, so neither needs a subscription to settle.
+  it('settles a denied or unsupported notification permission without a subscription', () => {
+    world({ notifications: 'denied', subscribed: false })
+    expect(useOnboardingStore().currentStep).toBe(null)
+  })
+
   it('a declined permission settles the step rather than blocking the flow', () => {
-    world({ location: 'denied', notifications: 'denied' })
+    world({ location: 'denied', notifications: 'denied', subscribed: false })
     const onboarding = useOnboardingStore()
     expect(onboarding.currentStep).toBe(null)
     expect(onboarding.blocked).toBe(false)

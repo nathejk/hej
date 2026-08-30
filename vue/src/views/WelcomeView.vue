@@ -52,7 +52,31 @@ const stepComponents = {
 // giving it a slot in the sequence would make the progress count wrong for everyone else.
 const reportingProblem = ref(false)
 
-const current = computed(() => onboarding.currentStep)
+// The step on screen.
+//
+// **Latched**, and that is the point of it. The store decides the *order* and what is still
+// unsettled; this decides what the user is looking at right now, and a mounted step is never
+// yanked away because state resolved underneath it.
+//
+// Without the latch the flow tore itself down mid-run (task 144): the notifications step syncs
+// permission and subscription when it mounts, so an already-granted permission settled the step
+// milliseconds after it appeared, `currentStep` went null, and onboarding "completed" — from the
+// user's side, the photo step was the last thing they saw before landing in the app.
+//
+// `undefined` means "not decided yet", which is deliberately distinct from `null` ("nothing left
+// to do"), because the second one completes onboarding and the first must not.
+const shown = ref<OnboardingStepId | null | undefined>(undefined)
+
+// Fill it in once at the start, and after each step hands back control. Never otherwise.
+watch(
+  () => onboarding.currentStep,
+  (next) => {
+    if (shown.value === undefined) shown.value = next
+  },
+  { immediate: true },
+)
+
+const current = computed(() => shown.value ?? null)
 
 const steps = computed(() => onboarding.steps)
 
@@ -84,8 +108,11 @@ watch(() => session.isAuthenticated, loadProfile)
 // When there is no unsettled step left, onboarding is done. Marked complete (per device) and
 // out to the app — routed by path so the shell does not need to know the first destination's
 // name, the same way the login view used to.
+//
+// Watches the *latched* step, not the store's answer: completion is "the user finished the last
+// step", not "the state happens to look finished".
 watch(
-  current,
+  shown,
   async (step) => {
     if (step !== null) return
     if (!session.isAuthenticated) return
@@ -95,15 +122,20 @@ watch(
   { immediate: true },
 )
 
-function onStepDone() {
-  // Nothing to advance: the store derives the next step from state the step itself changed
-  // (a session, a granted permission, an uploaded portrait). This exists so a step can say
-  // "I'm finished" without knowing what follows.
+// Hand control back to the machine: whatever the step just changed (a session, a granted
+// permission, an uploaded portrait) is now in the stores, so ask what is left.
+async function advance() {
   reportingProblem.value = false
+  // The profile decides two of the remaining steps (`confirmation_required`, `has_photo`), and
+  // straight after login it may still be in flight — deciding against an unloaded profile would
+  // skip the confirmation step. `ensureLoaded()` awaits an in-flight request.
+  await loadProfile()
+  shown.value = onboarding.currentStep
 }
 
-function onSkip(id: OnboardingStepId) {
+async function onSkip(id: OnboardingStepId) {
   onboarding.skip(id)
+  await advance()
 }
 </script>
 
@@ -124,15 +156,15 @@ function onSkip(id: OnboardingStepId) {
       <!-- The confirmation detour, when the member says the number is wrong or unknown. -->
       <WelcomeStepConfirmProblem
         v-if="current === 'confirm-profile' && reportingProblem"
-        @done="onStepDone"
+        @done="advance"
         @back="reportingProblem = false"
       />
 
       <component
         v-else-if="current"
         :is="stepComponents[current]"
-        @done="onStepDone"
-        @skip="onSkip(current)"
+        @done="advance"
+        @skip="current && onSkip(current)"
         @report="reportingProblem = true"
       />
     </div>

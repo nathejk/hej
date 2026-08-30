@@ -341,6 +341,14 @@ the app on the home screen onwards is the same.
       scope here (§12).
 - [ ] Onboarding never hard-blocks on a permission decline or a failed profile
       confirmation; only **login** is mandatory.
+- [ ] A step counts as settled only when the thing it exists to achieve is actually done. In
+      particular the notifications step needs a **push subscription registered with the BFF**,
+      not merely a granted permission — the two are independent, and a grant with no
+      subscription delivers nothing *(added 2026-08-30, task 144)*.
+- [ ] A step that is on screen is never replaced because state resolved underneath it. The step
+      machine owns the order; the flow advances when the user finishes a step *(added
+      2026-08-30, task 144: steps that sync their own state on mount were completing the flow
+      before the user saw them)*.
 - [ ] Per-device state (permissions) persists in `localStorage`; per-user state
       (profile confirmation) comes from the BFF. Returning users go straight to
       `/maps`.

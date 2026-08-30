@@ -47,6 +47,11 @@ interface ProfileResponse {
   verified_at?: string | null
 }
 
+// Shared in-flight fetch, so concurrent `ensureLoaded()` callers await one request and all of
+// them see the result. Module-level rather than state: it is a promise, not data, and putting a
+// promise in a Pinia store means Vue wraps it in a reactive proxy.
+let inFlight: Promise<void> | null = null
+
 // profile.store owns the signed-in user's own details (PRD 003).
 //
 // Deliberately separate from session.store: that store owns *authentication* and is
@@ -135,9 +140,23 @@ export const useProfileStore = defineStore('profile', {
 
     // ensureLoaded fetches once. Used by the user menu, which mounts on every page
     // and must not re-request the same data on each navigation.
+    //
+    // **Awaits an in-flight fetch** rather than returning immediately from it. The earlier
+    // `if (this.loaded || this.loading) return` meant a second caller was told "done" while
+    // the data was still missing — harmless for the user menu, which renders reactively, but
+    // not for the onboarding flow, which has to decide *which step comes next* from
+    // `confirmation_required` and `has_photo`. Deciding that against an unloaded profile skips
+    // the profile-confirmation step (task 144).
     async ensureLoaded() {
-      if (this.loaded || this.loading) return
-      await this.fetch()
+      if (this.loaded) return
+      if (inFlight) {
+        await inFlight
+        return
+      }
+      inFlight = this.fetch().finally(() => {
+        inFlight = null
+      })
+      await inFlight
     },
 
     // uploadPhoto sends a captured portrait to the BFF.

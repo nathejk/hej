@@ -35,6 +35,11 @@ onMounted(() => {
   // whether the server has push set up at all.
   notifications.syncPermission()
   void notifications.syncConfigured()
+  // Also the live subscription, because a granted permission is not the question this step
+  // exists to answer — "is there a subscription registered with the BFF?" is (task 144). A
+  // member who already has one has nothing to do here; one who does not needs this step even
+  // though the permission prompt will never appear for them.
+  void notifications.syncSubscription()
 })
 
 const unavailable = computed(

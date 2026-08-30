@@ -173,10 +173,21 @@ export const useOnboardingStore = defineStore('onboarding', {
           location.permission === 'granted' ||
           location.permission === 'denied' ||
           location.permission === 'unavailable',
+        // Note what is NOT enough here: `permission === 'granted'`.
+        //
+        // Permission and subscription are genuinely independent — `notifications.store` says
+        // so in its own comments, and task 115 exists because of it. A member can have granted
+        // notifications months ago and have **no subscription registered with the BFF**, in
+        // which case nothing will ever be delivered to them. Treating the grant as "settled"
+        // skipped the one step whose job is to create that subscription, silently, for exactly
+        // the users who look most set up (task 144).
+        //
+        // So a granted permission settles this step only once there is a subscription behind
+        // it. `denied` and `unavailable` settle it outright: there is nothing further to do.
         notificationsSettled:
-          notifications.permission === 'granted' ||
           notifications.permission === 'denied' ||
-          notifications.permission === 'unavailable',
+          notifications.permission === 'unavailable' ||
+          (notifications.permission === 'granted' && notifications.subscribed),
         skipped: state.skipped,
       }
     },
