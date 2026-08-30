@@ -137,7 +137,8 @@ The webview row is a pass/fail on the escape hatch, not on installation.
   | Android Firefox | no prompt → manual instructions correct and readable | not run |
   | Desktop | classified desktop, leaves the app for `/desktop.html`, never sees `/welcome` or `/install`, and the install banner stays **hidden** | not run |
   | iPadOS | reports as macOS Safari — must still classify as **mobile**; if it does not, the placeholder's install banner must be visible as the way back | not run |
-  | In-app webview (Facebook) | install impossible; escape hatch reachable and sufficient | not run |
+  | In-app webview (Facebook) | install impossible; the instructions' "reopen in Safari/Chrome" is the only way out and must be followable | not run |
+  | Mobile browser → website | the wall's "Gå til hjemmesiden" link works, the website's "Installér som app" box shows on a phone and is hidden on a laptop, and the round trip back to `/install` works (task 143) | not run |
 
   Two rows are worth more attention than the rest. **iPadOS** is the one most likely to fail and the
   reason the tie-break exists (`platform.ts` detects it as `platform === 'MacIntel' && maxTouchPoints > 1`,

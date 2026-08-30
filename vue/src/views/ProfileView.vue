@@ -8,24 +8,19 @@
 // There is no sign-out button here on purpose: it lives in that same user menu, and
 // PRD 005 requires exactly one sign-out action in the app.
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { Bell, Camera, MapPin, Smartphone } from '@lucide/vue'
+import { Bell, Camera, MapPin } from '@lucide/vue'
 import { useProfileStore } from '@/stores/profile.store'
 import { useNotificationsStore } from '@/stores/notifications.store'
 import { useLocationStore } from '@/stores/location.store'
-import { useInstallStore } from '@/stores/install.store'
 import { ROLE_LABELS } from '@/config/roles'
 import { formatPhone } from '@/helpers'
 import { blockedGuidance } from '@/config/permissions'
-import { isStandalone } from '@/helpers/platform'
 import PreferenceRow from '@/components/profile/PreferenceRow.vue'
 import ProfilePhoto from '@/components/profile/ProfilePhoto.vue'
 
 const profile = useProfileStore()
 const notifications = useNotificationsStore()
 const location = useLocationStore()
-const install = useInstallStore()
-const router = useRouter()
 
 // Crew are seeded without an address and the app has no reason to show one, so an
 // empty address is a normal state rather than missing data — but the row still says
@@ -36,35 +31,13 @@ const hasAddress = computed(() => {
 })
 
 // —— På denne enhed ——
+//
+// There is deliberately **no install row** here. Task 121 added one as the way back from the
+// "Fortsæt i browseren" escape hatch; both are gone (task 143). This page is only reachable
+// from inside the installed app, so a row reporting installation status could only ever say
+// "installed" — and there is no longer an override for it to clear.
 
 const busy = ref(false)
-
-// The install row (task 121). This is the documented **way back** from the "Fortsæt i
-// browseren" escape hatch: once taken, the wall never appears again, so without a control
-// here the override would be a one-way door — and the only remaining route to installing
-// would be clearing site data, which also signs the member out.
-//
-// It reads its state from `isStandalone()` rather than from the store, because "is this an
-// installed launch" is a fact about the current window, not something we record.
-const installRow = computed(() => {
-  if (isStandalone()) {
-    return {
-      status: 'Installeret',
-      detail: 'Du kører appen fra hjemmeskærmen. Det er sådan den skal bruges.',
-    }
-  }
-  return {
-    status: 'Kører i browser',
-    detail:
-      'Appen virker dårligere i en browserfane: på iPhone kan du slet ikke få beskeder fra løbet, og den virker ikke uden signal.',
-    action: 'Vis installation igen',
-  }
-})
-
-async function showInstallWall() {
-  install.setContinueInBrowser(false)
-  await router.push({ name: 'install' })
-}
 
 const pushRow = computed(() => {
   if (!notifications.available) {
@@ -312,14 +285,6 @@ onUnmounted(() => {
       <div
         class="mt-2 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white px-4 shadow-xs"
       >
-        <PreferenceRow
-          :icon="Smartphone"
-          label="App på hjemmeskærmen"
-          :status="installRow.status"
-          :detail="installRow.detail"
-          :action="installRow.action"
-          @act="showInstallWall"
-        />
         <PreferenceRow
           :icon="Bell"
           label="Notifikationer"

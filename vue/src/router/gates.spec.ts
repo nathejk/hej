@@ -13,7 +13,6 @@ let mobile = true
 let standalone = true
 
 import { LEAVE_APP, deviceAndInstallGates } from '@/router/gates'
-import { useInstallStore } from '@/stores/install.store'
 import { useOnboardingStore } from '@/stores/onboarding.store'
 
 // A minimal stand-in for what the guard actually reads off a route.
@@ -75,10 +74,15 @@ describe('device / install / onboarding gates', () => {
     expect(settle('maps', { authenticated: true })).toBe('(left the app)')
   })
 
-  it('honours the escape hatch: an overridden tab reaches onboarding instead of the wall', () => {
+  // There is no way past the wall in a browser any more (task 143): the website is anonymous
+  // and login exists only in the installed app. So no state, and no URL, gets a tab to the
+  // login flow — including asking for /welcome by hand.
+  it('never lets a browser tab reach the login flow, whatever it asks for', () => {
     standalone = false
-    useInstallStore().setContinueInBrowser(true)
-    expect(settle('maps', { authenticated: false })).toBe('welcome')
+    for (const start of ['maps', 'welcome', 'profile', 'sos']) {
+      expect(settle(start, { authenticated: false })).toBe('install')
+      expect(settle(start, { authenticated: true })).toBe('install')
+    }
   })
 
   it('sends an installed device with onboarding unfinished to /welcome', () => {
@@ -105,21 +109,18 @@ describe('device / install / onboarding gates', () => {
   it('terminates for every combination of device, install, onboarding and session state', () => {
     for (const isMobile of [true, false]) {
       for (const isStandalone of [true, false]) {
-        for (const override of [true, false]) {
-          for (const complete of [true, false]) {
-            for (const authenticated of [true, false]) {
-              for (const start of ['maps', 'welcome', 'install', 'profile', 'sos']) {
-                setActivePinia(createPinia())
-                mobile = isMobile
-                standalone = isStandalone
-                if (override) useInstallStore().setContinueInBrowser(true)
-                if (complete) useOnboardingStore().markComplete()
+        for (const complete of [true, false]) {
+          for (const authenticated of [true, false]) {
+            for (const start of ['maps', 'welcome', 'install', 'profile', 'sos']) {
+              setActivePinia(createPinia())
+              mobile = isMobile
+              standalone = isStandalone
+              if (complete) useOnboardingStore().markComplete()
 
-                expect(() => settle(start, { authenticated }),
-                  `start=${start} mobile=${isMobile} standalone=${isStandalone} ` +
-                    `override=${override} complete=${complete} auth=${authenticated}`,
-                ).not.toThrow()
-              }
+              expect(() => settle(start, { authenticated }),
+                `start=${start} mobile=${isMobile} standalone=${isStandalone} ` +
+                  `complete=${complete} auth=${authenticated}`,
+              ).not.toThrow()
             }
           }
         }

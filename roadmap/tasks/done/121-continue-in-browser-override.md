@@ -117,3 +117,14 @@ second key.
   the hatch sets a flag nothing reads. Per this task's own instruction, that is recorded rather
   than closed over — the hatch is not functionally an escape until 137 lands, and 137 must read
   `install.continueInBrowser`.
+- 2026-08-30 — **Superseded by task 143: this override is deleted.** The maintainer settled that
+  the browser experience is an anonymous website and that login exists only in the installed app,
+  which left the hatch with nowhere to continue *to* — its destination was `/welcome` and the login
+  flow. The wall now links to the website instead.
+
+  The reasoning recorded above was sound given the premise it was written under ("non-installed
+  users are a degraded experience, not a forbidden one"); that premise is what changed. Two notes
+  worth carrying forward: the no-lockout property this task existed to provide is now explicitly
+  given up (PRD 005 §6/§11 say so and why), and the persisted flag turned out to be exactly the
+  invisible-state footgun it looked like — it was a live suspect while diagnosing task 142, because
+  nothing in the UI could tell you whether a device had it set.

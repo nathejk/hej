@@ -3,7 +3,7 @@ import type { Component } from 'vue'
 import type { RouteLocationRaw, RouteRecordRaw } from 'vue-router'
 import { useSessionStore } from '@/stores/session.store'
 import { gatesEnabled } from '@/config/gates'
-import { DESKTOP_PAGE, LEAVE_APP, deviceAndInstallGates } from '@/router/gates'
+import { LEAVE_APP, WEBSITE_PAGE, deviceAndInstallGates } from '@/router/gates'
 import type { Role } from '@/stores/session.store'
 import { destinations } from '@/config/navigation'
 
@@ -129,8 +129,8 @@ router.beforeEach(async (to) => {
       outcome = true
     }
     if (outcome === LEAVE_APP) {
-      // A desktop visitor: out of the app entirely, to a static file that is not part of it.
-      window.location.replace(DESKTOP_PAGE)
+      // A desktop visitor: out of the app entirely, to the anonymous website.
+      window.location.replace(WEBSITE_PAGE)
       // Aborts the in-app navigation so nothing renders in the moment before the browser
       // leaves. Safe here, unlike the blank-screen case of task 090: the page is on its way
       // out, and the destination is a file rather than something that has to boot.

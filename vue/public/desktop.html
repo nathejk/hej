@@ -81,27 +81,47 @@
          sees a flash of an install invitation it cannot act on. */
       #install-banner {
         display: none;
+        padding: 0.75rem;
+      }
+      /* A box rather than a strip of text: this is the one action on the page for a phone
+         visitor, and the website is otherwise anonymous — there is nothing else to do here. */
+      #install-banner a {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        max-width: 30rem;
+        margin: 0 auto;
+        padding: 0.875rem 1rem;
+        border-radius: 0.75rem;
         background: var(--ink);
         color: var(--bg);
-        padding: 0.75rem 1rem;
-        text-align: center;
-        font-size: 0.9375rem;
-      }
-      #install-banner a {
-        color: inherit;
+        font-size: 1rem;
         font-weight: 600;
+        text-decoration: none;
+      }
+      #install-banner .sub {
+        max-width: 30rem;
+        margin: 0.5rem auto 0;
+        text-align: center;
+        font-size: 0.8125rem;
+        color: var(--muted);
       }
     </style>
   </head>
   <body>
     <!--
-      Back to the install instructions. Shown only on devices that qualify for the PWA: a
-      mouse-only desktop must not be invited to install something it cannot use, and a tablet
-      that the app's detection misread as desktop needs a route back to the wall — which is
+      The call to action for a phone or tablet visitor, and the only action on the page: this
+      website is anonymous, and the app — login included — exists only once installed
+      (task 143). Also the route back for a device the app's detection misread, which is
       otherwise unreachable from here.
+
+      Shown only on devices that qualify for the PWA: a mouse-only desktop must not be invited
+      to install something it cannot use.
     -->
     <div id="install-banner">
-      <a href="/install">Installér app</a> — Hej Nathejk virker på din telefon eller tablet
+      <a href="/install">Installér som app</a>
+      <p class="sub">Kort, kontakter og beskeder under løbet virker kun i appen.</p>
     </div>
 
     <main>

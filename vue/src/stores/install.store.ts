@@ -24,37 +24,14 @@ interface BeforeInstallPromptEvent extends Event {
 // which is all any consumer needs.
 let pendingPrompt: BeforeInstallPromptEvent | null = null
 
-const OVERRIDE_KEY = 'hej.install.continue-in-browser'
-
-// The override is stored as the epoch-ms moment it was set, not as a bare '1'.
+// NOTE: this store deliberately holds **no "continue in browser" override** any more.
 //
-// PRD 005 §12 asks — and deliberately leaves open — whether the escape hatch should expire
-// (e.g. re-ask after 7 days) so it does not quietly become the default path. No policy is
-// implemented here, on purpose. Storing the timestamp now means a policy can be added
-// later by reading a value that is already there, rather than by introducing a second key
-// and having to decide what an existing override without a timestamp means.
-
-// Every localStorage access is wrapped: Safari throws on access in some privacy modes,
-// and this value is read by the router guard on every navigation. An exception there
-// would white-screen the app before anything is rendered — the same failure shape as
-// task 090.
-function readOverride(): boolean {
-  try {
-    return localStorage.getItem(OVERRIDE_KEY) !== null
-  } catch {
-    return false
-  }
-}
-
-function writeOverride(on: boolean) {
-  try {
-    if (on) localStorage.setItem(OVERRIDE_KEY, String(Date.now()))
-    else localStorage.removeItem(OVERRIDE_KEY)
-  } catch {
-    // Private mode can refuse. The override then lasts for this session only, which is
-    // a degraded escape hatch rather than no escape hatch.
-  }
-}
+// It used to (task 121): a persisted flag that let a browser tab past the install gate and
+// into the login flow. That was removed when the maintainer settled what the browser
+// experience is (task 143): **the website is anonymous and there is no login outside the
+// installed app**, so there is nothing for such a flag to unblock — its destination no longer
+// exists. Leaving it in place would have kept a persisted key that silently changed the gate's
+// behaviour on any device that ever tapped it, with nothing in the UI to reveal it.
 
 /**
  * Registers the installability listeners. **Called from `main.ts` before `app.mount()`.**
@@ -94,13 +71,6 @@ export const useInstallStore = defineStore('install', {
     // installing — it is not a way to answer "is this app installed?" in general, which
     // is why the wall also offers "jeg har allerede installeret appen".
     installed: false,
-    // The persisted escape hatch. Read eagerly: the router guard needs it synchronously
-    // on the very first navigation.
-    //
-    // It unblocks the **install** gate only — auth, roles and onboarding still apply, so
-    // the user lands in the normal login flow rather than past it. The install gate is UX;
-    // the BFF authorizes every endpoint independently (PRD 005 §8).
-    continueInBrowser: readOverride(),
   }),
   actions: {
     setCanPrompt(can: boolean) {
@@ -134,10 +104,6 @@ export const useInstallStore = defineStore('install', {
         pendingPrompt = null
         this.canPrompt = false
       }
-    },
-    setContinueInBrowser(on: boolean) {
-      this.continueInBrowser = on
-      writeOverride(on)
     },
   },
 })

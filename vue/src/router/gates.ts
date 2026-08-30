@@ -1,7 +1,6 @@
 import type { RouteLocationNormalized, RouteLocationRaw } from 'vue-router'
 
 import { isMobileDevice, isStandalone } from '@/helpers/platform'
-import { useInstallStore } from '@/stores/install.store'
 import { useOnboardingStore } from '@/stores/onboarding.store'
 
 // Steps 2-4 of the router guard, in their own module.
@@ -11,19 +10,20 @@ import { useOnboardingStore } from '@/stores/onboarding.store'
 // test drags in a DOM the gates themselves have no use for. The gates are pure decisions over
 // two stores and two predicates, and this is what keeps them testable as such.
 
-// The desktop placeholder is a **static page outside this app** (task 140):
-// `public/desktop.html`, no Vue, no bundle. So leaving for it is a full-page navigation, not
-// a route change — routing to it inside the SPA is precisely what that task removed.
+// The public website is a **static page outside this app** (tasks 140/143):
+// `public/desktop.html`, no Vue, no bundle, and **anonymous — there is no login on it**. So
+// leaving for it is a full-page navigation, not a route change; routing to it inside the SPA is
+// precisely what task 140 removed.
 //
 // The URL is the file's own path rather than a tidier `/desktop`, and that is load-bearing:
 // a path the SPA fallback would answer with `index.html` would boot the app, which would
 // redirect here again — a loop. A real file cannot be caught by the fallback. The service
 // worker's navigation fallback excludes it for the same reason (see vite.config.ts).
-export const DESKTOP_PAGE = '/desktop.html'
+export const WEBSITE_PAGE = '/desktop.html'
 
 /**
- * "Leave the SPA for the placeholder page." Distinct from a redirect, because it is not a
- * route: the guard turns it into a full-page navigation.
+ * "Leave the SPA for the website." Distinct from a redirect, because it is not a route: the
+ * guard turns it into a full-page navigation.
  */
 export const LEAVE_APP = Symbol('leave-app')
 
@@ -50,21 +50,19 @@ export const LEAVE_APP = Symbol('leave-app')
 export function deviceAndInstallGates(
   to: RouteLocationNormalized,
 ): true | typeof LEAVE_APP | RouteLocationRaw {
-  const install = useInstallStore()
   const onboarding = useOnboardingStore()
 
-  // 2. Device class. A desktop computer is not an app user: it gets the plain placeholder
-  //    page, which is not part of this application. In particular it never sees /install or
-  //    /welcome — showing a laptop how to add a phone app to its home screen is worse than
-  //    the placeholder.
+  // 2. Device class. A desktop computer is not an app user: it gets the website, which is not
+  //    part of this application. In particular it never sees /install or /welcome — showing a
+  //    laptop how to add a phone app to its home screen is worse than the website is.
   if (!isMobileDevice()) {
     return LEAVE_APP
   }
 
-  // 3. Standalone. The app is not usable in a browser tab, so every route leads to the wall
-  //    until it is installed — unless the user took the escape hatch, which unblocks *this*
-  //    gate only (task 121).
-  if (!isStandalone() && !install.continueInBrowser) {
+  // 3. Standalone. **There is no login outside the installed app** (task 143), so a browser
+  //    tab has exactly one destination in here: the install instructions. No override, no
+  //    exceptions — the anonymous website is the browser experience, and the wall links to it.
+  if (!isStandalone()) {
     return to.name === 'install' ? true : { name: 'install' }
   }
 

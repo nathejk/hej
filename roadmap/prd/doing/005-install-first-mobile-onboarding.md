@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed)
 **Created:** 2026-08-25
-**Last updated:** 2026-08-30 (impl.)
+**Last updated:** 2026-08-30 (impl. — see §11, 2026-08-30 "the website is anonymous")
 **Approved:** 2026-08-30
 **Shipped:**
 **Target users:** participant (spejder, bandit), postmandskab, guide, samarit — i.e. every in-event app user
@@ -26,9 +26,11 @@ one-time **confirmation of their profile and contact number**, a **self-portrait
 for night-time identification, then location, then push notifications. That mobile
 flow is the whole point of this PRD.
 
-Desktop visitors get a **normal website** rather than the app. Building that
-website is **not part of this PRD** — all this PRD ships is a placeholder page so
-desktop visitors are not dumped at a login form for an app they cannot use.
+Anyone in a **browser** — desktop or phone — gets a **normal website** rather than the app.
+The website is anonymous: **there is no login outside the installed app** (§11, 2026-08-30). A
+phone or tablet on it sees one call to action, "Installér som app". Building that website is
+**not part of this PRD**; all this PRD ships is a placeholder page, so nobody is dumped at a
+login form for an app they cannot use.
 
 ## 2. Problem & Motivation
 
@@ -70,8 +72,8 @@ desktop visitors are not dumped at a login form for an app they cannot use.
   it is a later decision.)*
 - Location and push permission decisions happen once, up front, in a
   predictable, explained order — never as an unexplained native dialog.
-- A desktop visitor is not shown a login form for an app they cannot use — they
-  get a short, honest placeholder. Nothing more is promised.
+- No browser visitor is shown a login form for an app they cannot use — they get a short,
+  honest placeholder, and a phone gets an install call to action. Nothing more is promised.
 - The gate is legible: a user who is blocked always sees *why* and *what to do
   next*, with platform-correct instructions.
 - The gate is safe: no user can be permanently locked out by a false negative in
@@ -196,11 +198,13 @@ the app on the home screen onwards is the same.
   fallback below.
 - **Detection false negative** (desktop touchscreen classified as tablet,
   standalone not detected, PWA-hostile browser, in-app webview like the Facebook
-  browser where installation is impossible). The wall must carry a
-  low-prominence **"Fortsæt i browseren"** escape hatch that sets a persisted
-  override and lets the user proceed to normal login. Non-installed users are a
-  degraded experience, not a forbidden one — being unable to help someone at
-  02:00 is worse than an unsubscribed push.
+  browser where installation is impossible). The wall links to the **anonymous
+  website**, and nothing more: there is no route from a browser into the app
+  *(revised 2026-08-30, task 143 — the earlier "Fortsæt i browseren" escape hatch let a tab
+  into the login flow, and login is now PWA-only)*. For an in-app webview the instructions say
+  to reopen the link in Safari or Chrome, where installing is possible; for a desktop wrongly
+  classified as mobile the website is the correct destination anyway. What this gives up is
+  named in §11 and in the Non-Functional list below.
 - **User already started the event.** Profile confirmation is skipped — starting
   implies the data was already verified. **The portrait step still runs**, and so do
   the location and notification steps: those are per-device facts and say nothing about
@@ -265,10 +269,12 @@ the app on the home screen onwards is the same.
 - [ ] `/install` shows a one-tap install button when `beforeinstallprompt` was
       captured, and platform-specific manual instructions otherwise (iOS Safari,
       Android non-Chrome, in-app webview).
-- [ ] `/install` includes a persisted **"Fortsæt i browseren"** override that
-      unblocks login for that browser. This is the single non-install escape
-      affordance on the wall — there is deliberately no second "desktop version"
-      link, since `/desktop` is a placeholder and cannot rescue anyone (§11).
+- [ ] `/install` links to the **anonymous website** and offers no way into the app. There is
+      no persisted "continue in browser" override *(revised 2026-08-30, task 143: **login
+      exists only in the installed app**, so a browser tab has nowhere to continue to)*.
+- [ ] **The website is anonymous** — no login form, no participant data, no session — and on a
+      device that qualifies for the PWA it shows a top call-to-action box, "Installér som app",
+      linking to `/install`.
 - [ ] Desktop → a **static placeholder page outside the SPA** (`/desktop.html`), reached by a
       full-page navigation rather than a route change. Desktop never reaches `/welcome` or
       `/install`, and no role may log in there (§11). The page renders no participant-facing
@@ -345,8 +351,14 @@ the app on the home screen onwards is the same.
 ### Non-Functional
 
 - **Reach.** Baseline stays iOS/iPadOS Safari 16.4+ / Chrome 111+ per `.rules`.
-- **No lockout.** Every gate has a user-reachable escape hatch. This is a safety
-  app.
+- **No route into the app outside the installed app** *(revised 2026-08-30, task 143;
+  this requirement previously read "No lockout — every gate has a user-reachable escape
+  hatch")*. Login is PWA-only. The trade is deliberate and its cost is real: a phone that
+  genuinely cannot install a PWA now has no way to sign in at all. It is accepted because such
+  a device cannot do Web Push, a reliable service worker or background sync either — so the
+  app's core features were already unavailable to it (see the browser baseline in `.rules`) —
+  and the one common case, an in-app webview, is recoverable by reopening the link in Safari or
+  Chrome. Every gate still has a **user-reachable exit**: the website.
 - **Privacy.** The location explanation must state plainly what is shared, with
   whom, and for how long, before the native prompt. Do not request geolocation
   or notification permission before an explanation screen is shown.
@@ -439,7 +451,8 @@ All page-level headlines use `font-nathejk` per `.rules`; icons are Lucide
   - New `stores/install.store.ts` — captures `beforeinstallprompt` (registered in
     `main.ts` before mount so the event is not missed), exposes
     `canPrompt`/`promptInstall()`, `installed` (from the `appinstalled` event),
-    and the `continueInBrowser` override persisted in `localStorage`.
+    and `installed` from the `appinstalled` event. *(No `continueInBrowser` override: removed
+    2026-08-30, task 143.)*
   - New `stores/onboarding.store.ts` — step machine + per-device completion flag
     in `localStorage`; derives step state from `session.store`,
     `location.store.permission` and `notifications.store.permission` so it is
@@ -559,14 +572,16 @@ All page-level headlines use `font-nathejk` per `.rules`; icons are Lucide
   - No new runtime dependencies. The desktop placeholder needs none.
   - **Risk: detection is heuristic.** iPadOS reports itself as macOS Safari;
     desktops with touchscreens exist; `display-mode` can be unreliable in
-    embedded webviews. Mitigated by the escape hatch, not by better sniffing.
+    embedded webviews. Mitigated by erring towards mobile and by the website being a
+    reachable exit — not by better sniffing.
   - **Risk: `beforeinstallprompt` timing.** It fires once, early; it must be
     captured before the Vue app mounts or the one-tap install silently degrades
     to manual instructions.
-  - **Risk: gating login behind install increases drop-off** at the worst
-    possible moment (a participant needing help). The escape hatch is the
-    mitigation and must not be hidden so well that support cannot talk a user
-    through it.
+  - **Risk: gating login behind install increases drop-off** at the worst possible moment (a
+    participant needing help). With the escape hatch removed (task 143) there is no mitigation
+    beyond the install instructions themselves, so their clarity *is* the mitigation — and the
+    webview variant, which is the likeliest way to arrive unable to install, must keep telling
+    the user exactly how to get out of it.
   - **Interaction with PRD 002/003:** the map's location handling and the
     profile page's permission controls must consume the same stores, not
     re-implement permission logic.
@@ -578,7 +593,8 @@ Q11). Until one is agreed they are **stated intentions, not measurements** — e
 add a metrics task or accept that this section cannot be evaluated.
 
 - ≥ 95% of authenticated sessions during an event originate from a standalone
-  display mode (i.e. the wall works and the escape hatch is rare).
+  display mode. Since login is PWA-only (§11), a counter-example is a bug rather than a
+  user choice.
 - ≥ 85% of onboarded users have an active push subscription registered with the
   BFF.
 - ≥ 80% of onboarded users have granted location.
@@ -589,7 +605,6 @@ add a metrics task or accept that this section cannot be evaluated.
 - Every unconfirmed guardian number is surfaced to organizers before event start,
   with zero cases of a pickup or emergency call failing on a number the app had
   already flagged.
-- < 2% of authenticated sessions use the "Fortsæt i browseren" override.
 - No support reports of users unable to reach the app on a supported device.
 
 ## 10. Rollout / Task Breakdown
@@ -603,7 +618,7 @@ be disabled without a rollback if it misfires during an event.
 Proposed tasks for `roadmap/tasks/open/`:
 
 - [ ] Task: platform detection helper (`helpers/platform.ts`) + unit tests
-- [ ] Task: install store — capture `beforeinstallprompt`, `promptInstall`, browser override
+- [ ] Task: install store — capture `beforeinstallprompt`, `promptInstall`
 - [ ] Task: onboarding store — resumable step machine derived from permission state
 - [ ] Task: shared-go — `member.verified` event message; bump version in `hej`
       *(landed as a `hej`-local message instead — see §8 and task 132)*
@@ -617,7 +632,8 @@ Proposed tasks for `roadmap/tasks/open/`:
 - [ ] Task: WelcomeStepConfirmProfile — masked number, 2-digit input, acknowledgement checkbox
 - [ ] Task: "nummeret er forkert" / "jeg kender ikke nummeret" paths + follow-up flag
 - [ ] Task: InstallView — one-tap install (Chromium) with platform instructions fallback
-- [ ] Task: InstallView — "fortsæt i browseren" override
+- [ ] Task: InstallView — link to the anonymous website *(shipped first as a "fortsæt i
+      browseren" override, removed by task 143)*
 - [ ] Task: InstallInstructions component — iOS Safari / Android / webview variants
 - [ ] Task: refactor LoginView into an onboarding login step
 - [ ] Task: WelcomeView shell + location and notification explanation steps
@@ -637,14 +653,41 @@ Proposed tasks for `roadmap/tasks/open/`:
 Answered questions are recorded here rather than deleted, so the reasoning
 survives.
 
+- **2026-08-30 — The website is anonymous, and login exists only in the installed app.**
+  Settled by the maintainer after seeing the flow on a device: from the install wall, the
+  "Fortsæt i browseren" escape hatch led into `/welcome` and the login flow — which made the
+  browser a second, degraded way to *be a user*. It is not. The browser experience is a public
+  website: no login, no session, no participant data. A phone or tablet visiting it gets a
+  call-to-action box at the top, "Installér som app", linking to the install instructions.
+
+  Three consequences, and the third is a genuine cost:
+
+  1. **The persisted "continue in browser" override is deleted**, not merely relabelled. It had
+     nothing left to unblock, and a persisted flag that silently changes the gate's behaviour on
+     any device that ever tapped it — with nothing in the UI to reveal it — is a footgun. (It
+     was also a live suspect while diagnosing task 142, precisely because it is invisible.)
+  2. **The profile page's install row goes with it** (task 121 added it as the way back from the
+     override). The page is only reachable inside the installed app, so the row could only ever
+     have said "installed".
+  3. **The no-lockout guarantee in §6 is given up.** A phone that genuinely cannot install a PWA
+     now has no way to sign in. Accepted: such a device has no Web Push, no reliable service
+     worker and no background sync either, so the app's core features were already beyond it,
+     and the common case — arriving in a Facebook in-app browser — is recoverable by reopening
+     the link in Safari or Chrome, which the webview instructions already say. What every gate
+     still has is a reachable *exit*: the website.
+
+  The dev/QA bypass (§6, task 139) is unaffected and remains non-prod only. It is not a
+  substitute for the removed hatch, and PRD 005 §11's note about organizer laptop access still
+  stands: that would be a new PRD, not a flag.
 - **2026-08-30 — Ambiguous devices are classified as mobile.** The target is touch
   devices where a PWA makes sense — phones and tablets; desktop computers are not.
   Since iPadOS reports itself as macOS Safari and touchscreen laptops exist, detection
   cannot be exact, so the tie-break has to be chosen deliberately: **ambiguous →
   mobile**. A false positive costs a desktop user one click on the "Fortsæt i
-  browseren" escape hatch; a false negative leaves an iPad user at a placeholder page
+  browseren" escape hatch (now: one tap on the website link); a false negative leaves an iPad
+  user at a placeholder page
   with no route into the app at all. The asymmetry decides it. This also means the
-  escape hatch is load-bearing rather than a nicety — it is what makes the aggressive
+  exit from the wall is load-bearing rather than a nicety — it is what makes the aggressive
   tie-break safe, and it must stay discoverable enough for support to talk someone
   through it over the phone.
 - **2026-08-30 — The masked number is a sanity check, not a security check.**
@@ -673,10 +716,8 @@ survives.
   boot the whole application to render one sentence, sit inside the service worker's scope, and
   be thrown away rather than replaced when the real site arrives.
 
-  The install wall therefore carries **one** non-install affordance, the "Fortsæt i browseren"
-  escape hatch — the earlier low-prominence link to the "desktop version" is dropped, since
-  pointing a stranded user at a placeholder page helps nobody and two adjacent escape links
-  get confused with each other. Note the placeholder's own banner is the mirror image and is
+  The install wall therefore carries **one** non-install affordance. It was the "Fortsæt i
+  browseren" escape hatch; **as of the decision below it is a link to the website instead.** Note the placeholder's own banner is the mirror image and is
   *not* redundant with it: it exists so a device wrongly classified as desktop still has a
   route to the wall.
 
@@ -823,5 +864,6 @@ still gates the work.
    step — worth designing the storage for now (§8) even if editing ships later.
 5. **Do we want server-side install/permission metrics** (§9), or is client-side
    sufficient? Most of §9 is not measurable without one.
-6. **Does the escape hatch need rate-limiting or an expiry** (e.g. re-ask after
-   7 days) so it does not become the default path?
+6. ~~**Does the escape hatch need rate-limiting or an expiry**~~ — **moot as of 2026-08-30
+   (§11):** there is no escape hatch. A browser tab cannot reach the app at all, so there is no
+   default path for it to become.

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { Download, Smartphone, HousePlus } from '@lucide/vue'
 
 import InstallInstructions from '@/components/onboarding/InstallInstructions.vue'
@@ -8,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { APP_NAME } from '@/config/brand'
 import { installPlatform } from '@/helpers/platform'
+import { WEBSITE_PAGE } from '@/router/gates'
 import { useInstallStore } from '@/stores/install.store'
 
 // The install wall: what a mobile visitor sees when the app is not running standalone.
@@ -21,7 +21,6 @@ import { useInstallStore } from '@/stores/install.store'
 // the header *inside* `showShell` and would be a no-op here (PRD 005 §7).
 
 const install = useInstallStore()
-const router = useRouter()
 
 // The platform is read once: it cannot change during the life of this view, and
 // `installPlatform()` is a pure function over `navigator` (task 116).
@@ -44,22 +43,6 @@ async function promptInstall() {
   }
 }
 
-// The escape hatch (task 121). Load-bearing, not a courtesy for power users: PRD 005 §11
-// chose an aggressive detection tie-break — ambiguous devices classify as mobile —
-// *because* this exists, and PRD 005 §6 states the rule outright: no lockout, every gate
-// has a user-reachable escape hatch. During an event this is a safety app, and a false
-// negative in device or install detection must never be the reason somebody cannot reach
-// it.
-//
-// It unblocks the install gate only; the user lands in the normal login flow, not past it.
-//
-// Deliberately NOT implemented here: rate-limiting or an expiry. PRD 005 §12 leaves that
-// open, and the store records *when* the override was set so a policy can be added later
-// without a migration.
-async function continueInBrowser() {
-  install.setContinueInBrowser(true)
-  await router.replace({ name: 'welcome' })
-}
 </script>
 
 <template>
@@ -127,24 +110,28 @@ async function continueInBrowser() {
     </div>
 
     <!--
-      The escape hatch. Two hard edges on its prominence, and it has to sit between them:
+      Out to the public website.
 
-      - Not so hidden that support cannot talk a user through it over the phone in a noisy
-        field. Hence plain visible text at the bottom, no gesture and no repeated taps.
-      - Not so prominent that it reads as an equal alternative to installing, or it becomes
-        the default path and the wall stops working (PRD 005 §9 targets < 2% of sessions).
+      This replaces the former "Fortsæt i browseren" escape hatch, which let a browser tab into
+      the login flow. There is no login outside the installed app any more (task 143), so that
+      destination no longer exists — and a link promising to "continue" would be promising the
+      app, which is precisely what a browser tab cannot give.
 
-      The trade-off is stated rather than hidden, so the choice is made knowingly instead of
-      discovered later when a notification never arrives.
+      A plain <a>, not a router link: the website is a separate document outside this app.
+
+      Consequence worth knowing, since it removes what PRD 005 §6 called the no-lockout
+      guarantee: a phone that genuinely cannot install a PWA now has no route to a login at all.
+      That is accepted (task 143) — such a device cannot run push, background sync or a reliable
+      service worker either, so the app's core features are already unavailable to it, and the
+      in-app-webview case is handled by telling the user to open the link in Safari or Chrome.
     -->
     <div class="flex flex-col items-center gap-1">
-      <Button variant="link" size="sm" class="text-slate-500" @click="continueInBrowser">
-        Fortsæt i browseren
-      </Button>
+      <a :href="WEBSITE_PAGE" class="px-2 py-2 text-sm text-slate-500 underline underline-offset-2">
+        Gå til hjemmesiden
+      </a>
       <p class="max-w-xs text-center text-xs leading-relaxed text-slate-400">
-        Så virker appen dårligere: du får ingen beskeder fra løbet på iPhone, og den virker
-        ikke uden signal. Du kan altid installere den bagefter under <strong>Min
-        profil</strong>.
+        På hjemmesiden kan du læse om Nathejk. Selve appen — kort, kontakter og beskeder — virker
+        kun, når den ligger på hjemmeskærmen.
       </p>
     </div>
   </main>
