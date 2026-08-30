@@ -1,11 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { Component } from 'vue'
-import type { RouteLocationNormalized, RouteLocationRaw, RouteRecordRaw } from 'vue-router'
+import type { RouteLocationRaw, RouteRecordRaw } from 'vue-router'
 import { useSessionStore } from '@/stores/session.store'
-import { useOnboardingStore } from '@/stores/onboarding.store'
-import { useInstallStore } from '@/stores/install.store'
-import { isMobileDevice, isStandalone } from '@/helpers/platform'
 import { gatesEnabled } from '@/config/gates'
+import { DESKTOP_PAGE, LEAVE_APP, deviceAndInstallGates } from '@/router/gates'
 import type { Role } from '@/stores/session.store'
 import { destinations } from '@/config/navigation'
 
@@ -87,64 +85,6 @@ const router = createRouter({
   ],
 })
 
-// The desktop placeholder is a **static page outside this app** (task 140):
-// `public/desktop.html`, no Vue, no bundle. So leaving for it is a full-page navigation, not
-// a route change — routing to it inside the SPA is precisely what that task removed.
-//
-// The URL is the file's own path rather than a tidier `/desktop`, and that is load-bearing:
-// a path the SPA fallback would answer with `index.html` would boot the app, which would
-// redirect here again — a loop. A real file cannot be caught by the fallback. The service
-// worker's navigation fallback excludes it for the same reason (see vite.config.ts).
-const DESKTOP_PAGE = '/desktop.html'
-
-// Steps 2–4 of the guard order, factored out so the guard body reads as the six numbered
-// steps rather than as one long chain of returns.
-//
-// Returns `true` to fall through to auth, `false` when the browser is being sent out of the
-// app entirely, or a redirect target.
-//
-// Wrapped in try/catch by the caller: these read `navigator`/`matchMedia`, and the one thing
-// this guard must never do is throw (task 090).
-function deviceAndInstallGates(to: RouteLocationNormalized): boolean | RouteLocationRaw {
-  const install = useInstallStore()
-  const onboarding = useOnboardingStore()
-
-  // 2. Device class. A desktop computer is not an app user: it gets the plain placeholder
-  //    page, which is not part of this application. In particular it never sees /install or
-  //    /welcome — showing a laptop how to add a phone app to its home screen is worse than
-  //    the placeholder.
-  if (!isMobileDevice()) {
-    window.location.replace(DESKTOP_PAGE)
-    // Aborts the in-app navigation, so nothing renders in the moment before the browser
-    // leaves. Safe here, unlike the blank-screen case of task 090: the page is on its way
-    // out, and the destination is a static file rather than something that has to boot.
-    return false
-  }
-
-  // 3. Standalone. The app is not usable in a browser tab, so every route leads to the wall
-  //    until it is installed — unless the user took the escape hatch, which unblocks *this*
-  //    gate only (task 121).
-  if (!isStandalone() && !install.continueInBrowser) {
-    return to.name === 'install' ? true : { name: 'install' }
-  }
-
-  // Installed (or overridden): the wall has nothing left to say.
-  if (to.name === 'install') {
-    return { name: onboarding.complete ? 'maps' : 'welcome' }
-  }
-
-  // 4. Onboarding. Not "done" merely because the user is signed in — login is only its first
-  //    step — so this asks the onboarding store, not the session store.
-  if (!onboarding.complete && to.name !== 'welcome') {
-    return { name: 'welcome' }
-  }
-  if (onboarding.complete && to.name === 'welcome') {
-    return { name: 'maps' }
-  }
-
-  return true
-}
-
 // Global gate (PRD 005 §6/§8). Order is fixed, and the order is the design:
 //
 //   1. dev override / runtime flag — nothing else can be debugged if this is not first
@@ -179,7 +119,7 @@ function deviceAndInstallGates(to: RouteLocationNormalized): boolean | RouteLoca
 // start.
 router.beforeEach(async (to) => {
   if (gatesEnabled()) {
-    let outcome: boolean | RouteLocationRaw = true
+    let outcome: true | typeof LEAVE_APP | RouteLocationRaw = true
     try {
       outcome = deviceAndInstallGates(to)
     } catch {
@@ -187,6 +127,14 @@ router.beforeEach(async (to) => {
       // navigation — that is a blank white screen (task 090). Falling through means a
       // degraded gate, which is the right way to fail for a gate that is UX only.
       outcome = true
+    }
+    if (outcome === LEAVE_APP) {
+      // A desktop visitor: out of the app entirely, to a static file that is not part of it.
+      window.location.replace(DESKTOP_PAGE)
+      // Aborts the in-app navigation so nothing renders in the moment before the browser
+      // leaves. Safe here, unlike the blank-screen case of task 090: the page is on its way
+      // out, and the destination is a file rather than something that has to boot.
+      return false
     }
     if (outcome !== true) return outcome
   }
