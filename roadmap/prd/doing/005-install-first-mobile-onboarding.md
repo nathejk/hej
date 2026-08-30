@@ -217,13 +217,19 @@ the app on the home screen onwards is the same.
   other population). Bandits, gøgler and crew therefore **skip the guardian
   confirmation entirely**; they may still be shown their own details to check. The
   step must not render an empty guardian field as though data were missing.
-- **The member does not know the guardian number.** Expected and not rare: young
-  scouts, a guardian who recently changed number, or two households with
-  different numbers on file. This is **not** a failure state and must not be
-  worded as one — offer "jeg kender ikke nummeret" alongside "nummeret er
-  forkert", let them into the app, and flag the record either way. The signal
-  "this member could not confirm the number" is valuable to organizers even when
-  the number turns out to be correct.
+- **The member does not know the guardian number, or it is wrong.** Expected and not rare: young
+  scouts, a guardian who recently changed number, or two households with different numbers on
+  file. This is **not** a failure state and must not be worded as one.
+
+  **The member is offered the chance to fix it** *(added 2026-08-30, task 148)*: the masked number
+  becomes an editable field, they type the full number, and they confirm **that** number as
+  reachable. Better than a flag for the obvious reason — the person standing there is the one most
+  likely to know the right number — and it turns the step from "verify our data" into "make sure we
+  can reach an adult", which is what it was always for.
+
+  If they cannot supply one either, "jeg kender ikke nummeret" still records the report, they still
+  reach the app, and the record is still flagged. The signal "this member could not confirm the
+  number" is valuable to organizers even when the number turns out to be correct.
 - **Profile confirmation fails** — wrong digits, or the user says a detail is
   wrong. The step surfaces the out-of-band correction channel, **flags the record
   for follow-up**, and **lets them continue into the app**. Blocking a participant
@@ -318,6 +324,16 @@ the app on the home screen onwards is the same.
 - [ ] The step offers non-punitive "nummeret er forkert" **and** "jeg kender ikke
       nummeret" paths that surface the correction channel and still let the user
       into the app.
+- [ ] Either path **opens the number for editing**: the member types a full guardian number and
+      confirms *that* as reachable *(added 2026-08-30, task 148)*. The field starts empty, not
+      prefilled — prefilling invites editing one digit of a number they have just said they do not
+      recognise, and makes "corrected" indistinguishable from "retyped".
+- [ ] A member-supplied number is recorded as **what the member acknowledged**, not as an
+      overwrite of the register: `phone_parent` stays the register's value, and the app also records
+      which register value the acknowledgement was made against. That is what keeps "the
+      acknowledgement is stale, ask again" distinct from "the register is wrong, fix it" — two
+      states that look identical if compared with one field and call for opposite responses.
+- [ ] A member who can supply no number at all is still never blocked.
 - [ ] Records that were not confirmed are **flagged for organizer follow-up**,
       distinguishing "reported wrong" from "could not confirm".
 - [ ] The **portrait** step captures a self-portrait with the front camera,
@@ -534,6 +550,14 @@ All page-level headlines use `font-nathejk` per `.rules`; icons are Lucide
     down — a confirmation the log never saw must not answer `204`). Wrong digits are
     rate-limited like the PIN endpoint — not as a secrecy measure, just so the endpoint
     cannot be hammered.
+  - `POST /api/me/profile/guardian` — a member-supplied replacement number: body carries the
+    full number and the acknowledgement. `204` / `400` (unparseable, or acknowledgement missing) /
+    `401` / `429` / `503`. Normalized server-side with `internal/phone` before publishing, since
+    every comparison downstream — and the login lookup — depends on normalized numbers. A separate
+    endpoint from `confirm` deliberately: agreeing with what we hold and replacing it are different
+    acts, with different validation and different meaning in the log, and one body carrying two
+    mutually exclusive fields is the shape that produces "which did the client mean?" bugs
+    *(added 2026-08-30, task 148)*.
   - `POST /api/me/profile/report-incorrect` — flags the record for organizer
     follow-up, with a reason distinguishing "wrong" from "unknown to me". `204` /
     `401`. **Required**, not optional: a guardian number nobody can confirm is an
@@ -548,8 +572,14 @@ All page-level headlines use `font-nathejk` per `.rules`; icons are Lucide
 - **Data / storage:**
   - Client: `localStorage` keys only, namespaced `hej.install.*` /
     `hej.onboarding.*`. Per-user confirmation is **not** stored client-side.
-  - Server: a `verified_at` timestamp on the member, plus the acknowledged
-    contact number so a later number change can invalidate the verification.
+  - Server: a `verified_at` timestamp on the member, the acknowledged contact number, **and the
+    register's value at the moment of acknowledgement** *(added 2026-08-30, task 148)*. Three
+    fields rather than two because a member may acknowledge a number that is *not* the one on file:
+    comparing the register against the value it had at acknowledgement answers "has it changed
+    since?" (stale → ask again), while comparing the acknowledged number against it answers "did
+    the member correct us?" (→ fix the register). With only two fields those two states are
+    indistinguishable, and a member who corrected us would be re-asked forever while the register
+    stayed wrong.
     Modelled as its own field, **not** as a `MemberStatus` value (§11), and
     materialised as a **projection of the verification event** rather than a direct
     write (PRD 008).
@@ -664,6 +694,23 @@ installed), **143** (website anonymous / login PWA-only), **144** (flow ended af
 Answered questions are recorded here rather than deleted, so the reasoning
 survives.
 
+- **2026-08-30 — All five steps stay in the flow, and a step whose question is already answered
+  is skipped.** Confirmed by the maintainer after seeing the flow on a device. The canonical
+  sequence remains login → confirm profile → portrait → location → notifications; the portrait step
+  is **not** dropped even though PRD 007 (which displays portraits) has not shipped.
+
+  "Skipped when already settled" is the derived machine's behaviour and is deliberate: a member who
+  has already granted location has nothing to decide, and an explanation screen before a dialog that
+  will never appear is noise. Note what *settled* has to mean for this to be safe — the thing the
+  step exists to achieve, not a proxy for it. Task 144 is the cautionary case: the notifications
+  step counted a granted permission as settled, when what it exists to create is a **push
+  subscription**, and the two are independent.
+- **2026-08-30 — A member who cannot confirm the number can replace it.** The masked field opens
+  up, they type the full number, and they confirm that one instead (task 148). Recorded here because
+  it changes what the step *is*: not "verify our data" but "make sure we can reach an adult", which
+  is what it was always for — and the person standing there is the one most likely to know the right
+  number. It also shrinks PRD 005 §12's open correction-channel question to the residual case of a
+  member who can supply nothing at all.
 - **2026-08-30 — The website is anonymous, and login exists only in the installed app.**
   Settled by the maintainer after seeing the flow on a device: from the install wall, the
   "Fortsæt i browseren" escape hatch led into `/welcome` and the login flow — which made the
