@@ -34,7 +34,7 @@ import { useProfileStore } from '@/stores/profile.store'
 
 const profile = useProfileStore()
 
-const emit = defineEmits<{ done: []; report: [] }>()
+const emit = defineEmits<{ done: []; skip: [] }>()
 
 const digits = ref('')
 const acknowledged = ref(false)
@@ -161,10 +161,26 @@ async function submit() {
         Bekræft
       </button>
 
-      <!-- The non-punitive ways out live in task 128, which owns this affordance's copy. -->
-      <button type="button" class="px-2 py-1 text-sm text-slate-500" @click="emit('report')">
+      <!--
+        Cannot confirm: skips the step and lets the member into the app. Nothing is recorded, so
+        `confirmation_required` stays true server-side and they are asked again next time.
+
+        Not worded as a failure, because it is not one: a member not knowing the number is
+        expected — young scouts, a guardian who changed number, two households with different
+        numbers on file.
+
+        **Task 148 replaces this with the field opening up** so the member can type the correct
+        number and confirm that instead, which is the better outcome for everyone: the person
+        standing there is the one most likely to know it. Until then the only route is a human,
+        so this points at one rather than thanking them and moving on.
+      -->
+      <button type="button" class="px-2 py-1 text-sm text-slate-500" @click="emit('skip')">
         Nummeret er forkert, eller jeg kender det ikke
       </button>
+      <p class="text-center text-xs leading-relaxed text-slate-400">
+        Sig det til din leder eller til Nathejk i startområdet, så bliver det rettet. Vi spørger
+        dig igen næste gang.
+      </p>
     </form>
   </div>
 </template>

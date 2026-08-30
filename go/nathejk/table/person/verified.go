@@ -104,59 +104,6 @@ func VerifiedSubject(year, personID string) (cqrs.Subject, error) {
 		fmt.Sprintf("NATHEJK.%s.member.%s.verified", year, personID)), nil
 }
 
-// GuardianReported says that a member could not confirm the guardian number on file.
-//
-// A separate event from a "not verified" absence, because absence is not a signal: most
-// unverified members simply have not opened the app yet. This is a member actively saying
-// something is wrong, which is what an organizer needs to act on before the event.
-//
-// The reason is a closed pair rather than free text, and the distinction is the point:
-//
-//	wrong   — the member can see the number is not the right one → a record to FIX
-//	unknown — the member does not know it → a record to CHECK
-//
-// The signal is useful even when the number turns out to be correct: "this member could not
-// confirm their guardian number" tells whoever is holding the phone at 02:00 not to rely on
-// it without calling first, whatever the register says.
-//
-// # Why this is not projected onto `person` (yet)
-//
-// It is published and nothing consumes it. That is deliberate rather than unfinished: PRD 005
-// §4 puts the organizer-facing surface out of scope, and §12 has not decided who reads the
-// flag or where. Adding a column now would mean guessing at that shape, whereas the log keeps
-// the reports — with their timestamps and reasons — until there is a consumer to project them
-// for. The event is the durable record; the projection is a view, and views are cheap to add
-// later from a log that already has the facts.
-type GuardianReported struct {
-	PersonID string `json:"personId"`
-	Year     string `json:"year"`
-
-	// Reason is "wrong" or "unknown". Validated at the edge (cmd/api), kept as a string
-	// here so an older consumer meets an unfamiliar value rather than failing to decode.
-	Reason string `json:"reason"`
-
-	// ReportedAt is when the member said so, in UTC — on the event rather than derived from
-	// delivery time, which changes on every replay.
-	ReportedAt time.Time `json:"reportedAt"`
-}
-
-// GuardianReportSubject builds the subject a report is published on:
-//
-//	NATHEJK.<year>.member.<personId>.guardianReported
-//
-// Per person, like the verification, so one individual's history can be purged with
-// `nats stream purge --subject`.
-func GuardianReportSubject(year, personID string) (cqrs.Subject, error) {
-	if err := validSubjectToken(year, "year"); err != nil {
-		return nil, err
-	}
-	if err := validSubjectToken(personID, "person id"); err != nil {
-		return nil, err
-	}
-	return cqrs.SubjectFromStr(
-		fmt.Sprintf("NATHEJK.%s.member.%s.guardianReported", year, personID)), nil
-}
-
 // handleMemberVerified records the verification on the person's row.
 //
 // Both columns are written together, always. `verifiedAt` without `acknowledgedPhone`

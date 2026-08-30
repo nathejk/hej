@@ -127,3 +127,17 @@ is a decision for whoever answers that phone, not for this task.
 - 2026-08-30 — ✅ Criteria met, `vue-tsc` clean. The endpoint itself is task 136; until it lands
   every report takes the honest "kunne ikke sende" branch, which is the correct behaviour rather
   than a workaround.
+- 2026-08-30 — **Largely superseded, and its endpoint removed.** The maintainer settled the domain on
+  a single message, `NathejkMemberVerified` (task 147), so `GuardianReported` and
+  `POST /api/me/profile/report-incorrect` are gone, and `WelcomeStepConfirmProblem.vue` with them.
+
+  The reasoning recorded above still holds and is why the replacement is better rather than merely
+  smaller: a member who cannot confirm the number is not failing at anything, and the useful response
+  is to let them fix it. Task 148 does exactly that — the field opens up, they type the full number,
+  and they confirm that instead — which converts almost every case this task handled into a
+  verification.
+
+  What is genuinely lost is the *reason* distinction (`wrong` vs `unknown`) and, with it, the ability
+  to tell "tried and could not confirm" from "has not opened the app yet". Recorded here rather than
+  quietly dropped, because it was this task's central argument. The interim state until 148 lands is
+  a skip with copy pointing at a leader.

@@ -194,18 +194,6 @@ export const useProfileStore = defineStore('profile', {
       this.verifiedAt = new Date().toISOString()
     },
 
-    // reportIncorrect flags the record for organizer follow-up (task 128).
-    //
-    // `reason` distinguishes "the number is wrong" from "I don't know it" — both are
-    // useful and they are not the same signal.
-    async reportIncorrect(reason: 'wrong' | 'unknown') {
-      await fetchWrapper.post('/api/me/profile/report-incorrect', { reason })
-      // Deliberately clears the requirement: the member has told us what they can, and
-      // re-asking a question they already answered "I don't know" to is how a flow
-      // becomes a trap. The follow-up now belongs to a human.
-      this.confirmationRequired = false
-    },
-
     // markPhotoState records whether a portrait exists. Exposed so a component that
     // learns the image failed to load (a blob gone missing) can correct the state
     // instead of showing a broken picture forever.

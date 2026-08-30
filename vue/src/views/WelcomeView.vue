@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router'
 
 import WelcomeStepLogin from '@/components/onboarding/WelcomeStepLogin.vue'
 import WelcomeStepConfirmProfile from '@/components/onboarding/WelcomeStepConfirmProfile.vue'
-import WelcomeStepConfirmProblem from '@/components/onboarding/WelcomeStepConfirmProblem.vue'
 import WelcomeStepPortrait from '@/components/onboarding/WelcomeStepPortrait.vue'
 import WelcomeStepLocation from '@/components/onboarding/WelcomeStepLocation.vue'
 import WelcomeStepNotifications from '@/components/onboarding/WelcomeStepNotifications.vue'
@@ -46,11 +45,6 @@ const stepComponents = {
   location: WelcomeStepLocation,
   notifications: WelcomeStepNotifications,
 } as const
-
-// The confirmation step's "wrong number / I don't know it" screen (task 128) is a detour
-// *within* a step rather than a step of its own: it is not a question every user is asked, and
-// giving it a slot in the sequence would make the progress count wrong for everyone else.
-const reportingProblem = ref(false)
 
 // The step on screen.
 //
@@ -125,7 +119,6 @@ watch(
 // Hand control back to the machine: whatever the step just changed (a session, a granted
 // permission, an uploaded portrait) is now in the stores, so ask what is left.
 async function advance() {
-  reportingProblem.value = false
   // The profile decides two of the remaining steps (`confirmation_required`, `has_photo`), and
   // straight after login it may still be in flight — deciding against an unloaded profile would
   // skip the confirmation step. `ensureLoaded()` awaits an in-flight request.
@@ -153,19 +146,11 @@ async function onSkip(id: OnboardingStepId) {
     </header>
 
     <div class="flex flex-1 flex-col justify-center pb-8">
-      <!-- The confirmation detour, when the member says the number is wrong or unknown. -->
-      <WelcomeStepConfirmProblem
-        v-if="current === 'confirm-profile' && reportingProblem"
-        @done="advance"
-        @back="reportingProblem = false"
-      />
-
       <component
-        v-else-if="current"
+        v-if="current"
         :is="stepComponents[current]"
         @done="advance"
         @skip="current && onSkip(current)"
-        @report="reportingProblem = true"
       />
     </div>
   </main>

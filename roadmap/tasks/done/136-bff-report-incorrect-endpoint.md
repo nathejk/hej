@@ -90,3 +90,13 @@ still open (PRD 005 §12 Q2, shared with PRD 003), so do not block on it either.
   because this endpoint reports failures rather than swallowing them.
 - 2026-08-30 — ✅ Five tests: both reason codes round-tripped through the published JSON, an unknown
   reason refused with nothing published, a verified member still able to report, and auth required.
+- 2026-08-30 — **Reverted: the endpoint is removed.** The maintainer settled the domain on
+  `NathejkMemberVerified` alone (task 147), so the `GuardianReported` event this endpoint published no
+  longer exists.
+
+  Of everything in this task's reasoning, the part that turned out to matter was the closed reason
+  pair — and it is the part that goes. The judgement that a member who cannot confirm a guardian
+  number is an operational problem someone should hear about stands; what changed is the answer to
+  it. Instead of routing that to an organizer as a flag, task 148 routes it back to the member, who
+  is better placed to fix it. That is a stronger answer where it applies, and no answer at all where
+  it does not — which is the trade the PRD now records in §8.

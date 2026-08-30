@@ -334,8 +334,10 @@ the app on the home screen onwards is the same.
       acknowledgement is stale, ask again" distinct from "the register is wrong, fix it" — two
       states that look identical if compared with one field and call for opposite responses.
 - [ ] A member who can supply no number at all is still never blocked.
-- [ ] Records that were not confirmed are **flagged for organizer follow-up**,
-      distinguishing "reported wrong" from "could not confirm".
+- [ ] ~~Records that were not confirmed are flagged for organizer follow-up, distinguishing
+      "reported wrong" from "could not confirm".~~ **Dropped 2026-08-30** (task 147): the domain
+      settles on `member.verified` alone. The correction flow (task 148) is what replaces it — a
+      member who would have been "reported wrong" now supplies the right number and verifies it.
 - [ ] The **portrait** step captures a self-portrait with the front camera,
       explains that it is used to identify people during the race (largely at
       night), lets the user retake before uploading, and is **skippable** — with
@@ -558,12 +560,16 @@ All page-level headlines use `font-nathejk` per `.rules`; icons are Lucide
     acts, with different validation and different meaning in the log, and one body carrying two
     mutually exclusive fields is the shape that produces "which did the client mean?" bugs
     *(added 2026-08-30, task 148)*.
-  - `POST /api/me/profile/report-incorrect` — flags the record for organizer
-    follow-up, with a reason distinguishing "wrong" from "unknown to me". `204` /
-    `401`. **Required**, not optional: a guardian number nobody can confirm is an
-    operational problem that must reach a human before the event, not just a dead
-    end in the UI. The flag is stored in this repo; how organizers read it is a
-    follow-up, not a blocker.
+  - ~~`POST /api/me/profile/report-incorrect`~~ — **removed 2026-08-30** (task 147). The domain
+    settles on one message, `member.verified`, so there is no report event for it to publish. A
+    member who can confirm nothing skips the step, and the absence of a verification is the state.
+
+    This reverses the "**required**, not optional" call above, and the cost is worth naming: an
+    organizer can no longer distinguish "opened the app, tried, could not confirm" from "has not
+    opened the app yet". What makes it acceptable is the correction flow (task 148) — once the
+    member can type the right number themselves, almost every case that would have produced a
+    report becomes a verification instead, leaving only the member who knows no number at all, for
+    whom the copy names a human.
   - `PUT /api/me/photo` — **owned by PRD 003**; consumed unchanged here.
   - The digits are verified **server-side** so the acknowledgement is recorded
     against a real answer, but the number is deliberately **not** kept from the

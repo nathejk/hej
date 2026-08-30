@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -267,90 +266,4 @@ func lastTwoDigitsMatch(number, typed string) bool {
 		return false
 	}
 	return num[len(num)-2:] == got
-}
-
-// reportIncorrectRequest is the body of POST /api/me/profile/report-incorrect.
-type reportIncorrectRequest struct {
-	// Reason distinguishes "the number is wrong" from "I don't know it".
-	//
-	// Two values rather than one flag, because they are different signals to an
-	// organizer: `wrong` is a record to fix, `unknown` is a record to check. Collapsing
-	// them would throw away the only distinction that makes the flag actionable.
-	Reason string `json:"reason"`
-}
-
-// reportIncorrectHandler flags a guardian number for organizer follow-up (PRD 005 §8).
-//
-// **Required, not optional.** A guardian number nobody can confirm is an operational problem
-// that has to reach a human before the event rather than dead-end in the UI — and the signal
-// is valuable even when the number turns out to be correct: "this member could not confirm
-// their guardian number" tells whoever is holding the phone at 02:00 that this is not a
-// number to rely on without calling it first, whatever the register says.
-//
-// A member not knowing the number is expected and not rare (young scouts, a guardian who
-// changed number, two households with different numbers on file), so nothing here treats it
-// as a failure. The member continues into the app either way; only login is mandatory.
-//
-// @Summary      Report a guardian number as wrong or unknown
-// @Description  Flags the caller's guardian contact number for organizer follow-up. `reason` is "wrong" (the member can see the number is not the right one) or "unknown" (the member does not know it). Both are ordinary outcomes rather than errors, and the member is never blocked from using the app. Publishes a domain event; no SQL is written.
-// @Tags         me
-// @Accept       json
-// @Produce      json
-// @Param        request  body  reportIncorrectRequest  true  "Why the number could not be confirmed"
-// @Success      204
-// @Failure      400  {object}  map[string]string
-// @Failure      401  {object}  map[string]string
-// @Failure      429  {object}  map[string]string
-// @Failure      503  {object}  map[string]string
-// @Router       /me/profile/report-incorrect [post]
-func (app *application) reportIncorrectHandler(w http.ResponseWriter, r *http.Request) {
-	s, ok := contextGetSession(r)
-	if !ok {
-		app.AuthenticationRequiredResponse(w, r)
-		return
-	}
-
-	// Shares the confirm limiter: the two are the same conversation from the same screen,
-	// and a member alternating between them should not get twice the budget.
-	if !app.confirmLimiter.Allow(clientIP(r)) {
-		app.RateLimitResponse(w, r)
-		return
-	}
-
-	var input reportIncorrectRequest
-	if err := app.ReadJSON(w, r, &input); err != nil {
-		app.BadRequestResponse(w, r, err)
-		return
-	}
-
-	reason, err := parseReportReason(input.Reason)
-	if err != nil {
-		app.BadRequestResponse(w, r, err)
-		return
-	}
-
-	if err := app.storeGuardianReport(r.Context(), s.UserID, reason); err != nil {
-		if errors.Is(err, commands.ErrNoPublisher) {
-			// Retryable, and the client says so honestly rather than thanking the member
-			// for a report nobody received (task 128).
-			app.ServiceUnavailableResponse(w, r, "kunne ikke sendes lige nu")
-			return
-		}
-		app.ServerErrorResponse(w, r, err)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// parseReportReason validates the reason code.
-//
-// A closed set, rejected rather than coerced: an unknown reason silently stored as "wrong"
-// would tell an organizer to correct a number the member never claimed was incorrect.
-func parseReportReason(raw string) (string, error) {
-	switch raw {
-	case "wrong", "unknown":
-		return raw, nil
-	}
-	return "", fmt.Errorf("reason must be %q or %q", "wrong", "unknown")
 }

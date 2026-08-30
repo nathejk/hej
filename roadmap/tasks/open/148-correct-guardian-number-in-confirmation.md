@@ -30,8 +30,10 @@ person most likely to know the right number — and it turns the step from "veri
    prefilled with nothing (deliberately — see below), plus the same *"Dette nummer kan kontaktes i
    løbet af Nathejk"* acknowledgement.
 3. The member types a full number and confirms. Both the number and the tick are required.
-4. If they cannot supply one either, the existing non-punitive report path stays available
-   (`reason: "unknown"`), and they continue into the app. **Nothing blocks.**
+4. If they cannot supply one either, they **skip the step** and continue into the app. Nothing is
+   recorded and nothing blocks; `confirmation_required` stays true, so they are asked again next
+   time. *(Revised 2026-08-30: there is no longer a report event — the domain settles on
+   `member.verified` alone, see task 147.)*
 
 **The field starts empty rather than prefilled with the registered number.** Prefilling would
 invite editing one digit of a number the member has just said they do not recognise, and would make
@@ -94,7 +96,11 @@ Both publish `member.verified`; this one with `AcknowledgedPhone` = the typed nu
 the login lookup depends on normalized numbers and an unnormalized one here would read as a
 different number to every comparison above.
 
-`report-incorrect` stays for the member who cannot supply a number at all.
+There is no `report-incorrect` endpoint any more (removed with the `GuardianReported` message,
+task 147). A member who can supply no number simply skips, and the absence of a verification is the
+state. Worth naming what that gives up: an organizer can no longer tell "tried and could not
+confirm" from "has not opened the app". This flow is what makes that acceptable — it turns almost
+every would-be report into a verification — so it is the piece that has to work well.
 
 ## Acceptance Criteria
 
@@ -107,7 +113,7 @@ different number to every comparison above.
       stale"
 - [ ] An upstream guardian-number change still invalidates a stale verification, and does **not**
       invalidate a correction
-- [ ] The member can still report "jeg kender ikke nummeret" and continue; nothing blocks
+- [ ] The member can still decline entirely and continue; nothing blocks
 - [ ] OpenAPI annotations on the new endpoint
 - [ ] Tests: correction path, normalization, stale-vs-corrected, and that a correction survives an
       upstream re-publish
@@ -119,7 +125,8 @@ different number to every comparison above.
   is for**, so agree the shape here before lifting: adding a field to a message nothing consumes is
   free; reshaping one after `hq` subscribes is not.
 - PRD 005 §12's correction-channel question becomes much smaller: for most members the channel is
-  now "type the right number". It still needs an answer for the ones who cannot.
+  now "type the right number". It still needs an answer for the ones who cannot — and with the
+  report event gone, a human is the only remaining route for them, so the copy must name one.
 
 ## Progress Log
 

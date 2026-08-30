@@ -1,4 +1,4 @@
-# 147 — Lift to shared-go: the member-verification messages
+# 147 — Lift to shared-go: the member-verification message
 
 **Status:** open
 **Priority:** high
@@ -24,7 +24,7 @@ after `hq` subscribes is not.
 
 ---
 
-## 1. `messages/member.go` — two new messages
+## 1. `messages/member.go` — one new message
 
 House style followed: `types.MemberID` / `types.PhoneNumber` for the domain values, a
 `// nathejk:<subject pattern>` annotation above each type, one struct per event.
@@ -75,42 +75,14 @@ type NathejkMemberVerified struct {
 	// every replay and this timestamp answers "how many members verified before arriving?".
 	VerifiedAt time.Time `json:"verifiedAt"`
 }
-
-// nathejk:*.member.*.guardianReported
-//
-// NathejkMemberGuardianReported says that a member could not confirm the guardian number held for
-// them and could not supply a replacement either (hej, PRD 005).
-//
-// A separate event from the absence of a verification, because absence is not a signal: most
-// unverified members have simply not opened the app yet. This is a member actively saying
-// something is wrong, which is what an organizer can act on before the event.
-//
-// The reason is a closed pair and the distinction is the point — they are different jobs:
-//
-//	wrong   — the member can see the number is not the right one → a record to FIX
-//	unknown — the member does not know it → a record to CHECK
-//
-// Useful even when the number turns out to be correct: "this member could not confirm their
-// guardian number" tells whoever is holding the phone at 02:00 not to rely on it without calling
-// first, whatever the register says.
-type NathejkMemberGuardianReported struct {
-	MemberID types.MemberID `json:"memberId"`
-	Year     string         `json:"year"`
-
-	// Reason is "wrong" or "unknown". A string rather than a typed enum so an older consumer
-	// meets an unfamiliar value rather than failing to decode; the publisher validates it.
-	Reason string `json:"reason"`
-
-	ReportedAt time.Time `json:"reportedAt"`
-}
 ```
 
 ### On `time.Time` versus `types.UnixtimeString`
 
-Several existing messages carry `types.UnixtimeString`. **These two use `time.Time`**, and the
+Several existing messages carry `types.UnixtimeString`. **This one uses `time.Time`**, and the
 reason is worth stating so it does not look like an oversight: `UnixtimeString` exists to model
-payloads the legacy monolith already emits, where the wire format was fixed before the type. These
-are new messages with no legacy shape to match, and an RFC3339 timestamp is self-describing when a
+payloads the legacy monolith already emits, where the wire format was fixed before the type. This
+is a new message with no legacy shape to match, and an RFC3339 timestamp is self-describing when a
 human reads the stream a year later, which is the main way anyone reads an event log.
 
 Happy to switch if consistency wins — it is a two-line change on the `hej` side.
@@ -125,7 +97,6 @@ annotation comments above, so a consumer can subscribe without reading another r
 
 ```
 NATHEJK.<year>.member.<memberId>.verified
-NATHEJK.<year>.member.<memberId>.guardianReported
 ```
 
 Per person, deliberately: `nats stream purge --subject` can then erase one individual's history
@@ -162,8 +133,8 @@ Not shared-go changes, but they become possible with it:
 
 ## Acceptance Criteria
 
-- [ ] `NathejkMemberVerified` and `NathejkMemberGuardianReported` exist in shared-go's `messages`
-      package with the fields above, the annotations, and the reasoning comments
+- [ ] `NathejkMemberVerified` exists in shared-go's `messages` package with the fields above, the
+      annotation, and the reasoning comments
 - [ ] shared-go committed, pushed, version-bumped
 - [ ] `hej`'s `go.mod` requires the new version and `GOWORK=off go build ./...` succeeds against
       it, not only a workspace build
@@ -180,3 +151,17 @@ Not shared-go changes, but they become possible with it:
 ## Progress Log
 
 - 2026-08-30 — Task created to hold the exact shapes for the maintainer's shared-go update.
+- 2026-08-30 — **`NathejkMemberGuardianReported` dropped from the lift** at the maintainer's
+  direction: the domain settles on `NathejkMemberVerified` alone.
+
+  Followed through in `hej` rather than left as a doc change, because a local `GuardianReported`
+  would have contradicted the decision it was made to implement: the type, its subject builder, the
+  projection handler, `storeGuardianReport`, `POST /api/me/profile/report-incorrect`,
+  `profile.store.reportIncorrect`, `WelcomeStepConfirmProblem.vue` and their tests are all removed.
+
+  What it costs, stated plainly: "opened the app, tried, could not confirm" is no longer
+  distinguishable from "has not opened the app yet" — both are simply the absence of a
+  verification. PRD 005 §8 had called that endpoint *required* for exactly that reason. The
+  mitigating half is task 148: once the member can type the correct number themselves, almost every
+  case that would have produced a report becomes a verification instead, and the residual is a
+  member who can supply no number at all.
