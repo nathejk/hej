@@ -254,8 +254,13 @@ the app on the home screen onwards is the same.
       Touch devices where a PWA makes sense — phones and tablets — are the target;
       desktop computers are not. When the signals disagree (iPadOS reporting itself as
       macOS Safari, a touchscreen laptop), the tie-break is `mobile`.
-- [ ] Detect installed/standalone via `matchMedia('(display-mode: standalone)')`
-      (plus `minimal-ui`/`fullscreen`) OR the iOS-only `navigator.standalone`.
+- [ ] Detect installed/standalone via `matchMedia('(display-mode: standalone)')` OR the
+      iOS-only `navigator.standalone`, with an explicit `display-mode: browser` veto.
+      *(Corrected 2026-08-30, task 142: this previously also accepted `minimal-ui` and
+      `fullscreen`. The manifest only ever requests `standalone`, so those two cannot occur on
+      an installed launch — only on an uninstalled one, where they made a browser tab read as
+      installed and skip the wall. A fullscreen video did it; so did some Android browsers'
+      chrome-less modes.)*
 - [ ] Mobile + not standalone → all app routes redirect to `/install`.
 - [ ] `/install` shows a one-tap install button when `beforeinstallprompt` was
       captured, and platform-specific manual instructions otherwise (iOS Safari,

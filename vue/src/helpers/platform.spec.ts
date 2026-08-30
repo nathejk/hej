@@ -115,19 +115,59 @@ describe('isStandalone', () => {
     expect(isStandalone(env({}, { '(display-mode: standalone)': true }))).toBe(true)
   })
 
-  it('is true for minimal-ui and fullscreen, which are equally installed', () => {
-    expect(isStandalone(env({}, { '(display-mode: minimal-ui)': true }))).toBe(true)
-    expect(isStandalone(env({}, { '(display-mode: fullscreen)': true }))).toBe(true)
-  })
-
-  // The iOS branch: Safari has not been trustworthy on display-mode, and this property
-  // exists nowhere else.
+  // The iOS branch: this property exists nowhere else, and on the platform where installing
+  // matters most (Web Push is home-screen-only) it is the unambiguous signal.
   it('is true for iOS navigator.standalone even when display-mode says nothing', () => {
     expect(isStandalone(env({ userAgent: UA.iphone, standalone: true }))).toBe(true)
   })
 
   it('is false in a browser tab', () => {
-    expect(isStandalone(env({ userAgent: UA.androidChrome, standalone: false }))).toBe(false)
+    expect(
+      isStandalone(env({ userAgent: UA.androidChrome, standalone: false }, { '(display-mode: browser)': true })),
+    ).toBe(false)
+  })
+
+  // REGRESSION (task 142). These two used to count as "equally installed", which made a
+  // browser tab skip the install wall and land in onboarding — the exact configuration PRD 005
+  // exists to prevent. The manifest only ever requests `standalone`, so neither mode can occur
+  // on an installed launch; they can only occur on an uninstalled one.
+  it('is false for a fullscreen video in a tab', () => {
+    expect(
+      isStandalone(
+        env(
+          { userAgent: UA.androidChrome },
+          { '(display-mode: fullscreen)': true, '(display-mode: browser)': false },
+        ),
+      ),
+    ).toBe(false)
+  })
+
+  it('is false for a browser reporting minimal-ui for its own chrome-less mode', () => {
+    expect(
+      isStandalone(
+        env(
+          { userAgent: UA.androidChrome },
+          { '(display-mode: minimal-ui)': true, '(display-mode: browser)': false },
+        ),
+      ),
+    ).toBe(false)
+  })
+
+  // The veto: only a real tab reports `browser`, so it must win over anything else the engine
+  // happens to match at the same time.
+  it('lets an explicit display-mode: browser override a matching standalone query', () => {
+    expect(
+      isStandalone(
+        env({}, { '(display-mode: browser)': true, '(display-mode: standalone)': true }),
+      ),
+    ).toBe(false)
+  })
+
+  // ...but iOS's own signal still wins, because a home-screen app there is not in doubt.
+  it('trusts navigator.standalone over a stray browser match', () => {
+    expect(
+      isStandalone(env({ userAgent: UA.iphone, standalone: true }, { '(display-mode: browser)': true })),
+    ).toBe(true)
   })
 })
 

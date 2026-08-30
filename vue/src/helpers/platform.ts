@@ -47,7 +47,26 @@ export type InstallPlatform = 'chromium' | 'ios-safari' | 'other' | 'webview'
 // `fullscreen` are as installed as `standalone` — a manifest may legitimately ask for
 // either, and treating them as "in a browser tab" would send an installed user back to
 // the install wall forever.
-const INSTALLED_DISPLAY_MODES = ['standalone', 'minimal-ui', 'fullscreen']
+// Display modes, and which of them can mean "launched from the home screen".
+//
+// **Only `standalone`**, because that is the only mode this app's manifest asks for
+// (`display: 'standalone'` in vite.config.ts). It is tempting to accept `minimal-ui` and
+// `fullscreen` as "equally installed" — an earlier version of this file did — but since the
+// manifest never requests them, they cannot appear on an installed launch. They can only
+// appear on an *uninstalled* one, which makes them pure false positives:
+//
+//   - `fullscreen` matches whenever the browsing context is fullscreen. Play a video
+//     fullscreen in an ordinary tab and the tab starts claiming to be an installed app.
+//   - `minimal-ui` is matched by several mobile browsers for their own chrome-reduced
+//     reading modes (Samsung Internet, Firefox for Android), in a plain tab.
+//
+// Getting this wrong is not cosmetic: a tab that reads as installed skips the install wall
+// and drops the user straight into onboarding in a browser, which is precisely the
+// configuration PRD 005 exists to prevent — no Web Push on iOS, no reliable service worker.
+const INSTALLED_DISPLAY_MODE = 'standalone'
+
+// The mode a real browser tab reports. Checked as a *veto* below.
+const BROWSER_DISPLAY_MODE = 'browser'
 
 // In-app browsers. Facebook and Instagram are the ones that matter here: participants
 // arrive from a link in a Facebook group, and installation is simply impossible in
@@ -112,12 +131,28 @@ export function isMobileDevice(env: PlatformEnv = defaultEnv()): boolean {
   return false
 }
 
-/** Is this launch running installed, rather than in a browser tab? */
+/**
+ * Is this launch running installed, rather than in a browser tab?
+ *
+ * Three checks, in this order, and the order is the design:
+ *
+ * 1. **iOS's `navigator.standalone`** — WebKit-only, and true only in a home-screen web app.
+ *    First because it is the one unambiguous signal we get on the platform where installing
+ *    matters most (iOS gives Web Push to home-screen apps only).
+ * 2. **An explicit `display-mode: browser` veto.** Only a real tab reports `browser`, so if
+ *    the engine says so, nothing else should be able to override it. This is what keeps a
+ *    fullscreen video or a chrome-less reading mode from being mistaken for an installed app.
+ * 3. **`display-mode: standalone`** — the mode this app's manifest actually requests.
+ *
+ * Erring towards "not installed" is the safe direction: the cost is showing the install wall
+ * to someone who is already installed (who then taps "jeg har allerede installeret appen"),
+ * while the cost of the opposite is a participant using the app in a tab all event with no
+ * notifications — silently, because nothing in the UI would say so.
+ */
 export function isStandalone(env: PlatformEnv = defaultEnv()): boolean {
-  // Both branches are needed. iOS Safari has historically not been trustworthy on
-  // `display-mode`, and `navigator.standalone` exists nowhere else.
   if (env.navigator.standalone === true) return true
-  return INSTALLED_DISPLAY_MODES.some((mode) => env.matchMedia(`(display-mode: ${mode})`).matches)
+  if (env.matchMedia(`(display-mode: ${BROWSER_DISPLAY_MODE})`).matches) return false
+  return env.matchMedia(`(display-mode: ${INSTALLED_DISPLAY_MODE})`).matches
 }
 
 /** Which set of install instructions applies (task 120). */
