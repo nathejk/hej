@@ -30,6 +30,18 @@ export const ALL_ROLES = [
 
 export type Role = (typeof ALL_ROLES)[number]
 
+// allRolesExcept returns every known role except the given ones.
+//
+// Exists so a role gate can be written as "everyone but X" rather than by listing the
+// permitted roles. The difference matters when a role is added: an explicit list silently
+// excludes the newcomer from a page it probably should have, while this includes it — and
+// the places that genuinely want an allow-list (the SOS page) keep spelling one out.
+//
+// Used by the contacts destination, which is "everyone except spejder" (PRD 007).
+export function allRolesExcept(...excluded: Role[]): Role[] {
+  return ALL_ROLES.filter((r) => !excluded.includes(r))
+}
+
 // Danish display labels for the roles.
 //
 // Kept next to the enum rather than in each component that needs one, so "gøgler"

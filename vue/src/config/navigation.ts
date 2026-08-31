@@ -1,6 +1,7 @@
 import type { Component } from 'vue'
 import { Map, Users, BookOpen, Megaphone, CalendarDays, Siren, HelpCircle, ShieldCheck } from '@lucide/vue'
 import type { Role } from '@/stores/session.store'
+import { allRolesExcept } from '@/config/roles'
 
 // A single declarative destination drives both routing and the bottom nav.
 // Icons are Lucide components (repo convention). `roles` gates visibility:
@@ -27,7 +28,23 @@ export interface NavDestination {
 
 export const destinations: NavDestination[] = [
   { name: 'maps', path: '/maps', label: 'Kort', icon: Map, fullBleed: true },
-  { name: 'contacts', path: '/contacts', label: 'Kontakter', icon: Users },
+  // The contacts directory (PRD 007): crew, banditter and gøglere, never spejdere.
+  //
+  // Spejdere get no contacts pane at all. That is the decision that keeps a browsable index
+  // of minors' faces out of the app, and it is enforced three times over: this list hides the
+  // nav entry, the router guard refuses the route, and the BFF answers 403. Only the last one
+  // is security — a hidden menu item is not access control, and the note at the top of this
+  // file spells out why anything sensitive must gate explicitly.
+  //
+  // Written as "everyone except spejder" rather than by listing the six permitted roles, so a
+  // role added later gets the pane by default instead of being silently left out of it.
+  {
+    name: 'contacts',
+    path: '/contacts',
+    label: 'Kontakter',
+    icon: Users,
+    roles: allRolesExcept('spejder'),
+  },
   { name: 'rulebook', path: '/rulebook', label: 'Regler', icon: BookOpen },
   { name: 'updates', path: '/updates', label: 'Nyt', icon: Megaphone },
   { name: 'schedule', path: '/schedule', label: 'Program', icon: CalendarDays },

@@ -3,7 +3,7 @@ import type { Component } from 'vue'
 import type { RouteLocationRaw, RouteRecordRaw } from 'vue-router'
 import { useSessionStore } from '@/stores/session.store'
 import { gatesEnabled } from '@/config/gates'
-import { LEAVE_APP, WEBSITE_PAGE, deviceAndInstallGates } from '@/router/gates'
+import { LEAVE_APP, WEBSITE_PAGE, deviceAndInstallGates, roleGate } from '@/router/gates'
 import type { Role } from '@/stores/session.store'
 import { destinations } from '@/config/navigation'
 
@@ -148,9 +148,8 @@ router.beforeEach(async (to) => {
   }
 
   // 6. Roles.
-  if (to.meta.roles && session.role && !to.meta.roles.includes(session.role)) {
-    return { name: 'maps' }
-  }
+  const outcome = roleGate(to, session.role)
+  if (outcome !== true) return outcome
   return true
 })
 

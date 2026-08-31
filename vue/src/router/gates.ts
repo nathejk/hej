@@ -1,6 +1,7 @@
 import type { RouteLocationNormalized, RouteLocationRaw } from 'vue-router'
 
 import { isMobileDevice, isStandalone } from '@/helpers/platform'
+import type { Role } from '@/config/roles'
 import { useOnboardingStore } from '@/stores/onboarding.store'
 
 // Steps 2-4 of the router guard, in their own module.
@@ -91,4 +92,40 @@ export function deviceAndInstallGates(
   // which is the whole reason it runs before auth (§11).
 
   return true
+}
+
+/**
+ * Step 6 of the guard order: role gating.
+ *
+ * Returns `true` when the route may be entered, or a redirect target when it may not.
+ *
+ * Extracted from the guard body for the same reason as the gates above — so it can be tested
+ * without importing `router/index.ts`, which calls `createWebHistory()` at import time — and
+ * because PRD 007 made this gate load-bearing rather than cosmetic: it is what refuses
+ * `/contacts` to a spejder who types the URL, follows a stale link, or restores a tab.
+ *
+ * # This is not the security boundary
+ *
+ * The BFF authorizes every contacts endpoint independently and answers 403 for a spejder. This
+ * gate exists so the app does not render a pane it cannot fill; a reader must not conclude
+ * that data is protected because this returns a redirect. Same rule as the install gate above.
+ *
+ * # An unknown role falls through
+ *
+ * When `role` is null the route is allowed, matching the previous inline behaviour. That is
+ * deliberate rather than an oversight: `role` is null while the session is still resolving and
+ * on a cold offline start, and redirecting then would bounce a legitimate user off a page they
+ * are entitled to — the blank-screen class of bug task 090 was about. The endpoint still
+ * refuses, so the cost of falling through is an empty pane, not a disclosure.
+ */
+export function roleGate(
+  to: RouteLocationNormalized,
+  role: Role | null,
+): true | RouteLocationRaw {
+  if (!to.meta.roles) return true
+  if (role === null) return true
+  if (to.meta.roles.includes(role)) return true
+
+  // Somewhere sensible, never an error page: the map is every role's landing route.
+  return { name: 'maps' }
 }
