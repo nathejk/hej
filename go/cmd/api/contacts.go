@@ -10,8 +10,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/julienschmidt/httprouter"
 	"github.com/nathejk/shared-go/types"
 
+	"nathejk.dk/internal/blob"
 	"nathejk.dk/internal/users"
 	"nathejk.dk/nathejk/table/person"
 )
@@ -466,6 +468,96 @@ func (c *versionCache) put(key, version string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.entries[key] = versionCacheEntry{version: version, expires: c.now().Add(c.ttl)}
+}
+
+// @Summary      A directory member's portrait
+// @Description  Serves the thumbnail of someone the caller may list, authorized per request. `size` follows the same convention as `/me/photo`. Refusal and absence are deliberately indistinguishable: a distinguishable 403 would let a bandit discover which person ids are gøglere. Spejder portraits are never available here — crew reach them only through the patrol lookup, which is uncached.
+// @Tags         contacts
+// @Produce      jpeg
+// @Param        personId  path      string  true   "person id"
+// @Param        size      query     string  false  "thumb (default), full, or a rendition name such as thumb256"
+// @Success      200  {file}    binary
+// @Failure      401  {object}  map[string]string
+// @Failure      403  {object}  map[string]string  "spejdere do not get the contacts pane"
+// @Failure      404  {object}  map[string]string  "no such portrait, or not visible to the caller"
+// @Router       /contacts/people/{personId}/photo [get]
+func (app *application) contactsPhotoHandler(w http.ResponseWriter, r *http.Request) {
+	viewer, ok := app.contactsViewer(w, r)
+	if !ok {
+		return
+	}
+	if app.models.People == nil {
+		app.ServiceUnavailableResponse(w, r, "billeder er ikke tilgængelige lige nu")
+		return
+	}
+
+	personID := httprouter.ParamsFromContext(r.Context()).ByName("personId")
+
+	subjectRow, found, err := app.models.People.Get(app.config.eventYear, personID)
+	if err != nil {
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+
+	// One refusal for every reason: no such person, a person the caller may not list, a
+	// person with no portrait, or bytes that have gone missing. They must be
+	// indistinguishable, because the alternative is an oracle — a bandit walking person ids
+	// and learning which ones exist, or which are gøglere, from the difference between 403
+	// and 404. This is also why the checks below do not log at different levels or return
+	// early with different bodies.
+	if !found {
+		app.NotFoundResponse(w, r)
+		return
+	}
+	subject, valid := contactSubject(subjectRow)
+	if !valid || !app.mayListSubject(viewer, subject) {
+		app.NotFoundResponse(w, r)
+		return
+	}
+	if subjectRow.PortraitRef == "" {
+		app.NotFoundResponse(w, r)
+		return
+	}
+
+	// Thumbnails by default here, unlike /me/photo which defaults to the full image. The
+	// directory only ever needs a face at list or dialog size, and defaulting to `full`
+	// would mean a careless client shipping ~800 KB portraits of colleagues to every device.
+	size := r.URL.Query().Get("size")
+	if strings.TrimSpace(size) == "" {
+		size = "thumb"
+	}
+
+	ref := blob.Ref(portraitRefForSize(subjectRow, size))
+	if !ref.Valid() {
+		app.Logger.Error("portrait ref in projection is not a content hash",
+			"personId", personID, "ref", string(ref))
+		app.NotFoundResponse(w, r)
+		return
+	}
+
+	// Matching ETag lets the sync engine skip images it already holds. 304 before the blob
+	// read, so an unchanged portrait costs no disk I/O.
+	if r.Header.Get("If-None-Match") == `"`+string(ref)+`"` {
+		w.Header().Set("ETag", `"`+string(ref)+`"`)
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	app.streamPortrait(w, r, ref, personID)
+}
+
+// mayListSubject reports whether the viewer may see this person anywhere in the directory.
+//
+// True when any of the subject's populations is listable by the viewer — a crew bandit is
+// visible to a bandit through the bandit listing even though they are also crew. Never true
+// for a spejder, whatever the viewer's role.
+func (app *application) mayListSubject(viewer, subject users.User) bool {
+	for _, pop := range users.PopulationsOf(subject) {
+		if users.MayList(viewer.Role, pop) {
+			return true
+		}
+	}
+	return false
 }
 
 // contactsVersion hashes the *data* behind a viewer's directory.

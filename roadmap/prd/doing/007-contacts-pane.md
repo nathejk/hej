@@ -603,11 +603,16 @@ outcome 009 exists to prevent, and the reason to sequence 009 first.
   thumbnail, reachable only in the context of a permitted lookup, `no-store`. Keeps
   spejder images off the general portrait route so "never cached" is a property of the
   endpoint rather than a convention.
-- `GET /api/contacts/{personId}/photo?size=thumb` — one thumbnail, authorized per
-  request. Follows the `?size=` convention task 104 established on `/me/photo`
-  rather than inventing a second one. `200` / `304` / `401` / `403` / `404`, with
-  **`403` and `404` indistinguishable** so the endpoint is not an enumeration
-  oracle.
+- `GET /api/contacts/people/{personId}/photo?size=thumb` — one thumbnail, authorized per
+  request. Follows the `?size=` convention task 104 established on `/me/photo` rather
+  than inventing a second one, while defaulting to `thumb` rather than `full`. `200` /
+  `304` / `401` / `403` / `404`, with **`403` and `404` indistinguishable** so the
+  endpoint is not an enumeration oracle.
+
+  *(Path corrected 2026-08-31, task 156: `/contacts/{personId}/photo` cannot exist —
+  httprouter refuses a wildcard segment beside the static `manifest` and `version`
+  siblings and panics at startup. Hence the `/people/` segment, which task 167's profile
+  route also uses.)*
 - `PUT` / `DELETE /api/contacts/favourites/{personId}` — **not needed.** Favourites
   are device-local (2026-08-31), so there is no favourites endpoint and no
   server-side record of them.
@@ -794,7 +799,7 @@ Proposed tasks for `roadmap/tasks/open/`:
       so subsections can add a tier without a client rewrite
 - [ ] Task: `GET /api/contacts/manifest` with server-side grouping, own-group flag,
       etag/delta support
-- [ ] Task: `GET /api/contacts/{personId}/photo?size=thumb`, indistinguishable
+- [x] Task: `GET /api/contacts/people/{personId}/photo?size=thumb`, indistinguishable
       403/404, reusing `portrait.go`
 - [ ] Task: hide the `contacts` destination for `spejder` (nav `roles` + router
       guard + test)

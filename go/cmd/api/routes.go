@@ -65,6 +65,11 @@ func (app *application) routes() http.Handler {
 	// every web push to raise a notification and a corrected phone number is not worth
 	// buzzing a phone for (PRD 007 §8).
 	router.HandlerFunc(http.MethodGet, "/api/contacts/version", app.requireAuth(app.contactsVersionHandler))
+	// A directory member's portrait, authorized per request. Under /people/ rather than
+	// directly under /contacts/{personId} because httprouter refuses a wildcard segment
+	// alongside the static `manifest` and `version` siblings — and the extra segment reads
+	// better anyway next to the patrol routes.
+	router.HandlerFunc(http.MethodGet, "/api/contacts/people/:personId/photo", app.requireAuth(app.contactsPhotoHandler))
 	// Position track ingest (PRD 002 §11.1, task 084). Publishes to the telemetry stream
 	// and writes no SQL; the person is taken from the session, never from the body.
 	router.HandlerFunc(http.MethodPost, "/api/track", app.requireAuth(app.createTrackHandler))

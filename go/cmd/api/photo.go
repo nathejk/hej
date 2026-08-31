@@ -10,6 +10,7 @@ import (
 
 	"nathejk.dk/internal/blob"
 	"nathejk.dk/internal/imaging"
+	"nathejk.dk/nathejk/table/person"
 )
 
 // maxPortraitUpload bounds the request body.
@@ -233,29 +234,8 @@ func (app *application) showPhotoHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Which rendition to serve. `size=thumb` means "the default thumbnail" (the smallest,
-	// denormalized onto the row); `size=thumb256` — or just `size=256` — names one
-	// explicitly, which is how a client asks for a specific size once there is more than
-	// one.
-	//
-	// Anything unrecognised, and any portrait with no such rendition, falls back to the
-	// full image rather than 404-ing: a client asking for something small would rather
-	// have something large than nothing.
-	stored := p.PortraitRef
-	if size := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("size"))); size != "" && size != "full" {
-		switch {
-		case size == "thumb" && p.PortraitThumbRef != "":
-			stored = p.PortraitThumbRef
-		default:
-			name := size
-			if !strings.HasPrefix(name, "thumb") {
-				name = "thumb" + name
-			}
-			if t, ok := p.Thumb(name); ok {
-				stored = t.Ref
-			}
-		}
-	}
+	// Which rendition to serve — see portraitRefForSize.
+	stored := portraitRefForSize(p, r.URL.Query().Get("size"))
 
 	ref := blob.Ref(stored)
 	if !ref.Valid() {
@@ -268,6 +248,50 @@ func (app *application) showPhotoHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	app.streamPortrait(w, r, ref, s.UserID)
+}
+
+// portraitRefForSize picks which stored rendition to serve for a `size` query value.
+//
+// `size=thumb` means "the default thumbnail" (the smallest, denormalized onto the row);
+// `size=thumb256` — or just `size=256` — names one explicitly, which is how a client asks
+// for a specific size once there is more than one.
+//
+// Anything unrecognised, and any portrait with no such rendition, falls back to the full
+// image rather than 404-ing: a client asking for something small would rather have
+// something large than nothing.
+//
+// Shared by the own-portrait handler and the contacts photo handler (PRD 007) so the two
+// cannot drift on what `?size=thumb` means — which would be a subtle way for the contacts
+// pane to start shipping full-resolution faces.
+func portraitRefForSize(p person.Person, sizeParam string) string {
+	stored := p.PortraitRef
+	size := strings.ToLower(strings.TrimSpace(sizeParam))
+	if size == "" || size == "full" {
+		return stored
+	}
+
+	switch {
+	case size == "thumb" && p.PortraitThumbRef != "":
+		stored = p.PortraitThumbRef
+	default:
+		name := size
+		if !strings.HasPrefix(name, "thumb") {
+			name = "thumb" + name
+		}
+		if t, ok := p.Thumb(name); ok {
+			stored = t.Ref
+		}
+	}
+	return stored
+}
+
+// streamPortrait writes the blob behind ref as JPEG.
+//
+// `Cache-Control: private` on every path: these are photographs of members, many of them
+// minors, so they must never sit in a shared cache. Content-addressed bytes never change,
+// which is what makes a long max-age safe for the *browser's own* cache.
+func (app *application) streamPortrait(w http.ResponseWriter, r *http.Request, ref blob.Ref, logID string) {
 	reader, err := app.blobs.Get(r.Context(), ref)
 	if err != nil {
 		if errors.Is(err, blob.ErrNotFound) {
@@ -280,14 +304,16 @@ func (app *application) showPhotoHandler(w http.ResponseWriter, r *http.Request)
 	defer reader.Close()
 
 	w.Header().Set("Content-Type", "image/jpeg")
-	// Content-addressed, so the bytes behind a ref never change — but this is a
-	// photograph of a minor, so it must not be held by shared caches. `private`
-	// restricts it to the requesting user's own browser.
 	w.Header().Set("Cache-Control", "private, max-age=3600")
+	// The ref is a content hash, so it is a perfect ETag: same bytes, same value, and a
+	// changed portrait is a different ref. This is what lets the sync engine skip images it
+	// already holds without a size or date heuristic.
+	w.Header().Set("ETag", `"`+string(ref)+`"`)
+
 	if _, err := io.Copy(w, reader); err != nil {
 		// The response has already begun; there is nothing to say to the client that it
 		// would still parse.
-		app.Logger.Error("streaming portrait", "err", err, "userId", s.UserID)
+		app.Logger.Error("streaming portrait", "err", err, "id", logID)
 	}
 }
 
