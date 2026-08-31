@@ -38,6 +38,11 @@ func (f fakeQueries) ExpiredPortraits(string, time.Time, int) ([]person.ExpiredP
 	return nil, nil
 }
 
+// Nor this — contacts listing has its own tests (contacts_test.go).
+func (f fakeQueries) ListByAppRoles(string, []string) ([]person.Person, error) {
+	return nil, nil
+}
+
 // Every app role the projection can produce must survive the trip to users.Role. The
 // values are deliberate duplicates on both sides, so this is the test that catches the
 // two lists drifting apart — at which point a real member would be refused a login.
@@ -195,6 +200,11 @@ func (r yearRecorder) Get(year, _ string) (person.Person, bool, error) {
 
 // Unused by the directory adapter; present to satisfy person.Queries.
 func (r yearRecorder) ExpiredPortraits(string, time.Time, int) ([]person.ExpiredPortrait, error) {
+	return nil, nil
+}
+
+func (r yearRecorder) ListByAppRoles(year string, _ []string) ([]person.Person, error) {
+	*r.seen = append(*r.seen, year)
 	return nil, nil
 }
 

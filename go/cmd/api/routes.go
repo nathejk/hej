@@ -55,6 +55,11 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodPut, "/api/me/photo", app.requireAuth(app.updatePhotoHandler))
 	router.HandlerFunc(http.MethodGet, "/api/me/photo", app.requireAuth(app.showPhotoHandler))
 	router.HandlerFunc(http.MethodGet, "/api/patrol/scans", app.requireAuth(app.listPatrolScansHandler))
+	// The contacts directory (PRD 007). Cached by the client and worked from offline, so
+	// it carries everything the pane needs and nothing it does not: no guardian numbers, no
+	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach
+	// them only through the patrol lookup, which is a separate, uncached surface.
+	router.HandlerFunc(http.MethodGet, "/api/contacts/manifest", app.requireAuth(app.contactsManifestHandler))
 	// Position track ingest (PRD 002 §11.1, task 084). Publishes to the telemetry stream
 	// and writes no SQL; the person is taken from the session, never from the body.
 	router.HandlerFunc(http.MethodPost, "/api/track", app.requireAuth(app.createTrackHandler))

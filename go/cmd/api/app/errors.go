@@ -28,6 +28,17 @@ func (a *JsonApi) NotFoundResponse(w http.ResponseWriter, r *http.Request) {
 	a.errorResponse(w, r, http.StatusNotFound, "the requested resource could not be found")
 }
 
+// ForbiddenResponse returns a 403 JSON error: the caller is authenticated, and this is not
+// for them.
+//
+// Use it only where the *existence* of the resource is not itself a secret. Where it is —
+// PRD 007's patrol lookup, where a distinguishable 403 would tell a caller which patrol
+// numbers exist — answer NotFoundResponse for both cases instead, so refusal and absence
+// are indistinguishable.
+func (a *JsonApi) ForbiddenResponse(w http.ResponseWriter, r *http.Request) {
+	a.errorResponse(w, r, http.StatusForbidden, "this resource is not available to you")
+}
+
 // MethodNotAllowedResponse returns a 405 JSON error.
 func (a *JsonApi) MethodNotAllowedResponse(w http.ResponseWriter, r *http.Request) {
 	a.errorResponse(w, r, http.StatusMethodNotAllowed,

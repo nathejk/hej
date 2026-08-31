@@ -37,6 +37,12 @@ type stubPeople struct {
 	expired        []person.ExpiredPortrait
 	expiredErr     error
 	expiredCutoffs []time.Time
+
+	// listed backs ListByAppRoles for the contacts manifest, and listedRoles records the
+	// role sets it was asked for.
+	listed      []person.Person
+	listedErr   error
+	listedRoles [][]string
 }
 
 func (s *stubPeople) Get(year, personID string) (person.Person, bool, error) {
@@ -45,6 +51,13 @@ func (s *stubPeople) Get(year, personID string) (person.Person, bool, error) {
 }
 
 func (s *stubPeople) Lookup(string, string) ([]person.Person, error) { return nil, nil }
+
+// listed is what ListByAppRoles returns, and listedRoles records what it was asked for —
+// the role set is derived from the access matrix, so a test asserts on it (contacts_test.go).
+func (s *stubPeople) ListByAppRoles(_ string, roles []string) ([]person.Person, error) {
+	s.listedRoles = append(s.listedRoles, roles)
+	return s.listed, s.listedErr
+}
 
 func (s *stubPeople) ExpiredPortraits(_ string, before time.Time, _ int) ([]person.ExpiredPortrait, error) {
 	s.expiredCutoffs = append(s.expiredCutoffs, before)

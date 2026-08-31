@@ -3,6 +3,7 @@ package person
 import (
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/jrgensen/cqrs"
@@ -53,7 +54,7 @@ type Person struct {
 	// nil for a verification recorded before the column existed, which reads correctly as "we
 	// do not know what the register held then" — see IsVerified, which refuses to vouch for it.
 	VerifiedAgainstPhone *string
-	PortraitRef       string
+	PortraitRef          string
 	// PortraitThumbRef is the default (smallest) thumbnail's content hash, or empty when
 	// the portrait predates thumbnails (task 104). Readers fall back to PortraitRef.
 	PortraitThumbRef string
@@ -180,6 +181,19 @@ type Queries interface {
 	// Get resolves a person by id, scoped to a year.
 	Get(year, personID string) (Person, bool, error)
 
+	// ListByAppRoles returns every live person in the year holding one of the given app
+	// roles, ordered by name.
+	//
+	// Roles rather than a free-form filter, because the one caller (PRD 007's contacts
+	// manifest) decides who it may list from the *authorization* matrix, and a query that
+	// took arbitrary predicates would let that decision leak into SQL. An empty roles
+	// slice returns nothing rather than everything — the safe reading of "no roles are
+	// permitted", and the difference matters because the caller derives the slice from a
+	// permission check.
+	//
+	// Soft-deleted rows are excluded here, for the same reason Lookup excludes them.
+	ListByAppRoles(year string, roles []string) ([]Person, error)
+
 	// ExpiredPortraits returns the portraits that are due to be deleted: captured
 	// before `before`, or with no capture time recorded at all.
 	//
@@ -289,6 +303,47 @@ func (q querier) Get(year, personID string) (Person, bool, error) {
 		return Person{}, false, err
 	}
 	return p, true, nil
+}
+
+func (q querier) ListByAppRoles(year string, roles []string) ([]Person, error) {
+	// No roles means no permitted populations, which is not the same as "unfiltered".
+	// Returning early rather than building `IN ()` also avoids a SQL syntax error, but
+	// the reason it is written as a guard is the first one: the caller got here from an
+	// authorization decision, and the empty case must fail closed.
+	if len(roles) == 0 {
+		return nil, nil
+	}
+
+	placeholders := strings.Repeat("?,", len(roles)-1) + "?"
+	args := make([]any, 0, len(roles)+1)
+	args = append(args, year)
+	for _, r := range roles {
+		args = append(args, r)
+	}
+
+	// Ordered by name so the payload is stable between requests: the manifest is
+	// content-hashed for its ETag, and an unstable order would make every poll look like
+	// a change. personId breaks ties, since duplicate names are common in this data
+	// (task 078 found 70 shared numbers whose rows carry the same name).
+	rows, err := q.db.Query(`
+		SELECT `+personColumns+`
+		FROM person
+		WHERE year = ? AND deleted = 0 AND appRole IN (`+placeholders+`)
+		ORDER BY name, personId`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Person
+	for rows.Next() {
+		p, err := scanPerson(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 func (q querier) ExpiredPortraits(year string, before time.Time, limit int) ([]ExpiredPortrait, error) {
