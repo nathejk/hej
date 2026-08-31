@@ -37,6 +37,15 @@ must **not** be applied here.
 
 - All endpoints must have OpenAPI annotations
 - New features and significant changes require a PRD (`prd` skill) before implementation
+- **Guardian phone numbers never enter the PWA**, with exactly one exception: a user
+  confirming or approving **their own** guardian's number (onboarding / profile —
+  PRD 003, PRD 005). No other surface may carry a `phoneParent`: not a directory, not
+  a contact list, not a lookup, not a cached manifest. This is a hard rule rather than
+  a per-feature judgement, because a guardian's number is the most sensitive field in
+  the record and the person it belongs to is not a user of this app and never agreed
+  to be in it. If an operational need for one appears, it belongs in an organizer tool
+  behind its own decision — not in the participants' app. BFF responses must project
+  the field out rather than relying on the client not to render it.
 - **Component library:** use [shadcn-vue](https://www.shadcn-vue.com/) for all UI
   components (see the `vue3-pwa-layout` skill). **Prefer a standard shadcn-vue
   component whenever one exists** — only hand-roll a component if nothing in the

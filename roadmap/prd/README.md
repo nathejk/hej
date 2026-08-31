@@ -122,7 +122,7 @@ Repo specifics to respect:
 | 004 | Migrate the component library from PrimeVue to shadcn-vue (and upgrade Tailwind to v4) | done |
 | 005 | Install-first mobile onboarding (install, confirm, permissions) | doing |
 | 006 | Member directory for the app (person lookup by phone, app roles) | done |
-| 007 | Portrait identification | draft |
+| 007 | Contacts pane (person lookup with portraits, scoped by race role) | doing |
 | 008 | Persistence and event-stream infrastructure | done |
 | 009 | Offline-first client data layer | draft |
 | 010 | Vehicle registration | draft |
