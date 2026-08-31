@@ -499,7 +499,7 @@ this PRD to build one, which is the duplication 009 exists to prevent. Worth rai
 against 009 explicitly, since its current draft frames sync as a pre-event readiness
 problem rather than a during-event freshness one.
 
-### Member status — smaller than it was, but still cross-repo
+### Member status — decided (task 150)
 
 "Clear status marking" (§6) needs the member lifecycle, and **this repo deliberately
 does not have it.** `person.memberStatus` is `racing` or empty, and the comment above
@@ -543,8 +543,6 @@ store and read the value, but must not implement lifecycle rules.
 Until task 174 lands no transition events arrive, so the flag reads `true` for everyone.
 That is correct for a pre-event state, and is documented at the call site rather than
 assumed.
-
-### Member status — decided (task 150)
 
 ### Frontend (Vue 3 / TS)
 
