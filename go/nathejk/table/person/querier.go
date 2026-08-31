@@ -198,6 +198,23 @@ type Queries interface {
 	// Soft-deleted rows are excluded here, for the same reason Lookup excludes them.
 	ListByAppRoles(year string, roles []string) ([]Person, error)
 
+	// ListPatrolByNumber returns the members of one patrol, found by the number the patrol
+	// is known by in the field.
+	//
+	// Two steps by design (PRD 007, task 157): the number resolves to a teamId via any one
+	// numbered member, then every member of that team is returned. A patrol whose members
+	// were added after the number was assigned carries the number on only some rows — see
+	// handlePatrolNumberAssigned's note — and matching on teamId rather than on the number
+	// itself means those members are still found.
+	//
+	// Exact match on the whole number, never a prefix: this backs an authorization-sensitive
+	// lookup where partial matching would turn one permitted question ("show me patrol 138")
+	// into an enumeration tool ("show me every patrol starting with 1").
+	//
+	// Empty slice, not an error, when no such patrol exists — the caller must answer the same
+	// way for "no such patrol" as for "not allowed".
+	ListPatrolByNumber(year, number string) ([]Person, error)
+
 	// ExpiredPortraits returns the portraits that are due to be deleted: captured
 	// before `before`, or with no capture time recorded at all.
 	//
@@ -334,6 +351,44 @@ func (q querier) ListByAppRoles(year string, roles []string) ([]Person, error) {
 		FROM person
 		WHERE year = ? AND deleted = 0 AND appRole IN (`+placeholders+`)
 		ORDER BY name, personId`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Person
+	for rows.Next() {
+		p, err := scanPerson(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (q querier) ListPatrolByNumber(year, number string) ([]Person, error) {
+	// Guard against an empty number matching the column default, the same trap Lookup
+	// guards against with an empty phone: without this, a caller who sends nothing gets
+	// every unnumbered person in the event — which is most of them.
+	number = strings.TrimSpace(number)
+	if number == "" {
+		return nil, nil
+	}
+
+	// One statement rather than two round trips: the subquery resolves the number to a team,
+	// the outer query returns that team's members. LIMIT 1 in the subquery because every
+	// numbered member of a patrol agrees about its teamId, and MySQL needs a scalar here.
+	rows, err := q.db.Query(`
+		SELECT `+personColumns+`
+		FROM person
+		WHERE year = ? AND deleted = 0
+		  AND teamId = (
+		    SELECT teamId FROM person
+		    WHERE year = ? AND deleted = 0 AND teamNumber = ? AND teamId <> ""
+		    LIMIT 1
+		  )
+		ORDER BY name, personId`, year, year, number)
 	if err != nil {
 		return nil, err
 	}

@@ -139,6 +139,35 @@ func TestLookupReturnsAllOwnersOfASharedNumber(t *testing.T) {
 	}
 }
 
+// An empty number must never reach SQL. Without the guard it would match the column's
+// default and return every unnumbered person in the event — which is most of them, and would
+// turn a mistyped lookup into a bulk disclosure of spejder records. Same trap Lookup guards
+// against with an empty phone.
+func TestListPatrolByNumberRefusesEmptyNumber(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	// No ExpectQuery: any query at all is a failure here.
+	q := querier{db: db, normalizer: testNormalizer{}}
+
+	for _, number := range []string{"", "   ", "\t"} {
+		people, err := q.ListPatrolByNumber("2026", number)
+		if err != nil {
+			t.Fatalf("ListPatrolByNumber(%q): %v", number, err)
+		}
+		if len(people) != 0 {
+			t.Errorf("ListPatrolByNumber(%q) returned %d people", number, len(people))
+		}
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unexpected query for an empty number: %v", err)
+	}
+}
+
 func TestGetByIDReturnsFalseWhenAbsent(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

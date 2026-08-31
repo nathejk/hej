@@ -70,6 +70,13 @@ func (app *application) routes() http.Handler {
 	// alongside the static `manifest` and `version` siblings — and the extra segment reads
 	// better anyway next to the patrol routes.
 	router.HandlerFunc(http.MethodGet, "/api/contacts/people/:personId/photo", app.requireAuth(app.contactsPhotoHandler))
+	// The crew-only patrol lookup (PRD 007). Everything about these two is the opposite of
+	// the directory above: live, never cached, never a sync dataset, and audited per call —
+	// they are the only path by which a spejder's details are reachable in this app. A
+	// refusal answers 404, identical to a nonexistent patrol, so the endpoint cannot be used
+	// to discover which numbers exist.
+	router.HandlerFunc(http.MethodGet, "/api/contacts/patrols/:number", app.requireAuth(app.patrolLookupHandler))
+	router.HandlerFunc(http.MethodGet, "/api/contacts/patrols/:number/photo/:personId", app.requireAuth(app.patrolPhotoHandler))
 	// Position track ingest (PRD 002 §11.1, task 084). Publishes to the telemetry stream
 	// and writes no SQL; the person is taken from the session, never from the body.
 	router.HandlerFunc(http.MethodPost, "/api/track", app.requireAuth(app.createTrackHandler))

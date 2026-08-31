@@ -248,7 +248,7 @@ func (app *application) showPhotoHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	app.streamPortrait(w, r, ref, s.UserID)
+	app.streamPortrait(w, r, ref, "private, max-age=3600", s.UserID)
 }
 
 // portraitRefForSize picks which stored rendition to serve for a `size` query value.
@@ -288,10 +288,19 @@ func portraitRefForSize(p person.Person, sizeParam string) string {
 
 // streamPortrait writes the blob behind ref as JPEG.
 //
-// `Cache-Control: private` on every path: these are photographs of members, many of them
-// minors, so they must never sit in a shared cache. Content-addressed bytes never change,
-// which is what makes a long max-age safe for the *browser's own* cache.
-func (app *application) streamPortrait(w http.ResponseWriter, r *http.Request, ref blob.Ref, logID string) {
+// cacheControl is explicit at every call site rather than defaulted, because the right
+// answer differs per surface and getting it wrong is a privacy bug rather than a
+// performance one:
+//
+//   - a member's own portrait and a directory member's may be cached by the requesting
+//     browser (`private, max-age=...`) — content-addressed bytes never change, and the
+//     directory is meant to work offline;
+//   - a patrol member's portrait must not be cached at all (`no-store`), because that is
+//     what keeps spejder faces off devices (PRD 007 §8).
+//
+// `private` at minimum on every path: these are photographs of members, many of them minors,
+// so they must never sit in a shared cache.
+func (app *application) streamPortrait(w http.ResponseWriter, r *http.Request, ref blob.Ref, cacheControl, logID string) {
 	reader, err := app.blobs.Get(r.Context(), ref)
 	if err != nil {
 		if errors.Is(err, blob.ErrNotFound) {
@@ -304,7 +313,7 @@ func (app *application) streamPortrait(w http.ResponseWriter, r *http.Request, r
 	defer reader.Close()
 
 	w.Header().Set("Content-Type", "image/jpeg")
-	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.Header().Set("Cache-Control", cacheControl)
 	// The ref is a content hash, so it is a perfect ETag: same bytes, same value, and a
 	// changed portrait is a different ref. This is what lets the sync engine skip images it
 	// already holds without a size or date heuristic.

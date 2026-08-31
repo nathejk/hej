@@ -543,7 +543,7 @@ func (app *application) contactsPhotoHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	app.streamPortrait(w, r, ref, personID)
+	app.streamPortrait(w, r, ref, "private, max-age=3600", personID)
 }
 
 // mayListSubject reports whether the viewer may see this person anywhere in the directory.

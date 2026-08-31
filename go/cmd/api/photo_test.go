@@ -43,6 +43,10 @@ type stubPeople struct {
 	listed      []person.Person
 	listedErr   error
 	listedRoles [][]string
+
+	// patrol backs the patrol lookup, keyed by the number asked for.
+	patrol      map[string][]person.Person
+	patrolAsked []string
 }
 
 func (s *stubPeople) Get(year, personID string) (person.Person, bool, error) {
@@ -76,6 +80,16 @@ func (s *stubPeople) ListByAppRoles(_ string, roles []string) ([]person.Person, 
 		}
 	}
 	return out, nil
+}
+
+// patrol backs ListPatrolByNumber, keyed by patrol number, and patrolAsked records the
+// numbers it was asked for — the lookup must never be called with a prefix or a blank.
+func (s *stubPeople) ListPatrolByNumber(_ string, number string) ([]person.Person, error) {
+	s.patrolAsked = append(s.patrolAsked, number)
+	if s.listedErr != nil {
+		return nil, s.listedErr
+	}
+	return s.patrol[number], nil
 }
 
 func (s *stubPeople) ExpiredPortraits(_ string, before time.Time, _ int) ([]person.ExpiredPortrait, error) {

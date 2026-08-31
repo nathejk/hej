@@ -43,6 +43,10 @@ func (f fakeQueries) ListByAppRoles(string, []string) ([]person.Person, error) {
 	return nil, nil
 }
 
+func (f fakeQueries) ListPatrolByNumber(string, string) ([]person.Person, error) {
+	return nil, nil
+}
+
 // Every app role the projection can produce must survive the trip to users.Role. The
 // values are deliberate duplicates on both sides, so this is the test that catches the
 // two lists drifting apart — at which point a real member would be refused a login.
@@ -204,6 +208,11 @@ func (r yearRecorder) ExpiredPortraits(string, time.Time, int) ([]person.Expired
 }
 
 func (r yearRecorder) ListByAppRoles(year string, _ []string) ([]person.Person, error) {
+	*r.seen = append(*r.seen, year)
+	return nil, nil
+}
+
+func (r yearRecorder) ListPatrolByNumber(year, _ string) ([]person.Person, error) {
 	*r.seen = append(*r.seen, year)
 	return nil, nil
 }
