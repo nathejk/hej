@@ -39,6 +39,11 @@ Rows show face, name, **status** and **phone number** (task 157).
 - [ ] A miss shows one neutral "ingen patrulje med det nummer".
 - [ ] Rows show face, name, status, phone; withdrawn members marked.
 - [ ] A comment in the component records *why* there is no history and no prefix search.
+- [ ] **Add the patrol lookup's endpoints to the `paths` list in `guardiantripwire_test.go`**
+      (re-homed from task 167, which turned out to need no new endpoint). These are the records
+      that genuinely carry guardian numbers, so this is where the tripwire matters most — the
+      lookup response is already asserted in `patrol_test.go`, but it belongs in the shared
+      tripwire too, so a new contacts surface cannot be added without it.
 
 ## Progress Log
 
