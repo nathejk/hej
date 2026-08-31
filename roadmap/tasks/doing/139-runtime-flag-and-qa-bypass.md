@@ -71,9 +71,13 @@ The webview row is a pass/fail on the escape hatch, not on installation.
 - [x] The override is inert in production builds/environments
 - [x] The override is the first check in the guard order (task 137)
 - [ ] The manual matrix above is executed and the outcome per row recorded in this task's
-      progress log — including misclassifications found, not only passes
+      progress log — including misclassifications found, not only passes. **Three of seven rows are
+      now automated and passing; the four device rows are outstanding.**
 - [ ] iPadOS is confirmed to classify as **mobile**
-- [ ] The in-app-webview case reaches the escape hatch and gets into the app
+- [~] ~~The in-app-webview case reaches the escape hatch and gets into the app~~ — **superseded by
+      task 143**: there is no escape hatch, and no login outside the installed app. What replaces it
+      is verified automatically for the iOS webview (told to reopen in Safari, and *not* shown
+      add-to-home-screen steps). That the advice is followable on a real phone is still unrun.
 - [ ] Any misclassification found is either fixed or explicitly accepted with the escape
       hatch named as the mitigation
 
@@ -132,13 +136,13 @@ The webview row is a pass/fail on the escape hatch, not on installation.
 
   | Platform | What to establish | State |
   |---|---|---|
-  | iOS Safari | add-to-home-screen, `navigator.standalone`, push on 16.4+ | not run |
-  | Android Chrome | `beforeinstallprompt` captured **before mount**, `appinstalled` seen | not run |
-  | Android Firefox | no prompt → manual instructions correct and readable | not run |
-  | Desktop | classified desktop, leaves the app for `/desktop.html`, never sees `/welcome` or `/install`, and the install banner stays **hidden** | not run |
-  | iPadOS | reports as macOS Safari — must still classify as **mobile**; if it does not, the placeholder's install banner must be visible as the way back | not run |
-  | In-app webview (Facebook) | install impossible; the instructions' "reopen in Safari/Chrome" is the only way out and must be followable | not run |
-  | Mobile browser → website | the wall's "Gå til hjemmesiden" link works, the website's "Installér som app" box shows on a phone and is hidden on a laptop, and the round trip back to `/install` works (task 143) | not run |
+  | Desktop | classified desktop, leaves the app for `/desktop.html`, never sees `/welcome` or `/install`, install banner stays **hidden** | **PASS — automated**, `vue/scripts/check-install-gate.sh` |
+  | iPhone browser tab | lands on the wall, iOS add-to-home-screen instructions, no one-tap button, **no login anywhere**, link out to the website | **PASS — automated** (real Chrome, iPhone UA) |
+  | In-app webview (iOS) | told to reopen in a real browser, and **not** shown add-to-home-screen steps | **PASS — automated** |
+  | iOS Safari, installed | add-to-home-screen actually works, `navigator.standalone`, Web Push on 16.4+, safe-area (`use 59/0/0/0`, `main.top 128`) | not run — needs an iPhone |
+  | Android Chrome | `beforeinstallprompt` captured **before mount**, `appinstalled` seen, one-tap install | not run — needs an Android device (see below) |
+  | Android Firefox | no prompt → the browser-menu instructions are correct and readable | not run — needs an Android device |
+  | iPadOS | reports as macOS Safari — must still classify as **mobile** | not run — needs an iPad |
 
   Two rows are worth more attention than the rest. **iPadOS** is the one most likely to fail and the
   reason the tie-break exists (`platform.ts` detects it as `platform === 'MacIntel' && maxTouchPoints > 1`,
@@ -155,3 +159,34 @@ The webview row is a pass/fail on the escape hatch, not on installation.
   (task 148: number keypad shows, and the browser does not offer the member's own number as an
   autocomplete suggestion), and the portrait nudge banner (task 146: renders in the shell without
   covering content, and the capture sheet opens from it).
+- 2026-08-31 — **Automated the part of the matrix a real browser can decide**, in
+  `vue/scripts/check-install-gate.sh`: host Chrome headless against the dev stack, throwaway profile
+  per case (so no leftover session, service worker or localStorage can invalidate an assertion),
+  asserting both presence and absence. 15 checks across three cases, all passing.
+
+  This does not replace the matrix, and the task stays in `doing/`. What it replaces is the part
+  that was being re-checked by hand on a laptop every time the gate changed — which is the part that
+  broke twice in one week (tasks 141 and 142) and would have been caught here in seconds. The
+  absence assertions are the valuable half: "no login form anywhere in a browser tab" is task 143's
+  central rule, and it is now checked on three different user agents rather than believed.
+
+- 2026-08-31 — **A finding from the attempt, worth more than the checks it cost.** The Android case
+  failed, and the app was right while the test was wrong: headless Chrome with an Android UA is still
+  a **mouse-only, touch-less desktop**, so it classified as desktop and went to the website.
+
+  `isMobileDevice()` treats only the *Apple* UA patterns as decisive; for everything else it requires
+  touch or pointer evidence, deliberately — `navigator.userAgentData.mobile` is false on an Android
+  *tablet*, and a UA string is not evidence of hardware. So the iPhone rows are representable here
+  only because `isAppleTouchDevice()` short-circuits on the UA before touch is consulted, and
+  **Android and iPadOS cannot be represented by any UA string.**
+
+  Deliberately *not* asserted as expected behaviour: pinning "Android UA → desktop" would enshrine
+  something we do not want, and would fail the day someone sensibly makes the UA decisive for Android
+  too. It is documented in the script's header instead, with the consequence stated plainly —
+  **Android must be tested on Android**, and the iPadOS row is unreachable from any laptop.
+
+- 2026-08-31 — Still outstanding, and needing hardware rather than effort: the four device rows
+  above, plus the visual checks deferred here from tasks 122, 130, 131, 138, 140, 145, 146 and 148.
+  The fastest useful subset, if time is short: **iPadOS classification** (one screenshot of the
+  `LayoutDebug` overlay tells you), **Android Chrome one-tap install**, and **safe-area on the
+  iPhone** (`use` should read `59/0/0/0`, `main.top` 128).

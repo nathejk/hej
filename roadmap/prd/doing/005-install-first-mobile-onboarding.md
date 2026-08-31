@@ -693,7 +693,12 @@ installed), **143** (website anonymous / login PWA-only), **144** (flow ended af
 - [x] Task: router guard — device / standalone / onboarding gates — **137**, fixed by **141**
 - [x] Task: App.vue shell — hide chrome on install/welcome routes — **138**
 - [x] Task: runtime flag + dev/QA gate bypass — **139**
-- [ ] Task: manual test matrix — iOS Safari, Android Chrome, Android Firefox, desktop, in-app webview — **139, NOT RUN**
+- [ ] Task: manual test matrix — iOS Safari, Android Chrome, Android Firefox, desktop, in-app webview
+      — **139, PART RUN.** The desktop, iPhone-browser and iOS-webview rows are automated and passing
+      (`vue/scripts/check-install-gate.sh`, real Chrome headless). The four rows that need hardware —
+      installed iOS Safari, Android Chrome, Android Firefox, iPadOS — are outstanding, and no user-agent
+      string can stand in for them: `isMobileDevice()` only trusts the *Apple* UA patterns, so
+      Android and iPadOS classification depends on touch signals a laptop cannot fake.
 
 ## 11. Decisions
 
