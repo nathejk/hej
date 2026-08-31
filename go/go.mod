@@ -8,7 +8,7 @@ require (
 	github.com/jrgensen/cqrs v0.1.0
 	github.com/jrgensen/stream v0.1.2
 	github.com/julienschmidt/httprouter v1.3.0
-	github.com/nathejk/shared-go v0.0.0-20260815075712-35c10e0f6942
+	github.com/nathejk/shared-go v0.0.0-20260831091913-ade923a8f16d
 	golang.org/x/crypto v0.54.0
 )
 

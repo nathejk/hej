@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jrgensen/cqrs/cqrstest"
+	"github.com/nathejk/shared-go/messages"
 
 	"nathejk.dk/internal/data"
 	"nathejk.dk/internal/ratelimit"
@@ -81,17 +82,23 @@ func TestConfirmProfile_PublishesVerification(t *testing.T) {
 	}
 	// Decoded rather than inspected as a struct, so the assertions run through the same
 	// JSON round-trip a real consumer does and can catch a wrong field tag.
-	var body person.MemberVerified
+	var body messages.NathejkMemberVerified
 	if err := pub.Messages[0].Body(&body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if body.PersonID != "mock-spejder-1" {
-		t.Errorf("personId = %q, want the session's user", body.PersonID)
+	if body.MemberID != "mock-spejder-1" {
+		t.Errorf("memberId = %q, want the session's user", body.MemberID)
 	}
 	// The acknowledged number is the substance of the event: without it, a later guardian
 	// number change could not invalidate this verification.
-	if body.AcknowledgedPhone != "+4520000001" {
-		t.Errorf("acknowledgedPhone = %q, want the guardian number on file", body.AcknowledgedPhone)
+	if body.PhoneParentAcknowledged != "+4520000001" {
+		t.Errorf("phoneParentAcknowledged = %q, want the guardian number on file", body.PhoneParentAcknowledged)
+	}
+	// Populated even though nothing reads it yet — the log is append-only, so a field left empty
+	// today cannot be filled in for these events later (task 148 is what will read it). On this
+	// path the two are equal: the member confirmed the number we hold.
+	if body.PhoneParentRegistered != "+4520000001" {
+		t.Errorf("phoneParentRegistered = %q, want the register's value", body.PhoneParentRegistered)
 	}
 	if body.VerifiedAt.IsZero() {
 		t.Error("verifiedAt must be set by the publisher, not left for delivery time")

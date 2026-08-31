@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jrgensen/cqrs"
+	"github.com/nathejk/shared-go/messages"
 )
 
 // The verification write path (PRD 005, tasks 132–134).
@@ -36,48 +37,18 @@ import (
 // consuming this event (PRD 008 §8). That is what makes the projection rebuildable, and
 // it is why the confirm endpoint publishes rather than updating a row.
 
-// MemberVerified says that a member has looked at the guardian number on file and
-// acknowledged that it can be reached during the event.
+// The message itself now lives in **shared-go** as `messages.NathejkMemberVerified` (task 147).
 //
-// # Why the acknowledged number is on the event
+// It was declared here first, following the portrait precedent, because nothing outside `hej`
+// consumed it; the maintainer has since lifted it, which is the right home for a member fact once
+// a second party may read it. What stays here is what is genuinely ours: the subject this service
+// publishes on, and the projection that folds the event into our read model.
 //
-// The confirmation is a claim about a *specific* number — "this number can be contacted
-// during Nathejk" — not a checkbox. If the guardian number later changes, the claim is
-// about a number nobody agreed to, and showing staff a tick for a phone that may not
-// answer is the expensive kind of wrong during an emergency. Carrying it here means the
-// staleness is decidable from the log alone, and it is what
-// `invalidateVerification`/`Person.IsVerified` compare against.
+// Field names to be careful with, because they changed in the lift and the old ones read fine:
 //
-// # What is NOT here
+//	PhoneParentAcknowledged — the number the member says can be reached (was AcknowledgedPhone)
+//	PhoneParentRegistered   — what the register held at that moment (was RegisteredPhone)
 //
-// The two digits the member typed. They are checked in the handler (task 135) and then
-// thrown away: they are a fragment of a third party's phone number, the event already
-// carries the whole number they refer to, and putting them on an append-only log would
-// mean keeping a needless copy of a parent's phone number forever.
-//
-// Note this event is **not** an identity check, and must not be read as one later. The
-// digit check is a recognition device: `GET /api/me/profile` returns the guardian number
-// in full to its owner (PRD 003, and PRD 005 §11 decided to keep it that way), so a
-// determined member can read the masked digits out of the response. What the event
-// records is that they looked and agreed — nothing about who they are.
-type MemberVerified struct {
-	PersonID string `json:"personId"`
-	Year     string `json:"year"`
-
-	// AcknowledgedPhone is the guardian number as stored (normalized) at the moment of
-	// confirmation. Empty is not a valid value: a verification of no number is not a
-	// fact worth recording, and the handler rejects it.
-	AcknowledgedPhone string `json:"acknowledgedPhone"`
-
-	// VerifiedAt is when the member confirmed, in UTC.
-	//
-	// On the event rather than derived from delivery time, for the same reason as
-	// PortraitCaptured.CapturedAt: delivery time changes on every replay, and this
-	// timestamp is the answer to "how many members verified before arriving?" — the
-	// measurement PRD 005 §9 is counted from.
-	VerifiedAt time.Time `json:"verifiedAt"`
-}
-
 // VerifiedSubject builds the subject a verification is published on:
 //
 //	NATHEJK.<year>.member.<personId>.verified
@@ -115,19 +86,19 @@ func VerifiedSubject(year, personID string) (cqrs.Subject, error) {
 // Re-confirmation (a member who verifies again after their guardian number changed)
 // arrives as a later event with a later timestamp and simply overwrites.
 func (c consumer) handleMemberVerified(msg cqrs.Message, year string) error {
-	var body MemberVerified
+	var body messages.NathejkMemberVerified
 	if err := msg.Body(&body); err != nil {
 		return err
 	}
 
-	personID := body.PersonID
+	personID := string(body.MemberID)
 	if personID == "" {
 		personID = subjectEntityID(msg.Subject())
 	}
 	if personID == "" {
-		return fmt.Errorf("member verified with no personId")
+		return fmt.Errorf("member verified with no memberId")
 	}
-	if body.AcknowledgedPhone == "" {
+	if body.PhoneParentAcknowledged == "" {
 		// A verification that names no number cannot be checked for staleness later, so
 		// it would be a permanent tick that no guardian-number change could ever clear.
 		// Rejected rather than stored as a half-fact.
@@ -145,7 +116,7 @@ func (c consumer) handleMemberVerified(msg cqrs.Message, year string) error {
 	return c.w.Consume(fmt.Sprintf(
 		"UPDATE person SET verifiedAt=%s, acknowledgedPhone=%s WHERE personId=%s AND year=%s",
 		quote(verifiedAt.UTC().Format("2006-01-02 15:04:05")),
-		quote(body.AcknowledgedPhone),
+		quote(string(body.PhoneParentAcknowledged)),
 		quote(personID),
 		quote(year),
 	))

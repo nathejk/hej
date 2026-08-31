@@ -53,7 +53,7 @@ value:
 |---|---|
 | `phoneParent` | what the register holds. Still projected from upstream, untouched by the app. |
 | `acknowledgedPhone` | the number the member says can be reached — the registered one, or the one they typed. **Authoritative for contacting a guardian during the event.** |
-| `verifiedAgainstPhone` | *(new)* what `phoneParent` was at the moment of acknowledgement. |
+| `verifiedAgainstPhone` | *(new)* what `phoneParent` was at the moment of acknowledgement. Already on the event as `PhoneParentRegistered`; needs projecting. |
 
 Two different questions then stay answerable, and they call for opposite responses:
 
@@ -121,9 +121,11 @@ every would-be report into a verification — so it is the piece that has to wor
 
 ## Depends on
 
-- **Task 147** — `RegisteredPhone` lands on the shared-go message. **This task is what that field
-  is for**, so agree the shape here before lifting: adding a field to a message nothing consumes is
-  free; reshaping one after `hq` subscribes is not.
+- ~~**Task 147**~~ — **done 2026-08-31.** `messages.NathejkMemberVerified` is in shared-go and the
+  dependency is bumped. Note the field is called **`PhoneParentRegistered`** (not `RegisteredPhone`),
+  and it is **already populated on publish** — so what remains on the server side is projecting it
+  into `verifiedAgainstPhone` and changing `IsVerified()` to compare against it. This task is no
+  longer blocked.
 - PRD 005 §12's correction-channel question becomes much smaller: for most members the channel is
   now "type the right number". It still needs an answer for the ones who cannot — and with the
   report event gone, a human is the only remaining route for them, so the copy must name one.

@@ -1,11 +1,11 @@
 # 147 — Lift to shared-go: the member-verification message
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-30
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** maintainer (shared-go) + agent session (Zed)
+**Started:** 2026-08-30
+**Completed:** 2026-08-31
 
 ## Description
 
@@ -133,15 +133,17 @@ Not shared-go changes, but they become possible with it:
 
 ## Acceptance Criteria
 
-- [ ] `NathejkMemberVerified` exists in shared-go's `messages` package with the fields above, the
-      annotation, and the reasoning comments
-- [ ] shared-go committed, pushed, version-bumped
-- [ ] `hej`'s `go.mod` requires the new version and `GOWORK=off go build ./...` succeeds against
+- [x] `NathejkMemberVerified` exists in shared-go's `messages` package with the fields above, the
+      annotation, and the reasoning comments — *done by the maintainer, with three shapes changed:
+      see the log*
+- [x] shared-go committed, pushed, version-bumped
+- [x] `hej`'s `go.mod` requires the new version and `GOWORK=off go build ./...` succeeds against
       it, not only a workspace build
-- [ ] `hej` publishes and projects the shared-go types; the local declarations are removed
-- [ ] `RegisteredPhone` is populated on publish, and the projection stores it (task 148)
-- [ ] `types.MemberStatusRacing` replaces the duplicated local constant
-- [ ] No `hq` changes (PRD 005 §4)
+- [x] `hej` publishes and projects the shared-go types; the local declarations are removed
+- [x] `PhoneParentRegistered` is populated on publish
+- [ ] The projection stores it — **task 148**, along with the `IsVerified()` change it enables
+- [x] `types.MemberStatusRacing` replaces the duplicated local constant
+- [x] No `hq` changes (PRD 005 §4)
 
 ## Depends on
 
@@ -165,3 +167,33 @@ Not shared-go changes, but they become possible with it:
   mitigating half is task 148: once the member can type the correct number themselves, almost every
   case that would have produced a report becomes a verification instead, and the residual is a
   member who can supply no number at all.
+- 2026-08-31 — **Landed in shared-go by the maintainer** (`0d2326f`, `ade923a`), with three shapes
+  changed from what this task proposed. Recorded because the old names read perfectly well and will
+  otherwise be reintroduced by anyone working from this file's history:
+
+  | proposed | shipped |
+  |---|---|
+  | `AcknowledgedPhone` | **`PhoneParentAcknowledged`** (`phoneParentAcknowledged`) |
+  | `RegisteredPhone` | **`PhoneParentRegistered`** (`phoneParentRegistered`) |
+  | `Year string` | **`Year types.YearSlug`** |
+
+  The renames are an improvement and worth understanding rather than just applying: both fields are
+  about `phoneParent` specifically, and the prefix says so. `AcknowledgedPhone` invited the reading
+  "the phone number that was acknowledged", which in a flow that also handles the member's *own*
+  number is one wrong assumption away from a bug. `types.YearSlug` likewise brings a `Valid()` with
+  it instead of trusting a bare string.
+- 2026-08-31 — **Adapted in `hej`.** The local `person.MemberVerified` is deleted; the subject
+  builder and the projection handler stay, because those are ours. Also done, both listed here as
+  follow-ups: the duplicated `MemberStatusRacing` is now `string(types.MemberStatusRacing)`, and
+  `PhoneParentRegistered` is populated on publish.
+
+  **Populating it now was the one judgement call.** Nothing reads that field until task 148, so
+  leaving it empty would have compiled and passed every test. But this is an append-only log: an
+  event published today without it can never be repaired, so every verification made before 148
+  lands would be permanently unable to answer "was the register different at the time?". It costs
+  one argument on `storeVerification` to avoid that, and there is a test pinning it.
+- 2026-08-31 — **Both build resolutions verified**, which is the trap `go-bff-layout` warns about:
+  the workspace build passed immediately (it resolves `../../shared-go` live) while `GOWORK=off`
+  still failed against the pinned version — i.e. exactly the state that builds on a developer's
+  machine and breaks in CI. `go.mod` bumped to `v0.0.0-20260831091913-ade923a8f16d`; `GOWORK=off
+  go build ./...` and the tests now pass under both.

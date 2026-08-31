@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jrgensen/cqrs"
+
+	"github.com/nathejk/shared-go/types"
 )
 
 // Person is one row of the directory.
@@ -65,13 +67,14 @@ type Person struct {
 
 // MemberStatusRacing is the one lifecycle value this projection writes.
 //
-// The string matches `types.MemberStatus`'s `racing` exactly, so a status here means
-// what it means in `hq` and in shared-go. It is duplicated rather than imported for
-// the usual reason (this package cannot depend on `internal/`, and keeping its imports
-// minimal keeps the shared-go lift cheap) — but note the value is a *persisted* one:
-// shared-go's own doc warns that changing these strings is a data migration, not a
+// Taken from shared-go rather than duplicated as a local string, which it was until the
+// dependency was bumped for the verification message (task 147). The old comment justified the
+// copy by saying this package cannot depend on `internal/` — true, and beside the point: it
+// already imports `shared-go/messages`, so it can import `shared-go/types` and get the persisted
+// value with its authoritative definition attached. That matters more than usual here, because
+// shared-go's own doc warns that changing one of these strings is a data migration rather than a
 // rename.
-const MemberStatusRacing = "racing"
+const MemberStatusRacing = string(types.MemberStatusRacing)
 
 // IsVerified reports whether this person's guardian number is currently confirmed.
 //

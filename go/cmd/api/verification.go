@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/nathejk/shared-go/messages"
+	"github.com/nathejk/shared-go/types"
+
 	"nathejk.dk/nathejk/table/person"
 )
 
@@ -41,6 +44,7 @@ func (app *application) storeVerification(
 	ctx context.Context,
 	personID string,
 	acknowledgedPhone string,
+	registeredPhone string,
 ) error {
 	// ctx is accepted for symmetry with storePortrait and so this can carry a deadline
 	// when the publisher grows one; the publish itself is currently synchronous.
@@ -66,11 +70,19 @@ func (app *application) storeVerification(
 		return fmt.Errorf("store verification: %w", err)
 	}
 
-	body := person.MemberVerified{
-		PersonID:          personID,
-		Year:              app.config.eventYear,
-		AcknowledgedPhone: acknowledgedPhone,
-		VerifiedAt:        time.Now().UTC(),
+	body := messages.NathejkMemberVerified{
+		MemberID: types.MemberID(personID),
+		Year:     types.YearSlug(app.config.eventYear),
+		// What the member says can be reached. Today always the registered number; once the
+		// correction flow lands (task 148) it may be one they typed instead, which is the whole
+		// reason the event carries both.
+		PhoneParentAcknowledged: types.PhoneNumber(acknowledgedPhone),
+		// What the register held at this moment. Populated now, even though nothing reads it yet:
+		// this is an append-only log, so a field left empty today can never be filled in for these
+		// events afterwards. It is what keeps "the register changed since" distinguishable from
+		// "the member corrected us" — see task 148.
+		PhoneParentRegistered: types.PhoneNumber(registeredPhone),
+		VerifiedAt:            time.Now().UTC(),
 	}
 	if err := app.commands.Publish(subject, body); err != nil {
 		return fmt.Errorf("publish verification: %w", err)

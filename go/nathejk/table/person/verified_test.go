@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nathejk/shared-go/messages"
 )
 
 func TestVerifiedSubjectShape(t *testing.T) {
@@ -42,11 +44,12 @@ func TestVerifiedSubjectRejectsBadTokens(t *testing.T) {
 
 func TestMemberVerifiedWritesBothColumns(t *testing.T) {
 	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.member.member-1.verified",
-		MemberVerified{
-			PersonID:          "member-1",
-			Year:              "2026",
-			AcknowledgedPhone: "4512345678",
-			VerifiedAt:        time.Date(2026, 8, 30, 19, 5, 0, 0, time.UTC),
+		messages.NathejkMemberVerified{
+			MemberID:                "member-1",
+			Year:                    "2026",
+			PhoneParentAcknowledged: "4512345678",
+			PhoneParentRegistered:   "4512345678",
+			VerifiedAt:              time.Date(2026, 8, 30, 19, 5, 0, 0, time.UTC),
 		}))
 
 	// An UPDATE, not an upsert: a verification must not invent a person.
@@ -71,8 +74,8 @@ func TestMemberVerifiedWritesBothColumns(t *testing.T) {
 // permanent tick that no guardian-number change could clear. Better to dead-letter it than
 // to store a half-fact about who may be phoned in an emergency.
 func TestMemberVerifiedRejectsMissingAcknowledgedPhone(t *testing.T) {
-	if _, err := handle(t, "NATHEJK.2026.member.member-1.verified", MemberVerified{
-		PersonID:   "member-1",
+	if _, err := handle(t, "NATHEJK.2026.member.member-1.verified", messages.NathejkMemberVerified{
+		MemberID:   "member-1",
 		Year:       "2026",
 		VerifiedAt: time.Now().UTC(),
 	}); err == nil {
@@ -80,14 +83,14 @@ func TestMemberVerifiedRejectsMissingAcknowledgedPhone(t *testing.T) {
 	}
 }
 
-// The person id may be taken from the subject when the body omits it, like every other
-// handler here — the subject is the authoritative key.
+// The member id may be taken from the subject when the body omits it, like every other handler
+// here — the subject is the authoritative key.
 func TestMemberVerifiedFallsBackToSubjectID(t *testing.T) {
 	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.member.member-9.verified",
-		MemberVerified{
-			Year:              "2026",
-			AcknowledgedPhone: "4512345678",
-			VerifiedAt:        time.Now().UTC(),
+		messages.NathejkMemberVerified{
+			Year:                    "2026",
+			PhoneParentAcknowledged: "4512345678",
+			VerifiedAt:              time.Now().UTC(),
 		}))
 	if !strings.Contains(stmt, `personId="member-9"`) {
 		t.Errorf("subject id not used: %q", stmt)
@@ -99,10 +102,10 @@ func TestMemberVerifiedFallsBackToSubjectID(t *testing.T) {
 // minute is not.
 func TestMemberVerifiedToleratesZeroTimestamp(t *testing.T) {
 	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.member.member-1.verified",
-		MemberVerified{
-			PersonID:          "member-1",
-			Year:              "2026",
-			AcknowledgedPhone: "4512345678",
+		messages.NathejkMemberVerified{
+			MemberID:                "member-1",
+			Year:                    "2026",
+			PhoneParentAcknowledged: "4512345678",
 		}))
 	if strings.Contains(stmt, "0000-00-00") || strings.Contains(stmt, `verifiedAt=""`) {
 		t.Errorf("zero timestamp reached the statement: %q", stmt)
