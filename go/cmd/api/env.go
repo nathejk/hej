@@ -74,6 +74,17 @@ type config struct {
 	// supported way to use this.
 	installGate bool
 
+	// contactsPollSeconds is how often a client with the contacts pane open asks whether the
+	// directory has changed (PRD 007 §8).
+	//
+	// Configurable for the same reason as installGate, though against a smaller risk: this is
+	// the app's first continuous during-race traffic, so if it costs more than expected it has
+	// to be widenable mid-event. 0 or less disables the interval while leaving the foreground
+	// and reconnect checks in place.
+	//
+	// 60s by default, per the PRD's "within ~60 seconds while the app is open".
+	contactsPollSeconds int
+
 	// MariaDB connection. dbDSN is a go-sql-driver/mysql DSN; empty means "run
 	// without a database", which is a legitimate mode: everything served today
 	// comes from mocks (PRD 008 is what introduces persistence), so a missing DSN
@@ -167,6 +178,7 @@ func loadConfig() config {
 	flag.BoolVar(&cfg.showBuildId, "show-build-id", envBool("SHOW_BUILD_ID", envStr("ENV", "development") != "production"), "Overlay the build id on the bottom nav (diagnostic)")
 	flag.BoolVar(&cfg.showLayoutDebug, "show-layout-debug", envBool("SHOW_LAYOUT_DEBUG", false), "Overlay viewport/safe-area/geometry values on the client (diagnostic)")
 	flag.BoolVar(&cfg.installGate, "install-gate", envBool("INSTALL_GATE", true), "Require the app to be installed before it can be used (PRD 005). Set INSTALL_GATE=false to disable the gate without a redeploy.")
+	flag.IntVar(&cfg.contactsPollSeconds, "contacts-poll-seconds", envInt("CONTACTS_POLL_SECONDS", 60), "How often the contacts pane checks for directory changes while open (PRD 007). 0 disables the interval; foreground and reconnect checks still run.")
 	flag.StringVar(&cfg.dbDSN, "db-dsn", envStr("DB_DSN", ""), "MariaDB DSN (empty runs without a database)")
 	flag.IntVar(&cfg.dbMaxOpenConns, "db-max-open-conns", envInt("DB_MAX_OPEN_CONNS", 25), "Maximum open database connections")
 	flag.IntVar(&cfg.dbMaxIdleConns, "db-max-idle-conns", envInt("DB_MAX_IDLE_CONNS", 25), "Maximum idle database connections")

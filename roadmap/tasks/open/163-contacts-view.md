@@ -40,6 +40,9 @@ Notes:
 - [ ] Uses existing shadcn-vue primitives; no hand-rolled accordion or avatar.
 - [ ] Sync/freshness line present and honest about stale/offline.
 - [ ] Renders correctly with an empty group, one group, and many groups.
+- [ ] **Updates in place**: a background refresh (task 162) must not reset the scroll position
+      or collapse the user's expanded group. Deferred here from task 162, which owns the
+      polling but not the rendering.
 
 ## Progress Log
 

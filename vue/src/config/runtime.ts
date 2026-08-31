@@ -12,6 +12,7 @@ interface RuntimeConfigResponse {
   show_build_id?: boolean
   show_layout_debug?: boolean
   install_gate?: boolean
+  contacts_poll_seconds?: number
 }
 
 const token = ref('')
@@ -22,6 +23,17 @@ const showLayout = ref(false)
 // straight past onboarding on a cold, offline first start — which is the one path where
 // nothing else would ever ask them for location or notifications.
 const installGate = ref(true)
+
+// How often the contacts pane asks whether the directory changed, while open (PRD 007 §8).
+//
+// 60s matches the PRD's target and the BFF's default. Served rather than built in because it
+// is the app's first continuous during-race traffic, so it has to be widenable mid-event.
+//
+// Declared before the ref that uses it: a `const` is not hoisted, so referencing it from an
+// initialiser above this line is a TDZ error at import time — which took down the whole module
+// rather than one value.
+const DEFAULT_CONTACTS_POLL_SECONDS = 60
+const contactsPoll = ref(DEFAULT_CONTACTS_POLL_SECONDS)
 
 // The last token the BFF handed us, remembered so the map still has a key offline
 // (task 090).
@@ -43,6 +55,10 @@ const SHOW_LAYOUT_KEY = 'hej.show-layout-debug'
 // the gate off mid-event, a member whose phone starts without coverage must still get the
 // ungated app rather than the wall.
 const INSTALL_GATE_KEY = 'hej.install-gate'
+// Remembered like the other values so an offline start polls at the operator's chosen
+// interval rather than reverting to the default. Less critical than the gate — a wrong
+// interval costs battery or freshness, not access — but free to keep consistent.
+const CONTACTS_POLL_KEY = 'hej.contacts-poll-seconds'
 
 function remembered(): string {
   try {
@@ -90,6 +106,28 @@ function rememberedFlagOr(key: string, fallback: boolean): boolean {
   }
 }
 
+function rememberNumber(key: string, value: number) {
+  try {
+    localStorage.setItem(key, String(value))
+  } catch {
+    // Blocked or full storage only costs the offline case.
+  }
+}
+
+// Validated rather than trusted: what comes back from storage is input. A NaN here would be
+// passed to setInterval, which treats it as 0 — a tight loop hammering the BFF from every
+// device, which is precisely the outcome the configurable interval exists to prevent.
+function rememberedNumberOr(key: string, fallback: number): number {
+  try {
+    const raw = localStorage.getItem(key)
+    if (raw === null) return fallback
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : fallback
+  } catch {
+    return fallback
+  }
+}
+
 /** Dataforsyningen quota key for the map's WMS base layers; '' until loaded. */
 export const dataforsyningenToken = readonly(token)
 
@@ -119,6 +157,15 @@ export const showLayoutDebug = readonly(showLayout)
  */
 export const installGateEnabled = readonly(installGate)
 
+/**
+ * Seconds between contacts freshness checks while the app is visible (PRD 007 §8).
+ *
+ * 0 or less means "do not run the interval" — a kill switch that still leaves the foreground
+ * and reconnect checks working, so the pane updates when someone opens it and only the
+ * background polling stops.
+ */
+export const contactsPollSeconds = readonly(contactsPoll)
+
 // Module-level so concurrent callers share one request and later callers resolve
 // immediately — the map and any future consumer can each `await` it freely.
 let inFlight: Promise<void> | null = null
@@ -141,12 +188,16 @@ export function loadRuntimeConfig(): Promise<void> {
       // disable the gate — the safe direction for a missing value here is the gate's
       // designed behaviour.
       installGate.value = body.install_gate ?? true
+      // Absent means the default, not zero: an older BFF that does not send the field must
+      // not be read as "polling disabled", which would silently stop the pane updating.
+      contactsPoll.value = body.contacts_poll_seconds ?? DEFAULT_CONTACTS_POLL_SECONDS
       // Deliberately mirrors an unset key too, so clearing it in production
       // eventually clears it on the device rather than living on forever.
       remember(token.value)
       rememberFlag(SHOW_BUILD_KEY, showBuild.value)
       rememberFlag(SHOW_LAYOUT_KEY, showLayout.value)
       rememberFlag(INSTALL_GATE_KEY, installGate.value)
+      rememberNumber(CONTACTS_POLL_KEY, contactsPoll.value)
     } catch (err) {
       // Degrade rather than block the page: fall back to the last known token so an
       // offline start still draws map tiles. If there is no remembered token either,
@@ -159,6 +210,7 @@ export function loadRuntimeConfig(): Promise<void> {
       // Defaults to ON when nothing is remembered, unlike the diagnostics: this is the
       // app's designed behaviour, and a first offline start must not skip onboarding.
       installGate.value = rememberedFlagOr(INSTALL_GATE_KEY, true)
+      contactsPoll.value = rememberedNumberOr(CONTACTS_POLL_KEY, DEFAULT_CONTACTS_POLL_SECONDS)
       console.error('failed to load runtime config', err)
       // Allow a later retry (e.g. revisiting the map after a network blip).
       inFlight = null

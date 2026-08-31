@@ -30,6 +30,19 @@ type runtimeConfigResponse struct {
 	// Note the client remembers the last value it saw, so an offline start does not silently
 	// flip the gate's behaviour.
 	InstallGate bool `json:"install_gate"`
+
+	// ContactsPollSeconds is how often the contacts pane asks whether the directory has
+	// changed, while the app is open and visible (PRD 007 §8).
+	//
+	// Served rather than built in because this is the app's first *continuous* during-race
+	// traffic, and it lands on the same BFF as PRD 002's position reporting. If a few hundred
+	// devices turn out to cost more than expected, the interval has to be widenable during the
+	// event — waiting for a redeploy to stop a load problem is not a plan.
+	//
+	// Zero or negative means "do not poll": a usable kill switch that still leaves the
+	// foreground and reconnect checks working, so the pane keeps updating when someone opens
+	// it and only the background interval stops.
+	ContactsPollSeconds int `json:"contacts_poll_seconds"`
 }
 
 // runtimeConfigHandler serves configuration the SPA needs but must not have
@@ -50,6 +63,7 @@ func (app *application) runtimeConfigHandler(w http.ResponseWriter, r *http.Requ
 		ShowBuildId:          app.config.showBuildId,
 		ShowLayoutDebug:      app.config.showLayoutDebug,
 		InstallGate:          app.config.installGate,
+		ContactsPollSeconds:  app.config.contactsPollSeconds,
 	}
 	if err := app.WriteJSON(w, http.StatusOK, cfg, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
