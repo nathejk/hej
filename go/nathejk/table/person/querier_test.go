@@ -188,7 +188,7 @@ func personColumnNames() []string {
 		"personId", "year", "appRole",
 		"name", "phone", "phoneParent",
 		"address", "postalCode", "city", "email", "birthday",
-		"teamId", "teamName",
+		"teamId", "teamName", "teamNumber",
 		"sectionSlug", "sectionName",
 		"memberStatus", "armNumber",
 		"verifiedAt", "acknowledgedPhone", "verifiedAgainstPhone",
@@ -218,7 +218,7 @@ func addPersonRow(rows *sqlmock.Rows, personID, name, phone string) {
 		"phoneParent": true, "birthday": true,
 		"verifiedAt": true, "acknowledgedPhone": true, "verifiedAgainstPhone": true,
 		"portraitCapturedAt": true,
-		"portraitThumbs": true,
+		"portraitThumbs":     true,
 	}
 
 	columns := personColumnNames()

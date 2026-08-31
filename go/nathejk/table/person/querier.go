@@ -35,6 +35,10 @@ type Person struct {
 
 	TeamID   string
 	TeamName string
+	// TeamNumber is the number a patrulje is known by in the field ("138"), and is what
+	// PRD 007's patrol lookup matches against. Empty for klaner, sections and anyone
+	// whose team has not been numbered yet — all normal states, not missing data.
+	TeamNumber string
 
 	// SectionSlug and SectionName are the crew affiliation. Empty for spejder,
 	// bandit and gøgler, who belong to a team instead — see TeamName.
@@ -225,7 +229,7 @@ const personColumns = `
 	personId, year, appRole,
 	name, phone, phoneParent,
 	address, postalCode, city, email, birthday,
-	teamId, teamName,
+	teamId, teamName, teamNumber,
 	sectionSlug, sectionName,
 	memberStatus, armNumber,
 	verifiedAt, acknowledgedPhone, verifiedAgainstPhone,
@@ -399,7 +403,7 @@ func scanPerson(s scanner) (Person, error) {
 		&p.PersonID, &p.Year, &p.AppRole,
 		&p.Name, &p.Phone, &p.PhoneParent,
 		&p.Address, &p.PostalCode, &p.City, &p.Email, &p.Birthday,
-		&p.TeamID, &p.TeamName,
+		&p.TeamID, &p.TeamName, &p.TeamNumber,
 		&p.SectionSlug, &p.SectionName,
 		&p.MemberStatus, &p.ArmNumber,
 		&p.VerifiedAt, &p.AcknowledgedPhone, &p.VerifiedAgainstPhone,

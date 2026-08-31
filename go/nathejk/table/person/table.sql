@@ -37,6 +37,18 @@ CREATE TABLE IF NOT EXISTS person (
     teamId VARCHAR(99) NOT NULL DEFAULT "",
     teamName VARCHAR(199) NOT NULL DEFAULT "",
 
+    -- The patrol number a patrulje is known by in the field ("138"), denormalized onto
+    -- every member of the team like teamName above.
+    --
+    -- A string, not an integer, because upstream treats it as one: shared-go stores it in
+    -- a VARCHAR and picks the next one by `ORDER BY length(teamNumber), teamNumber`.
+    -- Parsing it here would be a second opinion about the format.
+    --
+    -- This is what PRD 007's patrol lookup matches a typed number against. Note it is
+    -- assigned to patruljer only; klaner and sections have none, so an empty value is
+    -- normal rather than missing data.
+    teamNumber VARCHAR(32) NOT NULL DEFAULT "",
+
     -- Crew affiliation. sectionSlug is the organizer-authored key the app classifies
     -- a crew function from (see classify.go); sectionName is its human label, stored
     -- denormalized for the same reason teamName is — the login path reads one row and

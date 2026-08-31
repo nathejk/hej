@@ -112,6 +112,9 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer, opts
 		// register is wrong". NULL on every row written before it existed, which reads
 		// correctly as "we do not know what the register held then" — see IsVerified.
 		{"verifiedAgainstPhone", `verifiedAgainstPhone VARCHAR(99) NULL DEFAULT NULL`},
+		// Arrived with PRD 007's patrol lookup (task 176), which matches a typed patrol
+		// number. Empty for every klan and section, which is normal rather than missing.
+		{"teamNumber", `teamNumber VARCHAR(32) NOT NULL DEFAULT ""`},
 	} {
 		if err := cqrs.EnsureColumn(r, w, "person", col.name, col.ddl); err != nil {
 			return nil, fmt.Errorf("person: ensure column %s: %w", col.name, err)
@@ -120,6 +123,13 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer, opts
 	if err := cqrs.EnsureIndex(r, w, "person", "year_section",
 		"ALTER TABLE person ADD INDEX year_section (year, sectionSlug)"); err != nil {
 		return nil, fmt.Errorf("person: ensure index year_section: %w", err)
+	}
+	// The patrol lookup's only query shape: one exact number within a year. Indexed because
+	// it is an interactive, authenticated request during the race, and because without it a
+	// mistyped number scans the whole event.
+	if err := cqrs.EnsureIndex(r, w, "person", "year_teamnumber",
+		"ALTER TABLE person ADD INDEX year_teamnumber (year, teamNumber)"); err != nil {
+		return nil, fmt.Errorf("person: ensure index year_teamnumber: %w", err)
 	}
 
 	t := &Table{

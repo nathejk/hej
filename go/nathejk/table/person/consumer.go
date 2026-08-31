@@ -90,6 +90,10 @@ func (c consumer) Consumes() []cqrs.Subject {
 		// Klan: the team name for a bandit, the counterpart of patrulje below.
 		cqrs.SubjectFromStr("NATHEJK:*.klan.*.signedup"),
 		cqrs.SubjectFromStr("NATHEJK:*.klan.*.updated"),
+		// The patrol number a patrulje is known by in the field. Consumed because PRD
+		// 007's patrol lookup matches a typed number, and nothing else in this projection
+		// carries one — teamName is a label, teamId is opaque (task 176).
+		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.numberassigned"),
 		// Crew: the person, plus the section they are assigned to and the section's
 		// label. All three are needed because the label arrives on a different event
 		// from the assignment, in either order.
@@ -202,6 +206,8 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 		subject.Match("nathejk.*.klan.*.signedup"),
 		subject.Match("nathejk.*.klan.*.updated"):
 		return c.handleTeamUpdated(msg, year)
+	case subject.Match("nathejk.*.patrulje.*.numberassigned"):
+		return c.handlePatrolNumberAssigned(msg, year)
 	}
 	return nil
 }
@@ -706,6 +712,56 @@ func (c consumer) handleTeamUpdated(msg cqrs.Message, year string) error {
 	return c.w.Consume(fmt.Sprintf(
 		"UPDATE person SET teamName=%s WHERE teamId=%s AND year=%s",
 		quote(body.Name), quote(teamID), quote(year),
+	))
+}
+
+// handlePatrolNumberAssigned denormalizes a patrulje's field number onto its members.
+//
+// The counterpart of handleTeamUpdated, and the same shape for the same reasons: an UPDATE
+// keyed on teamId with no INSERT, because members arrive on their own events and a team
+// event must not invent people.
+//
+// # Why this projection carries the number at all
+//
+// PRD 007's patrol lookup is "show me patrol 138", typed by a samarit who was given the
+// number over the radio. Nothing else here can answer that: teamId is opaque and teamName
+// is a label ("Patrulje Ravnene"). Rather than joining against a team table this projection
+// does not have, the number rides along on the member row — consistent with teamName, and
+// with the rule that the login and lookup paths read one row and do not join.
+//
+// # Ordering, and a known gap
+//
+// The number can be assigned before or after a given member is projected. This handler
+// covers "number after member", which is the common case.
+//
+// The reverse is a real gap: `NathejkTeamUpdated` carries no team number (checked — it has
+// Name, GroupName, AdvspejdNumber, contact fields, and no TeamNumber), so a member who
+// signs up *after* their patrulje was numbered gets an empty teamNumber and stays that way
+// until the team is renumbered. Deliberately not solved with a self-join backfill here,
+// because PRD 007's lookup removes the need: it resolves the typed number to a teamId from
+// any one numbered member and then lists by teamId, so a late member is still found
+// (task 157). The residual case is a patrulje where *no* member carries the number, which
+// would be unfindable by number — recorded in task 176 rather than papered over.
+func (c consumer) handlePatrolNumberAssigned(msg cqrs.Message, year string) error {
+	var body messages.NathejkPatrolNumberAssigned
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+
+	teamID := string(body.TeamID)
+	if teamID == "" {
+		// The subject is authoritative when the body omits the id, matching how the arm
+		// number handler reads it.
+		teamID = subjectEntityID(msg.Subject())
+	}
+	if teamID == "" || body.TeamNumber == "" {
+		// Nothing to denormalize, and not an error: an unnumbered team is a normal state.
+		return nil
+	}
+
+	return c.w.Consume(fmt.Sprintf(
+		"UPDATE person SET teamNumber=%s WHERE teamId=%s AND year=%s",
+		quote(body.TeamNumber), quote(teamID), quote(year),
 	))
 }
 
