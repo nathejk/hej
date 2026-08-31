@@ -674,7 +674,7 @@ installed), **143** (website anonymous / login PWA-only), **144** (flow ended af
       006's `person` read model
 - [x] Task: BFF — `POST /api/me/profile/confirm` with server-side digit check and rate limiting — **135**
 - [x] Task: WelcomeStepPortrait — wrap `PhotoCapture.vue`, retake, skip, reuse `PUT /api/me/photo` — **129**
-- [ ] Task: portrait nudge — re-prompt after onboarding while `hasPhoto` is false — **146, NOT DONE**
+- [x] Task: portrait nudge — re-prompt after onboarding while `hasPhoto` is false — **146**
       (dismissible per session, silenced permanently once one is uploaded)
 - [x] Task: WelcomeStepConfirmProfile — masked number, 2-digit input, acknowledgement checkbox — **127**
 - [x] Task: "nummeret er forkert" / "jeg kender ikke nummeret" paths + follow-up flag — **128, 136**

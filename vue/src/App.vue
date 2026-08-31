@@ -8,6 +8,7 @@ import { useTrackStore } from '@/stores/track.store'
 import { useOnboardingStore } from '@/stores/onboarding.store'
 import { logEvent } from '@/helpers/trackDb'
 import BottomNav from '@/components/BottomNav.vue'
+import PortraitNudge from '@/components/PortraitNudge.vue'
 import UpdatePrompt from '@/components/UpdatePrompt.vue'
 import OfflineNotice from '@/components/OfflineNotice.vue'
 import UserMenu from '@/components/UserMenu.vue'
@@ -157,6 +158,11 @@ const showUpdatePrompt = computed(() => route.name !== 'install')
          carries the top safe-area inset itself — inside its own `v-if`, so nothing is
          reserved while online. -->
     <OfflineNotice :inset-top="fullBleed" />
+
+    <!-- The portrait nudge (task 146), in flow for the same reason as the notice above: it must
+         never cover content. It decides for itself whether this route should show it — see
+         config/nudge.ts — so there is no condition to keep in sync here. -->
+    <PortraitNudge />
 
     <!-- `overscroll-behavior: contain` on the scrolling variant: without it a swipe that
          reaches the end of this container (or starts on a page shorter than the viewport)

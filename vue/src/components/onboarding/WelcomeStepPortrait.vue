@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import { Camera } from '@lucide/vue'
 
 import PhotoCapture from '@/components/profile/PhotoCapture.vue'
-import { useProfileStore } from '@/stores/profile.store'
+import { usePortraitCapture } from '@/composables/usePortraitCapture'
 
 // The portrait step of onboarding (PRD 005 §5 step 3).
 //
@@ -27,31 +26,15 @@ import { useProfileStore } from '@/stores/profile.store'
 // member already on the trail without a portrait is exactly the person personnel will fail to
 // identify at 03:00 (PRD 005 §11, 2026-08-25).
 
-const profile = useProfileStore()
 const emit = defineEmits<{ done: []; skip: [] }>()
 
-const capturing = ref(false)
-const uploading = ref(false)
-const error = ref('')
-// Kept so "Prøv igen" retries the same photo rather than making a tired teenager retake it —
-// what failed was the upload, not the picture.
-const pending = ref<Blob | null>(null)
+// Capture, upload, retry-the-same-photo and the error copy are shared with the post-onboarding
+// nudge (task 146) — see the composable for why `pending` matters.
+const { capturing, uploading, error, pending, open, upload, retry } = usePortraitCapture()
 
-async function upload(blob: Blob) {
-  pending.value = blob
-  uploading.value = true
-  error.value = ''
-  try {
-    await profile.uploadPhoto(blob)
-    capturing.value = false
-    pending.value = null
-    emit('done')
-  } catch {
-    // Never blocks: the retry is offered, and skipping past a failed upload stays available.
-    error.value = 'Billedet kunne ikke sendes. Prøv igen, eller spring over og gør det senere.'
-  } finally {
-    uploading.value = false
-  }
+async function send(blob: Blob) {
+  // Never blocks: on failure the retry is offered and "spring over" stays available.
+  if (await upload(blob)) emit('done')
 }
 </script>
 
@@ -78,7 +61,7 @@ async function upload(blob: Blob) {
       <button
         type="button"
         class="rounded-lg bg-slate-900 px-4 py-3 font-medium text-white"
-        @click="capturing = true"
+        @click="open"
       >
         Tag billede
       </button>
@@ -89,7 +72,7 @@ async function upload(blob: Blob) {
         type="button"
         class="px-2 py-2 text-sm font-medium text-slate-700"
         :disabled="uploading"
-        @click="upload(pending)"
+        @click="retry"
       >
         Prøv igen
       </button>
@@ -104,6 +87,6 @@ async function upload(blob: Blob) {
 
     <!-- PRD 003's capture component, unforked: camera, face guide, retake, confirm, and the
          file-input fallback when the camera is denied or unavailable. -->
-    <PhotoCapture v-if="capturing" @captured="upload" @cancel="capturing = false" />
+    <PhotoCapture v-if="capturing" @captured="send" @cancel="capturing = false" />
   </div>
 </template>

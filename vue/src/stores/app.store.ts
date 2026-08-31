@@ -18,6 +18,15 @@ export const useAppStore = defineStore('app', {
     // from the service worker's caches either way. It only decides what the user is
     // told.
     online: typeof navigator === 'undefined' ? true : navigator.onLine,
+    // The portrait nudge (task 146) has been dismissed for this session.
+    //
+    // **In memory deliberately, not localStorage.** PRD 005 §6 asks for dismissal to last a
+    // session and no longer: persisting it would turn "not now" into "never", which is the
+    // one-shot behaviour the nudge exists to fix — and the members who dismiss are the ones most
+    // likely to stay unidentifiable. A restart asking again is the feature.
+    //
+    // Nothing needs to reset this on sign-out: a new session is a new store.
+    portraitNudgeDismissed: false,
   }),
   actions: {
     setUpdateAvailable(value: boolean) {
@@ -25,6 +34,9 @@ export const useAppStore = defineStore('app', {
     },
     setOnline(value: boolean) {
       this.online = value
+    },
+    dismissPortraitNudge() {
+      this.portraitNudgeDismissed = true
     },
   },
 })

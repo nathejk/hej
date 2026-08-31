@@ -153,4 +153,5 @@ The webview row is a pass/fail on the escape hatch, not on installation.
   `UpdatePrompt` no longer overlays the wall (task 138), and the desktop placeholder's install
   banner appearing on a tablet but not on a desktop (task 140), and the guardian-correction field
   (task 148: number keypad shows, and the browser does not offer the member's own number as an
-  autocomplete suggestion).
+  autocomplete suggestion), and the portrait nudge banner (task 146: renders in the shell without
+  covering content, and the capture sheet opens from it).
