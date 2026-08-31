@@ -60,6 +60,11 @@ func (app *application) routes() http.Handler {
 	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach
 	// them only through the patrol lookup, which is a separate, uncached surface.
 	router.HandlerFunc(http.MethodGet, "/api/contacts/manifest", app.requireAuth(app.contactsManifestHandler))
+	// The freshness poll: every device with the pane open calls this on an interval, so it
+	// is deliberately the cheapest endpoint in the API. Not a push, because iOS requires
+	// every web push to raise a notification and a corrected phone number is not worth
+	// buzzing a phone for (PRD 007 §8).
+	router.HandlerFunc(http.MethodGet, "/api/contacts/version", app.requireAuth(app.contactsVersionHandler))
 	// Position track ingest (PRD 002 §11.1, task 084). Publishes to the telemetry stream
 	// and writes no SQL; the person is taken from the session, never from the body.
 	router.HandlerFunc(http.MethodPost, "/api/track", app.requireAuth(app.createTrackHandler))

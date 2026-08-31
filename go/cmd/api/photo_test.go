@@ -52,11 +52,30 @@ func (s *stubPeople) Get(year, personID string) (person.Person, bool, error) {
 
 func (s *stubPeople) Lookup(string, string) ([]person.Person, error) { return nil, nil }
 
-// listed is what ListByAppRoles returns, and listedRoles records what it was asked for —
-// the role set is derived from the access matrix, so a test asserts on it (contacts_test.go).
+// listed backs ListByAppRoles for the contacts manifest, and listedRoles records the
+// role sets it was asked for.
+//
+// Filters by role rather than returning everything: the real query does, and a stub that
+// ignored the filter would make per-role behaviour — including the version differing
+// between permitted sets — untestable.
 func (s *stubPeople) ListByAppRoles(_ string, roles []string) ([]person.Person, error) {
 	s.listedRoles = append(s.listedRoles, roles)
-	return s.listed, s.listedErr
+	if s.listedErr != nil {
+		return nil, s.listedErr
+	}
+
+	wanted := map[string]bool{}
+	for _, r := range roles {
+		wanted[r] = true
+	}
+
+	var out []person.Person
+	for _, p := range s.listed {
+		if wanted[p.AppRole] {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 func (s *stubPeople) ExpiredPortraits(_ string, before time.Time, _ int) ([]person.ExpiredPortrait, error) {

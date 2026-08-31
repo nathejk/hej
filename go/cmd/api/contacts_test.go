@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nathejk/shared-go/types"
 
@@ -23,6 +24,9 @@ func contactsTestApp(t *testing.T, people []person.Person) (*application, *stubP
 	app := newTestApp(t)
 	app.config.eventYear = "2026"
 	app.models = data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil, stub)
+	// Same TTL as production (main.go). Tests that care about propagation rather than
+	// caching replace this with newVersionCache(0).
+	app.contactsVersions = newVersionCache(5 * time.Second)
 	return app, stub
 }
 

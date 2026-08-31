@@ -3,9 +3,12 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"io"
 	"net/http"
 	"sort"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/nathejk/shared-go/types"
 
@@ -259,7 +262,7 @@ func (app *application) buildContactsManifest(viewer users.User) (contactsManife
 		return a.ID < b.ID
 	})
 
-	return contactsManifest{Version: contactsVersion(entries), Entries: entries}, nil
+	return contactsManifest{Version: contactsVersion(people), Entries: entries}, nil
 }
 
 func newContactEntry(p person.Person, subject users.User, pop users.Population, groups []users.Group) contactEntry {
@@ -344,23 +347,165 @@ func portraitVersion(p person.Person) string {
 	return p.PortraitRef
 }
 
-// contactsVersion hashes the payload.
-//
-// Content-derived rather than a counter or a timestamp, for two reasons: there is no
-// natural version column to read, and a hash makes "did anything I can see change?"
-// answerable per viewer — two people with different permitted sets get different versions,
-// so one person's edit does not invalidate everybody's cache.
-func contactsVersion(entries []contactEntry) string {
-	// Marshalling the entries rather than hashing field by field: the payload is what the
-	// client holds, so hashing exactly that cannot drift from what changed.
-	buf, err := json.Marshal(entries)
-	if err != nil {
-		// Unreachable for these types, and a version that changes every request is the
-		// safe failure: clients refetch instead of trusting a stale cache.
-		return "unversioned"
+// @Summary      Contacts directory version
+// @Description  A short opaque version for the caller's directory, used by the client's freshness poll: on foreground, on reconnect, and on an interval while the app is open. Changes whenever anything the caller may see changes. Deliberately tiny — this is called by every device with the pane open, and it is the first continuous during-race traffic this API takes. Push cannot be used for invalidation, because iOS requires every web push to show a notification.
+// @Tags         contacts
+// @Produce      json
+// @Param        If-None-Match  header    string  false  "version held by the client"
+// @Success      200  {object}  contactsVersionResponse
+// @Success      304  "unchanged"
+// @Failure      401  {object}  map[string]string
+// @Failure      403  {object}  map[string]string  "spejdere do not get the contacts pane"
+// @Router       /contacts/version [get]
+func (app *application) contactsVersionHandler(w http.ResponseWriter, r *http.Request) {
+	viewer, ok := app.contactsViewer(w, r)
+	if !ok {
+		return
 	}
-	sum := sha256.Sum256(buf)
-	return hex.EncodeToString(sum[:16])
+
+	version, err := app.contactsVersionFor(viewer)
+	if err != nil {
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+
+	etag := `"` + version + `"`
+	w.Header().Set("ETag", etag)
+	// A short max-age is a second line of defence against the poll's cost: if a client
+	// misbehaves and polls far more often than the agreed interval, the browser's own cache
+	// absorbs it before the request reaches us.
+	w.Header().Set("Cache-Control", "private, max-age=10")
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	if err := app.WriteJSON(w, http.StatusOK, contactsVersionResponse{Version: version}, nil); err != nil {
+		app.ServerErrorResponse(w, r, err)
+	}
+}
+
+type contactsVersionResponse struct {
+	Version string `json:"version"`
+}
+
+// contactsVersionFor returns the version for a viewer's permitted set, from a short-lived
+// cache.
+//
+// The cache is the point of this endpoint. Computing a version means reading the viewer's
+// permitted rows, and a few hundred devices polling every 60 s would turn that into
+// continuous query load on the same BFF that takes PRD 002's position reports. Because the
+// version hashes *data* rather than presentation, every viewer with the same permitted role
+// set shares an answer — in practice three or four distinct sets for the whole event — so a
+// few seconds of caching collapses the load to almost nothing.
+//
+// The TTL bounds staleness at a few seconds on top of the client's own interval, which is
+// well inside "without too much delay".
+func (app *application) contactsVersionFor(viewer users.User) (string, error) {
+	if app.models.People == nil {
+		return contactsVersion(nil), nil
+	}
+
+	roles := listableRolesFor(viewer.Role)
+	key := strings.Join(roles, ",")
+
+	if v, ok := app.contactsVersions.get(key); ok {
+		return v, nil
+	}
+
+	people, err := app.models.People.ListByAppRoles(app.config.eventYear, roles)
+	if err != nil {
+		return "", err
+	}
+	version := contactsVersion(people)
+	app.contactsVersions.put(key, version)
+	return version, nil
+}
+
+// versionCache is a tiny TTL cache keyed by permitted role set.
+//
+// Hand-rolled rather than pulling in a dependency: it holds at most a handful of short
+// strings, and the whole implementation is shorter than the configuration a library would
+// need. Not an LRU because the key space is bounded by the number of role combinations,
+// which is fixed by the access matrix.
+type versionCache struct {
+	ttl time.Duration
+
+	mu      sync.Mutex
+	entries map[string]versionCacheEntry
+	// now is injectable so tests can expire entries without sleeping.
+	now func() time.Time
+}
+
+type versionCacheEntry struct {
+	version string
+	expires time.Time
+}
+
+func newVersionCache(ttl time.Duration) *versionCache {
+	return &versionCache{ttl: ttl, entries: map[string]versionCacheEntry{}, now: time.Now}
+}
+
+func (c *versionCache) get(key string) (string, bool) {
+	if c == nil {
+		return "", false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.entries[key]
+	if !ok || c.now().After(e.expires) {
+		return "", false
+	}
+	return e.version, true
+}
+
+func (c *versionCache) put(key, version string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[key] = versionCacheEntry{version: version, expires: c.now().Add(c.ttl)}
+}
+
+// contactsVersion hashes the *data* behind a viewer's directory.
+//
+// Content-derived rather than a counter or a timestamp: there is no natural version column
+// to read, and a hash makes "did anything I can see change?" answerable per permitted set,
+// so one person's edit does not invalidate everybody's cache.
+//
+// Deliberately computed from the rows rather than from the rendered entries, which is a
+// correction to the first cut of this code. Rendered entries carry `IsOwn`, a
+// *presentation* flag that differs for every viewer — hashing it made the version unique
+// per person, so the cheap poll in the version endpoint could never be cached and two
+// members of the same klan holding identical data would disagree about the version.
+// Hashing the data keeps the variants down to one per permitted role set.
+func contactsVersion(people []person.Person) string {
+	h := sha256.New()
+	for _, p := range people {
+		// Every field the payload can expose, in a fixed order. A field added to
+		// contactEntry must be added here too, or a change to it would not invalidate
+		// caches — which is why they sit next to each other in this file.
+		io.WriteString(h, p.PersonID)
+		io.WriteString(h, "\x00")
+		io.WriteString(h, p.Name)
+		io.WriteString(h, "\x00")
+		io.WriteString(h, p.Phone)
+		io.WriteString(h, "\x00")
+		io.WriteString(h, p.MemberStatus)
+		io.WriteString(h, "\x00")
+		io.WriteString(h, p.TeamID)
+		io.WriteString(h, "\x00")
+		io.WriteString(h, p.TeamName)
+		io.WriteString(h, "\x00")
+		io.WriteString(h, p.SectionSlug)
+		io.WriteString(h, "\x00")
+		io.WriteString(h, p.SectionName)
+		io.WriteString(h, "\x00")
+		io.WriteString(h, portraitVersion(p))
+		io.WriteString(h, "\x1e")
+	}
+	return hex.EncodeToString(h.Sum(nil)[:16])
 }
 
 func groupKey(groups []contactGroup) string {

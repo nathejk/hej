@@ -94,6 +94,15 @@ type application struct {
 	// blobs stores binary objects that cannot be rebuilt from the event log —
 	// portrait bytes (PRDs 003/007). Never nil: it falls back to memory.
 	blobs blob.Store
+
+	// contactsVersions caches the contacts directory version per permitted role set, for a
+	// few seconds (PRD 007's freshness poll, task 155).
+	//
+	// Held on the application rather than computed per request because this is the first
+	// endpoint the app polls continuously during the race: every device with the pane open
+	// asks every ~60 s, and the answer is identical for everyone with the same permitted
+	// set. Nil is safe — the cache degrades to computing every time.
+	contactsVersions *versionCache
 }
 
 // @title        Hej Nathejk API
@@ -336,6 +345,12 @@ func run(logger *slog.Logger) error {
 		db:       db,
 		eventing: ev,
 		blobs:    blobs,
+
+		// Five seconds of version caching. The client polls every ~60 s, so this adds at
+		// most a few seconds to how stale an answer can be — well inside PRD 007's
+		// "without too much delay" — while collapsing several hundred devices' polls into
+		// a handful of queries per minute.
+		contactsVersions: newVersionCache(5 * time.Second),
 
 		pins: pin.NewStore(),
 		sms:  sms.LogSender{Logger: logger},
