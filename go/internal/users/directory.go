@@ -36,9 +36,17 @@ const (
 	//
 	// It must be treated as **least-privileged**, not as "generic crew with crew
 	// powers". An account lands here precisely because classification *failed*, so
-	// granting it what an identified samarit gets would mean a typo in a slug
-	// silently widens access — PRD 007's portrait access matrix depends on this
-	// distinction, since identified crew may see every portrait in the event.
+	// granting it what an identified samarit gets would mean a typo in a slug silently
+	// widens access.
+	//
+	// PRD 007 is the exception that proves the rule rather than a contradiction of it.
+	// Its access matrix treats every crew role alike — including this one — because
+	// samarit, guide and postmandskab are all crew, and because task 078 found that in
+	// the real data *every* crew member lands on this fallback: gating on the three
+	// identified functions would have shipped a feature with no users. That was a
+	// deliberate decision (PRD 007 §11.3), taken with the ~20 affected people known to
+	// be adults on a staff list. It is not licence to treat this role as privileged
+	// elsewhere; see users.MayLookUpPatrol for the one capability it grants.
 	RoleCrew Role = "crew"
 )
 
