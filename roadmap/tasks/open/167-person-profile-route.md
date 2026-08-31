@@ -41,6 +41,10 @@ Other requirements:
 - [ ] Deep link as a spejder is refused.
 - [ ] Unknown or non-permitted `personId` renders a neutral not-found, indistinguishable
       from "not allowed".
+- [ ] **The route is added to the `paths` list in `guardiantripwire_test.go`** (task 159). A
+      contacts surface missing from that list is a surface with no guardian-number tripwire,
+      and this one returns a person's details by id — exactly the shape that invites "while
+      we are here, add the parent's number for the samarit".
 
 ## Progress Log
 

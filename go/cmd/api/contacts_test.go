@@ -21,13 +21,20 @@ import (
 func contactsTestApp(t *testing.T, people []person.Person) (*application, *stubPeople) {
 	t.Helper()
 	stub := &stubPeople{listed: people}
+	return newTestAppWithPeople(t, stub), stub
+}
+
+// newTestAppWithPeople wires an app around an already-built person stub, for tests that need
+// to seed more than the listable directory (a patrol, a single person by id).
+func newTestAppWithPeople(t *testing.T, stub *stubPeople) *application {
+	t.Helper()
 	app := newTestApp(t)
 	app.config.eventYear = "2026"
 	app.models = data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil, stub)
 	// Same TTL as production (main.go). Tests that care about propagation rather than
 	// caching replace this with newVersionCache(0).
 	app.contactsVersions = newVersionCache(5 * time.Second)
-	return app, stub
+	return app
 }
 
 // The directory rows below mirror the mock directory's ids so a session resolves to the

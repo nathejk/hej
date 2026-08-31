@@ -11,8 +11,6 @@ import (
 
 	"github.com/nathejk/shared-go/types"
 
-	"nathejk.dk/internal/data"
-	"nathejk.dk/internal/scans"
 	"nathejk.dk/internal/users"
 	"nathejk.dk/nathejk/table/person"
 )
@@ -21,9 +19,7 @@ import (
 func patrolApp(t *testing.T, number string, members []person.Person) (*application, *stubPeople) {
 	t.Helper()
 	stub := &stubPeople{patrol: map[string][]person.Person{number: members}}
-	app := newTestApp(t)
-	app.config.eventYear = "2026"
-	app.models = data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil, stub)
+	app := newTestAppWithPeople(t, stub)
 	app.contactsVersions = newVersionCache(0)
 	return app, stub
 }
