@@ -123,6 +123,14 @@ reject "Install.r app" "the one-tap install button"
 # PRD 005 §11 (task 143): there is no login outside the installed app.
 reject "Log ind" "any login form"
 reject "Telefonnummer" "any phone-number field"
+# The wall must provide its own scroll container. This asserts the *mechanism* rather than the
+# symptom, deliberately, because the symptom is invisible to a DOM check: the clipped text is
+# present in the DOM and merely not painted (task 149). It was found with
+# `--screenshot --window-size=393,695`, which is how to reproduce it if this ever regresses.
+#
+# The invariant is easy to lose and expensive when lost: routes outside the shell get no scrolling
+# from anywhere, `html`/`body` are `overflow: hidden` by design, and `Card` clips silently.
+want "overflow-y-auto" "a scroll container (routes outside the shell own their own)"
 
 echo "== iPhone browser tab: /welcome is unreachable =="
 dump iphone-welcome "$BASE/welcome" "$UA_IPHONE"

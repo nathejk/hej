@@ -46,10 +46,30 @@ async function promptInstall() {
 </script>
 
 <template>
-  <main
-    class="mx-auto flex h-full w-full max-w-sm flex-col justify-center gap-6 px-6"
-    style="padding-top: var(--sat); padding-bottom: var(--sab)"
-  >
+  <!--
+    THIS VIEW OWNS ITS OWN SCROLLING, and it has to.
+
+    `main.css` sets `overflow: hidden` on html and body on purpose (so the whole app cannot be
+    dragged), which means scrolling in this app belongs to the shell's `<main>`. This route renders
+    *outside* the shell — no top bar, no bottom nav — so nothing above it provides a scroll
+    container, and without one the content simply cannot be reached.
+
+    That is not hypothetical: on a real iPhone in Safari the viewport is ~695px (Safari's own chrome
+    takes ~157px of the 852px screen), the instructions are taller than that, and step 4 was clipped
+    mid-sentence — on the one screen whose entire purpose is those instructions, on the platform
+    where they are the only way in. `Card` has `overflow-hidden`, so a shrunken flex child clipped
+    silently rather than spilling visibly (task 149).
+
+    `min-h-full` on the inner column rather than `h-full` is what makes it behave in both
+    directions: centred when it fits, top-aligned and scrollable when it does not. The safe-area
+    insets go on the inner element, because padding on a scroll container is not part of its
+    scrollable area on every engine.
+  -->
+  <main class="h-full overflow-y-auto [overscroll-behavior:contain]">
+    <div
+      class="mx-auto flex min-h-full w-full max-w-sm flex-col justify-center gap-6 px-6"
+      style="padding-top: calc(var(--sat) + 2rem); padding-bottom: calc(var(--sab) + 2rem)"
+    >
     <header class="flex flex-col items-center gap-3 text-center">
       <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-white">
         <Smartphone class="h-7 w-7" aria-hidden="true" />
@@ -133,6 +153,7 @@ async function promptInstall() {
         På hjemmesiden kan du læse om Nathejk. Selve appen — kort, kontakter og beskeder — virker
         kun, når den ligger på hjemmeskærmen.
       </p>
+      </div>
     </div>
   </main>
 </template>

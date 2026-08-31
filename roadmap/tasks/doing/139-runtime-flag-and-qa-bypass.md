@@ -137,9 +137,9 @@ The webview row is a pass/fail on the escape hatch, not on installation.
   | Platform | What to establish | State |
   |---|---|---|
   | Desktop | classified desktop, leaves the app for `/desktop.html`, never sees `/welcome` or `/install`, install banner stays **hidden** | **PASS — automated**, `vue/scripts/check-install-gate.sh` |
-  | iPhone browser tab | lands on the wall, iOS add-to-home-screen instructions, no one-tap button, **no login anywhere**, link out to the website | **PASS — automated** (real Chrome, iPhone UA) |
+  | iPhone browser tab | lands on the wall, iOS add-to-home-screen instructions, no one-tap button, **no login anywhere**, link out to the website | **PASS — automated**, and **confirmed on a real iPhone** 2026-08-31 |
   | In-app webview (iOS) | told to reopen in a real browser, and **not** shown add-to-home-screen steps | **PASS — automated** |
-  | iOS Safari, installed | add-to-home-screen actually works, `navigator.standalone`, Web Push on 16.4+, safe-area (`use 59/0/0/0`, `main.top 128`) | not run — needs an iPhone |
+  | iOS Safari, installed | add-to-home-screen actually works, `navigator.standalone`, Web Push on 16.4+, safe-area (`use 59/0/0/0`, `main.top 128`) | not run — needs an iPhone. Note the pre-fix state *was* observed: `sa 59/0/34/0` against `use 0/0/0/0` is what task 145 fixed |
   | Android Chrome | `beforeinstallprompt` captured **before mount**, `appinstalled` seen, one-tap install | not run — needs an Android device (see below) |
   | Android Firefox | no prompt → the browser-menu instructions are correct and readable | not run — needs an Android device |
   | iPadOS | reports as macOS Safari — must still classify as **mobile** | not run — needs an iPad |
@@ -190,3 +190,22 @@ The webview row is a pass/fail on the escape hatch, not on installation.
   The fastest useful subset, if time is short: **iPadOS classification** (one screenshot of the
   `LayoutDebug` overlay tells you), **Android Chrome one-tap install**, and **safe-area on the
   iPhone** (`use` should read `59/0/0/0`, `main.top` 128).
+
+- 2026-08-31 — **First real-device evidence, from the maintainer: the iPhone-browser row passes.**
+  The wall renders on real iOS Safari with the correct iOS instructions, the website link and no
+  login — matching the automated checks, which is the useful part: it says the UA-driven emulation is
+  representative for that row rather than merely self-consistent.
+
+  Also confirmed incidentally: `sa 0/0/0/0` in a Safari *tab* is correct, not a repeat of task 145.
+  Safari's own chrome absorbs the notch there (`vp 695` against `scr 852`), so there are genuinely no
+  insets to apply — and task 145's rule of discarding an all-zero reading leaves the live CSS seed in
+  place, which resolves to the same zero. The row that still needs checking is the *installed* one,
+  where the insets are real (`use` should read `59/0/0/0`, `main.top` 128).
+
+- 2026-08-31 — **The device pass immediately earned its keep: it found task 149.** The wall was
+  clipping its own instructions at step 4 on a 695px viewport — visible on hardware, invisible on a
+  desktop and invisible to every automated check, because the clipped text is present in the DOM and
+  merely unpainted. Fixed, and reproducible locally now that the viewport size is known.
+
+  Worth noting what that says about this matrix: the rows that remain are not a formality. Three of
+  the six problems found this week (142, 145, 149) were only observable on a real phone.

@@ -133,25 +133,41 @@ async function onSkip(id: OnboardingStepId) {
 </script>
 
 <template>
-  <main
-    class="mx-auto flex h-full w-full max-w-sm flex-col gap-6 px-6"
-    style="padding-top: var(--sat); padding-bottom: var(--sab)"
-  >
-    <header class="flex flex-col gap-3 pt-8">
-      <h1 class="font-nathejk text-center text-2xl tracking-wide">{{ APP_NAME }}</h1>
-      <Progress v-if="steps.length > 1" :model-value="percent" aria-label="Fremgang" />
-      <p v-if="current" class="text-center text-xs text-slate-400">
-        Trin {{ currentIndex + 1 }} af {{ steps.length }}
-      </p>
-    </header>
+  <!--
+    Owns its own scrolling, for the same reason as the install wall (task 149): `main.css` sets
+    `overflow: hidden` on html/body, scrolling belongs to the shell's `<main>`, and this route
+    renders outside the shell — so without a container here the content cannot be reached.
+    `Card` has `overflow-hidden`, so a shrunken flex child clips silently rather than spilling.
 
-    <div class="flex flex-1 flex-col justify-center pb-8">
-      <component
-        v-if="current"
-        :is="stepComponents[current]"
-        @done="advance"
-        @skip="current && onSkip(current)"
-      />
+    It matters more here than on the wall, because of the keyboard. Focusing the phone number or
+    the guardian number shrinks the usable area to a few hundred pixels — precisely when the member
+    needs to see the field they are typing in *and* the button that submits it. A scroll container
+    is also what lets the engine bring a focused input into view at all.
+
+    `min-h-full` on the inner column, not `h-full`: centred when it fits, scrollable when it does
+    not.
+  -->
+  <main class="h-full overflow-y-auto [overscroll-behavior:contain]">
+    <div
+      class="mx-auto flex min-h-full w-full max-w-sm flex-col gap-6 px-6"
+      style="padding-top: var(--sat); padding-bottom: var(--sab)"
+    >
+      <header class="flex shrink-0 flex-col gap-3 pt-8">
+        <h1 class="font-nathejk text-center text-2xl tracking-wide">{{ APP_NAME }}</h1>
+        <Progress v-if="steps.length > 1" :model-value="percent" aria-label="Fremgang" />
+        <p v-if="current" class="text-center text-xs text-slate-400">
+          Trin {{ currentIndex + 1 }} af {{ steps.length }}
+        </p>
+      </header>
+
+      <div class="flex flex-1 flex-col justify-center pb-8">
+        <component
+          v-if="current"
+          :is="stepComponents[current]"
+          @done="advance"
+          @skip="current && onSkip(current)"
+        />
+      </div>
     </div>
   </main>
 </template>
