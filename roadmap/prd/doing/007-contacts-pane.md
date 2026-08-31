@@ -510,26 +510,41 @@ notion of member status in a second repo, disagreeing with `hq` in ways nobody w
 notice until an organizer compared two screens". It then names the sanctioned route:
 **read `hq`'s projection, or lift it to `shared-go` — not grow a parallel one here.**
 
-The uncached lookup makes this materially easier. Status is now needed **at request
-time, for one patrol** — not projected into a manifest and synced to devices — so
-reading it live is a legitimate option rather than a false economy. Options, in the
-order I would argue for them:
+The uncached lookup makes this easier, and investigation (task 150) narrowed it further
+than this section originally claimed.
 
-1. **Read `hq`'s projection at lookup time.** Now the cheapest *and* the most correct:
-   one notion of status in the org, no duplication, and no staleness. Its old
-   disadvantage — "useless for offline" — no longer applies, because the lookup is not
-   offline. Cost: a cross-service read on a rare, interactive path.
-2. **Lift the lifecycle projection to `shared-go`** and consume it here. Matches the
-   comment's instruction and has precedent (task 147 lifted verification messages).
-   Worth it if other features need status; overkill if only this one does.
-3. **Project a parallel status into `person`.** Explicitly the option that comment
-   warns against. Listed so nobody arrives at it by accident.
+**Decided 2026-08-31 (task 150): lift the transitions to `shared-go` and consume them
+here.** Two corrections to what this section said before:
 
-Withdrawn *directory* members (a bandit or crew member who goes home) are the residual
-case that a live lookup does not cover, since the directory is cached. Simplest
-treatment: the manifest carries a coarse "still in the race" flag per person, which is
-one boolean rather than a lifecycle, and comes from whichever source option 1 or 2
-settles on.
+- **"Read `hq`'s projection at request time" is not available.** This PRD ranked it
+  first. `hej` has no `hq` client, no access to its database, and is event-sourced from
+  the stream — its own projection is the only read model it has. The option was ranked
+  without checking.
+- **Most of the lift already exists.** `shared-go/types/member.go` already defines the
+  full lifecycle vocabulary — `registered`, `seated`, `racing`, `finished`, `waiting`,
+  `transit`, `sheltered`, `reunited`, `released` — with documentation and helpers
+  (`Valid()`, `CanFinish()`, `InOurCare()`). What is missing is only the **transition
+  message types**, which still live in `hq` (task 174), and a "left the race" predicate
+  to sit beside `InOurCare()` (task 175).
+
+**Why this is not the parallel projection `consumer.go` warns against.** That warning is
+about a second *notion* of status — a different vocabulary, or rules re-derived locally,
+which can then disagree with `hq`. Storing `shared-go`'s `types.MemberStatus` verbatim,
+from the same events, is a cache of one shared notion. The line to hold: this repo may
+store and read the value, but must not implement lifecycle rules.
+
+**The split:**
+
+- the **live patrol lookup** returns the full current `types.MemberStatus`, fresh because
+  it is online;
+- the **cached manifest** carries a single coarse `stillInRace` boolean — one bit, not a
+  lifecycle, because that is all the directory needs to mark a withdrawn colleague.
+
+Until task 174 lands no transition events arrive, so the flag reads `true` for everyone.
+That is correct for a pre-event state, and is documented at the call site rather than
+assumed.
+
+### Member status — decided (task 150)
 
 ### Frontend (Vue 3 / TS)
 
