@@ -121,6 +121,9 @@ func (d *personDirectory) toUser(p person.Person) (users.User, bool) {
 		PatrolID:   p.TeamID,
 		PatrolName: p.TeamName,
 		Section:    p.SectionName,
+		// The slug, not just the label: contacts placement reads it to decide whether a
+		// crew member is listed among banditter or gøglere (PRD 007, placement.go).
+		SectionSlug: p.SectionSlug,
 		// Own details for PRD 003's profile page. PhoneParent is passed through as a
 		// pointer, not dereferenced with a default: nil ("no guardian number in this
 		// population") and "" ("expected, missing") are rendered differently, and

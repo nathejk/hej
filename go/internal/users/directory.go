@@ -120,6 +120,15 @@ type User struct {
 	// same section need something better than identical rows (task 079).
 	Section string
 
+	// SectionSlug is the organizer-authored key behind Section, and unlike Section it is
+	// not for display.
+	//
+	// Two different maps read it, answering two different questions: the person
+	// projection classifies a crew *role* from it (classify.go), and contacts placement
+	// decides which population a crew member is *listed* in (placement.go). Both are
+	// deliberate — see the warning in placement.go about not collapsing them.
+	SectionSlug string
+
 	// The fields below are the user's *own* details, shown back to them on the
 	// profile page (PRD 003). Unlike Name and Section they are never shown to
 	// anybody else — in particular the login chooser must keep displaying only

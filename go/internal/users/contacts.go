@@ -30,15 +30,16 @@ package users
 //     the fallback, since in the real data every crew member currently lands on the
 //     fallback (task 078).
 //   - **Placement is not permission.** Which population a person is *listed in* comes
-//     from their section slug (task 152) — a crew member out as a bandit is listed
-//     among banditter while still viewing as crew. This file answers permission only,
-//     and takes the subject's population as given.
+//     from their role and section slug (PopulationsOf below) — a crew member out as a
+//     bandit is listed among banditter while still viewing as crew. Permission and
+//     placement are answered by different functions on purpose.
 
 // Population is the group a person is listed under in the contacts directory.
 //
 // It is not the same thing as a Role, and the difference is the point: a crew member
-// whose section slug is `bandit` has Role crew and Population bandit. Task 152 owns
-// the mapping from a person to their population; this file only consumes it.
+// whose section slug is `bandit` has Role crew and is listed among banditter. Keeping
+// the two vocabularies apart is what stops a placement change from being mistaken for a
+// permission change.
 type Population string
 
 const (
