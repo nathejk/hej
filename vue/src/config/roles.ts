@@ -42,6 +42,21 @@ export function allRolesExcept(...excluded: Role[]): Role[] {
   return ALL_ROLES.filter((r) => !excluded.includes(r))
 }
 
+// The crew roles, including the least-privileged fallback.
+//
+// Mirrors `Role.IsCrew()` in `go/internal/users/directory.go`, and like it says nothing about
+// privilege on its own — it is a population, not a permission.
+//
+// PRD 007's patrol lookup is crew-only and **includes `crew`**: that was a deliberate decision
+// (§11.3), not an accident of the fallback, because task 078 found every real crew member
+// currently lands on it. The BFF enforces this; the client uses it only to decide whether to draw
+// the entry point, since offering a control that answers 404 is worse than not offering it.
+const CREW_ROLES: Role[] = ['postmandskab', 'guide', 'samarit', 'crew']
+
+export function isCrewRole(role: Role | null): boolean {
+  return role !== null && CREW_ROLES.includes(role)
+}
+
 // Danish display labels for the roles.
 //
 // Kept next to the enum rather than in each component that needs one, so "gøgler"

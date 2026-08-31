@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 
 import { destinations, visibleDestinations } from '@/config/navigation'
-import { ALL_ROLES, allRolesExcept, type Role } from '@/config/roles'
+import { ALL_ROLES, allRolesExcept, isCrewRole, type Role } from '@/config/roles'
 
 // PRD 007: spejdere do not get the contacts pane, in either direction — they see nobody and
 // appear to nobody. These tests pin the nav half of that.
@@ -49,6 +49,38 @@ describe('contacts destination', () => {
       const d = destinations.find((x) => x.name === name)!
       expect(d.roles, `${name} must stay open to every role`).toBeUndefined()
     }
+  })
+})
+
+describe('isCrewRole', () => {
+  // Mirrors Role.IsCrew() in go/internal/users/directory.go. Decides whether the patrol lookup's
+  // entry point is drawn — the BFF enforces the actual permission.
+  it('is true for the crew functions and the fallback', () => {
+    for (const role of ['postmandskab', 'guide', 'samarit', 'crew'] as Role[]) {
+      expect(isCrewRole(role), role).toBe(true)
+    }
+  })
+
+  it('is false for participants', () => {
+    for (const role of ['spejder', 'bandit', 'gøgler'] as Role[]) {
+      expect(isCrewRole(role), role).toBe(false)
+    }
+  })
+
+  // PRD 007 §11.3: including the fallback is a decision, not an accident — task 078 found every
+  // real crew member currently lands on it, so excluding it would ship a feature with no users.
+  it('includes the unclassified crew fallback deliberately', () => {
+    expect(isCrewRole('crew')).toBe(true)
+  })
+
+  it('is false when the role is not yet known', () => {
+    expect(isCrewRole(null)).toBe(false)
+  })
+
+  it('covers every role in ALL_ROLES', () => {
+    // Guards against a role being added and silently landing on the wrong side.
+    const crew = ALL_ROLES.filter((r) => isCrewRole(r))
+    expect(crew).toEqual(['postmandskab', 'guide', 'samarit', 'crew'])
   })
 })
 

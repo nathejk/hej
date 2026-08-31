@@ -28,14 +28,22 @@ import {
 } from '@/components/ui/accordion'
 import { Input } from '@/components/ui/input'
 import ContactRow from '@/components/contacts/ContactRow.vue'
+import PatrolLookup from '@/components/contacts/PatrolLookup.vue'
 import { useContactsFreshness } from '@/composables/useContactsFreshness'
+import { isCrewRole } from '@/config/roles'
 import { searchContacts } from '@/helpers/contactSearch'
 import { useContactsStore, type ContactEntry } from '@/stores/contacts.store'
 import { useFavouritesStore } from '@/stores/favourites.store'
+import { useSessionStore } from '@/stores/session.store'
 
 const router = useRouter()
 const contacts = useContactsStore()
 const favourites = useFavouritesStore()
+const session = useSessionStore()
+
+// Crew only. The BFF refuses everyone else regardless — this decides whether to draw the entry
+// point, because offering a control that answers 404 is worse than not offering it.
+const canLookUpPatrols = computed(() => isCrewRole(session.role))
 
 const query = ref('')
 
@@ -160,6 +168,10 @@ function open(id: string) {
         />
       </div>
     </header>
+
+    <!-- Crew only, and kept out of the sticky header: it is a secondary action, and putting it
+         beside the search field is what would blur the two together. -->
+    <PatrolLookup v-if="canLookUpPatrols" />
 
     <!-- Nothing synced yet, and nothing to show. Distinct from "no matches" below, because the
          two need different actions from the user (task 169). -->

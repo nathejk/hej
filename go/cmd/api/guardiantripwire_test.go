@@ -97,8 +97,12 @@ func TestContactsSurfacesNeverCarryAGuardianNumber(t *testing.T) {
 	// Every contacts surface that returns JSON, fetched as crew — the role with the widest
 	// view, so anything reachable is reachable here.
 	//
-	// When task 167 adds the person profile route, add it to this list. A surface missing
-	// from here is a surface with no tripwire.
+	// The patrol lookup matters most: those are the records that actually carry guardian
+	// numbers, so it is the one surface where the invariant is doing real work rather than
+	// stating the obvious. (Added 2026-09-01, re-homed from task 167, which turned out to need
+	// no endpoint of its own — the person profile reads the manifest, already covered below.)
+	//
+	// A surface missing from this list is a surface with no tripwire.
 	paths := []string{
 		"/api/contacts/manifest",
 		"/api/contacts/version",
