@@ -107,6 +107,11 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer, opts
 		{"portraitThumbs", `portraitThumbs TEXT NULL DEFAULT NULL`},
 		{"portraitOriginalRef", `portraitOriginalRef VARCHAR(64) NOT NULL DEFAULT ""`},
 		{"portraitOrientation", `portraitOrientation TINYINT NOT NULL DEFAULT 0`},
+		// Arrived with the guardian-correction flow (task 148), which needs to tell "the
+		// register changed since the member acknowledged" from "the member told us the
+		// register is wrong". NULL on every row written before it existed, which reads
+		// correctly as "we do not know what the register held then" — see IsVerified.
+		{"verifiedAgainstPhone", `verifiedAgainstPhone VARCHAR(99) NULL DEFAULT NULL`},
 	} {
 		if err := cqrs.EnsureColumn(r, w, "person", col.name, col.ddl); err != nil {
 			return nil, fmt.Errorf("person: ensure column %s: %w", col.name, err)

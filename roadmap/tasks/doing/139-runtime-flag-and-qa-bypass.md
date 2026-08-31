@@ -151,4 +151,6 @@ The webview row is a pass/fail on the escape hatch, not on installation.
   light/dark rendering and keyboard operability of the new `checkbox` (task 122), the full-screen
   `PermissionPrompt` variant (task 130), grant/deny on both permission steps (task 131), that
   `UpdatePrompt` no longer overlays the wall (task 138), and the desktop placeholder's install
-  banner appearing on a tablet but not on a desktop (task 140).
+  banner appearing on a tablet but not on a desktop (task 140), and the guardian-correction field
+  (task 148: number keypad shows, and the browser does not offer the member's own number as an
+  autocomplete suggestion).

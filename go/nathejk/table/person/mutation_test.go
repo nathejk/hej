@@ -127,7 +127,12 @@ func TestGuardianChangeInvalidatesVerificationConditionally(t *testing.T) {
 		"verifiedAt IS NOT NULL",
 		// Null-safe inequality: a plain <> against NULL yields NULL and would skip
 		// the case where the guardian number was removed entirely.
-		`NOT (acknowledgedPhone <=> "+4540556677")`,
+		//
+		// Compared against verifiedAgainstPhone, not acknowledgedPhone (task 148): the
+		// acknowledged number may legitimately differ from the register when the member
+		// corrected it, and comparing that would revoke the verification of every member who
+		// took the trouble to fix our data — on any upstream edit, and on every replay.
+		`NOT (verifiedAgainstPhone <=> "+4540556677")`,
 	} {
 		if !strings.Contains(inv, want) {
 			t.Errorf("invalidation is missing %s\ngot: %s", want, inv)
@@ -148,7 +153,7 @@ func TestInvalidationComparesNormalizedNumbers(t *testing.T) {
 // is now no number for the acknowledged consent to be about.
 func TestGuardianRemovalInvalidates(t *testing.T) {
 	stmts := fold(t, spejder("member-1", "30112233", ""))
-	if !strings.Contains(stmts[1], "NOT (acknowledgedPhone <=> NULL)") {
+	if !strings.Contains(stmts[1], "NOT (verifiedAgainstPhone <=> NULL)") {
 		t.Errorf("want a null-safe comparison against NULL\ngot: %s", stmts[1])
 	}
 }
@@ -281,6 +286,10 @@ func TestUnusablePhoneWithNoSinkDoesNotPanic(t *testing.T) {
 
 // IsVerified is the read-side half of the same rule, and must not simply mirror
 // verifiedAt.
+//
+// It compares the register against **verifiedAgainstPhone** — what the register held when the
+// member acknowledged — and deliberately not against acknowledgedPhone, which may be a number the
+// member supplied because ours was wrong (task 148).
 func TestIsVerifiedRequiresTheNumberToStillMatch(t *testing.T) {
 	now := time.Now()
 	ptr := func(s string) *string { return &s }
@@ -291,14 +300,50 @@ func TestIsVerifiedRequiresTheNumberToStillMatch(t *testing.T) {
 		want bool
 	}{
 		{"never verified", Person{PhoneParent: ptr("+4540556677")}, false},
-		{"verified and matching",
-			Person{VerifiedAt: &now, PhoneParent: ptr("+4540556677"), AcknowledgedPhone: ptr("+4540556677")}, true},
-		{"verified but the number changed",
-			Person{VerifiedAt: &now, PhoneParent: ptr("+4511111111"), AcknowledgedPhone: ptr("+4540556677")}, false},
-		{"verified but the number was removed",
-			Person{VerifiedAt: &now, PhoneParent: nil, AcknowledgedPhone: ptr("+4540556677")}, false},
-		{"verified with no record of what was acknowledged",
-			Person{VerifiedAt: &now, PhoneParent: ptr("+4540556677")}, false},
+		{"verified and matching", Person{
+			VerifiedAt:           &now,
+			PhoneParent:          ptr("+4540556677"),
+			AcknowledgedPhone:    ptr("+4540556677"),
+			VerifiedAgainstPhone: ptr("+4540556677"),
+		}, true},
+		{"verified but the number changed", Person{
+			VerifiedAt:           &now,
+			PhoneParent:          ptr("+4511111111"),
+			AcknowledgedPhone:    ptr("+4540556677"),
+			VerifiedAgainstPhone: ptr("+4540556677"),
+		}, false},
+		{"verified but the number was removed", Person{
+			VerifiedAt:           &now,
+			PhoneParent:          nil,
+			AcknowledgedPhone:    ptr("+4540556677"),
+			VerifiedAgainstPhone: ptr("+4540556677"),
+		}, false},
+		// THE CASE THAT USED TO BE IMPOSSIBLE (task 148). The member could not recognise the
+		// registered number and supplied the right one, so the acknowledged number differs from
+		// the register *by design*. That is a correction, not staleness: the register has not
+		// moved since they acknowledged, so the verification stands. Under the old rule — which
+		// compared acknowledgedPhone against the register — this read as stale and the member
+		// would have been re-asked forever while the register stayed wrong.
+		{"corrected: acknowledged a different number than the register holds", Person{
+			VerifiedAt:           &now,
+			PhoneParent:          ptr("+4540556677"),
+			AcknowledgedPhone:    ptr("+4522334455"),
+			VerifiedAgainstPhone: ptr("+4540556677"),
+		}, true},
+		// ...and a correction still goes stale if the register moves again afterwards.
+		{"corrected, then the register changed again", Person{
+			VerifiedAt:           &now,
+			PhoneParent:          ptr("+4599999999"),
+			AcknowledgedPhone:    ptr("+4522334455"),
+			VerifiedAgainstPhone: ptr("+4540556677"),
+		}, false},
+		// Every verification recorded before the column existed. Deliberately not vouched for
+		// rather than assumed to still hold.
+		{"verified with no record of what the register held", Person{
+			VerifiedAt:        &now,
+			PhoneParent:       ptr("+4540556677"),
+			AcknowledgedPhone: ptr("+4540556677"),
+		}, false},
 		// A population with no guardian number can never be verified in this sense.
 		// Callers must not read that as "nag them" — there is nothing to confirm.
 		{"population without a guardian number", Person{VerifiedAt: &now}, false},
@@ -309,16 +354,51 @@ func TestIsVerifiedRequiresTheNumberToStillMatch(t *testing.T) {
 	}
 }
 
+// GuardianCorrected is the organizer's signal, and is orthogonal to IsVerified: a corrected record
+// is both verified *and* in need of a register fix, which is why one boolean could never carry it.
+func TestGuardianCorrected(t *testing.T) {
+	now := time.Now()
+	ptr := func(s string) *string { return &s }
+
+	corrected := Person{
+		VerifiedAt:           &now,
+		PhoneParent:          ptr("+4540556677"),
+		AcknowledgedPhone:    ptr("+4522334455"),
+		VerifiedAgainstPhone: ptr("+4540556677"),
+	}
+	if !corrected.GuardianCorrected() {
+		t.Error("a member who acknowledged a different number has corrected us")
+	}
+	if !corrected.IsVerified() {
+		t.Error("a correction is also a verification — both are true at once")
+	}
+
+	agreed := Person{
+		VerifiedAt:           &now,
+		PhoneParent:          ptr("+4540556677"),
+		AcknowledgedPhone:    ptr("+4540556677"),
+		VerifiedAgainstPhone: ptr("+4540556677"),
+	}
+	if agreed.GuardianCorrected() {
+		t.Error("confirming the number we hold is not a correction")
+	}
+
+	// No record of either side: not a correction, because we cannot know.
+	if (Person{VerifiedAt: &now, PhoneParent: ptr("+45x")}).GuardianCorrected() {
+		t.Error("an incomplete record must not be reported as a correction")
+	}
+}
+
 // The two halves must agree, or one of them is lying to the UI.
 func TestIsVerifiedAgreesWithTheProjectorsCondition(t *testing.T) {
-	// The projector clears verifiedAt exactly when NOT (acknowledgedPhone <=> parent).
+	// The projector clears verifiedAt exactly when NOT (verifiedAgainstPhone <=> parent).
 	// IsVerified must return false in precisely those cases, which the table above
 	// covers; this test pins the shared intent so a change to one prompts a change to
 	// the other.
 	now := time.Now()
 	ptr := func(s string) *string { return &s }
-	matching := Person{VerifiedAt: &now, PhoneParent: ptr("+45x"), AcknowledgedPhone: ptr("+45x")}
-	changed := Person{VerifiedAt: &now, PhoneParent: ptr("+45y"), AcknowledgedPhone: ptr("+45x")}
+	matching := Person{VerifiedAt: &now, PhoneParent: ptr("+45x"), VerifiedAgainstPhone: ptr("+45x")}
+	changed := Person{VerifiedAt: &now, PhoneParent: ptr("+45y"), VerifiedAgainstPhone: ptr("+45x")}
 
 	if !matching.IsVerified() || changed.IsVerified() {
 		t.Error("IsVerified must accept a matching pair and reject a changed one")

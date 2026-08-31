@@ -43,8 +43,16 @@ type Person struct {
 	MemberStatus string
 	ArmNumber    string
 
-	VerifiedAt        *time.Time
+	VerifiedAt *time.Time
+	// AcknowledgedPhone is the number the member said can be reached. Authoritative for
+	// contacting a guardian during the event, because it may be a number the member supplied
+	// when they could not recognise the registered one (task 148).
 	AcknowledgedPhone *string
+	// VerifiedAgainstPhone is what PhoneParent held at the moment of acknowledgement.
+	//
+	// nil for a verification recorded before the column existed, which reads correctly as "we
+	// do not know what the register held then" — see IsVerified, which refuses to vouch for it.
+	VerifiedAgainstPhone *string
 	PortraitRef       string
 	// PortraitThumbRef is the default (smallest) thumbnail's content hash, or empty when
 	// the portrait predates thumbnails (task 104). Readers fall back to PortraitRef.
@@ -78,32 +86,57 @@ const MemberStatusRacing = string(types.MemberStatusRacing)
 
 // IsVerified reports whether this person's guardian number is currently confirmed.
 //
-// Note what this is *not*: a read of `verifiedAt`. It is `verifiedAt` **and** the
-// acknowledged number still matching the guardian number on file. The projector already
-// clears `verifiedAt` when the number changes (see invalidateVerification), so in a
-// healthy row the extra comparison is redundant — which is the point of doing it here
-// as well.
+// Note what this is *not*: a read of `verifiedAt`. It is `verifiedAt` **and** the register still
+// holding the number the acknowledgement was made against. The projector already clears
+// `verifiedAt` when the number changes (see invalidateVerification), so in a healthy row the
+// extra comparison is redundant — which is the point of doing it here as well. The two guards
+// fail differently: the projector's clear depends on the change arriving through
+// handleSpejderUpdated, this one holds regardless of which event path moved the number. The cost
+// of the belt-and-braces is a string compare; the cost of being wrong is telling staff a guardian
+// consented to being called on a number they never saw, during an emergency.
 //
-// The two guards fail differently. The projector's clear depends on the change arriving
-// through handleSpejderUpdated; this one holds regardless of which event path moved the
-// number, including one nobody has written yet. The cost of the belt-and-braces is a
-// string compare, and the cost of being wrong is telling staff a guardian consented to
-// being called on a number they never saw — during an emergency. That trade is not
-// close.
+// # It compares against VerifiedAgainstPhone, not AcknowledgedPhone
 //
-// A person with no guardian number at all (crew, bandit, gøgler — see HasGuardianPhone)
-// can never be verified in this sense, and callers must not read that as "unverified,
-// nag them": there is nothing for them to confirm.
+// That distinction is the whole point of storing both (task 148). A member who could not
+// recognise the registered number is asked to supply the right one, so **AcknowledgedPhone may
+// legitimately differ from PhoneParent** — that is a correction, and it is the most useful
+// possible outcome of the step. Comparing the acknowledged number against the register would read
+// every correction as staleness and re-ask the member forever while the register stayed wrong.
+//
+// What actually invalidates a verification is the register moving *after* the fact, which is
+// exactly `PhoneParent != VerifiedAgainstPhone`.
+//
+// A person with no guardian number at all (crew, bandit, gøgler — see HasGuardianPhone) can never
+// be verified in this sense, and callers must not read that as "unverified, nag them": there is
+// nothing for them to confirm.
 func (p Person) IsVerified() bool {
 	if p.VerifiedAt == nil {
 		return false
 	}
-	if p.PhoneParent == nil || p.AcknowledgedPhone == nil {
-		// Verified at some point, but there is now no number on file, or no record of
-		// which number was confirmed. Neither is a state in which a tick can be shown.
+	if p.PhoneParent == nil || p.VerifiedAgainstPhone == nil {
+		// Verified at some point, but there is now no number on file, or no record of what the
+		// register held then. Neither is a state in which a tick can be shown — and the second
+		// is every verification recorded before that column existed, which we deliberately do
+		// not vouch for rather than assuming it still holds.
 		return false
 	}
-	return *p.AcknowledgedPhone == *p.PhoneParent
+	return *p.VerifiedAgainstPhone == *p.PhoneParent
+}
+
+// GuardianCorrected reports whether the member acknowledged a number **other than** the one on
+// file — i.e. they told us the register is wrong.
+//
+// Separate from IsVerified on purpose, because the two facts call for opposite responses:
+// IsVerified says "leave the member alone", this says "an organizer should fix the register".
+// A corrected record is both at once, which is why one boolean could never have carried it.
+//
+// Not a failure state for the member. It is the best outcome the confirmation step has: the
+// person standing there knew the right number and gave it to us.
+func (p Person) GuardianCorrected() bool {
+	if p.AcknowledgedPhone == nil || p.VerifiedAgainstPhone == nil {
+		return false
+	}
+	return *p.AcknowledgedPhone != *p.VerifiedAgainstPhone
 }
 
 // HasStarted reports whether the member has begun the event.
@@ -181,7 +214,8 @@ const personColumns = `
 	teamId, teamName,
 	sectionSlug, sectionName,
 	memberStatus, armNumber,
-	verifiedAt, acknowledgedPhone, portraitRef, portraitThumbRef, portraitThumbs,
+	verifiedAt, acknowledgedPhone, verifiedAgainstPhone,
+	portraitRef, portraitThumbRef, portraitThumbs,
 	portraitOriginalRef, portraitOrientation, portraitCapturedAt`
 
 // Lookup finds people by phone number.
@@ -313,7 +347,8 @@ func scanPerson(s scanner) (Person, error) {
 		&p.TeamID, &p.TeamName,
 		&p.SectionSlug, &p.SectionName,
 		&p.MemberStatus, &p.ArmNumber,
-		&p.VerifiedAt, &p.AcknowledgedPhone, &p.PortraitRef, &p.PortraitThumbRef, &thumbs,
+		&p.VerifiedAt, &p.AcknowledgedPhone, &p.VerifiedAgainstPhone,
+		&p.PortraitRef, &p.PortraitThumbRef, &thumbs,
 		&p.PortraitOriginalRef, &p.PortraitOrientation,
 		&p.PortraitCapturedAt,
 	)

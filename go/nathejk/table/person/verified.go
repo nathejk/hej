@@ -77,10 +77,13 @@ func VerifiedSubject(year, personID string) (cqrs.Subject, error) {
 
 // handleMemberVerified records the verification on the person's row.
 //
-// Both columns are written together, always. `verifiedAt` without `acknowledgedPhone`
-// would be a verification whose subject is unknown, which `Person.IsVerified` correctly
-// refuses to trust — so writing one without the other would produce a row that looks
-// verified to a human reading the table and unverified to the code.
+// All three columns are written together, always. A `verifiedAt` without the numbers beside it is
+// a verification whose subject is unknown, which `Person.IsVerified` correctly refuses to trust —
+// so writing one without the others produces a row that looks verified to a human reading the
+// table and unverified to the code.
+//
+// `verifiedAgainstPhone` may legitimately differ from `acknowledgedPhone`: that is a member
+// telling us the register is wrong (task 148), and `Person.GuardianCorrected` is what reads it.
 //
 // Idempotent by construction: a replay writes the same two values from the same event.
 // Re-confirmation (a member who verifies again after their guardian number changed)
@@ -114,9 +117,14 @@ func (c consumer) handleMemberVerified(msg cqrs.Message, year string) error {
 	}
 
 	return c.w.Consume(fmt.Sprintf(
-		"UPDATE person SET verifiedAt=%s, acknowledgedPhone=%s WHERE personId=%s AND year=%s",
+		"UPDATE person SET verifiedAt=%s, acknowledgedPhone=%s, verifiedAgainstPhone=%s "+
+			"WHERE personId=%s AND year=%s",
 		quote(verifiedAt.UTC().Format("2006-01-02 15:04:05")),
 		quote(string(body.PhoneParentAcknowledged)),
+		// nullableQuote, not quote: an empty registered number is meaningful — the register held
+		// nothing and the member supplied one — and storing "" would make it compare unequal to a
+		// NULL phoneParent, i.e. read as a correction when nothing was corrected.
+		nullableQuote(string(body.PhoneParentRegistered)),
 		quote(personID),
 		quote(year),
 	))

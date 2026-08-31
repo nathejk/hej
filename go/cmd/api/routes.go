@@ -45,6 +45,9 @@ func (app *application) routes() http.Handler {
 	// is taken from the cookie, so nobody can confirm on somebody else's behalf. Writes no SQL —
 	// it publishes a domain event (PRD 008 §8).
 	router.HandlerFunc(http.MethodPost, "/api/me/profile/confirm", app.requireAuth(app.confirmProfileHandler))
+	// The member supplying a guardian number themselves, when they cannot recognise ours
+	// (task 148). Publishes the same event as /confirm, with the two numbers differing.
+	router.HandlerFunc(http.MethodPost, "/api/me/profile/guardian", app.requireAuth(app.setGuardianHandler))
 	// The caller's own portrait (PRD 003). Both are session-scoped: no user id in the
 	// path, so neither can be pointed at somebody else's face. Cross-person viewing is
 	// PRD 007, with its own access matrix and audit — it must not arrive as a parameter

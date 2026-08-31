@@ -194,6 +194,25 @@ export const useProfileStore = defineStore('profile', {
       this.verifiedAt = new Date().toISOString()
     },
 
+    // setGuardian records a guardian number the member supplied themselves, plus their
+    // acknowledgement that it can be reached (PRD 005, task 148).
+    //
+    // For the member who cannot recognise the number we hold. It does **not** overwrite the
+    // registered number — `phoneParent` keeps coming from upstream — it records what the member
+    // says can be reached, together with what the register held at that moment, so "the register
+    // changed since" stays distinguishable from "the member corrected us".
+    //
+    // Throws, like confirm(): the step shows what went wrong rather than pretending it landed.
+    async setGuardian(phone: string) {
+      await fetchWrapper.post('/api/me/profile/guardian', { phone, acknowledged: true })
+      this.confirmationRequired = false
+      this.verifiedAt = new Date().toISOString()
+      // The register is unchanged, so `details.phoneParent` deliberately still shows what
+      // Nathejk holds. Refetched so the page reflects whatever the server now derives.
+      this.loaded = false
+      await this.fetch()
+    },
+
     // markPhotoState records whether a portrait exists. Exposed so a component that
     // learns the image failed to load (a blob gone missing) can correct the state
     // instead of showing a broken picture forever.

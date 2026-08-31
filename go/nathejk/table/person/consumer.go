@@ -302,11 +302,22 @@ func (c consumer) handleSpejderUpdated(msg cqrs.Message, year string) error {
 // verify, and it was for a number that is no longer current", which is more useful than
 // erasing the evidence — and it means changing the number back does not silently
 // resurrect the old consent, because `verifiedAt` stays NULL until they confirm again.
+//
+// # It compares verifiedAgainstPhone, not acknowledgedPhone
+//
+// Changed with task 148, and the distinction is the point. A member who could not recognise the
+// registered number is asked to supply the right one, so `acknowledgedPhone` may legitimately
+// differ from the register — that is a *correction*, not staleness. Comparing against it would
+// make every upstream re-publish of the register (which happens on any edit, and on every replay)
+// clear the verification of exactly those members who took the trouble to fix our data.
+//
+// What must invalidate is the register moving after the acknowledgement, which is what
+// `verifiedAgainstPhone` records.
 func invalidateVerification(personID, year, guardianPhone string) string {
 	return fmt.Sprintf(
 		"UPDATE person SET verifiedAt=NULL "+
 			"WHERE personId=%s AND year=%s "+
-			"AND verifiedAt IS NOT NULL AND NOT (acknowledgedPhone <=> %s)",
+			"AND verifiedAt IS NOT NULL AND NOT (verifiedAgainstPhone <=> %s)",
 		quote(personID), quote(year), nullableQuote(guardianPhone),
 	)
 }

@@ -33,11 +33,29 @@ func TestConfirmationRequiredDerivation(t *testing.T) {
 		{
 			name: "already verified for the number on file: do not ask",
 			p: person.Person{
-				PersonID:          "member-1",
-				PhoneParent:       &guardian,
-				AcknowledgedPhone: &guardian,
-				VerifiedAt:        &verified,
+				PersonID:             "member-1",
+				PhoneParent:          &guardian,
+				AcknowledgedPhone:    &guardian,
+				VerifiedAgainstPhone: &guardian,
+				VerifiedAt:           &verified,
 			},
+			want: false,
+		},
+		{
+			// The correction case (task 148): the member supplied a different number and
+			// acknowledged that one. The register has not moved since, so this is settled — and
+			// re-asking them would be the bug the old single-comparison rule produced.
+			name: "verified against a number they corrected: do not ask",
+			p: func() person.Person {
+				corrected := "4522334455"
+				return person.Person{
+					PersonID:             "member-1",
+					PhoneParent:          &guardian,
+					AcknowledgedPhone:    &corrected,
+					VerifiedAgainstPhone: &guardian,
+					VerifiedAt:           &verified,
+				}
+			}(),
 			want: false,
 		},
 		{
@@ -81,10 +99,11 @@ func TestConfirmationRequiredDerivation(t *testing.T) {
 			p: func() person.Person {
 				old := "4599999999"
 				return person.Person{
-					PersonID:          "member-4",
-					PhoneParent:       &guardian,
-					AcknowledgedPhone: &old,
-					VerifiedAt:        &verified,
+					PersonID:             "member-4",
+					PhoneParent:          &guardian,
+					AcknowledgedPhone:    &old,
+					VerifiedAgainstPhone: &old,
+					VerifiedAt:           &verified,
 				}
 			}(),
 			want: true,
@@ -131,10 +150,11 @@ func TestVerifiedAtIgnoresSupersededAcknowledgement(t *testing.T) {
 	app.models = data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil, &stubPeople{
 		found: true,
 		p: person.Person{
-			PersonID:          "member-1",
-			PhoneParent:       &guardian,
-			AcknowledgedPhone: &old,
-			VerifiedAt:        &at,
+			PersonID:             "member-1",
+			PhoneParent:          &guardian,
+			AcknowledgedPhone:    &old,
+			VerifiedAgainstPhone: &old,
+			VerifiedAt:           &at,
 		},
 	})
 	if got := app.verifiedAt("member-1"); got != nil {

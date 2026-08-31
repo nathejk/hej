@@ -1,11 +1,11 @@
 # 148 — Correcting the guardian number in the confirmation step
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-30
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-08-31
+**Completed:** 2026-08-31
 
 ## Description
 
@@ -104,20 +104,20 @@ every would-be report into a verification — so it is the piece that has to wor
 
 ## Acceptance Criteria
 
-- [ ] The masked number can be replaced by a full number the member types, from within the step
-- [ ] The field starts empty, and the acknowledgement tick is required alongside it
-- [ ] The number is normalized server-side and rejected if unparseable, with non-punitive copy
-- [ ] A correction publishes `member.verified` with both the acknowledged and the registered number
-- [ ] `verifiedAgainstPhone` is projected, and `IsVerified()` compares against it
-- [ ] `GuardianCorrected()` exposes "the register is wrong" separately from "the acknowledgement is
+- [x] The masked number can be replaced by a full number the member types, from within the step
+- [x] The field starts empty, and the acknowledgement tick is required alongside it
+- [x] The number is normalized server-side and rejected if unparseable, with non-punitive copy
+- [x] A correction publishes `member.verified` with both the acknowledged and the registered number
+- [x] `verifiedAgainstPhone` is projected, and `IsVerified()` compares against it
+- [x] `GuardianCorrected()` exposes "the register is wrong" separately from "the acknowledgement is
       stale"
-- [ ] An upstream guardian-number change still invalidates a stale verification, and does **not**
+- [x] An upstream guardian-number change still invalidates a stale verification, and does **not**
       invalidate a correction
-- [ ] The member can still decline entirely and continue; nothing blocks
-- [ ] OpenAPI annotations on the new endpoint
-- [ ] Tests: correction path, normalization, stale-vs-corrected, and that a correction survives an
+- [x] The member can still decline entirely and continue; nothing blocks
+- [x] OpenAPI annotations on the new endpoint
+- [x] Tests: correction path, normalization, stale-vs-corrected, and that a correction survives an
       upstream re-publish
-- [ ] `vue-tsc`, `npm test`, `go build ./...`, `go test ./...` clean
+- [x] `vue-tsc`, `npm test`, `go build ./...`, `go test ./...` clean
 
 ## Depends on
 
@@ -134,3 +134,37 @@ every would-be report into a verification — so it is the piece that has to wor
 
 - 2026-08-30 — Task created from the maintainer's requirement. Held for task 147's dependency bump,
   since the event needs the second phone number and that shape should be settled once.
+- 2026-08-31 — **Built, both sides.**
+
+  Server:
+
+  - `verifiedAgainstPhone` added to `table.sql` **and** to `table.go`'s additive-column list, since
+    existing deployments do not get a recreated table. NULL on every pre-existing row, which reads
+    correctly as "we do not know what the register held then" — and `IsVerified()` deliberately
+    refuses to vouch for those rather than assuming they still hold.
+  - `IsVerified()` now compares `phoneParent` against `verifiedAgainstPhone`;
+    `GuardianCorrected()` compares `acknowledgedPhone` against it. `invalidateVerification`
+    switched to the same column.
+  - `POST /api/me/profile/guardian`, normalizing with `internal/phone` before publishing, and
+    **not** gated on `confirmation_required` — a member whose number was verified last week may
+    discover today that it is wrong, and refusing them would close the only correction path to
+    exactly the people who found the problem.
+
+  Frontend: one component, two modes. `confirm` (masked number, two digits) and `correct` (the field
+  opens up). Kept in one file because the acknowledgement, the copy explaining why the number
+  matters, and the error handling are identical — splitting would have duplicated the part that took
+  the most care to word. The correcting field is empty, `type="tel"`, and carries **no
+  `autocomplete`**: the browser's saved value there would be the member's *own* number, which is the
+  one number this field must not end up holding.
+- 2026-08-31 — **Three existing tests failed on the semantic change, and each was a fixture encoding
+  the old rule rather than a regression** — a verified `Person` built without
+  `VerifiedAgainstPhone`, which under the new rule is "no record of what the register held" and
+  correctly not verified. Updated rather than worked around, and the case that used to be impossible
+  is now pinned explicitly: *acknowledged a different number than the register holds → still
+  verified*. Under the old comparison that read as stale, so the member would have been re-asked
+  forever while the register stayed wrong.
+- 2026-08-31 — ✅ `go build ./...`, `go vet`, all 15 Go packages, `vue-tsc`, 46 frontend tests and
+  `npm run build` clean.
+
+  Not verified from here: the correcting field on a real phone (keyboard type, that the browser does
+  not offer the member's own number). Added to task 139's matrix.

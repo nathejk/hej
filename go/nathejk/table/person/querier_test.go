@@ -191,7 +191,8 @@ func personColumnNames() []string {
 		"teamId", "teamName",
 		"sectionSlug", "sectionName",
 		"memberStatus", "armNumber",
-		"verifiedAt", "acknowledgedPhone", "portraitRef", "portraitThumbRef", "portraitThumbs",
+		"verifiedAt", "acknowledgedPhone", "verifiedAgainstPhone",
+		"portraitRef", "portraitThumbRef", "portraitThumbs",
 		"portraitOriginalRef", "portraitOrientation", "portraitCapturedAt",
 	}
 }
@@ -215,7 +216,8 @@ func addPersonRow(rows *sqlmock.Rows, personID, name, phone string) {
 	// pointers, and the nil-vs-empty distinction is load-bearing for phoneParent.
 	nullable := map[string]bool{
 		"phoneParent": true, "birthday": true,
-		"verifiedAt": true, "acknowledgedPhone": true, "portraitCapturedAt": true,
+		"verifiedAt": true, "acknowledgedPhone": true, "verifiedAgainstPhone": true,
+		"portraitCapturedAt": true,
 		"portraitThumbs": true,
 	}
 

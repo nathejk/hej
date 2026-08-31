@@ -171,7 +171,10 @@ func TestConfirmProfile_AlreadyVerifiedIs409(t *testing.T) {
 		PersonID:          "mock-spejder-1",
 		PhoneParent:       &guardian,
 		AcknowledgedPhone: &guardian,
-		VerifiedAt:        &at,
+		// What the register held at acknowledgement. Required for IsVerified to vouch for the
+		// row (task 148) — without it this is a verification we have no context for.
+		VerifiedAgainstPhone: &guardian,
+		VerifiedAt:           &at,
 	})
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
@@ -261,5 +264,125 @@ func TestLastTwoDigitsMatch(t *testing.T) {
 		if got := lastTwoDigitsMatch(tc.number, tc.typed); got != tc.want {
 			t.Errorf("lastTwoDigitsMatch(%q, %q) = %v, want %v", tc.number, tc.typed, got, tc.want)
 		}
+	}
+}
+
+// —— The correction path (task 148) ——
+
+func TestSetGuardian_PublishesBothNumbers(t *testing.T) {
+	pub := &cqrstest.Publisher{}
+	app := confirmTestApp(t, pub, unverifiedSpejder())
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	cookies := authedCookies(t, app, srv, confirmPhone, confirmNormalized)
+	resp := postJSONWithCookies(t, srv.URL+"/api/me/profile/guardian",
+		`{"phone":"22 33 44 55","acknowledged":true}`, cookies)
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+
+	if len(pub.Messages) != 1 {
+		t.Fatalf("published %d events, want 1", len(pub.Messages))
+	}
+	var body messages.NathejkMemberVerified
+	if err := pub.Messages[0].Body(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	// Normalized, not as typed: every comparison downstream is a string compare against a
+	// normalized value, and so is the login lookup.
+	if body.PhoneParentAcknowledged != "+4522334455" {
+		t.Errorf("phoneParentAcknowledged = %q, want the normalized number the member typed",
+			body.PhoneParentAcknowledged)
+	}
+	// The register's value, which is what makes this a *correction* rather than a mystery: without
+	// it nobody could tell that the member disagreed with us.
+	if body.PhoneParentRegistered != "+4520000001" {
+		t.Errorf("phoneParentRegistered = %q, want the register's value", body.PhoneParentRegistered)
+	}
+	if body.PhoneParentAcknowledged == body.PhoneParentRegistered {
+		t.Error("a correction must record two different numbers, or it is not a correction")
+	}
+}
+
+func TestSetGuardian_RejectsUnparseableNumber(t *testing.T) {
+	pub := &cqrstest.Publisher{}
+	app := confirmTestApp(t, pub, unverifiedSpejder())
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	cookies := authedCookies(t, app, srv, confirmPhone, confirmNormalized)
+	resp := postJSONWithCookies(t, srv.URL+"/api/me/profile/guardian",
+		`{"phone":"jeg ved det ikke","acknowledged":true}`, cookies)
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	if len(pub.Messages) != 0 {
+		t.Errorf("published %d events for an unparseable number, want 0", len(pub.Messages))
+	}
+}
+
+// The acknowledgement is the substance here too: a number with no tick is data we were not given
+// permission to rely on.
+func TestSetGuardian_RequiresAcknowledgement(t *testing.T) {
+	pub := &cqrstest.Publisher{}
+	app := confirmTestApp(t, pub, unverifiedSpejder())
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	cookies := authedCookies(t, app, srv, confirmPhone, confirmNormalized)
+	resp := postJSONWithCookies(t, srv.URL+"/api/me/profile/guardian",
+		`{"phone":"22334455","acknowledged":false}`, cookies)
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	if len(pub.Messages) != 0 {
+		t.Errorf("published %d events without an acknowledgement, want 0", len(pub.Messages))
+	}
+}
+
+// Unlike /confirm, this is NOT gated on confirmation being outstanding: a member whose number was
+// verified last week may discover today that it is wrong, and refusing them would close the only
+// correction path to exactly the people who found the problem.
+func TestSetGuardian_WorksForAnAlreadyVerifiedMember(t *testing.T) {
+	guardian := "+4520000001"
+	at := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	pub := &cqrstest.Publisher{}
+	app := confirmTestApp(t, pub, person.Person{
+		PersonID:             "mock-spejder-1",
+		PhoneParent:          &guardian,
+		AcknowledgedPhone:    &guardian,
+		VerifiedAgainstPhone: &guardian,
+		VerifiedAt:           &at,
+	})
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	cookies := authedCookies(t, app, srv, confirmPhone, confirmNormalized)
+	resp := postJSONWithCookies(t, srv.URL+"/api/me/profile/guardian",
+		`{"phone":"22334455","acknowledged":true}`, cookies)
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+}
+
+func TestSetGuardian_RequiresAuth(t *testing.T) {
+	app := confirmTestApp(t, &cqrstest.Publisher{}, unverifiedSpejder())
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	resp := postJSON(t, srv.URL+"/api/me/profile/guardian", `{"phone":"22334455","acknowledged":true}`)
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", resp.StatusCode)
 	}
 }

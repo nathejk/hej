@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"nathejk.dk/internal/commands"
+	"nathejk.dk/internal/phone"
 )
 
 // profileResponse is what the profile page (PRD 003) reads back to its owner.
@@ -268,4 +269,115 @@ func lastTwoDigitsMatch(number, typed string) bool {
 		return false
 	}
 	return num[len(num)-2:] == got
+}
+
+// setGuardianRequest is the body of POST /api/me/profile/guardian.
+type setGuardianRequest struct {
+	// Phone is the full guardian number the member typed, in whatever form they typed it.
+	// Normalized server-side.
+	Phone string `json:"phone"`
+	// Acknowledged is the *"Dette nummer kan kontaktes i løbet af Nathejk"* tick, required for
+	// the same reason as on /confirm: the acknowledgement is the substance of the step, and
+	// consent must never be inferred from a POST having arrived.
+	Acknowledged bool `json:"acknowledged"`
+}
+
+// setGuardianHandler records a guardian number the member supplied themselves, and their
+// acknowledgement that it can be reached (PRD 005, task 148).
+//
+// # Why this is a better outcome than a flag
+//
+// A member who cannot recognise the number we hold used to be able only to *report* that, leaving
+// the record broken and the work with an organizer. Now they can fix it — and the person standing
+// there is the one most likely to know their own guardian's number. It turns the step from "verify
+// our data" into "make sure we can reach an adult", which is what it was always for.
+//
+// # It does not overwrite the register
+//
+// `phoneParent` is projected from upstream and stays that way; pretending otherwise would mean the
+// next upstream publish silently reimposes the old number with nobody able to tell which value was
+// believed when. What this records is the *acknowledgement*: the number the member says can be
+// reached, plus what the register held at that moment.
+//
+// The pair is what keeps two states apart that call for opposite responses — the register moving
+// afterwards (stale → ask again) versus the member correcting us (→ fix the register). See
+// person.IsVerified and person.GuardianCorrected.
+//
+// A separate endpoint from /confirm deliberately: agreeing with what we hold and replacing it are
+// different acts, with different validation and different meaning in the log. One body carrying two
+// mutually exclusive fields is the shape that produces "which did the client mean?" bugs.
+//
+// @Summary      Supply and confirm a guardian contact number
+// @Description  Records a parent/guardian emergency number the member typed themselves, together with their acknowledgement that it can be reached during the event. For the member who cannot recognise the number on file — the person standing there is the one most likely to know the right one. The number is normalized server-side. This does NOT overwrite the registered number: the register keeps its own value, and the event records both, so "the register changed since" stays distinguishable from "the member corrected us". Publishes a domain event; no SQL is written.
+// @Tags         me
+// @Accept       json
+// @Produce      json
+// @Param        request  body  setGuardianRequest  true  "The full number and the acknowledgement"
+// @Success      204
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      429  {object}  map[string]string
+// @Failure      503  {object}  map[string]string
+// @Router       /me/profile/guardian [post]
+func (app *application) setGuardianHandler(w http.ResponseWriter, r *http.Request) {
+	s, ok := contextGetSession(r)
+	if !ok {
+		app.AuthenticationRequiredResponse(w, r)
+		return
+	}
+
+	// Shares the confirm limiter: the two are the same conversation from the same screen, and a
+	// member alternating between them should not get twice the budget.
+	if !app.confirmLimiter.Allow(clientIP(r)) {
+		app.RateLimitResponse(w, r)
+		return
+	}
+
+	var input setGuardianRequest
+	if err := app.ReadJSON(w, r, &input); err != nil {
+		app.BadRequestResponse(w, r, err)
+		return
+	}
+	if !input.Acknowledged {
+		app.BadRequestResponse(w, r, errors.New("acknowledgement is required"))
+		return
+	}
+
+	// Normalized before publishing, because every comparison downstream is a string compare
+	// against a normalized value — and the login lookup is too. An unnormalized number here would
+	// read as a different number to `IsVerified`, to `GuardianCorrected` and to the projector.
+	normalized, err := phone.Normalize(input.Phone)
+	if err != nil {
+		// Plain-language, and not an accusation: a member mistyping their parent's number is the
+		// most ordinary thing in this flow.
+		app.BadRequestMessageResponse(w, r, "det ser ikke ud som et telefonnummer")
+		return
+	}
+
+	// Resolved from the session cookie. No id in the path or the body, so nobody can set a
+	// guardian number on somebody else's record.
+	p, found := app.person(s.UserID)
+	if !found {
+		app.ServiceUnavailableResponse(w, r, "kan ikke gemmes lige nu")
+		return
+	}
+
+	// Deliberately NOT gated on confirmationRequired, unlike /confirm. A member whose number was
+	// verified last week may discover today that it is wrong, and refusing them would leave the
+	// only correction path closed to exactly the people who found the problem.
+	registered := ""
+	if p.PhoneParent != nil {
+		registered = *p.PhoneParent
+	}
+
+	if err := app.storeVerification(r.Context(), s.UserID, normalized, registered); err != nil {
+		if errors.Is(err, commands.ErrNoPublisher) {
+			app.ServiceUnavailableResponse(w, r, "kan ikke gemmes lige nu")
+			return
+		}
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -53,11 +53,27 @@ CREATE TABLE IF NOT EXISTS person (
     -- is why it is carried here (PRD 007 §4 keeps it as the non-photo fallback).
     armNumber VARCHAR(32) NOT NULL DEFAULT "",
 
-    -- PRD 005's verification. verifiedAt is a projection of the verification event
-    -- (nothing writes it directly), and acknowledgedPhone records WHICH number was
-    -- confirmed so a later guardian-number change can invalidate it (task 076).
+    -- PRD 005's verification. All three are projections of the verification event —
+    -- nothing writes them directly.
+    --
+    -- Three columns rather than two, because the member may acknowledge a number that is
+    -- NOT the one on file: if they cannot recognise phoneParent they are asked to supply
+    -- the right number and confirm that instead (task 148).
+    --
+    --   acknowledgedPhone    the number the member says can be reached. AUTHORITATIVE for
+    --                        contacting a guardian during the event.
+    --   verifiedAgainstPhone what phoneParent held at the moment of acknowledgement.
+    --
+    -- The pair keeps two questions apart that call for opposite responses:
+    --
+    --   phoneParent != verifiedAgainstPhone   the register changed since → ask again
+    --   acknowledgedPhone != verifiedAgainstPhone   the member corrected us → fix the register
+    --
+    -- With one column those states are indistinguishable, and a member who corrected us
+    -- would be re-asked forever while the register stayed wrong.
     verifiedAt TIMESTAMP NULL DEFAULT NULL,
     acknowledgedPhone VARCHAR(99) NULL DEFAULT NULL,
+    verifiedAgainstPhone VARCHAR(99) NULL DEFAULT NULL,
 
     -- Content hash of the portrait in the blob store (internal/blob). The bytes
     -- never live in this row: a projection rebuild truncates and refills, and
