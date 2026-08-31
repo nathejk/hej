@@ -64,6 +64,18 @@ const router = createRouter({
       meta: { public: true },
     },
     ...destinationRoutes,
+    // One person from the contacts directory (PRD 007, task 167). Deliberately NOT a
+    // `destination`: it is reached by tapping a row, so it takes no bottom-nav slot.
+    //
+    // It carries the **same** `roles` as the contacts destination, which is the point — a
+    // deep link must not be a way into the pane for a spejder. Derived from the destination
+    // rather than restated, so the two cannot drift apart.
+    {
+      path: '/contacts/:personId',
+      name: 'contact-person',
+      component: () => import('@/views/ContactPersonView.vue'),
+      meta: { roles: destinations.find((d) => d.name === 'contacts')?.roles },
+    },
     // Min profil (PRD 003). Deliberately NOT a `destination`: it is reached from the
     // user menu in the top bar, so it takes no bottom-nav slot — which matters,
     // because the service roles are already close to the five visible slots.
