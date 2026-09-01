@@ -1,0 +1,149 @@
+import { createPinia, setActivePinia } from 'pinia'
+import { beforeEach, describe, expect, it } from 'vitest'
+
+import { PORTRAIT_CACHE_NAME, TILE_CACHE_NAME } from '@/config/cache'
+import type { CacheLike, CacheStorageLike } from '@/helpers/offline/eviction'
+import { browserEvictors } from '@/helpers/offline/evictors'
+import { reportCaches } from '@/helpers/offline/reporters'
+import { useOfflineStore } from '@/stores/offline.store'
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+})
+
+function cacheOf(urls: string[], bytes = 1000): CacheLike {
+  const store = new Set(urls)
+  return {
+    keys: async () => [...store].map((url) => ({ url }) as Request),
+    match: async () => ({ headers: { get: () => String(bytes) } }) as unknown as Response,
+    delete: async (request: Request) => store.delete(request.url),
+  }
+}
+
+function caches(
+  byName: Record<string, CacheLike>,
+): CacheStorageLike & { keys: () => Promise<string[]> } {
+  return {
+    open: async (name) => byName[name] ?? cacheOf([]),
+    has: async (name) => name in byName,
+    keys: async () => Object.keys(byName),
+  }
+}
+
+describe('reportCaches', () => {
+  it('reports tiles, portraits and the shell separately', async () => {
+    const api = caches({
+      [TILE_CACHE_NAME]: cacheOf(['https://x.dk/t1', 'https://x.dk/t2']),
+      [PORTRAIT_CACHE_NAME]: cacheOf(['https://hej/api/contacts/people/a/photo']),
+      'workbox-precache-v2': cacheOf(['https://hej/index.html']),
+    })
+
+    const store = useOfflineStore()
+    await reportCaches(api)
+
+    expect(store.statuses.tiles.itemCount).toBe(2)
+    expect(store.statuses.portraits.itemCount).toBe(1)
+    expect(store.statuses.shell.itemCount).toBe(1)
+    // The shell's bytes must not include the tile cache — the whole reason for a per-dataset cache
+    // name is that one undifferentiated bucket cannot be attributed, evicted or purged.
+    expect(store.statuses.shell.bytes).toBe(1000)
+  })
+
+  // Tiles arrive as the map is browsed (task 087's cheap half), so a non-empty cache means "some of
+  // the map", never "the map". Reporting complete here would put "Klar" beside a map with holes.
+  it('never reports tiles as complete, however many are cached', async () => {
+    const api = caches({ [TILE_CACHE_NAME]: cacheOf(Array.from({ length: 50 }, (_, i) => `u${i}`)) })
+
+    const store = useOfflineStore()
+    await reportCaches(api)
+
+    expect(store.statuses.tiles.state).toBe('synced')
+    expect(store.statuses.tiles.complete).toBe(false)
+    expect(store.ready).toBe(false)
+  })
+
+  // The shell is the one genuinely all-or-nothing dataset: if the precache had not installed, the
+  // app the user is reading this in would not be running.
+  it('reports the shell as complete when anything is precached', async () => {
+    const api = caches({ 'workbox-precache-v2': cacheOf(['https://hej/index.html']) })
+
+    const store = useOfflineStore()
+    await reportCaches(api)
+
+    expect(store.statuses.shell.complete).toBe(true)
+  })
+
+  it('reports empty rather than unknown when a cache is absent', async () => {
+    const store = useOfflineStore()
+    await reportCaches(caches({}))
+
+    expect(store.statuses.tiles.state).toBe('empty')
+    expect(store.statuses.portraits.state).toBe('empty')
+  })
+
+  it('survives the Cache API being unavailable', async () => {
+    const store = useOfflineStore()
+    await reportCaches(undefined)
+
+    expect(store.statuses.tiles.state).toBe('empty')
+  })
+})
+
+describe('the index/binary separation', () => {
+  // The point of keeping the directory's text in one dataset and its faces in another: losing the
+  // faces must leave names, groups and phone numbers working. PRD 007 depends on this — search at
+  // 03:00 has to work on a phone whose portrait cache the OS took.
+  it('leaves the directory intact when portraits are evicted', async () => {
+    const store = useOfflineStore()
+    store.report('directory', { state: 'synced', complete: true, itemCount: 151, bytes: 90_000 })
+    store.report('portraits', { state: 'synced', complete: false, itemCount: 151 })
+
+    store.markEvicted('portraits')
+
+    expect(store.statuses.directory.state).toBe('synced')
+    expect(store.statuses.directory.complete).toBe(true)
+    expect(store.statuses.directory.itemCount).toBe(151)
+  })
+
+  it('measures them as separate caches, so one cannot hide the other', async () => {
+    const api = caches({
+      [PORTRAIT_CACHE_NAME]: cacheOf(['https://hej/api/contacts/people/a/photo']),
+      [TILE_CACHE_NAME]: cacheOf(['https://x.dk/t']),
+    })
+
+    const store = useOfflineStore()
+    await reportCaches(api)
+
+    expect(store.statuses.portraits.bytes).toBe(1000)
+    expect(store.statuses.tiles.bytes).toBe(1000)
+  })
+})
+
+describe('browserEvictors', () => {
+  it('offers tiles and portraits, and nothing else', () => {
+    const keys = Object.keys(browserEvictors(caches({})))
+    expect(keys.sort()).toEqual(['portraits', 'tiles'])
+  })
+
+  // The directory is usually the thing being written when a quota error happens; evicting it to make
+  // room for itself is not progress. The track is unrecoverable and must never be offered anywhere.
+  it('never offers the directory or the track', () => {
+    const evictors = browserEvictors(caches({})) as Record<string, unknown>
+    expect(evictors.directory).toBeUndefined()
+    expect(evictors.track).toBeUndefined()
+  })
+
+  it('offers nothing when the Cache API is unavailable', () => {
+    expect(browserEvictors(undefined)).toEqual({})
+  })
+
+  it('actually deletes from the named cache it was given', async () => {
+    const tiles = cacheOf(['https://x.dk/?bbox=0,0,611,611'])
+    const evictors = browserEvictors(caches({ [TILE_CACHE_NAME]: tiles }))
+
+    const freed = await evictors.tiles!.evict(1)
+
+    expect(freed).toBeGreaterThan(0)
+    expect(await tiles.keys()).toHaveLength(0)
+  })
+})

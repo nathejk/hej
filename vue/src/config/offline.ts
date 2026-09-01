@@ -97,9 +97,10 @@ export const OFFLINE_DATASETS: readonly OfflineDataset[] = [
     id: 'shell',
     label: 'Appen selv',
     kind: 'cache-api',
-    // Planning figure. Task 192 replaces it with a measured one — the precache includes the
-    // icon and splash set from task 091, which is most of it.
-    budgetBytes: 5 * 1024 * 1024,
+    // **Measured** in task 192: Workbox precaches 47 entries / 738 kB, including the icon and splash
+    // set from task 091. 2 MB rather than 0.8 leaves room for the app to grow without a re-plan,
+    // and it is small enough against the tile budget that precision here buys nothing.
+    budgetBytes: 2 * 1024 * 1024,
     unrecoverable: false,
     sensitive: false,
   },
@@ -118,9 +119,10 @@ export const OFFLINE_DATASETS: readonly OfflineDataset[] = [
     id: 'portraits',
     label: 'Portrætter',
     kind: 'cache-api',
-    // ~4.5 KB per face at thumb256 (task 104): ~0.7 MB for the largest single role, ~3.7 MB
-    // event-wide (PRD 007 §8).
-    budgetBytes: 4 * 1024 * 1024,
+    // ~4.5 kB per face at thumb256 (task 104): ~0.7 MB for the largest single role, ~3.7 MB
+    // event-wide (PRD 007 §8). 5 MB matches the cache's own ceiling —
+    // `PORTRAIT_CACHE_MAX_ENTRIES` × 4.5 kB — so the two cannot disagree about what "full" means.
+    budgetBytes: 5 * 1024 * 1024,
     unrecoverable: false,
     sensitive: true,
   },

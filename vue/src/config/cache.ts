@@ -83,3 +83,37 @@ export const TILE_HOST = 'api.dataforsyningen.dk'
  * lives somewhere other than a build file.
  */
 export const TILE_CACHE_KEY_IGNORED_PARAMS = ['token', '_retry']
+
+/**
+ * Cache holding portrait thumbnails (`/api/contacts/people/{id}/photo`).
+ *
+ * **Its own cache, added in task 192.** Before that, portraits relied on the browser's HTTP cache
+ * via `Cache-Control: private, max-age=3600` on the response — which works for display and is
+ * useless for everything PRD 009 needs: an HTTP cache cannot be measured, cannot be shown in the
+ * readiness view, cannot be evicted in a priority order, and cannot be purged after the event.
+ * PRD 009 §8 asks for "a route and expiry policy per binary dataset" for exactly this reason.
+ *
+ * Note this makes portrait bytes *durable* rather than incidental, which is a privacy change as
+ * much as a storage one — hence the short expiry below and the post-event purge in task 193.
+ */
+export const PORTRAIT_CACHE_NAME = 'nathejk-portraits-v1'
+
+/**
+ * Maximum portrait thumbnails retained.
+ *
+ * ~4.5 kB each at `thumb256` (task 104), and the largest cached population is ~151 people (task
+ * 078). 1,000 covers every role several times over, including a member browsing a directory that
+ * changes during the event, at a ceiling of ~4.5 MB.
+ */
+export const PORTRAIT_CACHE_MAX_ENTRIES = 1_000
+
+/**
+ * How long a cached portrait is kept, in seconds. Two weeks.
+ *
+ * Long enough to cover the run-up plus the race, so a participant who prepares a fortnight early
+ * still has faces on the night. Short enough that a device which never reopens the app after the
+ * event drops them on its own — the dormant-device case where no purge can run (PRD 009 §11.5).
+ * A content hash (`?v=`) is already in the URL, so staleness is not the reason for an expiry here;
+ * not keeping photographs of people indefinitely is.
+ */
+export const PORTRAIT_CACHE_MAX_AGE_SECONDS = 14 * 24 * 60 * 60

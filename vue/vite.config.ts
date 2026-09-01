@@ -5,6 +5,9 @@ import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import {
+  PORTRAIT_CACHE_MAX_AGE_SECONDS,
+  PORTRAIT_CACHE_MAX_ENTRIES,
+  PORTRAIT_CACHE_NAME,
   TILE_CACHE_MAX_AGE_SECONDS,
   TILE_CACHE_MAX_ENTRIES,
   TILE_CACHE_NAME,
@@ -182,6 +185,35 @@ export default defineConfig({
                   },
                 },
               ],
+            },
+          },
+          {
+            // Portrait thumbnails get their own cache (task 192, PRD 009 §8).
+            //
+            // They were already being cached by the browser's HTTP cache via
+            // `Cache-Control: private, max-age=3600`, which is enough to draw a list and useless
+            // for everything else: an HTTP cache cannot be measured for the readiness view,
+            // cannot be evicted in a priority order, and cannot be purged after the event. A
+            // named Cache API bucket can be all three.
+            urlPattern: ({ url, sameOrigin }: { url: URL; sameOrigin: boolean }) =>
+              sameOrigin && /^\/api\/contacts\/people\/[^/]+\/photo$/.test(url.pathname),
+            // CacheFirst is safe *because* the URL carries a content hash (`?v=`): a changed
+            // portrait is a different URL, so there is nothing to revalidate. The old entry then
+            // ages out rather than being replaced, which the entry cap absorbs.
+            handler: 'CacheFirst',
+            options: {
+              cacheName: PORTRAIT_CACHE_NAME,
+              expiration: {
+                maxEntries: PORTRAIT_CACHE_MAX_ENTRIES,
+                maxAgeSeconds: PORTRAIT_CACHE_MAX_AGE_SECONDS,
+                // Same reasoning as the tile cache: NOT purgeOnQuotaError. Losing every face
+                // mid-race because one write did not fit is worse than not storing the newest.
+              },
+              // 200 only, and this one matters more than for tiles: PRD 007 makes the endpoint
+              // return an indistinguishable 403/404 for "not allowed" and "no photo", and caching
+              // either would freeze an authorization decision on the device for a fortnight — a
+              // member whose role changes mid-event would keep seeing the refusal.
+              cacheableResponse: { statuses: [200] },
             },
           },
         ],

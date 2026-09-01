@@ -7,6 +7,7 @@ import { useLocationStore } from '@/stores/location.store'
 import { useTrackStore } from '@/stores/track.store'
 import { useOnboardingStore } from '@/stores/onboarding.store'
 import { useOfflineStore } from '@/stores/offline.store'
+import { registerOfflineDatasets } from '@/helpers/offline/reporters'
 import { logEvent } from '@/helpers/trackDb'
 import BottomNav from '@/components/BottomNav.vue'
 import PortraitNudge from '@/components/PortraitNudge.vue'
@@ -72,6 +73,11 @@ onMounted(() => {
   // mount rather than only in the welcome flow also repairs devices onboarded before this
   // shipped; the call short-circuits once granted, so it costs nothing to repeat.
   void offline.ensurePersistence(navigator.storage).then(() => offline.refreshStorage(navigator.storage))
+
+  // Connect the existing caches to the readiness surface (task 192). Measured here rather than
+  // reported by each cache, because three of the four cannot tell us when they change: the tile
+  // cache and the precache are written by the service worker, which does not notify the page.
+  void registerOfflineDatasets(typeof caches === 'undefined' ? undefined : caches)
 
   // Position track (task 082). Deliberately started HERE and not in MapsView: that
   // view stops its geolocation watch on `document.hidden` and on unmount, which is

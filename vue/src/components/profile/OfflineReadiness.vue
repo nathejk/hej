@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { Check, CloudDownload, HardDrive, RefreshCw, Trash2, TriangleAlert } from '@lucide/vue'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { OFFLINE_DATASETS, offlineDataset, type OfflineDatasetId } from '@/config/offline'
+import { registerOfflineDatasets } from '@/helpers/offline/reporters'
 import { useOfflineStore, type OfflineDatasetState } from '@/stores/offline.store'
 
 // "Klar til offline" — the one place that answers "have I got what I need before I walk into the
@@ -29,6 +30,15 @@ import { useOfflineStore, type OfflineDatasetState } from '@/stores/offline.stor
 // Reproducing any of it here would give us two places to fix when the track's storage changes.
 
 const offline = useOfflineStore()
+
+// Re-measure when the page is opened, not only at startup. The service worker writes the tile and
+// portrait caches without telling the page, so a figure from twenty minutes and one map session ago
+// would be wrong in the one direction that matters: it would understate what the user has.
+onMounted(() => {
+  const api = typeof caches === 'undefined' ? undefined : caches
+  void registerOfflineDatasets(api)
+  void offline.refreshStorage(navigator.storage)
+})
 
 const nf = new Intl.NumberFormat('da-DK')
 

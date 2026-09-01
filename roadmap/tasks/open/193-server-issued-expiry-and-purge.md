@@ -28,11 +28,16 @@ Shared with task 173, which verifies the whole loop end to end.
 ## Acceptance Criteria
 
 - [ ] Sensitive cached payloads carry a **server-issued** expiry timestamp; the client refuses
-      to use anything past it and clears it.
+      to use anything past it and clears it. *Includes the contacts directory, handed over from
+      task 192 — it deliberately did not fake a client-side TTL, since a client-computed deadline
+      is exactly what a wrong device clock defeats.*
 - [ ] Expiry is honoured on read as well as on a scheduled sweep, so a device that only ever
       opens the app cold still expires its data.
 - [ ] Tested with a device clock set backwards — the case the rule exists for.
 - [ ] The purge covers both the index and the portrait bytes, in whichever storage they live.
+      *Note task 192 gave portraits their own named Cache API bucket (`nathejk-portraits-v1`), so
+      there is now something purgeable — before it, they lived in the browser's HTTP cache where
+      nothing could reach them. `config/offline.ts` marks both datasets `sensitive: true`.*
 - [ ] The dormant-device limitation is documented where a reader will hit it, not papered over.
 - [ ] Nothing `unrecoverable` is purged by this mechanism — an unshipped track is not sensitive
       personal data being retained, it is the user's own recording awaiting upload.

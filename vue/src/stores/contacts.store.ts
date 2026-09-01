@@ -1,7 +1,10 @@
 import { defineStore } from 'pinia'
 
 import { HttpError, fetchWrapper } from '@/helpers'
+import { isQuotaExceeded } from '@/helpers/offline/eviction'
+import { browserEvictors } from '@/helpers/offline/evictors'
 import { dropLegacyKey, profileKey } from '@/helpers/profileStorage'
+import { useOfflineStore } from '@/stores/offline.store'
 import { useSessionStore } from '@/stores/session.store'
 
 // The contacts directory, cached on the device (PRD 007).
@@ -132,12 +135,18 @@ function readStored(storage: ContactsStorage | null, key: string | null): Stored
 }
 
 function writeStored(storage: ContactsStorage | null, key: string | null, payload: StoredPayload) {
-  if (!storage || !key) return
+  if (!storage || !key) return true
   try {
     storage.setItem(key, JSON.stringify(payload))
-  } catch {
+    return true
+  } catch (err) {
     // Out of quota or blocked. The in-memory copy still works for this session, and the
     // pane reports when it last synced, so failing quietly here is honest rather than lossy.
+    //
+    // Returns whether it landed, so the caller can make room and try once more (task 192). Before
+    // PRD 009 there was nothing useful to do with the answer; now there is a priority order that
+    // says map tiles may be sacrificed for this.
+    return !isQuotaExceeded(err)
   }
 }
 
@@ -250,6 +259,48 @@ export const useContactsStore = defineStore('contacts', {
     },
   },
   actions: {
+    /**
+     * Write the copy to storage, making room first if it does not fit.
+     *
+     * The retry is the point (task 192). A directory that will not fit is not a lost cause: PRD
+     * 009's priority order says this data ranks *above* map tiles, so the right response to a full
+     * origin is to drop some of the map — several hundred megabytes of it — rather than to shrug
+     * and leave a crew member without the phone numbers of the people they work with. One retry,
+     * because a second failure means something other than tiles is filling the origin, and looping
+     * would only delay saying so.
+     */
+    async persist() {
+      const payload = {
+        schema: SCHEMA,
+        version: this.version,
+        syncedAt: this.syncedAt ?? Date.now(),
+        entries: this.entries,
+      }
+
+      if (writeStored(this.storage, this.storageKey, payload)) return
+
+      const offline = useOfflineStore()
+      const result = await offline.reclaimSpace(
+        browserEvictors(typeof caches === 'undefined' ? undefined : caches),
+      )
+      if (result.freedBytes === 0) return
+
+      writeStored(this.storage, this.storageKey, payload)
+    },
+
+    /**
+     * Drop this device's copy, keeping the session's in-memory one intact.
+     *
+     * Offered by the readiness view (task 187). Deliberately does not clear `entries`: a user
+     * freeing space should not watch the pane go blank underneath them, and the next
+     * `refreshIfStale` fetches it again anyway.
+     */
+    clearLocalCopy() {
+      clearStored(this.storage, this.storageKey)
+      this.syncedAt = null
+      this.version = ''
+    },
+
     /** Loads the stored copy. Safe to call repeatedly; only the first call reads storage. */
     hydrate() {
       if (this.hydrated) return
@@ -290,12 +341,7 @@ export const useContactsStore = defineStore('contacts', {
         this.forbidden = false
         this.error = ''
 
-        writeStored(this.storage, this.storageKey, {
-          schema: SCHEMA,
-          version: this.version,
-          syncedAt: this.syncedAt,
-          entries: this.entries,
-        })
+        await this.persist()
       } catch (err) {
         if (err instanceof HttpError && err.status === 403) {
           // Not an error: this role has no contacts pane. Clear the copy, because a role can
