@@ -75,8 +75,9 @@ const callable = computed(() => Boolean(person.value?.phone))
 
 <template>
   <!-- Same scoped night surface as the list, so moving between them does not flash a white
-       screen at someone whose eyes have adapted to the dark. -->
-  <section class="dark -mx-4 -mt-4 min-h-full bg-slate-950 pb-6 text-slate-100">
+       screen at someone whose eyes have adapted to the dark. No negative margins and
+       `overflow-x-hidden` for the same reason as the list — see ContactsView. -->
+  <section class="dark min-h-full overflow-x-clip bg-slate-950 pb-6 text-slate-100">
     <header class="flex items-center gap-2 px-2 pt-3">
       <button
         type="button"

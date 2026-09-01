@@ -142,8 +142,17 @@ function open(id: string) {
 </script>
 
 <template>
-  <!-- `dark` on this container only: a scoped night surface, not a global theme. -->
-  <section class="dark -mx-4 -mt-4 min-h-full bg-slate-950 pb-4 text-slate-100">
+  <!-- No negative margins: `main` in App.vue carries no padding of its own — each view owns its
+       spacing — so `-mx-4` made this section 2rem wider than the viewport and the whole list could
+       be dragged sideways.
+
+       `overflow-x-clip` rather than `overflow-x-hidden`, which matters here: per CSS, when one
+       axis is `hidden` and the other is `visible`, the visible one computes to `auto` — so
+       `overflow-x-hidden` would quietly turn this section into its own vertical scroll container,
+       and the sticky search header would then stick to a container that never scrolls, i.e. scroll
+       away with the list. `clip` does not create a scroll container, so the header keeps sticking
+       to App.vue's `main`. -->
+  <section class="dark min-h-full overflow-x-clip bg-slate-950 pb-4 text-slate-100">
     <header class="sticky top-0 z-10 space-y-3 bg-slate-950/95 px-4 pb-3 pt-4 backdrop-blur">
       <div class="flex items-baseline justify-between gap-3">
         <h1 class="font-nathejk text-2xl tracking-wide">Kontakter</h1>
