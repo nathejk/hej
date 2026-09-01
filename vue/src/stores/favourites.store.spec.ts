@@ -3,8 +3,16 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import { useContactsStore, type ContactEntry, type ContactsStorage } from '@/stores/contacts.store'
 import { useFavouritesStore } from '@/stores/favourites.store'
+import { useSessionStore } from '@/stores/session.store'
 
-const STORAGE_KEY = 'hej.contacts.favourites.v1'
+// Favourites are keyed per profile (task 180): two profiles on one handset must not inherit each
+// other's starred colleagues.
+const USER_ID = 'p-viewer'
+const STORAGE_KEY = `hej.contacts.favourites.v1.${USER_ID}`
+
+function signIn(userId = USER_ID) {
+  useSessionStore().user = { userId, role: 'bandit' }
+}
 
 function fakeStorage(initial: Record<string, string> = {}) {
   const data = { ...initial }
@@ -35,6 +43,7 @@ function entry(over: Partial<ContactEntry> = {}): ContactEntry {
 
 beforeEach(() => {
   setActivePinia(createPinia())
+  signIn()
 })
 
 describe('favourites', () => {

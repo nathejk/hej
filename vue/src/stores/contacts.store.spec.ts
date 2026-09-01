@@ -17,10 +17,14 @@ vi.mock('@/helpers', async () => {
 
 import { HttpError, NetworkError } from '@/helpers'
 import { useContactsStore, type ContactEntry, type ContactsStorage } from '@/stores/contacts.store'
+import { useSessionStore } from '@/stores/session.store'
 
 let getMock: (url: string) => Promise<unknown>
 
-const STORAGE_KEY = 'hej.contacts.v1'
+// Storage is keyed per profile (task 180), so a test that asserts on what was persisted has to say
+// who is signed in. `hej.contacts.v1.<userId>`.
+const USER_ID = 'p-viewer'
+const STORAGE_KEY = `hej.contacts.v1.${USER_ID}`
 
 // An in-memory stand-in for localStorage, which the node test environment does not provide —
 // see vitest.config.ts on why the environment stays `node` and modules take their browser
@@ -41,8 +45,12 @@ function fakeStorage(initial: Record<string, string> = {}): ContactsStorage & { 
 
 // Builds a store with a fresh fake storage, returning both so tests can assert on what was
 // persisted rather than only on state.
+//
+// Signs a profile in first: the storage key includes the user id, and a store with nobody signed in
+// deliberately reads and writes nothing (task 180).
 function storeWith(initial: Record<string, string> = {}) {
   const storage = fakeStorage(initial)
+  useSessionStore().user = { userId: USER_ID, role: 'bandit' }
   const store = useContactsStore()
   store.storage = storage
   return { store, storage }

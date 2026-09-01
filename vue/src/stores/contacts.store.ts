@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 
 import { HttpError, fetchWrapper } from '@/helpers'
+import { dropLegacyKey, profileKey } from '@/helpers/profileStorage'
+import { useSessionStore } from '@/stores/session.store'
 
 // The contacts directory, cached on the device (PRD 007).
 //
@@ -66,7 +68,10 @@ export interface ContactGroupView {
   entries: ContactEntry[]
 }
 
-const STORAGE_KEY = 'hej.contacts.v1'
+const STORAGE_BASE = 'hej.contacts.v1'
+
+// The device-wide key this data used to live under. Removed on first run — see profileStorage.
+const LEGACY_STORAGE_KEY = 'hej.contacts.v1'
 
 // The schema version is part of the stored payload as well as the key, which looks redundant
 // and is not: bumping the key orphans the old value until the browser evicts it, while the
@@ -110,10 +115,10 @@ function browserStorage(): ContactsStorage | null {
 // Every access is still wrapped even with the seam: Safari can throw on write when a quota
 // is exceeded, and this runs on a route the user may land on cold and offline. An exception
 // here would white-screen the pane, which is task 090's lesson.
-function readStored(storage: ContactsStorage | null): StoredPayload | null {
-  if (!storage) return null
+function readStored(storage: ContactsStorage | null, key: string | null): StoredPayload | null {
+  if (!storage || !key) return null
   try {
-    const raw = storage.getItem(STORAGE_KEY)
+    const raw = storage.getItem(key)
     if (!raw) return null
 
     const parsed = JSON.parse(raw) as unknown
@@ -126,20 +131,20 @@ function readStored(storage: ContactsStorage | null): StoredPayload | null {
   }
 }
 
-function writeStored(storage: ContactsStorage | null, payload: StoredPayload) {
-  if (!storage) return
+function writeStored(storage: ContactsStorage | null, key: string | null, payload: StoredPayload) {
+  if (!storage || !key) return
   try {
-    storage.setItem(STORAGE_KEY, JSON.stringify(payload))
+    storage.setItem(key, JSON.stringify(payload))
   } catch {
     // Out of quota or blocked. The in-memory copy still works for this session, and the
     // pane reports when it last synced, so failing quietly here is honest rather than lossy.
   }
 }
 
-function clearStored(storage: ContactsStorage | null) {
-  if (!storage) return
+function clearStored(storage: ContactsStorage | null, key: string | null) {
+  if (!storage || !key) return
   try {
-    storage.removeItem(STORAGE_KEY)
+    storage.removeItem(key)
   } catch {
     // Nothing to do; callers clear the in-memory copy regardless.
   }
@@ -198,6 +203,15 @@ export const useContactsStore = defineStore('contacts', {
     storage: browserStorage() as ContactsStorage | null,
   }),
   getters: {
+    /**
+     * The storage key for the signed-in profile, or null when nobody is signed in.
+     *
+     * Null means "do not touch storage": there is no device-wide fallback on purpose, because
+     * writing one would put this profile's directory back under a key the next profile reads
+     * (task 180).
+     */
+    storageKey: (): string | null => profileKey(STORAGE_BASE, useSessionStore().user?.userId),
+
     hasCopy: (state) => state.entries.length > 0,
 
     /**
@@ -241,7 +255,11 @@ export const useContactsStore = defineStore('contacts', {
       if (this.hydrated) return
       this.hydrated = true
 
-      const stored = readStored(this.storage)
+      // One-time cleanup of the pre-scoping key, which still holds the last profile's directory
+      // on an upgrading device.
+      dropLegacyKey(this.storage, LEGACY_STORAGE_KEY)
+
+      const stored = readStored(this.storage, this.storageKey)
       if (!stored) return
 
       this.entries = stored.entries
@@ -272,7 +290,7 @@ export const useContactsStore = defineStore('contacts', {
         this.forbidden = false
         this.error = ''
 
-        writeStored(this.storage, {
+        writeStored(this.storage, this.storageKey, {
           schema: SCHEMA,
           version: this.version,
           syncedAt: this.syncedAt,
@@ -287,7 +305,7 @@ export const useContactsStore = defineStore('contacts', {
           this.version = ''
           this.syncedAt = null
           this.error = ''
-          clearStored(this.storage)
+          clearStored(this.storage, this.storageKey)
           return
         }
         this.error = 'Kunne ikke opdatere kontakter.'

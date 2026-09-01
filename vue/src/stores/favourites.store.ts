@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 
+import { dropLegacyKey, profileKey } from '@/helpers/profileStorage'
 import { useContactsStore, type ContactsStorage } from '@/stores/contacts.store'
+import { useSessionStore } from '@/stores/session.store'
 
 // Favourites in the contacts pane (PRD 007 §6/§7, task 166).
 //
@@ -23,12 +25,23 @@ import { useContactsStore, type ContactsStorage } from '@/stores/contacts.store'
 // a role read back from localStorage. A half-written array from a killed tab must not reach the
 // render path.
 
-const STORAGE_KEY = 'hej.contacts.favourites.v1'
+// # Per profile, not per device
+//
+// Keyed by the signed-in profile (task 180). Two profiles on one handset — the case a shared number
+// creates — must not inherit each other's favourites: switching to a sibling and finding *their*
+// starred colleagues is both wrong and a small disclosure. Note `pruneAgainstDirectory` would
+// eventually drop the ones the new profile cannot see, but only after a sync and only for people who
+// are no longer visible, so it is not a substitute for keying.
 
-function readIds(storage: ContactsStorage | null): string[] {
-  if (!storage) return []
+const STORAGE_BASE = 'hej.contacts.favourites.v1'
+
+// The device-wide key favourites used to live under; removed on first run.
+const LEGACY_STORAGE_KEY = 'hej.contacts.favourites.v1'
+
+function readIds(storage: ContactsStorage | null, key: string | null): string[] {
+  if (!storage || !key) return []
   try {
-    const raw = storage.getItem(STORAGE_KEY)
+    const raw = storage.getItem(key)
     if (!raw) return []
 
     const parsed = JSON.parse(raw) as unknown
@@ -41,10 +54,10 @@ function readIds(storage: ContactsStorage | null): string[] {
   }
 }
 
-function writeIds(storage: ContactsStorage | null, ids: string[]) {
-  if (!storage) return
+function writeIds(storage: ContactsStorage | null, key: string | null, ids: string[]) {
+  if (!storage || !key) return
   try {
-    storage.setItem(STORAGE_KEY, JSON.stringify(ids))
+    storage.setItem(key, JSON.stringify(ids))
   } catch {
     // Blocked or full storage costs persistence, not the session.
   }
@@ -63,6 +76,9 @@ export const useFavouritesStore = defineStore('contactsFavourites', {
     storage: null as ContactsStorage | null,
   }),
   getters: {
+    /** Storage key for the signed-in profile; null means "do not touch storage". */
+    storageKey: (): string | null => profileKey(STORAGE_BASE, useSessionStore().user?.userId),
+
     has: (state) => (id: string) => state.ids.includes(id),
     count: (state) => state.ids.length,
   },
@@ -75,13 +91,14 @@ export const useFavouritesStore = defineStore('contactsFavourites', {
       if (this.hydrated) return
       this.hydrated = true
       this.storage = storage
-      this.ids = readIds(storage)
+      dropLegacyKey(storage, LEGACY_STORAGE_KEY)
+      this.ids = readIds(storage, this.storageKey)
     },
 
     toggle(id: string) {
       if (!id) return
       this.ids = this.ids.includes(id) ? this.ids.filter((v) => v !== id) : [...this.ids, id]
-      writeIds(this.storage, this.ids)
+      writeIds(this.storage, this.storageKey, this.ids)
     },
 
     /**
@@ -109,7 +126,7 @@ export const useFavouritesStore = defineStore('contactsFavourites', {
       if (kept.length === this.ids.length) return
 
       this.ids = kept
-      writeIds(this.storage, kept)
+      writeIds(this.storage, this.storageKey, kept)
     },
   },
 })
