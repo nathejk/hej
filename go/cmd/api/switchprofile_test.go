@@ -116,11 +116,24 @@ func TestSwitchProfile_ReturnsTheNumbersProfiles(t *testing.T) {
 	if len(out.Candidates) < 2 {
 		t.Fatalf("want the number's profiles, got %d", len(out.Candidates))
 	}
-	// The same shape a shared-number /auth/verify returns, so the client needs one code path.
+	// The full name and the role, which login deliberately withholds. Without them a number
+	// carrying "Klaus Jørgensen" plus four rows named "Klaus" renders as five identical lines
+	// (reported 2026-09-01) — defensible here because the caller can already reach every one of
+	// these profiles.
+	var sawSurname, sawRole bool
 	for _, c := range out.Candidates {
-		if c.UserID == "" || c.Name == "" {
-			t.Errorf("candidate is missing what the user picks by: %+v", c)
+		if strings.Contains(c.Name, " ") {
+			sawSurname = true
 		}
+		if c.Role != "" {
+			sawRole = true
+		}
+	}
+	if !sawRole {
+		t.Error("no role on any candidate: duplicate registrations with no affiliation are then indistinguishable")
+	}
+	if !sawSurname {
+		t.Error("no full name on any candidate: the surname is often the only difference between duplicates")
 	}
 }
 

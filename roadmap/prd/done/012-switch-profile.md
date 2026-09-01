@@ -3,7 +3,7 @@
 **Status:** done
 **Author:** agent session (Zed)
 **Created:** 2026-09-01
-**Last updated:** 2026-09-01
+**Last updated:** 2026-09-01 (candidate detail, after the switcher showed five identical rows)
 **Approved:** 2026-09-01
 **Shipped:** 2026-09-01
 **Target users:** anyone whose phone number carries more than one profile — in practice a member with duplicate registrations, and a parent or sibling sharing a handset
@@ -241,3 +241,27 @@ All four shipped 2026-09-01. Two things worth carrying forward from the build:
    property of the cookie design rather than something the switcher introduces.
 3. **Do gøglere and crew ever need this?** They have numbers too, and the duplicate-registration
    data is spejder-heavy. No reason to exclude them, and no reason to expect much use.
+4. **Does the *login* chooser need the same enrichment?** Raised 2026-09-01 by a screenshot of the
+   switcher showing five rows reading "Klaus" — one `postmandskab` profile named "Klaus Jørgensen"
+   and four `gøgler` profiles named "Klaus".
+
+   The switcher now shows full names and the role, which is defensible there: the caller is signed in
+   on that number and can already reach every one of those profiles, so nothing is withheld that they
+   could not obtain by choosing. **Login was deliberately left alone** — PRD 006 decided the login
+   candidate carries no surname and no role, on the grounds that whoever holds the phone may be a
+   sibling being shown somebody else's details, and
+   `TestVerifySharedNumberAsksToChoose` enforces it.
+
+   But the same member logging in sees the same unanswerable list, which PRD 006 §11 Q9 already
+   predicted: "82% of the time it will offer several identical names, which is not a question a user
+   can answer." Numbering the rows ("profil 1", "profil 2") keeps the dialog usable on both surfaces,
+   and that is as far as this PRD goes.
+
+   The open decision is whether login should also carry the role — arguably the least sensitive field
+   on the record, and a population rather than a personal detail. It is PRD 006's rule to relax, not
+   this one's, which is why it is recorded rather than changed.
+5. **When does the duplicate registration itself get fixed?** Numbering identical rows makes the
+   list navigable; it does not make it *meaningful*. Nine rows for one member (PRD 006 §11 Q1) is an
+   upstream data problem, and until it is de-duplicated a member has to pick one of several profiles
+   that differ in nothing they can see, with their patrol or portrait possibly attached to a
+   different one. That is PRD 006 §11 Q9's territory and the real fix.

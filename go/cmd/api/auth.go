@@ -129,6 +129,18 @@ type candidate struct {
 	// arrives without branching on role.
 	Team    string `json:"team,omitempty"`
 	Section string `json:"section,omitempty"`
+	// Role is the app role, sent so the client can fall back to it when neither team nor
+	// section is set — which the real data does often, and then a list of duplicate
+	// registrations is otherwise five identical rows.
+	//
+	// Added 2026-09-01 after exactly that: a number carrying one `postmandskab` and four
+	// `gøgler` profiles rendered as five lines reading "Klaus", because the postmandskab row
+	// was the only one with a section. The role was the strongest discriminator available and
+	// was not being sent at all.
+	//
+	// It is the least sensitive of the fields on the table — a population, not a personal
+	// detail, and one the app already shows in its own user menu.
+	Role string `json:"role,omitempty"`
 }
 
 // chooseRequiredResponse is returned when the verified number belongs to several
@@ -230,7 +242,7 @@ func (app *application) verifyPinHandler(w http.ResponseWriter, r *http.Request)
 			"candidates", len(matches),
 		)
 
-		candidates := candidatesFor(matches)
+		candidates := candidatesFor(matches, detailMinimal)
 
 		resp := chooseRequiredResponse{
 			ChoiceToken: app.choices.Issue(normalized),
@@ -304,21 +316,47 @@ func (app *application) chooseHandler(w http.ResponseWriter, r *http.Request) {
 	app.InvalidCredentialsResponse(w, r)
 }
 
+// candidateDetail decides how much a candidate list carries, and the two surfaces differ because
+// their disclosure contexts do:
+//
+//   - **Login** — `detailMinimal`. Whoever holds the phone may be a sibling, so a fuller identifier
+//     for somebody who is *not* them is a gratuitous disclosure: first name only, and no role.
+//     PRD 006's decision, enforced by TestVerifySharedNumberAsksToChoose, and untouched here.
+//   - **Switching** — `detailFull`. The caller is already signed in on this number and can reach any
+//     of these profiles, so there is nothing to withhold — and withholding costs real information.
+//     A number carrying "Klaus Jørgensen" (postmandskab) plus four rows literally named "Klaus"
+//     (gøgler) rendered as five identical lines under the minimal payload, because the surname was
+//     stripped and the role was not sent (reported 2026-09-01).
+//
+// So the switcher is where the extra detail goes, and the login chooser's remaining ambiguity is a
+// separate decision — recorded in PRD 012 §11 rather than quietly changed here.
+type candidateDetail int
+
+const (
+	detailMinimal candidateDetail = iota
+	detailFull
+)
+
 // candidatesFor builds the chooser payload for a number's owners.
 //
-// Shared by login (verifyPinHandler) and profile switching (switchProfileHandler) so the two
-// cannot drift on what a candidate discloses — the comment on `candidate` explains why that
-// payload is as thin as it is, and a second construction site is how such a rule quietly stops
-// being true.
-func candidatesFor(users []users.User) []candidate {
-	out := make([]candidate, 0, len(users))
-	for _, u := range users {
-		out = append(out, candidate{
+// Shared by login (verifyPinHandler) and profile switching (switchProfileHandler) so the two cannot
+// drift on the shape — the comment on `candidate` explains why the payload is as thin as it is, and
+// a second construction site is how such a rule quietly stops being true. The one deliberate
+// difference is the detail level; see candidateDetail.
+func candidatesFor(owners []users.User, detail candidateDetail) []candidate {
+	out := make([]candidate, 0, len(owners))
+	for _, u := range owners {
+		c := candidate{
 			UserID:  u.ID,
 			Name:    firstName(u.Name),
 			Team:    u.PatrolName,
 			Section: u.Section,
-		})
+		}
+		if detail == detailFull {
+			c.Name = strings.TrimSpace(u.Name)
+			c.Role = string(u.Role)
+		}
+		out = append(out, c)
 	}
 	return out
 }
@@ -422,7 +460,7 @@ func (app *application) switchProfileHandler(w http.ResponseWriter, r *http.Requ
 
 	resp := chooseRequiredResponse{
 		ChoiceToken: app.choices.Issue(current.Phone),
-		Candidates:  candidatesFor(owners),
+		Candidates:  candidatesFor(owners, detailFull),
 	}
 	if err := app.WriteJSON(w, http.StatusOK, resp, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)

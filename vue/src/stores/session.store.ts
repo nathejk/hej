@@ -34,6 +34,13 @@ export interface ChoiceCandidate {
   team?: string
   /** Crew section. Exactly one of team/section is normally set. */
   section?: string
+  /**
+   * App role, used as the last discriminator when neither team nor section is set.
+   *
+   * Duplicate registrations often carry no affiliation at all, and then the role is the only
+   * thing that differs between rows — see ProfileChooser.
+   */
+  role?: string
 }
 
 interface ChooseRequiredResponse {

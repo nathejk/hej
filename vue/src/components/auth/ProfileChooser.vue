@@ -14,11 +14,13 @@
 //
 // Knows nothing about *why* it is being shown: no step logic, no "Skift nummer" (that belongs to the
 // login flow, where changing number is a meaningful action). It takes candidates and emits an id.
+import { computed } from 'vue'
 import { ChevronRight } from '@lucide/vue'
 
+import { candidateRows } from '@/helpers/profileCandidates'
 import type { ChoiceCandidate } from '@/stores/session.store'
 
-defineProps<{
+const props = defineProps<{
   candidates: ChoiceCandidate[]
   /** Both callers await a request on selection, so both need the list to stop accepting taps. */
   busy?: boolean
@@ -27,27 +29,31 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{ choose: [userId: string] }>()
+
+// The display rules — which discriminator to show, and numbering rows that are still identical —
+// live in helpers/profileCandidates so they can be tested without mounting anything.
+const rows = computed(() => candidateRows(props.candidates))
 </script>
 
 <template>
   <div class="flex flex-col gap-3">
     <button
-      v-for="c in candidates"
-      :key="c.user_id"
+      v-for="row in rows"
+      :key="row.userId"
       type="button"
       :disabled="busy"
       class="flex items-center justify-between rounded-lg border px-4 py-3 text-left transition disabled:opacity-50"
       :class="dark ? 'border-slate-700 text-slate-100' : 'border-slate-300'"
-      @click="emit('choose', c.user_id)"
+      @click="emit('choose', row.userId)"
     >
       <span>
-        <span class="font-medium">{{ c.name }}</span>
+        <span class="font-medium">{{ row.name }}</span>
         <span
-          v-if="c.team || c.section"
+          v-if="row.subtitle"
           class="block text-sm"
           :class="dark ? 'text-slate-400' : 'text-slate-500'"
         >
-          {{ c.team || c.section }}
+          {{ row.subtitle }}
         </span>
       </span>
       <ChevronRight class="h-4 w-4 shrink-0" :class="dark ? 'text-slate-500' : 'text-slate-400'" />
