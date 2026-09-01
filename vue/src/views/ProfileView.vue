@@ -17,6 +17,7 @@ import { formatPhone } from '@/helpers'
 import { blockedGuidance } from '@/config/permissions'
 import PreferenceRow from '@/components/profile/PreferenceRow.vue'
 import ProfilePhoto from '@/components/profile/ProfilePhoto.vue'
+import OfflineReadiness from '@/components/profile/OfflineReadiness.vue'
 
 const profile = useProfileStore()
 const notifications = useNotificationsStore()
@@ -308,5 +309,10 @@ onUnmounted(() => {
         />
       </div>
     </section>
+
+    <!-- Placed after "På denne enhed" rather than inside it: those rows report on *permissions*
+         the user granted, this reports on *data* the phone holds. Same page, different question,
+         and mixing them would make one long list where nothing stands out. -->
+    <OfflineReadiness />
   </div>
 </template>

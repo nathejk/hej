@@ -13,6 +13,7 @@ import {
 import {
   OFFLINE_DATASETS,
   OFFLINE_ORIGIN_BUDGET_BYTES,
+  offlineDataset,
   type OfflineDatasetId,
   totalPlannedBytes,
 } from '@/config/offline'
@@ -78,6 +79,23 @@ export interface OfflineDatasetStatus {
 export type OfflineDatasetReport = Partial<OfflineDatasetStatus>
 
 /**
+ * What a dataset owner can be asked to do on the user's behalf.
+ *
+ * A seam, not a registry. The store never learns *how* a dataset is fetched or stored — it only
+ * holds a function to call when the user taps "hent nu", so the readiness view can offer a control
+ * without importing five feature stores and knowing which of them has a refresh method.
+ *
+ * A dataset with no handler simply gets no button, which is the right default: the app shell has
+ * nothing a user could usefully re-fetch, and the position track has nothing to fetch at all.
+ */
+export interface OfflineDatasetHandlers {
+  /** Fetch or refresh. Should report progress and completion through `report`. */
+  sync?: () => Promise<void>
+  /** Delete this dataset's local copy. Never offered for unrecoverable data — see `clear`. */
+  clear?: () => Promise<void> | void
+}
+
+/**
  * The subset of `navigator.storage` this store uses.
  *
  * Taken as an argument rather than read as a global, for the reason `vitest.config.ts` gives:
@@ -129,6 +147,13 @@ export const useOfflineStore = defineStore('offline', {
     servingFromCache: false,
     /** Datasets dropped to reclaim space, most recent first (task 186). */
     evicted: [] as OfflineDatasetId[],
+    /**
+     * Per-dataset sync/clear callbacks, registered by whoever owns the storage.
+     *
+     * Deliberately outside `statuses`: these are functions, not state, and keeping them apart
+     * stops a devtools snapshot of this store from being full of closures.
+     */
+    handlers: {} as Partial<Record<OfflineDatasetId, OfflineDatasetHandlers>>,
   }),
 
   getters: {
@@ -182,6 +207,36 @@ export const useOfflineStore = defineStore('offline', {
     /** True when at least one dataset has been reported on. Distinguishes cold from empty. */
     hydrated(state): boolean {
       return OFFLINE_DATASETS.some((d) => state.statuses[d.id].state !== 'unknown')
+    },
+
+    /**
+     * Datasets the user can ask to fetch, in the order a "prepare everything" run would do them.
+     *
+     * Declared order, which is cheap-first by construction: tiles rank last for eviction and so
+     * come last here too, which is also what we want for a download — the small text datasets
+     * finish in seconds and the 324 MB one is what a user on cellular may want to interrupt.
+     */
+    syncable(state): OfflineDatasetId[] {
+      return OFFLINE_DATASETS.filter((d) => state.handlers[d.id]?.sync).map((d) => d.id)
+    },
+
+    /**
+     * Roughly what a "prepare everything" run would download, in bytes.
+     *
+     * From the *planned* budgets, not from anything the server has told us, because the estimate
+     * has to be on screen **before** the first request — on iOS the app cannot tell WiFi from
+     * cellular (`navigator.connection` is unavailable in Safari), so this number is the entire
+     * consent mechanism for a 324 MB download. An estimate the user sees beats an exact figure
+     * they only get afterwards.
+     *
+     * Complete datasets are excluded; partially present ones are counted in full, which overstates
+     * rather than understates. That direction is deliberate: a download that turns out smaller
+     * than warned is a pleasant surprise, the reverse is a betrayal on a metered connection.
+     */
+    pendingBytes(state): number {
+      return OFFLINE_DATASETS.filter(
+        (d) => state.handlers[d.id]?.sync && !state.statuses[d.id].complete,
+      ).reduce((sum, d) => sum + d.budgetBytes, 0)
     },
   },
 
@@ -290,6 +345,62 @@ export const useOfflineStore = defineStore('offline', {
 
     setServingFromCache(fromCache: boolean) {
       this.servingFromCache = fromCache
+    },
+
+    /** Register a dataset's sync/clear callbacks. Called by the feature that owns the storage. */
+    registerHandlers(id: OfflineDatasetId, handlers: OfflineDatasetHandlers) {
+      this.handlers[id] = { ...this.handlers[id], ...handlers }
+    },
+
+    /**
+     * Fetch one dataset on the user's behalf.
+     *
+     * Sets `syncing` here rather than trusting the handler to, so the button cannot be left
+     * looking idle by a feature that forgot — and restores the previous state on failure instead
+     * of inventing 'empty', because a failed refresh does not remove what is already stored.
+     */
+    async sync(id: OfflineDatasetId) {
+      const handler = this.handlers[id]?.sync
+      if (!handler) return
+
+      const previous = this.statuses[id].state
+      this.statuses[id] = { ...this.statuses[id], state: 'syncing' }
+      try {
+        await handler()
+      } catch {
+        // The handler owns the error message; this only has to avoid lying about the state.
+        if (this.statuses[id].state === 'syncing') {
+          this.statuses[id] = { ...this.statuses[id], state: previous }
+        }
+      }
+    },
+
+    /**
+     * Delete one dataset's local copy.
+     *
+     * **Refuses anything unrecoverable.** Not a confirmation dialog — a refusal. The only dataset
+     * this applies to is the position track, whose local copy may be the sole record of where a
+     * team was; a "free up space" button next to it is a foot-gun no amount of copy fixes, and the
+     * track's own status page already has a considered path for it.
+     */
+    async clear(id: OfflineDatasetId) {
+      if (offlineDataset(id).unrecoverable) return
+      const handler = this.handlers[id]?.clear
+      if (!handler) return
+      await handler()
+      this.markCleared(id)
+    },
+
+    /**
+     * Fetch everything that can be fetched, cheapest first.
+     *
+     * Sequential on purpose. Parallel downloads over rural mobile data compete for the same thin
+     * pipe and make the progress indicator meaningless, and the one dataset that takes minutes
+     * (tiles) is the one a user is most likely to want to interrupt — which they cannot do if it
+     * started at the same time as everything else.
+     */
+    async prepareAll() {
+      for (const id of this.syncable) await this.sync(id)
     },
 
     /**

@@ -158,6 +158,142 @@ describe('eviction and clearing', () => {
   })
 })
 
+describe('handlers', () => {
+  it('offers no sync for a dataset that registered none', () => {
+    const store = useOfflineStore()
+    expect(store.syncable).toEqual([])
+  })
+
+  it('sets syncing while a handler runs and lets it report the outcome', async () => {
+    const store = useOfflineStore()
+    let sawSyncing = false
+
+    store.registerHandlers('directory', {
+      sync: async () => {
+        sawSyncing = store.statuses.directory.state === 'syncing'
+        store.report('directory', { state: 'synced', complete: true, syncedAt: 42 })
+      },
+    })
+    await store.sync('directory')
+
+    // Set here rather than trusted to the handler: a feature that forgets would leave the button
+    // looking idle through a two-minute download.
+    expect(sawSyncing).toBe(true)
+    expect(store.statuses.directory.state).toBe('synced')
+  })
+
+  // A failed refresh does not remove what is already stored, so it must not read as 'empty'.
+  it('restores the previous state when a sync fails', async () => {
+    const store = useOfflineStore()
+    store.report('directory', present)
+    store.registerHandlers('directory', {
+      sync: async () => {
+        throw new Error('offline')
+      },
+    })
+
+    await store.sync('directory')
+
+    expect(store.statuses.directory.state).toBe('synced')
+    expect(store.statuses.directory.syncedAt).toBe(1_000)
+  })
+
+  it('does nothing when asked to sync a dataset with no handler', async () => {
+    const store = useOfflineStore()
+    await store.sync('tiles')
+    expect(store.statuses.tiles.state).toBe('unknown')
+  })
+
+  // The one button in the app whose bug is unrecoverable data loss. The view also declines to show
+  // it; this is the second lock, because the two can be changed independently.
+  it('refuses to clear an unrecoverable dataset even when a handler exists', async () => {
+    const store = useOfflineStore()
+    let cleared = false
+    store.report('track', present)
+    store.registerHandlers('track', {
+      clear: () => {
+        cleared = true
+      },
+    })
+
+    await store.clear('track')
+
+    expect(cleared).toBe(false)
+    expect(store.statuses.track.state).toBe('synced')
+  })
+
+  it('clears a recoverable dataset and marks it empty', async () => {
+    const store = useOfflineStore()
+    let cleared = false
+    store.report('portraits', present)
+    store.registerHandlers('portraits', {
+      clear: () => {
+        cleared = true
+      },
+    })
+
+    await store.clear('portraits')
+
+    expect(cleared).toBe(true)
+    expect(store.statuses.portraits.state).toBe('empty')
+  })
+
+  // Sequential, and cheap-first. Parallel downloads over rural mobile data compete for one thin
+  // pipe and make progress meaningless, and the 324 MB one has to be last so it can be abandoned.
+  it('prepares every syncable dataset in declared order, one at a time', async () => {
+    const store = useOfflineStore()
+    const order: string[] = []
+    let concurrent = 0
+    let maxConcurrent = 0
+
+    for (const id of ['tiles', 'directory', 'portraits'] as const) {
+      store.registerHandlers(id, {
+        sync: async () => {
+          concurrent++
+          maxConcurrent = Math.max(maxConcurrent, concurrent)
+          order.push(id)
+          await Promise.resolve()
+          concurrent--
+        },
+      })
+    }
+
+    await store.prepareAll()
+
+    expect(order).toEqual(['directory', 'portraits', 'tiles'])
+    expect(maxConcurrent).toBe(1)
+  })
+})
+
+describe('pendingBytes', () => {
+  // Has to be answerable before the first request: on iOS the app cannot tell WiFi from cellular,
+  // so this number is the entire consent mechanism for a several-hundred-megabyte download.
+  it('estimates from planned budgets, not from anything fetched', () => {
+    const store = useOfflineStore()
+    store.registerHandlers('tiles', { sync: async () => {} })
+
+    expect(store.pendingBytes).toBe(500 * 1024 * 1024)
+  })
+
+  it('excludes datasets that are already complete', () => {
+    const store = useOfflineStore()
+    store.registerHandlers('tiles', { sync: async () => {} })
+    store.report('tiles', { state: 'synced', complete: true })
+
+    expect(store.pendingBytes).toBe(0)
+  })
+
+  // Overstating is the safe direction: a download smaller than warned is a pleasant surprise, the
+  // reverse is a betrayal on a metered connection.
+  it('counts a partially present dataset in full', () => {
+    const store = useOfflineStore()
+    store.registerHandlers('tiles', { sync: async () => {} })
+    store.report('tiles', { state: 'synced', complete: false, bytes: 400 * 1024 * 1024 })
+
+    expect(store.pendingBytes).toBe(500 * 1024 * 1024)
+  })
+})
+
 describe('refreshStorage', () => {
   it('reads usage and quota', async () => {
     const store = useOfflineStore()
