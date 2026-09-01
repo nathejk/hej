@@ -1,10 +1,11 @@
 # 168 — Patrol lookup UI
 
-**Status:** doing
+**Status:** done
 **Priority:** medium
 **Created:** 2026-08-31
 **Picked up by:** agent session (Zed)
 **Started:** 2026-08-31
+**Completed:** 2026-09-01
 
 ## Description
 
@@ -50,22 +51,19 @@ used.
 The component header states, in order, why there is no history, no prefix search, no suggestions
 and no shared field — the four changes most likely to be proposed as improvements.
 
-## Blocked: cannot verify the Go change
+## Blocker, resolved
 
-`go build`/`go test` currently fail for a reason **outside this repo**:
+`go build`/`go test` failed for a reason **outside this repo**:
 
 ```
 ../../shared-go/types/section.go:1:1: expected 'package', found 'EOF'
 ```
 
-`/Users/knj/Development/nathejk/shared-go/types/section.go` is a **zero-byte, untracked** file
-(created 2026-08-31 23:37). `hej` resolves `shared-go` through a local path, so an empty file in
-that package stops this repo compiling.
-
-Not mine and not in this project, so I have not touched it — deleting files in a sibling repo is
-not a call to make silently. The frontend work is verified (158 tests, `vue-tsc` clean); the
-one-line addition to `guardiantripwire_test.go` is committed **unverified** and needs a
-`go test ./cmd/api/` run once that file is removed or filled in.
+`/Users/knj/Development/nathejk/shared-go/types/section.go` was a zero-byte, untracked file, and
+`hej` resolves `shared-go` through a local path, so an empty file in that package stopped this
+repo compiling. Left untouched deliberately — deleting a file in a sibling repo is not a call to
+make silently. The maintainer saved it with content on 2026-09-01, and the Go side was then
+verified: `go build ./...`, `go vet ./...`, `go test ./...` all pass.
 
 ## Acceptance Criteria
 
@@ -77,8 +75,9 @@ one-line addition to `guardiantripwire_test.go` is committed **unverified** and 
 - [x] A miss shows one neutral "ingen patrulje med det nummer".
 - [x] Rows show face, name, status, phone; withdrawn members marked.
 - [x] A comment in the component records *why* there is no history and no prefix search.
-- [~] Lookup endpoints added to `guardiantripwire_test.go` — **written, not verified**; see the
-      blocker above.
+- [x] Lookup endpoints added to `guardiantripwire_test.go` — verified 2026-09-01:
+      `TestContactsSurfacesNeverCarryAGuardianNumber` runs against `/api/contacts/patrols/138`
+      alongside the manifest and version surfaces, and passes.
 
 ## Progress Log
 
@@ -92,3 +91,6 @@ one-line addition to `guardiantripwire_test.go` is committed **unverified** and 
 - 2026-09-01 00:55 — **Blocked on the Go side** by an empty untracked `types/section.go` in the
   sibling `shared-go` checkout, which stops this repo compiling. Left it alone and reported it
   rather than deleting another repo's file. Task stays in `doing/` until the Go test is verified.
+- 2026-09-01 01:05 — Maintainer saved `section.go` with content. Go side verified: build, vet and
+  the full test suite pass, and the tripwire now demonstrably covers all three JSON contacts
+  surfaces. ✅ All criteria met.
