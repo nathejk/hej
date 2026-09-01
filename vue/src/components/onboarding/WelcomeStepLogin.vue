@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
-import { ArrowLeft, ChevronRight, Phone, WifiOff } from '@lucide/vue'
+import { ArrowLeft, Phone, WifiOff } from '@lucide/vue'
 
 import { HttpError, NetworkError } from '@/helpers'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import ProfileChooser from '@/components/auth/ProfileChooser.vue'
 import { useSessionStore } from '@/stores/session.store'
 import { useAppStore } from '@/stores/app.store'
 import { NODTELEFON, NODTELEFON_DISPLAY } from '@/config/contact'
@@ -238,30 +239,15 @@ function changeNumber() {
       </p>
     </form>
 
-    <!-- Step 3: who are you? Only for a phone number shared by several people. -->
+    <!-- Step 3: who are you? Only for a phone number shared by several people. The list itself is
+         shared with the profile switcher (task 181), so both surfaces identify a person the same
+         way. -->
     <div v-else class="flex flex-col gap-3">
       <p class="text-sm text-slate-600">
         Nummeret er registreret til flere. Hvem er du?
       </p>
 
-      <button
-        v-for="c in session.choiceCandidates"
-        :key="c.user_id"
-        type="button"
-        :disabled="busy"
-        class="flex items-center justify-between rounded-lg border border-slate-300 px-4 py-3 text-left transition disabled:opacity-50"
-        @click="choose(c.user_id)"
-      >
-        <span>
-          <span class="font-medium">{{ c.name }}</span>
-          <!-- Affiliation is what actually disambiguates: two siblings share a
-               patrulje but not a name, two crew may share a name but not a section. -->
-          <span v-if="c.team || c.section" class="block text-sm text-slate-500">
-            {{ c.team || c.section }}
-          </span>
-        </span>
-        <ChevronRight class="h-4 w-4 shrink-0 text-slate-400" />
-      </button>
+      <ProfileChooser :candidates="session.choiceCandidates" :busy="busy" @choose="choose" />
 
       <button
         type="button"

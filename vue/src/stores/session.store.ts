@@ -13,6 +13,13 @@ export { ALL_ROLES } from '@/config/roles'
 interface IdentityResponse {
   user_id: string
   role: Role
+  /**
+   * How many profiles the caller's phone number carries (PRD 012).
+   *
+   * Drives whether "Skift profil" is offered at all. Absent or 0 means "one, or we could not
+   * look" — both of which must hide the control, since offering it is what would mislead.
+   */
+  profile_count?: number
 }
 
 // One owner of a shared phone number, as offered by the chooser.
@@ -50,12 +57,28 @@ export const useSessionStore = defineStore('session', {
     // lifetime it should not have.
     choiceToken: null as string | null,
     choiceCandidates: [] as ChoiceCandidate[],
+    /**
+     * How many profiles the signed-in number carries (PRD 012).
+     *
+     * 0 until `/api/me` answers. Deliberately **not** persisted with the remembered identity: on
+     * an offline start we do not know it, and guessing would mean offering a switch that cannot
+     * complete without the network anyway.
+     */
+    profileCount: 0,
   }),
   getters: {
     isAuthenticated: (state) => state.user !== null,
     role: (state): Role | null => state.user?.role ?? null,
     // needsChoice is true between a verified PIN and a chosen account.
     needsChoice: (state) => state.choiceToken !== null,
+    /**
+     * Whether this number has another profile to switch to.
+     *
+     * The client-side half of hiding the control from the majority who have one profile. The BFF
+     * refuses a pointless switch regardless (409), so this is about not offering a dead end — not
+     * about permission.
+     */
+    canSwitchProfile: (state) => state.profileCount > 1,
   },
   actions: {
     // fetchMe resolves the current session from the BFF. A 401 means "not
@@ -73,6 +96,7 @@ export const useSessionStore = defineStore('session', {
       try {
         const data = await fetchWrapper.get<IdentityResponse>('/api/me')
         this.user = { userId: data.user_id, role: data.role }
+        this.profileCount = data.profile_count ?? 0
         this.provisional = false
         saveIdentity(this.user)
         app.setOnline(true)
@@ -182,12 +206,37 @@ export const useSessionStore = defineStore('session', {
         user_id: userId,
       })
 
+      // The candidate count *is* the number of profiles on this number, so record it now rather
+      // than waiting for the next /api/me — without this the switcher would be missing for the
+      // rest of the session that just used the chooser.
+      if (this.choiceCandidates.length > 0) {
+        this.profileCount = this.choiceCandidates.length
+      }
+
       this.clearChoice()
       this.user = { userId: data.user_id, role: data.role }
       this.provisional = false
       this.ready = true
       saveIdentity(this.user)
       return this.user
+    },
+
+    /**
+     * Starts a profile switch for a number carrying several profiles (PRD 012).
+     *
+     * Fetches candidates plus a short-lived token from `/auth/switch` and stores them in the same
+     * state the login chooser uses, so `choose()` completes either path. No SMS: the caller already
+     * proved control of this number at login — see PRD 012 §8.
+     *
+     * **Throws**, unlike `fetchMe`. The caller has an explicit user action to report on, and
+     * silently doing nothing after a tap is worse than a message. The current session is untouched
+     * on failure: nothing is half-switched.
+     */
+    async startProfileSwitch(): Promise<ChoiceCandidate[]> {
+      const data = await fetchWrapper.post<ChooseRequiredResponse>('/api/auth/switch')
+      this.choiceToken = data.choice_token ?? null
+      this.choiceCandidates = data.candidates ?? []
+      return this.choiceCandidates
     },
 
     // clearChoice drops a pending disambiguation, e.g. when the user goes back to
@@ -206,6 +255,7 @@ export const useSessionStore = defineStore('session', {
       } finally {
         this.user = null
         this.provisional = false
+        this.profileCount = 0
         clearIdentity()
         this.clearChoice()
       }
