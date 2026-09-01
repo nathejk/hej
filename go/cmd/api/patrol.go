@@ -123,13 +123,21 @@ func (app *application) patrolLookupHandler(w http.ResponseWriter, r *http.Reque
 
 	out := patrolLookupResponse{Number: number, Members: make([]patrolLookupMember, 0, len(people))}
 	for _, p := range people {
-		out.Members = append(out.Members, patrolLookupMember{
+		member := patrolLookupMember{
 			ID:          p.PersonID,
 			Name:        p.Name,
 			Status:      p.MemberStatus,
-			Phone:       p.Phone,
 			HasPortrait: p.PortraitRef != "",
-		})
+		}
+		// Same rule as the directory (2026-09-01): the number goes only once the member is
+		// `released`, because that is the one status where they have left the area and been
+		// handed to a guardian. A member waiting by the trail, in a car or at HQ is exactly who
+		// a samarit needs to ring, so purging their number here would break the case this
+		// surface exists for.
+		if contactable(p.MemberStatus) {
+			member.Phone = p.Phone
+		}
+		out.Members = append(out.Members, member)
 	}
 
 	if err := app.WriteJSON(w, http.StatusOK, out, nil); err != nil {

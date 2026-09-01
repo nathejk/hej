@@ -280,10 +280,16 @@ func newContactEntry(p person.Person, subject users.User, pop users.Population, 
 		out.Groups = append(out.Groups, contactGroup{ID: g.ID, Label: g.Label, IsOwn: g.IsOwn})
 	}
 
-	// A withdrawn member keeps their name and portrait and loses their number: still
-	// recognisable, no longer callable (PRD 007 §11.6). Done here rather than in the
-	// query so the rule is visible next to the field it removes.
-	if out.StillInRace {
+	// A withdrawn member keeps their name and portrait. Their number goes only when they are
+	// **released** — handed over to a guardian and gone from the area (maintainer direction,
+	// 2026-09-01). Every other ending still leaves them somewhere around the event and worth
+	// being able to reach: a `reunited` member is back with their own patrol, and `waiting`,
+	// `transit` and `sheltered` are all in our care.
+	//
+	// Note this is deliberately *not* the same question as StillInRace, which drives the status
+	// marking. A reunited member is out of the race and still contactable, so the row shows a
+	// marking next to a working number — which reads correctly rather than contradictorily.
+	if contactable(p.MemberStatus) {
 		out.Phone = p.Phone
 	}
 
@@ -314,12 +320,34 @@ func contactSubject(p person.Person) (users.User, bool) {
 	}, true
 }
 
-// stillInRace reports whether the member is still in the race.
+// contactable reports whether the member's phone number may still be shown.
+//
+// False for exactly one status: `released`. That is the only ending where the member has truly
+// left — handed over to a guardian, off the site, no longer ours to ring. Everything else leaves
+// them in or around the event area, where being able to reach them is the point:
+//
+//	waiting, transit, sheltered  — in our care, and the most likely people to need calling
+//	reunited                     — back with their own patrol, still on site
+//	finished                      — at the finish
+//
+// Deliberately separate from stillInRace, which answers a different question (are they racing?)
+// and drives the status marking. Conflating the two is the bug this replaced: it purged the number
+// of every withdrawn member, including people sitting in a car on the way to HQ.
+//
+// A released member's *guardian* is not an alternative to ring here either — guardian numbers
+// never enter the PWA (`.rules`), and that is not softened by the member being unreachable.
+func contactable(status string) bool {
+	return types.MemberStatus(status) != types.MemberStatusReleased
+}
+
+// stillInRace reports whether the member is still taking part.
+//
+// Drives the status marking in the pane — not whether a number is shown, which is contactable's
+// job above. `reunited` and `released` are both out of the race; only one of them is out of reach.
 //
 // INTERIM (task 175): derived here from the two ending statuses, in one place. It belongs in
 // shared-go next to MemberStatus.InOurCare() and CanFinish(), so that `hej` and `hq` cannot
-// disagree about what "left the race" means — this one decides whether a phone number is shown,
-// which is not a definition worth having two of.
+// disagree about what "left the race" means.
 //
 // Note `finished` is deliberately *not* a withdrawal: finishing means walking the route to the
 // end, and marking a finisher as having left would quietly turn an achievement into a dropout.

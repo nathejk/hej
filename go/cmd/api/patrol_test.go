@@ -193,6 +193,64 @@ func TestPatrolLookup_CrewOnly(t *testing.T) {
 	}
 }
 
+func TestPatrolLookup_KeepsPhoneUntilReleased(t *testing.T) {
+	// The samarit case: a member waiting by the trail or in a car is exactly who needs ringing,
+	// so only `released` — handed to a guardian and off site — removes the number.
+	for _, status := range []types.MemberStatus{
+		types.MemberStatusWaiting,
+		types.MemberStatusTransit,
+		types.MemberStatusSheltered,
+		types.MemberStatusReunited,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			members := patrolMembers()
+			members[0].MemberStatus = string(status)
+
+			app, _ := patrolApp(t, "138", members)
+			srv := httptest.NewServer(app.routes())
+			defer srv.Close()
+
+			resp := lookupPatrol(t, app, srv, "30000005", "+4530000005", "138")
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+
+			var out patrolLookupResponse
+			if err := json.Unmarshal(body, &out); err != nil {
+				t.Fatalf("decoding: %v", err)
+			}
+			if out.Members[0].Phone == "" {
+				t.Errorf("status %q lost the number; only released should", status)
+			}
+		})
+	}
+}
+
+func TestPatrolLookup_ReleasedMemberLosesPhone(t *testing.T) {
+	members := patrolMembers()
+	members[0].MemberStatus = string(types.MemberStatusReleased)
+
+	app, _ := patrolApp(t, "138", members)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	resp := lookupPatrol(t, app, srv, "30000005", "+4530000005", "138")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	var out patrolLookupResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if out.Members[0].Phone != "" {
+		t.Errorf("a released member's number was served: %q", out.Members[0].Phone)
+	}
+	// Still listed, with their status: a samarit looking for them should learn they were
+	// collected, not find a gap in the patrol.
+	if out.Members[0].Name == "" || out.Members[0].Status != string(types.MemberStatusReleased) {
+		t.Errorf("a released member must stay listed with their status: %+v", out.Members[0])
+	}
+}
+
 // Guardian numbers are exactly what these records carry, and exactly what must not ship.
 func TestPatrolLookup_NeverCarriesGuardianNumber(t *testing.T) {
 	app, _ := patrolApp(t, "138", patrolMembers())

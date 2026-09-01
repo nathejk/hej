@@ -291,8 +291,10 @@ func TestContactsManifest_NeverCarriesGuardianNumber(t *testing.T) {
 	}
 }
 
-// A withdrawn member keeps their name and portrait and loses their number.
-func TestContactsManifest_WithdrawnMemberLosesPhone(t *testing.T) {
+// A withdrawn member keeps their name and portrait, and — unless they have been released — their
+// phone number too. `released` is the only status where they have left the area and been handed to
+// a guardian (2026-09-01).
+func TestContactsManifest_ReleasedMemberLosesPhone(t *testing.T) {
 	row := banditRow()
 	row.MemberStatus = string(types.MemberStatusReleased)
 
@@ -310,10 +312,66 @@ func TestContactsManifest_WithdrawnMemberLosesPhone(t *testing.T) {
 		t.Error("a released member is marked as still in the race")
 	}
 	if e.Phone != "" {
-		t.Errorf("a withdrawn member's number was served: %q", e.Phone)
+		t.Errorf("a released member's number was served: %q", e.Phone)
 	}
 	if e.Name == "" || e.PortraitVersion == "" {
-		t.Error("a withdrawn member lost their name or portrait; both must be kept until end of race")
+		t.Error("a released member lost their name or portrait; both must be kept until end of race")
+	}
+}
+
+// The correction that separated two questions: out of the race is not the same as out of reach.
+// A member who is waiting by the trail, in a car, at HQ or back with their own patrol is still in
+// or around the area — and the first three are exactly who a samarit needs to ring.
+func TestContactsManifest_KeepsPhoneForEveryStatusButReleased(t *testing.T) {
+	statuses := []types.MemberStatus{
+		types.MemberStatusRacing,
+		types.MemberStatusWaiting,
+		types.MemberStatusTransit,
+		types.MemberStatusSheltered,
+		types.MemberStatusReunited,
+		types.MemberStatusFinished,
+	}
+
+	for _, status := range statuses {
+		t.Run(string(status), func(t *testing.T) {
+			row := banditRow()
+			row.MemberStatus = string(status)
+
+			app, _ := contactsTestApp(t, []person.Person{row})
+			srv := httptest.NewServer(app.routes())
+			defer srv.Close()
+
+			_, m := fetchManifest(t, app, srv, "30000002", "+4530000002")
+			if len(m.Entries) == 0 {
+				t.Fatal("no entries")
+			}
+			if m.Entries[0].Phone == "" {
+				t.Errorf("status %q lost the phone number; only released should", status)
+			}
+		})
+	}
+}
+
+// A reunited member is out of the race *and* contactable, so the row carries a marking next to a
+// working number. That pairing is intended, not contradictory.
+func TestContactsManifest_ReunitedIsMarkedButStillContactable(t *testing.T) {
+	row := banditRow()
+	row.MemberStatus = string(types.MemberStatusReunited)
+
+	app, _ := contactsTestApp(t, []person.Person{row})
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, m := fetchManifest(t, app, srv, "30000002", "+4530000002")
+	if len(m.Entries) == 0 {
+		t.Fatal("no entries")
+	}
+	e := m.Entries[0]
+	if e.StillInRace {
+		t.Error("a reunited member should be marked as out of the race")
+	}
+	if e.Phone == "" {
+		t.Error("a reunited member is back with their patrol and still on site; keep the number")
 	}
 }
 

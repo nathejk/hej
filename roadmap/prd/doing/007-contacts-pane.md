@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed)
 **Created:** 2026-08-25
-**Last updated:** 2026-08-31
+**Last updated:** 2026-09-01
 **Approved:** 2026-08-31
 **Shipped:**
 **Target users:** crew (samarit / guide / postmandskab are crew), bandit, gøgler. **Not spejder.**
@@ -194,11 +194,16 @@ can be favourited.
 - **Favourited person leaves scope** (role change, withdrawal). The favourite is
   dropped, not left as a dangling row that hints at someone the user may no longer
   see.
-- **Member leaves the race** (`released`, `reunited`). Their **phone number is
-  purged**, their **name remains visible until the end of the race** with a clear
-  status marking, and the row is no longer something you can call. Withdrawn members
-  are excluded from favourites' "still reachable" assumption but not hidden — a
-  disappearing row invites "did I imagine them?", a marked row answers the question.
+- **Member leaves the race** (`released`, `reunited`). Their name and portrait **remain visible
+  until the end of the race** with a clear status marking. Their **phone number is purged only
+  when they are `released`** — see below. Withdrawn members are excluded from favourites'
+  "still reachable" assumption but not hidden — a disappearing row invites "did I imagine
+  them?", a marked row answers the question.
+- **Member is released** (handed over to a guardian). Their phone number is purged. This is the
+  only status that removes it, because it is the only one where the member has actually left the
+  area — *(corrected 2026-09-01; previously every withdrawal purged the number, which also hid the
+  numbers of members waiting by the trail, in a car, or at HQ, i.e. exactly the people a samarit
+  needs to ring).*
 - **Event ends.** Portraits are purged server-side (already implemented —
   `go/cmd/api/portraitpurge.go`) and expire on devices. A device that never reopens
   the app cannot be purged remotely; see §8.
@@ -281,9 +286,13 @@ can be favourited.
       event; the server stops serving them at the same point (already true —
       `portraitpurge.go`). Server-issued so a wrong device clock cannot defeat it.
 - [ ] **Withdrawn members** (`released` / `reunited`) keep their **name and portrait**
-      until the end of the race, carry a **clear status marking** in the list and on
-      the profile, and have their **phone number purged** from the manifest — so a
-      device that already synced it drops it on the next delta.
+      until the end of the race and carry a **clear status marking** in the list and on
+      the profile. Their **phone number is purged only on `released`** — the one status where
+      the member has left the area and been handed to a guardian. Every other status leaves them
+      in or around the event and reachable, which is the point: `waiting`, `transit` and
+      `sheltered` are the people most likely to need a call. So a device that already synced a
+      released member's number drops it on the next delta, while a reunited member keeps theirs
+      beside their marking.
 - [ ] Names-only degradation whenever portraits are unavailable, for any reason.
 - [ ] *(§11.7)* Every patrol lookup is logged **server-side** on the request path — no
       client-side queue, no batching, no ingestion endpoint, because the lookup is
@@ -895,9 +904,18 @@ Proposed tasks for `roadmap/tasks/open/`:
    first sounds.
 6. ~~**When a member leaves the race**, do they vanish from devices?~~ *Answered
    2026-08-31: **no — purge the number, keep the name.*** On withdrawal
-   (`released` / `reunited`) the phone number is purged, while the name stays visible
-   until the end of the race with a **clear status marking**. Rationale: an
-   identification need outlives a withdrawal, but a reason to call does not.
+   (`released` / `reunited`) the name stays visible until the end of the race with a **clear
+   status marking**. Rationale: an identification need outlives a withdrawal, but a reason to
+   call does not.
+
+   **Refined 2026-09-01: the number is purged only on `released`.** "A reason to call does not
+   outlive a withdrawal" was too broad — it is true only once the member has actually left. A
+   member who is `waiting` by the trail, in `transit`, `sheltered` at HQ or `reunited` with their
+   own patrol is still in or around the area, and the first three are precisely who a samarit or
+   the nødtelefon needs to reach. So "out of the race" and "out of reach" are two different
+   questions, answered by two functions (`stillInRace` and `contactable` in
+   `go/cmd/api/contacts.go`): a reunited member shows a status marking *and* a working number,
+   which reads correctly rather than contradictorily.
 
    This has a real dependency, and it is the last piece of engineering work this PRD
    discovers rather than assumes — see §8 "Member status". This repo does **not**

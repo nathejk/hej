@@ -64,10 +64,17 @@ const subtitle = computed(() => {
   return parts.join(' · ')
 })
 
-// A withdrawn member keeps their name and face and loses their number (task 160). Suppressing
-// the call action here as well as the number is the point: the row must not offer to ring
-// somebody who has gone home.
-const callable = computed(() => props.entry.stillInRace && Boolean(props.entry.phone))
+// Whether to offer a call.
+//
+// The number's *presence* is the answer, because the BFF has already made that decision: it sends
+// a number unless the member is `released` — the one status where they have left the area and been
+// handed to a guardian (2026-09-01). Everyone else is in or around the event and worth reaching,
+// including a member who is out of the race but back with their patrol.
+//
+// Deliberately no longer gated on `stillInRace`. That conflated two questions and suppressed the
+// number for every withdrawn member, including people sitting in a car on the way to HQ — exactly
+// the people a samarit needs to ring. The row renders what it is given rather than re-deciding it.
+const callable = computed(() => Boolean(props.entry.phone))
 
 // Whether the thumbnail actually loaded. reka-ui's Avatar swaps in the fallback by itself when an
 // image fails, so names-only degradation is free — but the fallback alone cannot say *why* there

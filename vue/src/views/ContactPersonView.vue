@@ -67,7 +67,10 @@ const initials = computed(() => {
   return (parts[0].slice(0, 1) + parts[parts.length - 1].slice(0, 1)).toUpperCase()
 })
 
-const callable = computed(() => Boolean(person.value?.stillInRace && person.value?.phone))
+// The number's presence is the BFF's decision, not this page's: it is sent unless the member is
+// `released`. See ContactRow for the reasoning — a member who is out of the race is still often
+// somewhere on site and worth reaching.
+const callable = computed(() => Boolean(person.value?.phone))
 </script>
 
 <template>
