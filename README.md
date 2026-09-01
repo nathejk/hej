@@ -155,6 +155,23 @@ not exist in the image), so it is worth running the gates both ways before pushi
 GOWORK=off go build ./... && GOWORK=off go test ./...
 ```
 
+**The dev loop now checks this for you** (`docker/init/api-dev` runs a `GOWORK=off go build`
+as its last gate), because relying on the instruction above was not enough — CI broke on
+exactly this in 2026-09. The failure mode is worth understanding, since it is invisible
+locally: `go.work` makes the sibling `../shared-go` checkout live, so code using a symbol
+that exists only there compiles and tests perfectly on your machine and fails the moment CI
+resolves the version pinned in `go.mod`.
+
+When that happens the fix is two steps, in order:
+
+```sh
+# 1. push shared-go, then
+cd go && go get github.com/nathejk/shared-go@latest && go mod tidy
+```
+
+A `hej` change that needs a `shared-go` change is therefore never a single-repo commit — the
+dependency has to land upstream first.
+
 Frontend type-checking runs in the container, since there is no host Node:
 
 ```sh

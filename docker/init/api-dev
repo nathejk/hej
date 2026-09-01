@@ -59,6 +59,37 @@ port_held() {
     ' /proc/net/tcp /proc/net/tcp6 2>/dev/null
 }
 
+# pinned_build compiles the way CI and production do: GOWORK=off, so shared-go resolves
+# from the version pinned in go.mod rather than from the ../shared-go mount.
+#
+# This gate exists because the dev loop otherwise *cannot* catch the most likely way to break
+# the build. go.work makes edits in the sibling checkout live — which is the point, and also
+# means code using a symbol that exists only there compiles perfectly here and fails the moment
+# CI resolves the pinned module. The README already said to run the gates both ways before
+# pushing; that instruction existed and was not enough (2026-09-01), so it is a gate now.
+#
+# Deliberately build-only, not test: the point is to catch a missing symbol, and running the
+# whole suite a second time on every file save would make the loop unusable.
+#
+# Non-fatal when the module cannot be fetched — an offline dev machine must still get a working
+# loop, and this check is about a mistake, not about connectivity.
+pinned_build() {
+    echo "==> pinned build (GOWORK=off, as CI resolves it)"
+    if GOWORK=off go build ./... 2>/tmp/pinned-build.err; then
+        return 0
+    fi
+    if grep -qiE 'dial tcp|no such host|timeout|connection refused|proxy|verifying' /tmp/pinned-build.err; then
+        echo "==> WARN: could not verify the pinned build (network); skipping"
+        sed 's/^/    /' /tmp/pinned-build.err
+        return 0
+    fi
+    echo "==> ERROR: builds with the workspace but NOT with the version pinned in go.mod."
+    echo "==>        Something here uses a shared-go symbol that only exists in ../shared-go."
+    echo "==>        Push shared-go, then bump: go get github.com/nathejk/shared-go@latest"
+    sed 's/^/    /' /tmp/pinned-build.err
+    return 1
+}
+
 stop() {
     if [ -n "$API_PID" ]; then
         kill "$API_PID" 2>/dev/null || true
@@ -94,13 +125,14 @@ start() {
         return
     fi
 
-    echo "==> gates: get / test / vet / staticcheck / build"
+    echo "==> gates: get / test / vet / staticcheck / build / pinned-build"
     # shellcheck disable=SC2086
     if go get -v ./... \
         && go test -timeout 10s ./... \
         && go vet ./... \
         && go tool staticcheck ./... \
         && go build ./... \
+        && pinned_build \
         && go build ${GO_BUILD_FLAGS:-} -o "$API_BIN" nathejk.dk/cmd/api; then
         echo "==> starting api"
         # No `go run`: $! is now the server, so stop() can actually stop it.
