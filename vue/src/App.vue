@@ -6,6 +6,7 @@ import { useAppStore } from '@/stores/app.store'
 import { useLocationStore } from '@/stores/location.store'
 import { useTrackStore } from '@/stores/track.store'
 import { useOnboardingStore } from '@/stores/onboarding.store'
+import { useOfflineStore } from '@/stores/offline.store'
 import { logEvent } from '@/helpers/trackDb'
 import BottomNav from '@/components/BottomNav.vue'
 import PortraitNudge from '@/components/PortraitNudge.vue'
@@ -21,6 +22,7 @@ const app = useAppStore()
 const location = useLocationStore()
 const track = useTrackStore()
 const onboarding = useOnboardingStore()
+const offline = useOfflineStore()
 const route = useRoute()
 
 // Connectivity (task 090). The browser events are a hint, not the truth —
@@ -62,6 +64,14 @@ onMounted(() => {
   window.addEventListener('offline', handleOffline)
   document.addEventListener('visibilitychange', onVisibility)
   void logEvent('load', document.visibilityState)
+
+  // Ask the browser not to evict our caches (PRD 009, task 185). App level because the request
+  // is per-ORIGIN: one answer covers map tiles, portraits, the contacts directory and the
+  // position track, so tying it to whichever feature happens to run first — as it was, inside
+  // trackDb — made the answer depend on where the user happened to navigate. Doing it on every
+  // mount rather than only in the welcome flow also repairs devices onboarded before this
+  // shipped; the call short-circuits once granted, so it costs nothing to repeat.
+  void offline.ensurePersistence(navigator.storage).then(() => offline.refreshStorage(navigator.storage))
 
   // Position track (task 082). Deliberately started HERE and not in MapsView: that
   // view stops its geolocation watch on `document.hidden` and on unmount, which is

@@ -35,7 +35,8 @@ describe('initial state', () => {
   it('knows nothing about storage until asked', () => {
     const store = useOfflineStore()
     expect(store.usageBytes).toBeNull()
-    expect(store.persisted).toBeNull()
+    expect(store.persistence).toBe('unknown')
+    expect(store.evictable).toBe(false)
     expect(store.headroomBytes()).toBeNull()
   })
 })
@@ -132,7 +133,7 @@ describe('eviction and clearing', () => {
 })
 
 describe('refreshStorage', () => {
-  it('reads usage, quota and persistence', async () => {
+  it('reads usage and quota', async () => {
     const store = useOfflineStore()
     await store.refreshStorage({
       estimate: async () => ({ usage: 500, quota: 10_000 }),
@@ -141,7 +142,20 @@ describe('refreshStorage', () => {
 
     expect(store.usageBytes).toBe(500)
     expect(store.quotaBytes).toBe(10_000)
-    expect(store.persisted).toBe(true)
+    expect(store.persistence).toBe('granted')
+  })
+
+  // `persisted()` returning false cannot tell "asked and refused" from "not asked yet", so
+  // letting it write 'denied' would invent a refusal and warn the user about it.
+  it('never infers a denial from persisted() being false', async () => {
+    const store = useOfflineStore()
+    await store.refreshStorage({
+      estimate: async () => ({ usage: 1 }),
+      persisted: async () => false,
+    })
+
+    expect(store.persistence).toBe('unknown')
+    expect(store.evictable).toBe(false)
   })
 
   it('does nothing when the API is absent', async () => {
@@ -160,6 +174,48 @@ describe('refreshStorage', () => {
       },
     })
     expect(store.usageBytes).toBeNull()
+  })
+})
+
+describe('ensurePersistence', () => {
+  it('records a grant', async () => {
+    const store = useOfflineStore()
+    await store.ensurePersistence({ persist: async () => true })
+    expect(store.persistence).toBe('granted')
+    expect(store.evictable).toBe(false)
+  })
+
+  it('records a refusal, which is the one state worth telling the user about', async () => {
+    const store = useOfflineStore()
+    await store.ensurePersistence({ persist: async () => false })
+    expect(store.persistence).toBe('denied')
+    expect(store.evictable).toBe(true)
+  })
+
+  // Nothing the user can act on, so it must not produce a warning.
+  it('records an unsupported browser without calling it a refusal', async () => {
+    const store = useOfflineStore()
+    await store.ensurePersistence({})
+    expect(store.persistence).toBe('unsupported')
+    expect(store.evictable).toBe(false)
+  })
+
+  // Asking again after a yes can surface a prompt on some engines, and re-asking someone who
+  // already agreed is a good way to have them say no.
+  it('does not ask again once granted', async () => {
+    const store = useOfflineStore()
+    let asked = 0
+    const storage = {
+      persist: async () => {
+        asked++
+        return true
+      },
+    }
+
+    await store.ensurePersistence(storage)
+    await store.ensurePersistence(storage)
+
+    expect(asked).toBe(1)
   })
 })
 

@@ -10,6 +10,8 @@
 // operations and no schema evolution yet. A dependency would be more code than this
 // file, not less.
 
+import { requestPersistence } from '@/helpers/offline/persistence'
+
 const DB_NAME = 'hej-track'
 const DB_VERSION = 2
 const STORE = 'points'
@@ -362,21 +364,17 @@ export async function listPoints(): Promise<TrackPoint[]> {
  * requestPersistentStorage asks the browser not to evict this origin's data, and
  * reports what it decided.
  *
- * Worth calling rather than decorative: WebKit grants persistence "based on
- * heuristics like whether the website is opened as a Home Screen Web App", which is
- * exactly this app's install-first onboarding. Without it the track sits in
- * best-effort storage and can be evicted under pressure — and unlike map tiles, an
- * evicted track cannot be re-fetched from anywhere.
+ * **Delegates to `helpers/offline/persistence.ts` (task 185).** The request is
+ * per-origin — one answer covers the track, the map tiles, the contacts directory and
+ * the app shell — so it no longer belongs to this file. Kept as a named function here
+ * because the track has a specific reason to care that the others do not: an evicted
+ * track cannot be re-fetched from anywhere, while tiles and portraits can.
  *
- * Returns the outcome instead of assuming it, so the answer can be shown to the user
- * (see PrivacyView) rather than hoped for.
+ * Returns a boolean rather than the three-valued outcome because that is all the track
+ * status page shows; `offline.store` keeps the distinction between "denied" and "this
+ * browser does not do persistence".
  */
 export async function requestPersistentStorage(): Promise<boolean> {
-  if (typeof navigator === 'undefined' || !navigator.storage?.persist) return false
-  try {
-    if (await navigator.storage.persisted()) return true
-    return await navigator.storage.persist()
-  } catch {
-    return false
-  }
+  if (typeof navigator === 'undefined') return false
+  return (await requestPersistence(navigator.storage)) === 'granted'
 }

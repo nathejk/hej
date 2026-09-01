@@ -1,6 +1,11 @@
 import { defineStore } from 'pinia'
 
 import {
+  requestPersistence,
+  type PersistenceOutcome,
+  type PersistenceStorageManager,
+} from '@/helpers/offline/persistence'
+import {
   OFFLINE_DATASETS,
   OFFLINE_ORIGIN_BUDGET_BYTES,
   type OfflineDatasetId,
@@ -108,12 +113,13 @@ export const useOfflineStore = defineStore('offline', {
     usageBytes: null as number | null,
     quotaBytes: null as number | null,
     /**
-     * Whether the browser promised not to evict us. Null until asked (task 185).
+     * What the browser said about evicting us, or 'unknown' until asked (task 185).
      *
-     * Three states, not two: "denied" and "never asked" call for different words in the
-     * readiness view, and only one of them is worth telling the user about.
+     * Four values, not a boolean: "denied" and "never asked" and "this browser does not do
+     * persistence" call for different words in the readiness view, and only one of them is
+     * worth telling the user about.
      */
-    persisted: null as boolean | null,
+    persistence: 'unknown' as 'unknown' | PersistenceOutcome,
     /** True when the app is working from cache rather than the network (task 188). */
     servingFromCache: false,
     /** Datasets dropped to reclaim space, most recent first (task 186). */
@@ -156,6 +162,16 @@ export const useOfflineStore = defineStore('offline', {
     /** True while any dataset is fetching, so one progress indicator can cover them all. */
     syncing(state): boolean {
       return OFFLINE_DATASETS.some((d) => state.statuses[d.id].state === 'syncing')
+    },
+
+    /**
+     * True when the phone may remove this data — the only persistence state worth a sentence.
+     *
+     * 'unsupported' is excluded deliberately: nothing the user can act on, and a warning about
+     * a decision no browser made is noise that teaches people to ignore the surface.
+     */
+    evictable(state): boolean {
+      return state.persistence === 'denied'
     },
 
     /** True when at least one dataset has been reported on. Distinguishes cold from empty. */
@@ -201,6 +217,22 @@ export const useOfflineStore = defineStore('offline', {
     },
 
     /**
+     * Ask for persistent storage, once per session, and remember the answer.
+     *
+     * Called at app level rather than from a feature: the request is per-origin, so one answer
+     * covers every cache. PRD 009 asks for it "at install/onboarding", and the app's first mount
+     * *is* onboarding for a new install — doing it on every mount instead of only in the welcome
+     * flow also repairs devices that were onboarded before this shipped, which a
+     * once-per-install hook would have left permanently evictable.
+     *
+     * Cheap to call repeatedly: `requestPersistence` short-circuits when already granted.
+     */
+    async ensurePersistence(storage: PersistenceStorageManager | undefined) {
+      if (this.persistence === 'granted') return
+      this.persistence = await requestPersistence(storage)
+    },
+
+    /**
      * Read the origin's real usage. Guarded, because `navigator.storage` is absent in some
      * engines and this must not be the thing that breaks a page.
      */
@@ -212,7 +244,12 @@ export const useOfflineStore = defineStore('offline', {
           this.usageBytes = estimate.usage ?? null
           this.quotaBytes = estimate.quota ?? null
         }
-        if (storage.persisted) this.persisted = await storage.persisted()
+        // Only ever *upgrades* the answer. A `persisted()` of false does not distinguish "asked
+        // and refused" from "not asked yet", so letting it write 'denied' here would invent a
+        // refusal nobody made and put a warning in front of the user for it.
+        if (storage.persisted && this.persistence === 'unknown' && (await storage.persisted())) {
+          this.persistence = 'granted'
+        }
       } catch {
         // A private-mode browser can throw here. Leaving the values null is honest: the
         // readiness view then says it does not know, rather than showing a confident zero.
