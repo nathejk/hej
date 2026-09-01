@@ -312,9 +312,15 @@ on their own.
   - `stores/offline.store.ts` — the one new piece: aggregate sync state, progress, storage
     estimate, persistence state and per-dataset status. Features report into it; the
     readiness view and the shell indicator read from it. It holds no data of its own.
-  - `helpers/offline/` — the budget and eviction policy, and the priority order as data,
-    kept free of feature specifics. Deliberately small; if it grows a query language or a
-    plugin system, something has gone wrong (§4).
+  - `config/offline.ts` — the declaration: which datasets exist, their budgets, the priority
+    order (array order *is* the order) and the `unrecoverable` flag. It sits in `config/`
+    rather than `helpers/offline/` for the reason `config/cache.ts` gives: that file is
+    imported by `vite.config.ts` at build time and must stay free of browser-only imports, and
+    the tile budget is already split across the two (entry cap there, bytes here). Splitting
+    them across halves of the tree would guarantee they drift. *(Decided in task 183.)*
+  - `helpers/offline/` — the logic: eviction, the storage-kind adapters, quota handling. Kept
+    free of feature specifics. Deliberately small; if it grows a query language or a plugin
+    system, something has gone wrong (§4).
   - **Three storage kinds exist, and that is accepted:** the **Cache API** (via Workbox
     routes) for binaries served by the service worker — tiles, portraits; **IndexedDB** for
     structured data that is large or unrecoverable — the track; **`localStorage`** for small
