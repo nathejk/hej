@@ -1,11 +1,11 @@
 # PRD 012 — Switch profile from the app bar
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed)
 **Created:** 2026-09-01
 **Last updated:** 2026-09-01
 **Approved:** 2026-09-01
-**Shipped:**
+**Shipped:** 2026-09-01
 **Target users:** anyone whose phone number carries more than one profile — in practice a member with duplicate registrations, and a parent or sibling sharing a handset
 
 ---
@@ -217,10 +217,18 @@ sync, and only for people no longer visible. It is not a substitute for keying.
 
 Server first, since the client cannot draw the control until `/api/me` reports the count.
 
-- [ ] Task: `POST /api/auth/switch` + `profile_count` on `/api/me`, with tests
-- [ ] Task: per-profile storage keys for the contacts directory and favourites
-- [ ] Task: shared candidate-list component, reused by the login chooser
-- [ ] Task: `Skift profil` in `UserMenu` — dialog, switch, land on `/maps`
+- [x] Task 179: `POST /api/auth/switch` + `profile_count` on `/api/me`, with tests
+- [x] Task 180: per-profile storage keys for the contacts directory and favourites
+- [x] Task 181: shared candidate-list component, reused by the login chooser
+- [x] Task 182: `Skift profil` in `UserMenu` — dialog, switch, land on `/maps`
+
+All four shipped 2026-09-01. Two things worth carrying forward from the build:
+
+- **The switch completes with a full page load**, not a router push. Persisted state is keyed per
+  profile, but in-memory stores are not, and a reload is the only move that cannot leave a stale one
+  behind through a path somebody later forgets to reset.
+- **`profileCount` is also set by the login chooser**, from its candidate count, so the switcher is
+  not missing for the rest of the session that just disambiguated.
 
 ## 11. Open Questions
 

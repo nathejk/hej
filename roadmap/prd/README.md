@@ -127,6 +127,6 @@ Repo specifics to respect:
 | 009 | Offline-first client data layer | draft |
 | 010 | Vehicle registration | draft |
 | 011 | Post-race experience | draft |
-| 012 | Switch profile from the app bar | doing |
+| 012 | Switch profile from the app bar | done |
 
 Keep this table current when a PRD is added or changes folder.
