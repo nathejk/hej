@@ -155,6 +155,20 @@ services:
       #
       # 30 days is a conservative placeholder awaiting a maintainer's number.
       PORTRAIT_RETENTION: ${PORTRAIT_RETENTION:-720h}
+      # How long a phone may keep its cached contacts directory (task 193, PRD 009 §6).
+      #
+      # The deadline is issued by the server and baked into the payload, because a
+      # client-side TTL is defeated by the likeliest thing to be wrong on a phone — its
+      # clock — and by anyone who would rather keep other people's numbers. It is also
+      # the only lever that reaches a **dormant device**: a phone that never reopens the
+      # app after the event, where no purge job, service worker or push will ever run.
+      #
+      # 14 days, and it must stay in step with PORTRAIT_CACHE_MAX_AGE_SECONDS in the
+      # frontend (src/config/cache.ts) — the names and the faces expire together on
+      # purpose, since a directory with no photos and photos with no names are both worse
+      # than neither. 0 disables the deadline, which in production means "keep this
+      # forever"; diagnostic only.
+      CACHED_DIRECTORY_TTL: ${CACHED_DIRECTORY_TTL:-336h}
       # Retain the uploaded image at full resolution, metadata stripped (task 111),
       # so thumbnail sizes can be regenerated later instead of applying only to
       # portraits taken after a change.

@@ -147,6 +147,34 @@ type config struct {
 	// diagnostic run — not as a supported production setting.
 	portraitRetention time.Duration
 
+	// cachedDirectoryTTL is how long a device may keep its copy of the contacts directory
+	// before it must throw it away (PRD 009 §6, task 193).
+	//
+	// # Why the server issues this rather than the client computing it
+	//
+	// A client-side TTL is defeated by the thing most likely to be wrong on a phone at 03:00:
+	// the clock. A device whose date is set back a month would extend its own retention, and a
+	// user who wants to keep a directory of other people's phone numbers has an easy way to do
+	// it. So the deadline is a timestamp the server puts in the payload, and the client's job is
+	// only to obey it.
+	//
+	// # Why an expiry exists at all
+	//
+	// It is the only lever we hold over a **dormant device** — a phone that never reopens the app
+	// after the event, where no purge, no service worker and no push will ever run again (PRD 009
+	// §11.5, PRD 007 §11.8). A baked-in deadline is checked the next time the app opens at all,
+	// whenever that is, which is more than any server-side purge can promise.
+	//
+	// Fourteen days, matching `PORTRAIT_CACHE_MAX_AGE_SECONDS` on the client — the index and the
+	// faces expire together on purpose, because a directory of names with no photos and a set of
+	// photos with no names are both worse than neither. Long enough for a participant who
+	// prepares a fortnight early; short enough that the data is gone within a fortnight of the
+	// race whatever the device does afterwards.
+	//
+	// Zero or negative disables the deadline. That is for a diagnostic run, not a supported
+	// production setting: it means "keep other people's phone numbers on this phone forever".
+	cachedDirectoryTTL time.Duration
+
 	// portraitKeepOriginal decides whether the uploaded image is retained at its own
 	// resolution alongside the display renditions (task 111).
 	//
@@ -188,6 +216,7 @@ func loadConfig() config {
 	flag.StringVar(&cfg.blobPath, "blob-path", envStr("BLOB_PATH", ""), "Directory for binary objects such as portraits (empty keeps them in memory)")
 	flag.StringVar(&cfg.eventYear, "event-year", envStr("EVENT_YEAR", currentYear()), "Event year the member directory reads (defaults to the current year)")
 	flag.DurationVar(&cfg.portraitRetention, "portrait-retention", envDuration("PORTRAIT_RETENTION", 30*24*time.Hour), "How long a portrait is kept after capture before it is purged (0 disables the purge)")
+	flag.DurationVar(&cfg.cachedDirectoryTTL, "cached-directory-ttl", envDuration("CACHED_DIRECTORY_TTL", 14*24*time.Hour), "How long a device may keep its cached contacts directory (0 disables the deadline)")
 	flag.BoolVar(&cfg.portraitKeepOriginal, "portrait-keep-original", envBool("PORTRAIT_KEEP_ORIGINAL", true), "Retain the uploaded image at full resolution (metadata stripped) so renditions can be regenerated later")
 	flag.Parse()
 	return cfg

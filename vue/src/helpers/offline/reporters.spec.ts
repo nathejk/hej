@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { PORTRAIT_CACHE_NAME, TILE_CACHE_NAME } from '@/config/cache'
 import type { CacheLike, CacheStorageLike } from '@/helpers/offline/eviction'
 import { browserEvictors } from '@/helpers/offline/evictors'
-import { reportCaches } from '@/helpers/offline/reporters'
+import { purgeSensitiveData, reportCaches } from '@/helpers/offline/reporters'
 import { useOfflineStore } from '@/stores/offline.store'
 
 beforeEach(() => {
@@ -86,6 +86,37 @@ describe('reportCaches', () => {
     await reportCaches(undefined)
 
     expect(store.statuses.tiles.state).toBe('empty')
+  })
+})
+
+describe('purgeSensitiveData', () => {
+  // Both halves, or neither. A directory of names with no faces and a set of faces with no names are
+  // both worse than neither, and a half-done purge is the kind of thing that reads as done.
+  it('deletes the portrait bytes as well as the index', async () => {
+    const portraits = cacheOf(['https://hej/api/contacts/people/a/photo'])
+    const api = caches({ [PORTRAIT_CACHE_NAME]: portraits })
+
+    const store = useOfflineStore()
+    store.report('directory', { state: 'synced', complete: true, syncedAt: 5 })
+    store.report('portraits', { state: 'synced', itemCount: 1 })
+
+    await purgeSensitiveData(api)
+
+    expect(await portraits.keys()).toHaveLength(0)
+    expect(store.statuses.directory.state).toBe('empty')
+    expect(store.statuses.portraits.state).toBe('empty')
+    // The last-synced time survives a purge: "you had this until the event ended" is a different and
+    // more honest thing to show than "you never had it".
+    expect(store.statuses.directory.syncedAt).toBe(5)
+  })
+
+  it('still clears the index when the Cache API is unavailable', async () => {
+    const store = useOfflineStore()
+    store.report('directory', { state: 'synced', complete: true })
+
+    await purgeSensitiveData(undefined)
+
+    expect(store.statuses.directory.state).toBe('empty')
   })
 })
 

@@ -43,6 +43,16 @@ type contactsManifest struct {
 	// answers that question without sending the people again.
 	Version string `json:"version"`
 
+	// ExpiresAt is when the device must throw this copy away, as epoch milliseconds (task 193).
+	//
+	// **Server-issued on purpose.** A client-computed deadline is defeated by a wrong device
+	// clock, which is both the likeliest accident on a phone at 03:00 and the easiest way for
+	// someone to keep a directory of other people's numbers past its welcome. Epoch ms rather
+	// than a duration for the same reason: a duration would have to be added to a local clock.
+	//
+	// Zero means no deadline, which happens only when the TTL is configured off.
+	ExpiresAt int64 `json:"expiresAt,omitempty"`
+
 	// Entries is one row per (person, group) pair, ordered deterministically.
 	Entries []contactEntry `json:"entries"`
 }
@@ -148,7 +158,7 @@ func canPlaceRoleIn(role users.Role, pop Population) bool {
 type Population = users.Population
 
 // @Summary      Contacts directory manifest
-// @Description  The people the caller may list, with grouping, phone numbers, portrait versions and a still-in-race flag. This is the payload the client caches for offline use. Spejdere are never included — crew reach them only through the patrol lookup. Guardian numbers and postal addresses are never included. Supports `If-None-Match`; the version is the ETag.
+// @Description  The people the caller may list, with grouping, phone numbers, portrait versions and a still-in-race flag. This is the payload the client caches for offline use. Spejdere are never included — crew reach them only through the patrol lookup. Guardian numbers and postal addresses are never included. Carries `expiresAt` (epoch ms): the device must discard the copy after it, and the deadline is server-issued so a wrong device clock cannot extend it. Supports `If-None-Match`; the version is the ETag.
 // @Tags         contacts
 // @Produce      json
 // @Param        If-None-Match  header    string  false  "version held by the client"
@@ -217,7 +227,11 @@ func (app *application) buildContactsManifest(viewer users.User) (contactsManife
 		// No projection configured (a database-less run). An empty directory with a
 		// stable version is the honest answer: the client shows "nothing synced yet"
 		// rather than an error it cannot act on.
-		return contactsManifest{Version: contactsVersion(nil), Entries: []contactEntry{}}, nil
+		return contactsManifest{
+			Version:   contactsVersion(nil),
+			ExpiresAt: app.cachedDirectoryExpiry(),
+			Entries:   []contactEntry{},
+		}, nil
 	}
 
 	people, err := app.models.People.ListByAppRoles(app.config.eventYear, listableRolesFor(viewer.Role))
@@ -264,7 +278,29 @@ func (app *application) buildContactsManifest(viewer users.User) (contactsManife
 		return a.ID < b.ID
 	})
 
-	return contactsManifest{Version: contactsVersion(people), Entries: entries}, nil
+	return contactsManifest{
+		Version:   contactsVersion(people),
+		ExpiresAt: app.cachedDirectoryExpiry(),
+		Entries:   entries,
+	}, nil
+}
+
+// cachedDirectoryExpiry is the deadline the device is given for this copy.
+//
+// Measured from *now* rather than from anything on the rows, which is deliberate and slightly
+// generous: every refetch extends the deadline, so a phone in daily use keeps its directory
+// indefinitely while the event is running — which is what we want — and the clock only really
+// starts on the last sync before the device goes quiet. That is exactly the dormant device the
+// deadline exists for.
+//
+// Note the expiry is deliberately **not** part of the version hash. If it were, every request
+// would produce a new version, every device would refetch the whole manifest on every poll, and
+// the freshness endpoint's entire purpose — costing nothing — would be gone.
+func (app *application) cachedDirectoryExpiry() int64 {
+	if app.config.cachedDirectoryTTL <= 0 {
+		return 0
+	}
+	return time.Now().Add(app.config.cachedDirectoryTTL).UnixMilli()
 }
 
 func newContactEntry(p person.Person, subject users.User, pop users.Population, groups []users.Group) contactEntry {

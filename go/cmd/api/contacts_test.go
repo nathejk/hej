@@ -496,6 +496,67 @@ func TestContactsManifest_VersionIsPerViewer(t *testing.T) {
 	}
 }
 
+// The device is given a deadline it did not compute (task 193, PRD 009 §6).
+//
+// The point of a *server-issued* expiry is that the one thing most likely to be wrong on a phone at
+// 03:00 — its clock — cannot extend it, and neither can a user who would like to keep a directory of
+// other people's phone numbers.
+func TestContactsManifest_CarriesAServerIssuedExpiry(t *testing.T) {
+	app, _ := contactsTestApp(t, []person.Person{banditRow()})
+	app.config.cachedDirectoryTTL = 14 * 24 * time.Hour
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, m := fetchManifest(t, app, srv, "30000002", "+4530000002")
+
+	if m.ExpiresAt == 0 {
+		t.Fatal("the manifest carried no expiry, so the copy on the device would outlive the event")
+	}
+	expected := time.Now().Add(14 * 24 * time.Hour).UnixMilli()
+	if diff := m.ExpiresAt - expected; diff > 5_000 || diff < -5_000 {
+		t.Errorf("expiry is %d ms from the configured TTL", diff)
+	}
+}
+
+// Zero TTL means no deadline. Only for a diagnostic run — in production it means "keep other
+// people's phone numbers on this phone forever" — but it must be an *absent* field rather than a
+// deadline in 1970, which the client would read as already expired and so never keep anything.
+func TestContactsManifest_NoExpiryWhenTTLDisabled(t *testing.T) {
+	app, _ := contactsTestApp(t, []person.Person{banditRow()})
+	app.config.cachedDirectoryTTL = 0
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, m := fetchManifest(t, app, srv, "30000002", "+4530000002")
+
+	if m.ExpiresAt != 0 {
+		t.Errorf("expected no expiry, got %d", m.ExpiresAt)
+	}
+}
+
+// The expiry must NOT be part of the version, or every poll would look like a change: every device
+// would refetch the whole manifest every 60 seconds and the cheap version endpoint would be
+// pointless. This is the test that catches someone folding the timestamp into the hash.
+func TestContactsManifest_ExpiryDoesNotChangeTheVersion(t *testing.T) {
+	app, _ := contactsTestApp(t, []person.Person{banditRow()})
+	app.config.cachedDirectoryTTL = time.Hour
+	// No version caching, so a repeated request really recomputes rather than replaying an answer.
+	app.contactsVersions = newVersionCache(0)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, first := fetchManifest(t, app, srv, "30000002", "+4530000002")
+	time.Sleep(2 * time.Millisecond)
+	_, second := fetchManifest(t, app, srv, "30000002", "+4530000002")
+
+	if first.Version != second.Version {
+		t.Error("the version changed although only the expiry did, so every poll would trigger a full refetch")
+	}
+	if first.ExpiresAt == second.ExpiresAt {
+		t.Error("the expiry did not move between requests, so this test is not proving anything")
+	}
+}
+
 // A run without a database must degrade to an empty directory rather than an error the
 // client cannot act on.
 func TestContactsManifest_NoProjection(t *testing.T) {

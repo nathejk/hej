@@ -63,6 +63,15 @@ function since(at: number | null): string {
   return `for ${days} ${days === 1 ? 'dag' : 'dage'} siden`
 }
 
+// Coarse on purpose: "om 12 dage" is what the sentence needs. An exact timestamp would invite the
+// question of whether it is precise, which it is not — the deadline moves forward on every sync.
+function until(at: number): string {
+  const days = Math.round((at - Date.now()) / 86_400_000)
+  if (days <= 0) return 'snart'
+  if (days === 1) return 'i morgen'
+  return `om ${days} dage`
+}
+
 // Every state gets words, and no state gets colour alone: this is read in bright sun and at 04:00,
 // and a coloured dot is unreadable in both.
 const STATE_COPY: Record<
@@ -100,6 +109,10 @@ const rows = computed<Row[]>(() =>
     // Stored, current and incomplete is its own thing: a map that covers part of the area is
     // useful, and calling it "Klar" would be the dishonesty this whole surface exists to avoid.
     if (status.complete === false && status.state === 'synced') parts.push('ikke komplet')
+    // Named rather than hidden: a participant is owed the fact that this data removes itself, both
+    // because it explains a pane that empties on its own and because "we do not keep this" is worth
+    // saying out loud about other people's phone numbers and photographs.
+    if (status.expiresAt) parts.push(`slettes ${until(status.expiresAt)}`)
 
     return {
       id: dataset.id,

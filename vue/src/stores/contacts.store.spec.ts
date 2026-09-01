@@ -81,7 +81,13 @@ beforeEach(() => {
 describe('hydrate', () => {
   it('reads a stored copy so a cold offline start renders', () => {
     const { store } = storeWith({
-      [STORAGE_KEY]: JSON.stringify({ schema: 1, version: 'v1', syncedAt: 1000, entries: [entry()] }),
+      [STORAGE_KEY]: JSON.stringify({
+        schema: 2,
+        version: 'v1',
+        syncedAt: 1000,
+        expiresAt: Date.now() + 60_000,
+        entries: [entry()],
+      }),
     })
 
     store.hydrate()
@@ -89,6 +95,60 @@ describe('hydrate', () => {
     expect(store.entries).toHaveLength(1)
     expect(store.version).toBe('v1')
     expect(store.syncedAt).toBe(1000)
+    expect(store.expired).toBe(false)
+  })
+
+  // The check that actually enforces retention, because it is the only one that runs on a **dormant
+  // device**: a phone that has not opened the app since the event, where no purge job, service worker
+  // or push will ever run again. A server-issued deadline is the only lever we hold there.
+  it('throws away a copy that is past its server-issued deadline', () => {
+    const { store, storage } = storeWith({
+      [STORAGE_KEY]: JSON.stringify({
+        schema: 2,
+        version: 'v1',
+        syncedAt: 1000,
+        expiresAt: Date.now() - 1,
+        entries: [entry({ phone: '+4530000002' })],
+      }),
+    })
+
+    store.hydrate()
+
+    expect(store.entries).toEqual([])
+    // Gone from storage too, not merely unread — otherwise the numbers are still on the device for
+    // anyone who looks, which is the whole point of the deadline.
+    expect(storage.data[STORAGE_KEY]).toBeUndefined()
+    // Flagged, so the portrait bytes go with it: half a purge reads as done and is not.
+    expect(store.expired).toBe(true)
+  })
+
+  it('keeps a copy with no deadline, which is what a disabled TTL produces', () => {
+    const { store } = storeWith({
+      [STORAGE_KEY]: JSON.stringify({
+        schema: 2,
+        version: 'v1',
+        syncedAt: 1000,
+        expiresAt: 0,
+        entries: [entry()],
+      }),
+    })
+
+    store.hydrate()
+
+    expect(store.entries).toHaveLength(1)
+  })
+
+  // Schema 1 payloads predate the deadline. Discarded rather than migrated: the data is one request
+  // away, and a migration would have to invent an expiry for a payload stored without one — which is
+  // exactly the client-computed deadline the server-issued one exists to avoid.
+  it('discards a payload from before deadlines existed', () => {
+    const { store } = storeWith({
+      [STORAGE_KEY]: JSON.stringify({ schema: 1, version: 'v1', syncedAt: 1000, entries: [entry()] }),
+    })
+
+    store.hydrate()
+
+    expect(store.entries).toEqual([])
   })
 
   it('starts empty when nothing is stored', () => {

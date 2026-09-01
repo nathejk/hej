@@ -57,6 +57,8 @@ export interface ContactGroup {
 
 interface ManifestResponse {
   version: string
+  /** Server-issued deadline, epoch ms. Absent when the TTL is configured off. */
+  expiresAt?: number
   entries: ContactEntry[] | null
 }
 
@@ -80,12 +82,20 @@ const LEGACY_STORAGE_KEY = 'hej.contacts.v1'
 // and is not: bumping the key orphans the old value until the browser evicts it, while the
 // field lets a future version recognise and discard what it finds. Cheap insurance against a
 // shape change reaching a device that skipped a release.
-const SCHEMA = 1
+//
+// **Bumped to 2 in task 193**, when `expiresAt` was added. Discarding rather than migrating is
+// the right move for this dataset and worth saying why: the data is re-fetchable in one request,
+// and a migration would have to invent a deadline for a payload that was stored without one —
+// which is precisely the client-computed expiry the server-issued one exists to avoid. A device
+// upgrading mid-event refetches once, on the next foreground check.
+const SCHEMA = 2
 
 interface StoredPayload {
   schema: number
   version: string
   syncedAt: number
+  /** Server-issued deadline, epoch ms. Zero when the server issued none. */
+  expiresAt: number
   entries: ContactEntry[]
 }
 
@@ -169,6 +179,7 @@ function isStoredPayload(v: unknown): v is StoredPayload {
     typeof p.schema === 'number' &&
     typeof p.version === 'string' &&
     typeof p.syncedAt === 'number' &&
+    typeof p.expiresAt === 'number' &&
     Array.isArray(p.entries) &&
     p.entries.every(isContactEntry)
   )
@@ -193,9 +204,25 @@ export const useContactsStore = defineStore('contacts', {
     version: '',
     /** When the copy was fetched, as epoch ms. Null when never. */
     syncedAt: null as number | null,
+    /**
+     * Server-issued deadline for this copy, epoch ms. Zero when the server issued none.
+     *
+     * Server-issued because a client-computed TTL is defeated by the likeliest thing to be wrong on
+     * a phone — its clock — and by anyone who would like to keep other people's numbers past the
+     * event (PRD 009 §6, task 193).
+     */
+    expiresAt: 0,
     loading: false,
     /** True once hydration has run, so the pane can tell "empty" from "not read yet". */
     hydrated: false,
+    /**
+     * True when hydration found a copy past its server-issued deadline and threw it away.
+     *
+     * Recorded rather than silently handled, because something else has to act on it: the portrait
+     * bytes live in a Cache API bucket this store knows nothing about, and they must go at the same
+     * time (task 193). A flag is how the two halves of one purge stay one purge.
+     */
+    expired: false,
     /**
      * True when the BFF says this role has no contacts pane (403).
      *
@@ -274,6 +301,7 @@ export const useContactsStore = defineStore('contacts', {
         schema: SCHEMA,
         version: this.version,
         syncedAt: this.syncedAt ?? Date.now(),
+        expiresAt: this.expiresAt,
         entries: this.entries,
       }
 
@@ -299,6 +327,7 @@ export const useContactsStore = defineStore('contacts', {
       clearStored(this.storage, this.storageKey)
       this.syncedAt = null
       this.version = ''
+      this.expiresAt = 0
     },
 
     /** Loads the stored copy. Safe to call repeatedly; only the first call reads storage. */
@@ -313,9 +342,24 @@ export const useContactsStore = defineStore('contacts', {
       const stored = readStored(this.storage, this.storageKey)
       if (!stored) return
 
+      // Expired: throw it away rather than show it. This is the check that actually enforces the
+      // retention rule, because it is the only one that runs on a **dormant device** — a phone that
+      // never reopened the app until now, where no purge job, service worker or push ever ran.
+      //
+      // `>` against `Date.now()` on a deadline the *server* set is as good as it gets: a device with
+      // a clock set backwards keeps the copy a while longer, but cannot extend the deadline itself,
+      // and one with a clock set forward simply discards early. The failure mode is bounded either
+      // way, which a client-computed TTL cannot claim.
+      if (stored.expiresAt > 0 && Date.now() > stored.expiresAt) {
+        clearStored(this.storage, this.storageKey)
+        this.expired = true
+        return
+      }
+
       this.entries = stored.entries
       this.version = stored.version
       this.syncedAt = stored.syncedAt
+      this.expiresAt = stored.expiresAt
     },
 
     /**
@@ -337,6 +381,7 @@ export const useContactsStore = defineStore('contacts', {
 
         this.entries = data.entries ?? []
         this.version = data.version
+        this.expiresAt = data.expiresAt ?? 0
         this.syncedAt = Date.now()
         this.forbidden = false
         this.error = ''
@@ -350,6 +395,7 @@ export const useContactsStore = defineStore('contacts', {
           this.entries = []
           this.version = ''
           this.syncedAt = null
+          this.expiresAt = 0
           this.error = ''
           clearStored(this.storage, this.storageKey)
           return

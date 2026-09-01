@@ -115,7 +115,37 @@ export function reportDirectory() {
     // The stored JSON is what occupies the quota, not the in-memory objects. UTF-16 in
     // localStorage, hence the doubling.
     bytes: contacts.entries.length ? JSON.stringify(contacts.entries).length * 2 : 0,
+    expiresAt: contacts.expiresAt || null,
   })
+}
+
+/**
+ * Delete the sensitive datasets: the directory index and the portrait bytes, together.
+ *
+ * Together on purpose. A directory of names with no faces and a set of faces with no names are both
+ * worse than neither, and half a purge is the kind of thing that reads as done and is not. The
+ * client-side half of task 193; the server keeps its own schedule (`portraitpurge.go`).
+ *
+ * Called when the index turns out to be past its server-issued deadline — which, on a device that
+ * has not opened the app since the event, is the only moment anything of ours will ever run again.
+ */
+export async function purgeSensitiveData(caches: CachesApi | undefined) {
+  const contacts = useContactsStore()
+  const offline = useOfflineStore()
+
+  contacts.clearLocalCopy()
+  offline.markCleared('directory')
+
+  if (caches) {
+    try {
+      const cache = await caches.open(PORTRAIT_CACHE_NAME)
+      for (const key of await cache.keys()) await cache.delete(key)
+    } catch {
+      // Nothing to do but carry on: the cache's own 14-day `maxAgeSeconds` is the backstop, which is
+      // why the two numbers were deliberately set to match.
+    }
+  }
+  offline.markCleared('portraits')
 }
 
 /**
@@ -136,6 +166,15 @@ export function reportDirectory() {
 export async function registerOfflineDatasets(caches: CachesApi | undefined) {
   const offline = useOfflineStore()
   const contacts = useContactsStore()
+
+  // Enforce the retention deadline before anything else reads the copy.
+  //
+  // `hydrate` drops an expired payload from storage and sets `expired`; the flag exists because the
+  // *other* half of the purge is the portrait bytes, which live in a cache the contacts store knows
+  // nothing about. Running the check on every launch is the point: a device that never reopens the
+  // app after the event is exactly the one no server-side purge can reach.
+  contacts.hydrate()
+  if (contacts.expired) await purgeSensitiveData(caches)
 
   offline.registerHandlers('directory', {
     sync: async () => {
