@@ -96,10 +96,12 @@ login form for an app they cannot use.
   counter is a separate piece of work on `hq`'s own board, not a requirement of this
   PRD and not a condition for shipping it. Changes to `shared-go` **are** in scope,
   since the event and the member field have to be declared somewhere shared.
-- Building offline content sync. This PRD **hosts** PRD 009's first-sync step as
-  an optional onboarding step (step 6); the mechanism, budget and readiness UI are
-  009's. *(Revised 2026-08-25 — previously this non-goal excluded offline sync
-  outright, contradicting 009.)*
+- Building offline content sync. This PRD **hosts** PRD 009's prepare-for-offline step as
+  an optional onboarding step (step 6); the budget, size estimate and readiness UI are
+  009's, and the fetching is each cached feature's own. *(Revised 2026-08-25 — previously
+  this non-goal excluded offline sync outright, contradicting 009. Revised 2026-09-01 — 009
+  was rescoped and no longer owns a generic sync mechanism, only the shared policy and the
+  readiness surface.)*
 - A full profile / settings surface for revisiting permissions — that belongs to
   PRD 003 (profile page), which this PRD depends on for the "I declined, let me
   fix it later" path.
@@ -158,11 +160,12 @@ W4. User accepts; Chrome installs. The wall switches to "Åbn appen" / "Du kan n
    Granted or denied, the flow continues.
 5. **Notifications**: explanation screen, then `notifications.store.enable()`
    (permission + push subscription + POST to BFF).
-6. **Offline preparation** (slot, owned by PRD 009): its first sync — portraits, map
-   tiles, the rulebook and the rest — with one combined progress view and a size
-   estimate. Skippable, and best done here because the user is usually on wifi with
-   the app open. Absent from the flow until 009 is approved, and **tracked on 009's
-   tasks, not this PRD's** *(revised 2026-08-30)*.
+6. **Offline preparation** (slot, owned by PRD 009): a prepare-for-offline action — map
+   tiles, portraits, the rulebook and the rest — with one combined progress view and a size
+   estimate, and the request for storage persistence. Skippable, and best done here because
+   the user is usually on wifi with the app open. **PRD 009 was approved 2026-09-01**, so this
+   slot is now live and built by **task 194** — still tracked on 009's tasks, not this PRD's
+   *(revised 2026-08-30, updated 2026-09-01)*.
 
 A **vehicle step** also belongs in this flow, for bandit/gøgler/crew only — owned by
 PRD 010, which specifies it. It is not numbered here because its position depends on
@@ -299,10 +302,12 @@ the app on the home screen onwards is the same.
          until 010 is approved
       5. `location`
       6. `notifications`
-      7. `offline first sync` — specified by PRD 009; absent until 009 is approved
+      7. `offline first sync` — specified by PRD 009, **approved 2026-09-01**; built by
+         task 194
       Steps 4 and 7 are **flag-gated slots**: the step machine must treat the
       sequence as data, so an unapproved PRD cannot change this list
-      *(clarified 2026-08-30 — §5 and §6 previously disagreed on the step count)*.
+      *(clarified 2026-08-30 — §5 and §6 previously disagreed on the step count)*. Step 7's
+      flag can now be turned on when task 194 lands; step 4 still waits on PRD 010.
 - [ ] The **profile confirmation** step shows the user's registered details and
       the **parent/guardian emergency contact number** masked to its last two
       digits (`11 22 33 **`), requires those two digits to be typed, and requires

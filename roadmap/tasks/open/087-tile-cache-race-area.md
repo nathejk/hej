@@ -115,8 +115,12 @@ past its design scale, so z17 adds bytes and no map information.
       (268 MB)
 - [ ] Cached tiles are served when offline; areas outside the cache degrade with a clear
       notice rather than blank grey
-- [ ] Registered as a dataset on PRD 009's shared layer, drawing on the global budget —
-      tiles are the largest dataset, so keeping them outside it would defeat the budget
+- [ ] Declared in PRD 009's priority order with its size, drawing on the global budget —
+      tiles are the largest dataset by far (~99% of it), so keeping them outside it would
+      defeat the budget. *Not a registration call: PRD 009's dataset registry and generic
+      sync engine were cut on 2026-09-01 (009 §4, §11.2), precisely because this cache had
+      already shipped and works. What is owed is a declared size, a rank — **last, evicted
+      first, highest zoom first** (009 §6) — and reporting into `offline.store`.*
 - [ ] Actual usage reported via `navigator.storage.estimate()` in the readiness view, not
       inferred from tile counts
 - [ ] `QuotaExceededError` handled: the cache stops growing and says so, rather than failing
@@ -135,10 +139,17 @@ re-fetched.
 
 ## Depends on
 
-- **Task 088** — the race area itself.
-- PRD 009's shared offline layer (still in `draft/`). If 009 has not landed when this is
-  picked up, decide deliberately whether to wait or build map-local caching and migrate; the
-  PRD warns that retrofitting is real work.
+- **Task 088** — the race area itself. **Done**, and served by `GET /api/race-area`. The area
+  is derived from this year's checkpoints and **does not change during an event** (maintainer,
+  2026-09-01), so the download has a fixed target: 5,291 tiles / 324 MB for 2026. Pre-event it
+  can still move, since the checkpoint set is edited until late — hence the re-sync criterion
+  above.
+- PRD 009's **budget** — **decided 2026-09-01** (009 §6), so this is no longer blocked on it.
+  Tiles get ~500 MB planned inside a ~1 GB origin ceiling, and they sit **last** in the
+  priority order: tiles are the dataset that gets evicted to protect the app shell, the
+  directory, portraits and — above all — unshipped local writes, highest zoom first. The
+  counter-argument that eviction is irreversible in the field is recorded and was weighed:
+  a lost tile costs a map the participant can survive without; a lost track never existed.
 
 ## Progress Log
 
@@ -213,3 +224,8 @@ re-fetched.
   cannot exercise this at all, and there is no browser in this environment. Someone needs to
   load a production build and confirm tiles are served from `nathejk-map-tiles-v1` with the
   network offline. That is the same production-build check task 036 is already waiting on.
+
+- 2026-09-01 — PRD 009 review settled the two inputs this task was waiting on: the priority
+  order (tiles last, evicted first, highest zoom first) and the race area (derived from
+  checkpoints, fixed during an event). No longer blocked on 009 for anything but its readiness
+  surface; the bulk download can be built.

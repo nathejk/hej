@@ -21,7 +21,7 @@ would each silently undo it. Enforcement therefore has to be mechanical:
 - `Cache-Control: no-store` on the lookup and its photo endpoint (task 157);
 - the routes excluded from the service worker's runtime caching in `vite.config.ts` /
   `push-sw.js`;
-- the lookup not registered as a PRD 009 dataset (task 161);
+- the lookup never declared as a cached dataset under PRD 009 (task 161);
 - and a test that actually inspects storage after a lookup.
 
 ## Acceptance Criteria

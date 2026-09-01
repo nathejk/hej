@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed / Claude Opus 5)
 **Created:** 2026-08-24
-**Last updated:** 2026-08-25
+**Last updated:** 2026-09-01
 **Approved:** 2026-08-24
 **Shipped:**
 **Target users:** spejder (patrol members) primarily; bandit, postmandskab, guide, samarit secondarily
@@ -66,11 +66,14 @@ available both as map markers and as a chronological list.
   the owner of the *design decision* for how a position track would be transported
   (telemetry stream vs direct write) even though building it stays out of scope.
   Deciding is in scope; implementing is not.
-- **Building offline tile caching.** Tiles are registered as a **PRD 009 dataset**
-  (cache-first, budgeted, priority-ordered) rather than cached ad hoc here; this PRD
-  must not add its own precache, runtime cache or storage policy for tile hosts.
+- **Building offline tile caching.** Tiles are cached under **PRD 009's shared budget and
+  priority order** rather than to an ad-hoc policy invented here.
   *(Revised 2026-08-25 — previously this read "the service worker must not attempt
-  to precache them", which contradicted PRD 009. See §11.2.)*
+  to precache them", which contradicted PRD 009. Revised again 2026-09-01: PRD 009 was
+  rescoped and no longer offers a generic layer to register with, and task 087 has since
+  shipped the tile `runtimeCaching` route in `vue/vite.config.ts`. So the Workbox config for
+  tiles does live in this repo, under this PRD's task — what remains 009's is the budget,
+  the priority order and the readiness surface. See §11.2.)*
 - **Routing, navigation instructions, distance-to-next-post calculations.**
 - **Drawing the course, post locations we have not yet visited, or zone
   boundaries.** Only *our own* registrations are plotted.
@@ -223,7 +226,8 @@ available both as map markers and as a chronological list.
 
 - **Performance:** first meaningful map paint under 2s on a 4G connection; the
   map library must be lazily loaded so it does not weigh down the app shell
-  bundle. This PRD adds no tile caching of its own; caching is PRD 009's (§11.2).
+  bundle. The tile cache's *policy* — budget, priority, eviction — is PRD 009's (§11.2);
+  its Workbox route is task 087's and lives here.
 - **Battery:** use a single `watchPosition` subscription owned by the store,
   suspended when the document is hidden.
 - **Accessibility:** controls are ≥44px touch targets with `aria-label`s; the
@@ -423,12 +427,12 @@ Proposal: add an optional `meta: { fullBleed: true }` on the route and have
     failure mode (§11).
   - WMS at night in rural areas with weak coverage: tiles may fail; the UI must
     degrade rather than break.
-  - **Blocked by drafts for two sub-scopes only:** PRD 008 for the position
-    telemetry mechanism (§11.1) and PRD 009 for tile caching (§11.2). The map,
-    layers and scan history are unblocked and ship first — do not hold them.
-  - Tile fetching policy stays here (do not preload unselected layers); the
-    **storage budget and cache policy are PRD 009's**, so this PRD adds no Workbox
-    configuration of its own.
+  - **No longer blocked by a draft.** PRD 008 shipped, the tile cache route shipped with task
+    087, and PRD 009 was approved 2026-09-01 with the tile budget decided (~500 MB planned,
+    tiles last in the eviction order). The map, layers and scan history were unblocked
+    throughout and ship first — do not hold them.
+  - Tile fetching policy stays here (do not preload unselected layers), as does the Workbox
+    route; the **storage budget and cross-dataset priority order are PRD 009's**.
   - The scan data source is the real dependency risk: until the Nathejk scan
     projection is available, this ships against a mock and its usefulness during
     a real event is unproven.
@@ -648,12 +652,16 @@ revisiting here before they are built.
 
    Task 082 should still measure the real behaviour on a device, not to decide whether to
    build it, but to know what coverage to expect and to catch anything worse than predicted.
-2. **Do map tiles move onto the shared offline layer?** PRD 009 introduces one
-   sync engine, one storage budget and one readiness surface for everything
-   cacheable. Tiles are probably the **largest** cached dataset, so leaving them
-   outside that budget largely defeats it — portraits (PRD 007) and tiles otherwise
-   compete for the same per-origin quota with no agreed priority, and the OS decides
-   what to evict. Retrofitting is real work; doing it later is more.
+2. **Do map tiles move onto the shared offline layer?** Tiles are the **largest** cached
+   dataset by far, so leaving them outside the global budget largely defeats it — portraits
+   (PRD 007) and tiles otherwise compete for the same per-origin quota with no agreed
+   priority, and the OS decides what to evict.
+
+   **Answered, in two halves.** *Storage policy:* yes — tiles are declared under PRD 009's
+   budget and priority order (009 §11.1). *Mechanism:* no — PRD 009 was rescoped on
+   2026-09-01 and cut its generic sync engine and dataset registry, partly because this
+   cache had already shipped on Workbox and worked. So the tile cache stays where it is and
+   observes 009's policy; there is nothing to migrate onto.
 
    **Scope decided 2026-08-26, then superseded the same day by measuring the actual race
    area.** The decision history is kept because the reasoning still applies if the area

@@ -130,8 +130,8 @@ can be favourited.
 ### Primary path — bandit, offline
 
 1. Before the event (on wifi, at check-in), the app syncs the people this user's
-   role permits, as metadata plus small thumbnails, into local storage managed by
-   PRD 009.
+   role permits, as metadata plus small thumbnails, into local storage owned by this
+   feature (`stores/contacts.store.ts`) under PRD 009's shared budget.
 2. During the race the bandit opens `Kontakter` with no signal.
 3. Favourites sit at the top. Below them, banditter grouped by klan, with the
    user's own klan expanded and the others collapsed.
@@ -251,7 +251,8 @@ can be favourited.
       main search, and a single indistinguishable "not found" for every miss.
 - [ ] The patrol lookup is **live and not cached** (2026-08-31): fetched on demand,
       held in memory for the duration of the lookup, never written to local storage and
-      never registered as a PRD 009 dataset. No spejder record is stored on any device.
+      never cached, and never declared as a dataset under PRD 009. No spejder record is
+      stored on any device.
 - [ ] With no connectivity the lookup **fails clearly** — "kræver forbindelse", with a
       pointer to the radio — rather than showing an empty patrol or a stale one.
 - [ ] The server returns **only** the people the caller's role permits. No
@@ -261,14 +262,17 @@ can be favourited.
       role and group, from the directory (PRD 006).
 - [ ] Portraits are served as the existing **`thumb256`** rendition (task 104/110),
       not as originals.
-- [ ] **Portraits and the person index register as PRD 009 datasets** — the
+- [ ] **Portraits and the person index are declared under PRD 009's budget** — the
       crew/bandit/gøgler directory only. Cache-first binary for images, structured data
       for the index, high priority, server-issued expiry, purged after the event. The
-      patrol lookup is **not** a dataset and is not registered.
+      patrol lookup is **not** a cached dataset. *(Reworded 2026-09-01: PRD 009's dataset
+      registry and generic engine were cut, so this is a declared size and rank plus
+      reporting into its readiness store, not a registration — task 161.)*
 - [ ] The **metadata index is separable from the images**, so search, groups and
       favourites keep working when thumbnails have been evicted.
-- [ ] Endpoints follow **PRD 009's manifest/delta convention**
-      (`If-None-Match` / version) so the generic engine can drive them.
+- [ ] Endpoints follow the **version/manifest convention** that this PRD's own endpoints
+      established and PRD 009 §8 has since adopted as the shared one: `version` in the
+      JSON body, with a separate cheap version endpoint for polling.
 - [ ] **Directory updates reach devices during the event without much delay**
       (2026-08-31). Concretely: a change made upstream is visible in the pane
       **immediately when the app is brought to the foreground**, and **within ~60
@@ -350,7 +354,9 @@ What this settles:
 - **Battery- and data-frugal, split by sync class.** These are two different jobs and
   one rule cannot serve both:
   - **Bulk sync** (portrait images, first full index) — never on mobile data
-    unprompted, and not during the race by default. Enforced by PRD 009's engine.
+    unprompted, and not during the race by default. PRD 009 §6 now states this as the
+    shared rule for bulk transfers, with the caveat that "wifi-only" is not
+    implementable on iOS: the restriction is *user-initiated with a size estimate*.
   - **Incremental metadata deltas** (a new crew member, a changed number, a
     withdrawal) — **allowed during the race and on mobile data**, because they are a
     few hundred bytes and freshness is the point. A version check while the app is open
@@ -502,11 +508,11 @@ status, and image fetches follow. A corrected number appearing a minute before t
 portrait does is fine; the reverse is not.
 
 This mechanism is generic — "tell me if this dataset changed" is not portrait-specific
-— so **it belongs in PRD 009's engine**, with this PRD as the consumer that requires
-it. If 009 does not provide a freshness/invalidation contract, this requirement forces
-this PRD to build one, which is the duplication 009 exists to prevent. Worth raising
-against 009 explicitly, since its current draft frames sync as a pre-event readiness
-problem rather than a during-event freshness one.
+— so **the convention belongs to PRD 009**, with this PRD as the consumer that requires
+it. *Resolved 2026-09-01 (task 171): it was built here first out of necessity — tasks 155
+and 162 — and PRD 009 §6/§8 now documents this implementation as the shared convention
+rather than proposing a different one. The one part still unbuilt is field-level removal in
+a delta, which is a PRD 009 §6 requirement with its own task.*
 
 ### Member status — decided (task 150)
 
@@ -555,13 +561,15 @@ assumed.
 
 ### Frontend (Vue 3 / TS)
 
-**The sync mechanism is not built here.** The generic sync engine, storage budget,
-eviction policy and readiness UI belong to **PRD 009**. This pane is its most
-demanding consumer, not its owner. What this PRD contributes:
+**The shared policy is not set here.** The storage budget, eviction priority order and
+readiness UI belong to **PRD 009**. This pane is its most demanding consumer, not its
+owner. Note 009 was rescoped on 2026-09-01: there is no generic sync engine to defer to,
+so this feature owns its own fetch-and-store (`stores/contacts.store.ts`, `localStorage`)
+and observes 009's policy. What this PRD contributes:
 
-- Dataset registrations: portraits (cache-first, binary, high priority,
-  server-issued expiry) and the person index (structured, searchable, survives
-  image eviction).
+- Sizing, priority and expiry declarations for portraits (cache-first, binary, high
+  priority, server-issued expiry) and the person index (structured, searchable, survives
+  image eviction) — task 161.
 - `views/ContactsView.vue` + `components/contacts/*`: search field, favourites
   section, grouped accordion, portrait dialog.
 - Thumbnails compose the existing shadcn-vue `avatar` primitive — the same one PRD
@@ -571,8 +579,11 @@ demanding consumer, not its owner. What this PRD contributes:
   comment already in `navigation.ts`: a destination without `roles` is visible to
   every signed-in role including the `crew` fallback, so this must gate explicitly.
 
-If PRD 009 is not approved, this PRD has to build a private sync engine — the
-outcome 009 exists to prevent, and the reason to sequence 009 first.
+PRD 009 is approved (2026-09-01) and its priority order places this pane's data above map
+tiles. Even if its tasks slip, this pane keeps working: its storage and its freshness loop
+already
+ship. What it loses is a place in the global priority order and a readiness surface — a
+real cost, but no longer a blocking one.
 
 ### BFF (Go)
 
@@ -704,8 +715,11 @@ outcome 009 exists to prevent, and the reason to sequence 009 first.
 
 - **Blocked by PRD 006** (roles and groups), **by PRD 003/005** (portrait capture —
   largely landed), **by PRD 008** (persistence, blob store, events — done).
-  **Needs PRD 009's mechanism**, which is still in `draft/`; 009 in turn needs only
-  this PRD's sizing numbers, which §6 now supplies. Sequence 009 first.
+  **Wants PRD 009's budget and readiness surface** — **approved 2026-09-01** and now in
+  `doing/`; 009 in
+  turn needs only this PRD's sizing numbers, which §6 supplies. Downgraded from "needs
+  009's mechanism" on 2026-09-01: 009 no longer proposes a mechanism this must be built
+  on, so the dependency is a decision (the priority order, 009 §11.1) rather than code.
 - **No longer blocked by PRD 006 Q3.** Collapsing samarit/guide/postmandskab into
   crew removes the dependency on settling the crew-function taxonomy. Worth noting
   in PRD 006 that this consumer's need has changed.
@@ -723,9 +737,10 @@ outcome 009 exists to prevent, and the reason to sequence 009 first.
   this app generates during the race, and it lands on the same BFF as position
   reporting (PRD 002). The endpoint must be trivially cheap and the interval must be
   configurable at runtime, so it can be widened without shipping a release.
-- **Risk: PRD 009 does not cover during-event freshness.** Its draft frames sync as
-  pre-event readiness. If the invalidation contract is not part of 009, this PRD builds
-  a private one and the duplication 009 exists to prevent happens anyway.
+- ~~**Risk: PRD 009 does not cover during-event freshness.**~~ **Closed 2026-09-01.** The
+  mechanism was built here (tasks 155, 162) and PRD 009 §6/§8 now carries it as the shared
+  convention, including the served poll interval. The residual is field-level removal in a
+  delta, which is the separate risk two bullets above.
 - **Risk: the samarit has no signal.** The motivating scenario — 03:00 in woodland — is
   the one where the lookup is least likely to work, and this design accepts that. The
   mitigation is not technical: the radio and HQ already answer "who am I looking for",
@@ -733,9 +748,10 @@ outcome 009 exists to prevent, and the reason to sequence 009 first.
   the existing chain. Worth revisiting if crew report coverage is worse than assumed —
   the reversal (cache the lookup) is a known, costed option, documented in §8.
 - **Risk: the lookup gets cached by accident.** A service worker route added later, a
-  well-meaning "offline support" change, or a generic PRD 009 registration would
+  well-meaning "offline support" change, or a blanket "make it work offline" pass would
   silently undo the central privacy property. `no-store` plus an explicit exclusion
-  from the SW routes, plus a test, are what make the decision durable.
+  from the SW routes, plus a test, are what make the decision durable. PRD 009 §4 names
+  this lookup as something it must not touch.
 - **Risk: the patrol lookup drifts into a browser.** It is one product decision away
   from becoming the index of minors' faces this design exists to avoid — a
   recent-lookups list, a prefix search "for convenience", or a patrol picker would
@@ -812,8 +828,8 @@ Proposed tasks for `roadmap/tasks/open/`:
       403/404, reusing `portrait.go`
 - [ ] Task: hide the `contacts` destination for `spejder` (nav `roles` + router
       guard + test)
-- [ ] Task: register the directory as PRD 009 datasets (index + images, TTL, priority)
-      — explicitly excluding the patrol lookup
+- [ ] Task: declare the directory's datasets under PRD 009's budget (index + images,
+      size, priority, server-issued expiry) — explicitly excluding the patrol lookup
 - [ ] Task: ContactsView — grouped accordion, own group expanded by default
 - [ ] Task: contact row component — avatar left, name + grey group line, phone right,
       favourite toggle
