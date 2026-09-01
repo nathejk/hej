@@ -1,6 +1,11 @@
 import { defineStore } from 'pinia'
 
 import {
+  reclaim,
+  type EvictionResult,
+  type EvictorMap,
+} from '@/helpers/offline/eviction'
+import {
   requestPersistence,
   type PersistenceOutcome,
   type PersistenceStorageManager,
@@ -193,16 +198,43 @@ export const useOfflineStore = defineStore('offline', {
     },
 
     /**
-     * Record that a dataset's payload is gone although it had synced.
+     * Record that a dataset lost cached data to make room, or to the OS.
      *
      * Kept as its own action rather than a `report({ state: 'evicted' })` call because the
      * consequence is different: the last-synced time is *retained*. "You had this an hour ago
      * and the phone removed it" is a very different sentence from "you never had this", and it
      * is the one iOS makes us say (PRD 009 §5).
+     *
+     * `emptied` distinguishes the two cases the user experiences differently: the whole dataset
+     * is gone, or some of it was trimmed. Trimming tiles is the normal outcome of a quota
+     * eviction and leaves a perfectly usable map with a smaller area — calling that "evicted"
+     * would overstate it, while calling it "synced" would hide that coverage shrank.
      */
-    markEvicted(id: OfflineDatasetId) {
-      this.statuses[id] = { ...this.statuses[id], state: 'evicted', complete: false, bytes: 0 }
+    markEvicted(id: OfflineDatasetId, emptied = true) {
+      this.statuses[id] = {
+        ...this.statuses[id],
+        state: emptied ? 'evicted' : this.statuses[id].state,
+        complete: false,
+        ...(emptied ? { bytes: 0 } : {}),
+      }
       if (!this.evicted.includes(id)) this.evicted.unshift(id)
+    },
+
+    /**
+     * Free space, in the declared priority order, and record what it cost.
+     *
+     * Called by a dataset owner that has just caught a `QuotaExceededError` — not on a timer and
+     * not from a size watcher. Eviction runs when something actually needs room, because guessing
+     * at "nearly full" from `navigator.storage.estimate()` means acting on a number iOS rounds
+     * and pads.
+     *
+     * The evictors are handed in rather than built here: this store deliberately owns no storage
+     * (task 184), and the adapters belong to the features that do.
+     */
+    async reclaimSpace(evictors: EvictorMap, targetBytes?: number): Promise<EvictionResult> {
+      const result = await reclaim(evictors, targetBytes)
+      for (const id of result.evicted) this.markEvicted(id, false)
+      return result
     },
 
     /** Reset a dataset to "nothing stored", after a purge or a manual clear. */

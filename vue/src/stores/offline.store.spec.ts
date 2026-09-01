@@ -121,6 +121,32 @@ describe('eviction and clearing', () => {
     expect(store.missing).toContain('tiles')
   })
 
+  // Trimming tiles is the normal outcome of a quota eviction: the map still works, it just covers
+  // less. Calling that 'evicted' overstates it; calling it 'synced' hides that coverage shrank.
+  it('keeps a trimmed dataset usable but incomplete', () => {
+    const store = useOfflineStore()
+    reportAll(store)
+    store.markEvicted('tiles', false)
+
+    expect(store.statuses.tiles.state).toBe('synced')
+    expect(store.statuses.tiles.complete).toBe(false)
+    expect(store.statuses.tiles.bytes).toBe(10)
+    expect(store.evicted).toContain('tiles')
+  })
+
+  it('records what reclaiming space cost', async () => {
+    const store = useOfflineStore()
+    reportAll(store)
+
+    const result = await store.reclaimSpace({ tiles: { evict: async () => 5_000 } }, 1_000)
+
+    expect(result.freedBytes).toBe(5_000)
+    expect(store.evicted).toEqual(['tiles'])
+    // Trimmed, not emptied — the map still has everything except the deepest zoom it dropped.
+    expect(store.statuses.tiles.state).toBe('synced')
+    expect(store.statuses.tiles.complete).toBe(false)
+  })
+
   it('keeps the last-synced time after a clear too', () => {
     const store = useOfflineStore()
     store.report('directory', present)

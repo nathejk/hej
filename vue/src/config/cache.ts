@@ -30,6 +30,15 @@ export const TILE_CACHE_NAME = 'nathejk-map-tiles-v1'
  * Eviction is least-recently-used. PRD 009 notes eviction is irreversible in the field — a
  * tile discarded in a dead spot cannot be re-fetched — which is the reason this cap is
  * generous rather than tight: browsing outside the race area must not evict the area itself.
+ *
+ * **Who owns eviction for this cache** (decided in task 186, since two mechanisms now touch it):
+ * Workbox's `expiration` owns *routine* trimming — it enforces this entry cap on every write,
+ * least-recently-used, and is the only thing that runs inside the service worker.
+ * `helpers/offline/eviction.ts` owns *quota-pressure* eviction — it runs in the app, only after a
+ * write has actually failed, and deletes by descending zoom. They do not conflict because they
+ * answer different questions ("is this cache too long?" versus "is the origin full?"), but neither
+ * may be given the other's job: an LRU pass under quota pressure would discard whatever the user
+ * last looked away from, which in a forest is the area they are walking into.
  */
 export const TILE_CACHE_MAX_ENTRIES = 12_000
 
