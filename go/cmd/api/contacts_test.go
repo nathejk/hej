@@ -443,6 +443,42 @@ func TestContactsManifest_VersionTracksContent(t *testing.T) {
 	}
 }
 
+// A person leaving the caller's permitted set must *disappear*, and the version must move so a
+// device that already synced actually comes back for the smaller payload (task 191, PRD 009 §5
+// "permission narrowed while offline").
+//
+// The distinction being tested is subtle and it is the whole point: a row vanishing from the
+// payload is not the same as a row that stops being *updated*. A device holding the earlier
+// manifest keeps that person, with their phone number, until something tells it to replace what it
+// has — so "the server stopped sending them" only becomes "the device stopped holding them" if the
+// version changes too. Without that, narrowing someone's access would leave every already-synced
+// phone with the wider directory indefinitely, which is exactly the decision the server has to make
+// and the client cannot.
+func TestContactsManifest_NarrowedAccessRemovesThePersonAndMovesTheVersion(t *testing.T) {
+	app, stub := contactsTestApp(t, []person.Person{banditRow(), crewBanditRow()})
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, before := fetchManifest(t, app, srv, "30000002", "+4530000002")
+	if len(before.Entries) < 2 {
+		t.Fatalf("expected both people in the first sync, got %d entries", len(before.Entries))
+	}
+
+	// The crew-bandit is reassigned and is no longer part of this viewer's world.
+	stub.listed = []person.Person{banditRow()}
+
+	_, after := fetchManifest(t, app, srv, "30000002", "+4530000002")
+
+	for _, e := range after.Entries {
+		if e.ID == crewBanditRow().PersonID {
+			t.Errorf("a person who left the permitted set is still listed: %+v", e)
+		}
+	}
+	if before.Version == after.Version {
+		t.Error("the version did not change, so a synced device would never refetch and would keep the removed person and their number")
+	}
+}
+
 // Two viewers with different permitted sets must get different versions, so one person's
 // edit does not invalidate everybody's cache.
 func TestContactsManifest_VersionIsPerViewer(t *testing.T) {

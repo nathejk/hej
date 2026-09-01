@@ -181,6 +181,46 @@ describe('fetch', () => {
     expect(storage.data[STORAGE_KEY]).not.toContain('+4530000002')
   })
 
+  // The general form of the test above, added in task 191.
+  //
+  // That one covers the case we know about — a purged phone number. This covers the *rule*: **no
+  // optional field survives a payload that omits it.** Worth stating generally because the next
+  // sensitive field will not be `phone`. `crewFunction` reveals where someone is posted and
+  // `portraitVersion` is a handle on their photograph; if either could linger after the server
+  // stopped sending it, the purge would be decorative for those fields while looking like it worked
+  // for the one field that has a test.
+  it('lets no omitted field survive a refetch', async () => {
+    getMock = () =>
+      Promise.resolve(
+        manifest([
+          entry({ phone: '+4530000002', crewFunction: 'Samarit', portraitVersion: 'abc123' }),
+        ]),
+      )
+    const { store, storage } = storeWith()
+    await store.fetch()
+
+    getMock = () =>
+      Promise.resolve(
+        manifest(
+          [entry({ phone: undefined, crewFunction: undefined, portraitVersion: undefined })],
+          'v2',
+        ),
+      )
+    await store.fetch()
+
+    const held = store.entries[0]
+    expect(held.phone).toBeUndefined()
+    expect(held.crewFunction).toBeUndefined()
+    expect(held.portraitVersion).toBeUndefined()
+
+    // And nothing lingers in storage either — the copy that survives a reload is the one that
+    // matters, and the one an inspection of the device would find.
+    const stored = storage.data[STORAGE_KEY] ?? ''
+    for (const gone of ['+4530000002', 'Samarit', 'abc123']) {
+      expect(stored, `"${gone}" survived in storage`).not.toContain(gone)
+    }
+  })
+
   it('drops people who leave the permitted set', async () => {
     getMock = () => Promise.resolve(manifest([entry({ id: 'a' }), entry({ id: 'b' })]))
     const { store, storage } = storeWith()

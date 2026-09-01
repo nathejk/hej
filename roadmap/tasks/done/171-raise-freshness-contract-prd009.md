@@ -1,8 +1,9 @@
 # 171 — Raise the freshness/invalidation contract against PRD 009
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-31
+**Completed:** 2026-09-01
 
 ## Description
 
@@ -43,10 +44,11 @@ Status of the four points originally put to 009:
       **approved 2026-09-01** — so this is settled, not pending.
 - [x] Tasks 155 and 162 — shipped ahead of 009 by necessity; 009 now documents them as the
       convention rather than asking them to consume a different one.
-- [ ] PRD 007 §8 updated with the outcome.
-- [ ] Field-level removal carried into 009's delta-shape task, and 007 §8's freshness
-      section pointed at it. *Carried — **task 191**, created on 009's approval. This task
-      closes when 191 does.*
+- [x] PRD 007 §8 updated with the outcome.
+- [x] Field-level removal carried into 009's delta-shape task — **task 191**, which concluded that
+      no delta should be built: the manifest is a full replacement and replacement expresses removal
+      exactly. The rule is recorded in PRD 009 §6, and the two gaps the existing tests left are
+      closed.
 
 ## Progress Log
 
@@ -56,3 +58,8 @@ Status of the four points originally put to 009:
   unbuilt. Reduced to a documentation follow-up on PRD 007 §8.
 - 2026-09-01 — PRD 009 approved. Field-level removal is now task 191, and the convention
   write-up is task 190. This task is a stub pending those two.
+- 2026-09-01 — **Closed.** Task 191 settled the last point, and settled it by *not* building a
+  delta: the directory is replaced wholesale on every fetch, so a field the server stops sending
+  stops existing on the device. All four points originally raised here are now either implemented
+  (155, 162), recorded as PRD 009 §6 requirements, or answered as not-needed. Task 190 still owns
+  writing the poll convention up for the next consumer.

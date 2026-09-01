@@ -511,8 +511,10 @@ This mechanism is generic — "tell me if this dataset changed" is not portrait-
 — so **the convention belongs to PRD 009**, with this PRD as the consumer that requires
 it. *Resolved 2026-09-01 (task 171): it was built here first out of necessity — tasks 155
 and 162 — and PRD 009 §6/§8 now documents this implementation as the shared convention
-rather than proposing a different one. The one part still unbuilt is field-level removal in
-a delta, which is a PRD 009 §6 requirement with its own task.*
+rather than proposing a different one. Removal was the one point left, and task 191 settled it
+by **not** building a delta: this manifest is a full replacement, so a field the server stops
+sending stops existing on the device. PRD 009 §6 records the rule — replace while a dataset fits
+one payload; tombstones are mandatory if a delta ever becomes necessary.*
 
 ### Member status — decided (task 150)
 
@@ -728,10 +730,12 @@ real cost, but no longer a blocking one.
   reduces it to a live read plus a coarse still-in-race flag. Left unresolved, the
   likely failure is someone quietly adding a second status field to `person` and the
   two repos disagreeing during the race.
-- **Risk: a decorative purge.** If the sync delta cannot remove a field, withdrawn
-  members' numbers stay on every device that synced earlier and the purge is a
-  server-side gesture only. Worth verifying with a test that syncs, withdraws, and
-  re-syncs.
+- ~~**Risk: a decorative purge.**~~ **Closed 2026-09-01 (task 191).** The risk was that a sync
+  delta could not remove a field, leaving withdrawn members' numbers on every device that synced
+  earlier. There is no delta: the manifest is replaced wholesale, and tests on both sides now assert
+  that no omitted field survives a refetch — `phone`, `crewFunction` and `portraitVersion` — and that
+  a person leaving the permitted set both disappears *and* moves the version, so a synced device
+  comes back for the smaller payload.
 - **Risk: the freshness poll is a new load pattern.** A few hundred devices calling a
   version endpoint every 60 s is not large, but it is the first *continuous* traffic
   this app generates during the race, and it lands on the same BFF as position

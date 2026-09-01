@@ -252,8 +252,18 @@ on their own.
       position reporting, and the interval must be widenable *during* an event. Keep the
       shipped semantics: **0 disables the interval but not the foreground and reconnect
       checks**, so "reduce load" can never silently become "stop updating".
-- [ ] **Deltas must be able to express removal**, field-level as well as row-level, so a
-      cached value can be unset rather than merely not resent. (Task 171.)
+- [ ] **Removal must be expressible, and full replacement is how** (settled in task 191). While a
+      dataset fits in one payload, the convention is **replace, never merge**: the client throws away
+      what it held and stores what arrived, so a field that stops being sent stops existing on the
+      device. The contacts directory already works this way and is well under a megabyte for the
+      largest role, so there is nothing to gain from a delta and something to lose — a merge is what
+      makes a server-side purge decorative. A dataset that outgrows one payload may use a delta, and
+      then it **must carry explicit tombstones** for removed rows and unset fields; "send only what
+      changed" cannot express "this is gone" and must not be adopted without them.
+- [ ] **A removal must also move the version.** "The server stopped sending them" only becomes "the
+      device stopped holding them" if the freshness check notices, so narrowing someone's access has
+      to change the version as well as the payload — otherwise every already-synced phone keeps the
+      wider directory indefinitely. (Task 191.)
 - [ ] **Metadata/index kept separate from binaries**, so lists and search survive the
       eviction of large assets — names must work when portraits are gone.
 - [ ] **Server-driven scope**: the server returns only what the caller may hold; the client
@@ -436,7 +446,8 @@ Tasks created in `roadmap/tasks/open/` on approval (2026-09-01):
 - [ ] **188** — global offline / cached-data indicator in the app shell
 - [ ] **189** — generate the shadcn-vue `badge` primitive
 - [ ] **190** — document the version-check + poll convention, generalising tasks 155/162
-- [ ] **191** — delta shape that can express field-level removal *(closes task 171)*
+- [ ] Task: **191** — removal semantics: replace-not-merge, tombstones only if a delta ever
+      becomes necessary, and a version that moves when a row disappears *(closes task 171)*
 - [ ] **192** — reconcile the existing caches with the agreed budget — tiles, directory, track,
       shell. *No rewrites; declared sizes, ranks and flags. This is the task that decides
       whether this PRD took effect or merely produced a document.*
