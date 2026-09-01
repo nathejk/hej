@@ -36,8 +36,22 @@ cost of having cut the registry.
 - [ ] The patrol lookup is **absent** from all of it, with a comment saying why — it is
       `no-store` by decision and caching it would undo PRD 007's central privacy property
       (tasks 157, 170).
-- [ ] Task 161 satisfied or reduced to what remains of it.
+
+Carried from **task 161**, folded in here 2026-09-01:
+
+- [ ] The directory's **metadata index is independently usable when images are absent or
+      evicted** — search, groups and favourites keep working on names alone. This is what the
+      index/binary separation is *for*, so it needs an actual test with the portrait cache
+      emptied, not just a separate storage location.
+- [ ] Bulk image sync stays pre-race and user-initiated; **metadata deltas are exempt** and may
+      run during the race on mobile data (PRD 007 §6, PRD 009 §6). "WiFi-only" is not
+      implementable on iOS — the restriction is *user-initiated with a size estimate*.
+- [ ] Sizing handed to the budget: ~151 banditter ≈ 0.7 MB, ~99 gøglere ≈ 0.4 MB, ~20 crew
+      ≈ 0.1 MB at `thumb256` ≈ 4.5 KB (tasks 078, 104) — under ~1 MB for the largest role.
 
 ## Progress Log
 
 - 2026-09-01 — Task created on PRD 009's approval.
+- 2026-09-01 — **Task 161 folded in and closed as superseded.** It covered the same work for
+  two of these four datasets; doing it separately would have meant two passes over one
+  declaration. Its criteria are carried above verbatim.

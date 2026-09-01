@@ -1,8 +1,16 @@
 # 161 — Declare the directory's datasets under PRD 009's budget
 
-**Status:** open
+**Status:** done
 **Priority:** medium
 **Created:** 2026-08-31
+**Completed:** 2026-09-01
+
+> **Closed 2026-09-01 as superseded — folded into task 192.** Not because it was done, but
+> because PRD 009's approval turned it into a subset of another task. Its substance moved into
+> **192** (reconcile the existing caches with the agreed budget), which does the same job for
+> all four caches at once, and **183** (the order as data). Its acceptance criteria were
+> carried across verbatim rather than summarised, so nothing is lost. Kept here for the
+> reasoning below, which 192 references.
 
 ## Description
 
@@ -64,3 +72,8 @@ this task to whatever 192 does not cover — or close it into 192 if nothing is 
   "register with the engine". Blocker narrowed to 009 §11.1's priority order — and then removed
   the same day: the order was confirmed and 009 approved, placing this feature's data above map
   tiles. Overlaps tasks 183 and 192, created on that approval.
+- 2026-09-01 — **Closed as superseded, folded into task 192.** Splitting "declare this feature's
+  two datasets" from "declare the other two" would have meant two passes over the same
+  declaration and the same reporting seam, with the second inevitably tidying the first.
+  Criteria carried into 192 verbatim, including the two that were specific to this feature: the
+  index staying usable when images are gone, and the bulk/metadata sync-class split.

@@ -829,7 +829,9 @@ Proposed tasks for `roadmap/tasks/open/`:
 - [ ] Task: hide the `contacts` destination for `spejder` (nav `roles` + router
       guard + test)
 - [ ] Task: declare the directory's datasets under PRD 009's budget (index + images,
-      size, priority, server-issued expiry) — explicitly excluding the patrol lookup
+      size, priority, server-issued expiry) — explicitly excluding the patrol lookup.
+      *Now **task 192**; task 161 was folded into it on 2026-09-01 so all four caches are
+      reconciled in one pass.*
 - [ ] Task: ContactsView — grouped accordion, own group expanded by default
 - [ ] Task: contact row component — avatar left, name + grey group line, phone right,
       favourite toggle
