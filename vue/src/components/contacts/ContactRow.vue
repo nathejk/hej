@@ -20,8 +20,8 @@
 // Composes the shadcn-vue `avatar` primitive directly, like PRD 003's ProfilePhoto does. It is
 // deliberately not reused from there: that component owns an upload flow, which a read-only
 // directory row has no business inheriting.
-import { computed } from 'vue'
-import { Phone, Star } from '@lucide/vue'
+import { computed, ref } from 'vue'
+import { ImageOff, Phone, Star } from '@lucide/vue'
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { formatPhone } from '@/helpers'
@@ -68,6 +68,25 @@ const subtitle = computed(() => {
 // the call action here as well as the number is the point: the row must not offer to ring
 // somebody who has gone home.
 const callable = computed(() => props.entry.stillInRace && Boolean(props.entry.phone))
+
+// Whether the thumbnail actually loaded. reka-ui's Avatar swaps in the fallback by itself when an
+// image fails, so names-only degradation is free — but the fallback alone cannot say *why* there
+// is no face, and the two reasons need different reactions from the reader:
+//
+//   - no portrait on file (skippable at onboarding, so common) — nothing to do about it;
+//   - a portrait exists but this device has not got the bytes (never synced, or the OS evicted
+//     the cache, which iOS does within days for an unused web app) — worth knowing, because it
+//     means going online will fill it in.
+//
+// PRD 007 §6 asks for exactly this distinction: "no photo" must not read as "not synced yet".
+const imageFailed = ref(false)
+
+function onImageStatus(status: 'idle' | 'loading' | 'loaded' | 'error') {
+  imageFailed.value = status === 'error'
+}
+
+// A portrait we know exists but cannot show.
+const portraitMissingLocally = computed(() => Boolean(props.entry.portraitVersion) && imageFailed.value)
 </script>
 
 <template>
@@ -84,9 +103,25 @@ const callable = computed(() => props.entry.stillInRace && Boolean(props.entry.p
       :aria-label="`Vis ${entry.name}`"
       @click="emit('open', entry.id)"
     >
-      <Avatar size="lg">
-        <AvatarImage v-if="photoUrl" :src="photoUrl" :alt="entry.name" />
+      <Avatar size="lg" class="relative">
+        <AvatarImage
+          v-if="photoUrl"
+          :src="photoUrl"
+          :alt="entry.name"
+          @loading-status-change="onImageStatus"
+        />
         <AvatarFallback class="bg-slate-700 text-slate-200">{{ initials }}</AvatarFallback>
+        <!-- Marks "we have a photo of this person, this device just does not have it" — as
+             distinct from the initials alone, which mean there is no photo on file. Small and
+             unobtrusive: it is a fact about the device, not about the person. -->
+        <span
+          v-if="portraitMissingLocally"
+          class="absolute -bottom-0.5 -right-0.5 rounded-full bg-slate-900 p-0.5"
+          title="Billedet er ikke hentet til denne enhed"
+          aria-label="Billedet er ikke hentet til denne enhed"
+        >
+          <ImageOff class="size-3 text-slate-400" />
+        </span>
       </Avatar>
 
       <span class="min-w-0 flex-1">
