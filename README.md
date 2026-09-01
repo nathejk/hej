@@ -23,6 +23,19 @@ the frontend through Vite's HMR, the API through a watch loop that re-runs the g
 (test / vet / staticcheck / build) on every `.go` or `.sql` change and refuses to start
 if any of them fail.
 
+**HMR does not reach an app installed to a home screen.** The PWA uses
+`registerType: 'prompt'`, so an installed client keeps serving its precached bundle until
+the update prompt is accepted — deliberate, so a bundle never swaps under a participant
+mid-race, and confusing during development, because the device shows old UI with nothing in
+the logs to explain it. Reinstall the app (iOS) or *Clear & reset* the site (Android) to
+refresh it. Full detail, including how to rule out the code in one command, is in the
+`docker-dev-stack` skill.
+
+**Testing on a real device needs more than the dev stack.** `hej.local.nathejk.dk` resolves
+to `127.0.0.1`, which from a phone is the phone — and plain `http://<LAN-IP>` is not a
+substitute, because the service worker, install prompt and geolocation all require a secure
+context. Use a tunnel or a tailnet hostname; see `roadmap/tasks/open/172-offline-test-protocol.md`.
+
 Two external Docker networks are expected, both owned by the `nathejk` repo:
 
 - `traefik` — the reverse proxy that terminates TLS and routes the local hostnames

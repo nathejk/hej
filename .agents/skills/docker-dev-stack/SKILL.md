@@ -223,6 +223,40 @@ Vite handles HMR. If `package-lock.json` changes you usually want
 `docker compose run --rm ui npm ci` or `docker compose build ui` to refresh
 the volume.
 
+### HMR does not reach an installed PWA
+
+A browser tab picks up changes immediately. **An app installed to a home screen does
+not**, and this costs an hour the first time it happens — you edit a view, the phone
+keeps showing the old one, and nothing in the logs says why.
+
+The cause is deliberate: `vite.config.ts` sets `registerType: 'prompt'`, so the service
+worker never activates a new build on its own. It reports one, the app turns that into an
+update prompt (`@/helpers/pwa`), and the old bundle keeps serving until the user accepts.
+That is the behaviour you want during an event — no bundle swapping under somebody
+mid-race — and exactly the behaviour you do not want while developing.
+
+So when a device shows stale UI, check the client before the code:
+
+```sh
+# Is the dev server actually serving the new file? (rules the code out in one step)
+docker compose exec ui wget -qO- http://localhost/src/views/ContactsView.vue | head
+```
+
+If that shows your change, the device is holding a precached copy. To clear it:
+
+- **desktop** — open in a private window, or DevTools → Application → Service Workers →
+  *Unregister*, then reload;
+- **Android/Chrome** — site settings → *Clear & reset*;
+- **iOS** — remove the app from the home screen and re-add it. There is no reload gesture
+  in a standalone iOS web app, which is why this bites hardest there.
+
+A production build is worth running before blaming the device, because the dev server
+compiles templates lazily and a device may be showing cache rather than an error:
+
+```sh
+docker compose exec ui sh -lc 'cd /app && npx vite build'
+```
+
 ---
 
 ## Common commands
