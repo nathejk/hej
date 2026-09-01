@@ -191,6 +191,11 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 	// Also five parts, and likewise before the four-part crewmember patterns.
 	case subject.Match("nathejk.*.crewmember.*.section.assigned"):
 		return c.handleSectionAssigned(msg, year)
+	// `team.moved` changes team membership as well as resolving to a status, so it has its own
+	// handler. Matched before the generic lifecycle case below, which would otherwise write only
+	// the status and leave the member in the patrol they left (task 178).
+	case subject.Match("nathejk.*.spejder.*.team.moved"):
+		return c.handleMemberTeamMoved(msg, year)
 	// The member lifecycle. These carry an extra event segment, so they MUST be matched
 	// before the four-part `spejder.*.updated` / `.deleted` patterns below — hq's own
 	// projector carries the same warning, having been bitten by the reverse ordering.
@@ -832,6 +837,91 @@ func (c consumer) handleMemberStatusChanged(msg cqrs.Message, year string) error
 	return c.w.Consume(fmt.Sprintf(
 		"UPDATE person SET memberStatus=%s WHERE personId=%s AND year=%s",
 		quote(string(status)), quote(memberID), quote(year),
+	))
+}
+
+// handleMemberTeamMoved moves a member to another team, carrying the team's denormalized
+// labels across with them.
+//
+// Its own handler rather than a branch of handleMemberStatusChanged, because it writes two
+// different kinds of fact: the status the event resolves to (`racing` — a survivor moved into
+// another patrol is still self-carrying and can still finish), and the team membership itself.
+//
+// # Why the team has to follow
+//
+// Before this existed the handler wrote only the status, so a moved member kept the teamId of
+// the patrol they *left*. PRD 007's patrol lookup would then answer "patrol 138" without them
+// and list them under their old number — a samarit sent to find someone would not find them.
+// For a safety surface that is the wrong kind of wrong (task 178).
+//
+// # Three columns, one statement
+//
+// teamId comes from the event. teamName and teamNumber do not: they are denormalized from *team*
+// events (handleTeamUpdated, handlePatrolNumberAssigned), so they have to be copied from a row
+// that already belongs to the destination team. Hence the self-join: any sibling on the
+// destination team carries the same labels, which is what makes picking one arbitrary row safe.
+//
+// A LEFT JOIN rather than an inner one, so the move still happens when the destination team has
+// no members here yet — the ordering case below.
+//
+// # The bounded staleness, and why it is acceptable
+//
+// If the destination team is unknown to this projection, the labels land empty rather than
+// wrong: COALESCE gives "", not the old patrol's name. Empty is the honest value, and it is
+// self-correcting — the next `patrulje.*.updated` or `.numberassigned` for that team fills both
+// in, because those handlers update every row with a matching teamId, which now includes this
+// member.
+//
+// Crucially it does not break the lookup in the meantime. Task 157 resolves a typed number to a
+// teamId via *any* numbered member of the team and then lists by teamId, so a moved member with
+// an empty teamNumber is still returned for their new patrol. That design decision is what turns
+// this from a correctness gap into a display-only one.
+//
+// # No initialTeamId
+//
+// hq's projection keeps the team a member started with, because a survivor moved into another
+// patrol can still finish — with a team that is not the one they started with. Decided not to
+// carry it here (task 178): every question this app asks is about *now* — who is out as what
+// tonight, who is in this patrol, whose face is this. Nothing in PRD 007 or PRD 005 asks where
+// somebody started, and hq remains the place to ask.
+func (c consumer) handleMemberTeamMoved(msg cqrs.Message, year string) error {
+	var body messages.NathejkMemberTeamMoved
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+
+	// Same extra-segment subject shape as the other lifecycle events, so the id is the fourth
+	// part. Authoritative over the body, which is why it is read from here.
+	parts := msg.Subject().Parts()
+	if len(parts) < 4 || parts[3] == "" {
+		return fmt.Errorf("person: team moved with no member id in subject %q", msg.Subject().Subject())
+	}
+	memberID := parts[3]
+
+	status := body.Status()
+	toTeam := string(body.ToTeamID)
+
+	if toTeam == "" {
+		// No destination. Not an error — record what the event does tell us (the member is
+		// racing) rather than dead-lettering a live event during a race, and leave the team
+		// alone rather than blanking it on the strength of a missing field.
+		return c.w.Consume(fmt.Sprintf(
+			"UPDATE person SET memberStatus=%s WHERE personId=%s AND year=%s",
+			quote(string(status)), quote(memberID), quote(year),
+		))
+	}
+
+	// One statement so the move is atomic: a member briefly holding a new teamId with the old
+	// team's name would be visible in the pane, and every read here is a single-row read with
+	// no join precisely so that cannot happen.
+	//
+	// `s.personId <> p.personId` keeps a member already on the destination team from copying
+	// their own values — harmless but confusing to read in a log.
+	return c.w.Consume(fmt.Sprintf(`UPDATE person AS p `+
+		`LEFT JOIN person AS s ON s.year = p.year AND s.teamId = %[1]s AND s.personId <> p.personId AND s.deleted = 0 `+
+		`SET p.teamId = %[1]s, p.teamName = COALESCE(s.teamName, ""), p.teamNumber = COALESCE(s.teamNumber, ""), p.memberStatus = %[2]s `+
+		`WHERE p.personId = %[3]s AND p.year = %[4]s`,
+		quote(toTeam), quote(string(status)), quote(memberID), quote(year),
 	))
 }
 
