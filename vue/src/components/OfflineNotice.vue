@@ -8,6 +8,13 @@ import { useSessionStore } from '@/stores/session.store'
 // Tells the user they have no signal, so "nothing is loading" is never mistaken for
 // "the app is broken" or "I have been signed out" (task 090).
 //
+// **This is the app's one global offline indicator** (PRD 009 §6, task 188). No feature may add a
+// second "you are offline" banner; `offlineIndicator.spec.ts` asserts that. What features *do*
+// keep is different in kind and stays: an inline note that this particular data may be old, and
+// PatrolLookup's "this feature needs signal, use the radio" — that lookup is deliberately live-only
+// (PRD 007), so a generic "but the app still works" would be a lie about the one thing the crew
+// member is trying to do.
+//
 // In the document flow rather than pinned to the viewport: an overlay would either
 // collide with UpdatePrompt at the top or cover the map at the bottom, and this
 // notice can be on screen for hours at a time — a participant walking through the
@@ -41,9 +48,15 @@ const insetStyle = computed(() =>
 
 <template>
   <div v-if="show" :style="insetStyle">
-    <Alert class="mx-4 mt-3 w-auto border-amber-300 bg-amber-50 text-amber-900">
-      <WifiOff aria-hidden="true" />
-      <AlertTitle>Ingen forbindelse — kort og regler virker stadig</AlertTitle>
-    </Alert>
+    <!-- The text links to the readiness view instead of explaining itself here (task 188): what a
+         user actually wants when they see this is "so what do I still have?", and that answer is a
+         whole section on the profile page. Kept to ONE line — see above; an earlier three-line
+         version was honest and unusable. -->
+    <RouterLink to="/profil">
+      <Alert class="mx-4 mt-3 w-auto border-amber-300 bg-amber-50 text-amber-900">
+        <WifiOff aria-hidden="true" />
+        <AlertTitle>Ingen forbindelse — se hvad du har hentet</AlertTitle>
+      </Alert>
+    </RouterLink>
   </div>
 </template>

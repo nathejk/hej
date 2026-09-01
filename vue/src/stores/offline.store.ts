@@ -42,6 +42,15 @@ import {
 // gone. On iOS that is normal rather than exceptional, and the user is owed an explanation
 // instead of a blank page.
 
+// # Connectivity is not kept here
+//
+// There is deliberately no `online` or `servingFromCache` flag in this store. `app.store.online`
+// already owns that (task 090) and owns it better: it is seeded from `navigator.onLine` and then
+// *corrected by what actually happens*, because `onLine` only means "there is a network interface
+// with a route" — true on a captive portal, true with one bar and no throughput, true on the
+// event's own patchy coverage. A second copy here would drift from it, and the two would disagree
+// in exactly the situation both exist for. See task 188.
+
 export type OfflineDatasetState =
   /** Nobody has reported on this dataset yet. Not the same as empty. */
   | 'unknown'
@@ -143,8 +152,6 @@ export const useOfflineStore = defineStore('offline', {
      * worth telling the user about.
      */
     persistence: 'unknown' as 'unknown' | PersistenceOutcome,
-    /** True when the app is working from cache rather than the network (task 188). */
-    servingFromCache: false,
     /** Datasets dropped to reclaim space, most recent first (task 186). */
     evicted: [] as OfflineDatasetId[],
     /**
@@ -341,10 +348,6 @@ export const useOfflineStore = defineStore('offline', {
         // A private-mode browser can throw here. Leaving the values null is honest: the
         // readiness view then says it does not know, rather than showing a confident zero.
       }
-    },
-
-    setServingFromCache(fromCache: boolean) {
-      this.servingFromCache = fromCache
     },
 
     /** Register a dataset's sync/clear callbacks. Called by the feature that owns the storage. */
