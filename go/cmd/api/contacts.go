@@ -316,18 +316,18 @@ func contactSubject(p person.Person) (users.User, bool) {
 
 // stillInRace reports whether the member is still in the race.
 //
-// INTERIM (task 150): derived here from the two ending statuses, in one place. It belongs
-// in shared-go next to MemberStatus.InOurCare() — task 175 — so that `hej` and `hq` cannot
-// disagree about what "left the race" means.
+// INTERIM (task 175): derived here from the two ending statuses, in one place. It belongs in
+// shared-go next to MemberStatus.InOurCare() and CanFinish(), so that `hej` and `hq` cannot
+// disagree about what "left the race" means — this one decides whether a phone number is shown,
+// which is not a definition worth having two of.
 //
-// Note `finished` is deliberately *not* a withdrawal: finishing means walking the route to
-// the end, and marking a finisher as having left would quietly turn an achievement into a
-// dropout. shared-go's own docs are careful about that distinction.
+// Note `finished` is deliberately *not* a withdrawal: finishing means walking the route to the
+// end, and marking a finisher as having left would quietly turn an achievement into a dropout.
+// shared-go's own docs are careful about that distinction.
 //
-// Until task 174 lifts the transition messages, no `reunited`/`released` events reach this
-// projection, so this reads true for everyone. That is correct for a pre-event state
-// rather than a bug — and it is why this function exists now: the field is in the payload
-// from the start, so the client is never rewritten to accommodate it later.
+// The transitions now reach this projection: task 174 lifted hq's `spejderstatus` message bodies
+// into `shared-go/messages/member.go`, and `person`'s consumer projects all eight of them, so
+// this reads real statuses rather than the constant `true` it returned before that landed.
 func stillInRace(status string) bool {
 	switch types.MemberStatus(status) {
 	case types.MemberStatusReunited, types.MemberStatusReleased:

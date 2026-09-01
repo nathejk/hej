@@ -94,6 +94,24 @@ func (c consumer) Consumes() []cqrs.Subject {
 		// 007's patrol lookup matches a typed number, and nothing else in this projection
 		// carries one — teamName is a label, teamId is opaque (task 176).
 		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.numberassigned"),
+		// The member lifecycle (PRD 007, task 174). Lifted from hq's spejderstatus package
+		// into shared-go's messages/member.go, so this projection consumes the same event
+		// bodies hq's own projection does rather than a second definition of them.
+		//
+		// All eight, not just the two that end the race: PRD 007's patrol lookup shows the
+		// full status, and `waiting`/`transit`/`sheltered` are the ones a samarit most needs
+		// before setting off, because somebody else already has the member.
+		//
+		// `pickup.accepted` is published by nobody yet — it belongs to the car interface — and
+		// subscribing now is what makes this ready for it instead of something to revisit.
+		cqrs.SubjectFromStr("NATHEJK:*.spejder.*.withdrawal.requested"),
+		cqrs.SubjectFromStr("NATHEJK:*.spejder.*.withdrawal.cancelled"),
+		cqrs.SubjectFromStr("NATHEJK:*.spejder.*.status.overridden"),
+		cqrs.SubjectFromStr("NATHEJK:*.spejder.*.team.moved"),
+		cqrs.SubjectFromStr("NATHEJK:*.spejder.*.pickup.accepted"),
+		cqrs.SubjectFromStr("NATHEJK:*.spejder.*.shelter.accepted"),
+		cqrs.SubjectFromStr("NATHEJK:*.spejder.*.shelter.placed"),
+		cqrs.SubjectFromStr("NATHEJK:*.spejder.*.handover.completed"),
 		// Crew: the person, plus the section they are assigned to and the section's
 		// label. All three are needed because the label arrives on a different event
 		// from the assignment, in either order.
@@ -173,6 +191,18 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 	// Also five parts, and likewise before the four-part crewmember patterns.
 	case subject.Match("nathejk.*.crewmember.*.section.assigned"):
 		return c.handleSectionAssigned(msg, year)
+	// The member lifecycle. These carry an extra event segment, so they MUST be matched
+	// before the four-part `spejder.*.updated` / `.deleted` patterns below — hq's own
+	// projector carries the same warning, having been bitten by the reverse ordering.
+	case subject.Match("nathejk.*.spejder.*.withdrawal.requested"),
+		subject.Match("nathejk.*.spejder.*.withdrawal.cancelled"),
+		subject.Match("nathejk.*.spejder.*.status.overridden"),
+		subject.Match("nathejk.*.spejder.*.team.moved"),
+		subject.Match("nathejk.*.spejder.*.pickup.accepted"),
+		subject.Match("nathejk.*.spejder.*.shelter.accepted"),
+		subject.Match("nathejk.*.spejder.*.shelter.placed"),
+		subject.Match("nathejk.*.spejder.*.handover.completed"):
+		return c.handleMemberStatusChanged(msg, year)
 	case subject.Match("nathejk.*.section.*.added"),
 		subject.Match("nathejk.*.section.*.moved"):
 		return c.handleSectionAdded(msg, year)
@@ -715,6 +745,96 @@ func (c consumer) handleTeamUpdated(msg cqrs.Message, year string) error {
 	))
 }
 
+// memberStatusEventFor returns an empty body of the right type for a lifecycle subject.
+//
+// A map from subject suffix to constructor, rather than a switch that also does the writing,
+// so adding a transition is one entry here plus one subject in Consumes() — the shape
+// `messages.NathejkMemberEvent` was designed for. The bodies differ (some carry a target
+// status, some a placement, some a driver), but every one of them answers Status(), which is
+// the only thing this projection asks of them.
+func memberStatusEventFor(subject cqrs.Subject) (messages.NathejkMemberEvent, bool) {
+	switch {
+	case subject.Match("nathejk.*.spejder.*.withdrawal.requested"):
+		return &messages.NathejkMemberWithdrawalRequested{}, true
+	case subject.Match("nathejk.*.spejder.*.withdrawal.cancelled"):
+		return &messages.NathejkMemberWithdrawalCancelled{}, true
+	case subject.Match("nathejk.*.spejder.*.status.overridden"):
+		return &messages.NathejkMemberStatusOverridden{}, true
+	case subject.Match("nathejk.*.spejder.*.team.moved"):
+		return &messages.NathejkMemberTeamMoved{}, true
+	case subject.Match("nathejk.*.spejder.*.pickup.accepted"):
+		return &messages.NathejkMemberPickupAccepted{}, true
+	case subject.Match("nathejk.*.spejder.*.shelter.accepted"):
+		return &messages.NathejkMemberShelterAccepted{}, true
+	case subject.Match("nathejk.*.spejder.*.shelter.placed"):
+		return &messages.NathejkMemberShelterPlaced{}, true
+	case subject.Match("nathejk.*.spejder.*.handover.completed"):
+		return &messages.NathejkMemberHandoverCompleted{}, true
+	}
+	return nil, false
+}
+
+// handleMemberStatusChanged records where a member is in the lifecycle.
+//
+// Every transition resolves to exactly one `types.MemberStatus` via the event's own Status()
+// method, so this handler never needs to know which event it is looking at in order to write
+// a row — and a transition added upstream cannot invent a status the lifecycle does not
+// define. That is the property `NathejkMemberEvent` exists to provide, and the reason this is
+// one handler rather than eight.
+//
+// # What it deliberately does not do
+//
+// **No INSERT.** Members arrive on their own events; a lifecycle event must not invent a
+// person, exactly as with team events. A status for somebody this projection has never heard
+// of is silently dropped — hq's own projection tolerates the same case, because these events
+// are published for members on teams it may not know yet.
+//
+// **No team change on `team.moved`.** The event carries FromTeamID/ToTeamID, and this handler
+// ignores both, writing only the status. That is a real gap rather than an oversight: a moved
+// member's `teamId` here goes stale, so they would appear under their old patrol in PRD 007's
+// lookup. Fixing it means deciding whether this projection follows team membership at all,
+// which is a bigger question than a status write and belongs in its own task — see task 178.
+//
+// **No rules.** Whether a transition is legal, and what `finished` may follow, are shared-go's
+// and hq's business. This stores the answer it is given.
+func (c consumer) handleMemberStatusChanged(msg cqrs.Message, year string) error {
+	body, ok := memberStatusEventFor(msg.Subject())
+	if !ok {
+		// Subscribed to something we have no body for. Not an error: an unknown
+		// transition is a reason to do nothing, not to dead-letter a live event during a
+		// race.
+		return nil
+	}
+	if err := msg.Body(body); err != nil {
+		return err
+	}
+
+	// The member id comes from the subject, which is authoritative and present on every one
+	// of these events — unlike the bodies, which carry it under different field names. Same
+	// extra-segment shape as the arm number subject, so the id is the fourth part rather than
+	// the second-to-last one subjectEntityID assumes.
+	parts := msg.Subject().Parts()
+	if len(parts) < 4 || parts[3] == "" {
+		return fmt.Errorf("person: member status event with no member id in subject %q", msg.Subject().Subject())
+	}
+	memberID := parts[3]
+
+	status := body.Status()
+	if !status.Valid() {
+		// An override or handover carrying a status this build does not know. Dropping it
+		// beats storing a value the app would then have to render: `Valid()` is shared-go's
+		// definition, so this can only happen when upstream is ahead of this deployment,
+		// and the next event for the member corrects it.
+		return nil
+	}
+
+	// UPDATE, not upsert, and idempotent: replaying the stream reapplies the same value.
+	return c.w.Consume(fmt.Sprintf(
+		"UPDATE person SET memberStatus=%s WHERE personId=%s AND year=%s",
+		quote(string(status)), quote(memberID), quote(year),
+	))
+}
+
 // handlePatrolNumberAssigned denormalizes a patrulje's field number onto its members.
 //
 // The counterpart of handleTeamUpdated, and the same shape for the same reasons: an UPDATE
@@ -767,23 +887,30 @@ func (c consumer) handlePatrolNumberAssigned(msg cqrs.Message, year string) erro
 
 // handleTeamStarted records that named members actually started the event.
 //
-// # Scope: this is not a lifecycle projection
+// # Scope: this caches the lifecycle, it does not own it
 //
-// `hq` already projects the full member lifecycle (`spejderstatus`): withdrawals,
-// pickups, shelter placements, handovers, each with its own message types defined in
-// that repo. This projection deliberately does **not** mirror it. It consumes one
-// transition, because one is all this app needs — PRD 005 asks a single question,
-// "has this member started?", to decide whether to skip the profile-confirmation step.
+// This comment used to say the projection deliberately consumed *one* transition, because
+// one was all PRD 005 needed — "has this member started?", to decide whether to skip the
+// profile-confirmation step. That is no longer true, and the reason it changed is worth
+// keeping rather than quietly editing away.
 //
-// Duplicating the rest would mean a second, lagging notion of member status in a
-// second repo, disagreeing with `hq` in ways nobody would notice until an organizer
-// compared two screens. If this app ever needs the operational states, the answer is
-// to read `hq`'s projection or lift it to shared-go — not to grow a parallel one here.
+// PRD 007 needs the operational states: its patrol lookup shows a member's current status,
+// and the contacts directory marks a member who has left the race and purges their phone
+// number. The old comment named the sanctioned route for exactly that — "read `hq`'s
+// projection or lift it to shared-go" — and the lift is what happened (task 174): hq's
+// `spejderstatus` message bodies now live in `shared-go/messages/member.go`, so
+// handleMemberStatusChanged below consumes the same events hq's own projection does.
 //
-// So `memberStatus` in this table is coarse by design: `racing` or empty. That is
-// still correct for the question being asked, because every state *after* racing also
-// implies the member started — a member who is now `waiting` or `sheltered` began the
-// event, and we never need to unset the flag.
+// The warning the old comment carried still stands, and is the line to hold: what would be
+// wrong is a *second notion* of status — a locally invented vocabulary, or transition rules
+// re-derived here, which could then disagree with `hq` in ways nobody notices until an
+// organizer compares two screens. Storing `types.MemberStatus` verbatim, from the same
+// events, is a cache of one shared notion. So this projection may store and read the value;
+// it may not decide what a status means or which transitions are legal.
+//
+// `memberStatus` therefore now holds any valid `types.MemberStatus`, not just `racing`.
+// This handler remains because `patrulje.*.started` is where `racing` comes from and it is
+// not one of the member events.
 func (c consumer) handleTeamStarted(msg cqrs.Message, year string) error {
 	var body messages.NathejkTeamStarted
 	if err := msg.Body(&body); err != nil {
