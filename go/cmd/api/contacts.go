@@ -416,6 +416,16 @@ func (app *application) contactsVersionHandler(w http.ResponseWriter, r *http.Re
 }
 
 type contactsVersionResponse struct {
+	// Version travels in the **body**, not only in the ETag, and that is the shared convention
+	// rather than this endpoint's quirk (PRD 009 §8, task 190): the client's `fetchWrapper` does
+	// not expose response headers, so a header-only version would force every consumer to bypass
+	// it. The ETag is still set, for the browser's own conditional requests.
+	//
+	// This endpoint is the **reference implementation** of that convention. A second dataset
+	// needing during-event freshness should copy the shape — small opaque version, scoped to the
+	// caller's permitted set, answered from a projection read, ETag-able, cached briefly — and get
+	// its own served poll interval rather than sharing `contacts_poll_seconds`. Two datasets on one
+	// number cannot be tuned apart, and they will not cost the same.
 	Version string `json:"version"`
 }
 
