@@ -8,6 +8,7 @@ import (
 
 	"nathejk.dk/internal/phone"
 	"nathejk.dk/internal/pin"
+	"nathejk.dk/internal/users"
 )
 
 // antiEnumerationMessage is returned by request-pin regardless of whether the
@@ -92,9 +93,20 @@ type verifyPinRequest struct {
 	Pin   string `json:"pin"`
 }
 
+// identityResponse is who the caller is signed in as.
 type identityResponse struct {
 	UserID string `json:"user_id"`
 	Role   string `json:"role"`
+	// ProfileCount is how many profiles the caller's phone number carries (PRD 012).
+	//
+	// Present so the client can decide whether to offer "Skift profil" at all: a control that
+	// answers "you have nothing to switch to" is worse than no control, and the majority of
+	// members have exactly one profile.
+	//
+	// A fact about the caller's *own* number, so it discloses nothing they could not already
+	// learn by signing in. Omitted when unknown — e.g. no directory — rather than reported as
+	// 1, because "one profile" and "we could not look" should not be the same answer.
+	ProfileCount int `json:"profile_count,omitempty"`
 }
 
 // candidate is one owner of a shared phone number, as shown in the chooser.
@@ -218,15 +230,7 @@ func (app *application) verifyPinHandler(w http.ResponseWriter, r *http.Request)
 			"candidates", len(matches),
 		)
 
-		candidates := make([]candidate, 0, len(matches))
-		for _, u := range matches {
-			candidates = append(candidates, candidate{
-				UserID:  u.ID,
-				Name:    firstName(u.Name),
-				Team:    u.PatrolName,
-				Section: u.Section,
-			})
-		}
+		candidates := candidatesFor(matches)
 
 		resp := chooseRequiredResponse{
 			ChoiceToken: app.choices.Issue(normalized),
@@ -300,6 +304,25 @@ func (app *application) chooseHandler(w http.ResponseWriter, r *http.Request) {
 	app.InvalidCredentialsResponse(w, r)
 }
 
+// candidatesFor builds the chooser payload for a number's owners.
+//
+// Shared by login (verifyPinHandler) and profile switching (switchProfileHandler) so the two
+// cannot drift on what a candidate discloses — the comment on `candidate` explains why that
+// payload is as thin as it is, and a second construction site is how such a rule quietly stops
+// being true.
+func candidatesFor(users []users.User) []candidate {
+	out := make([]candidate, 0, len(users))
+	for _, u := range users {
+		out = append(out, candidate{
+			UserID:  u.ID,
+			Name:    firstName(u.Name),
+			Team:    u.PatrolName,
+			Section: u.Section,
+		})
+	}
+	return out
+}
+
 // meHandler returns the current session identity + role. It runs behind
 // requireAuth, so reaching it means a valid session exists.
 //
@@ -316,7 +339,92 @@ func (app *application) meHandler(w http.ResponseWriter, r *http.Request) {
 		app.AuthenticationRequiredResponse(w, r)
 		return
 	}
-	if err := app.WriteJSON(w, http.StatusOK, identityResponse{UserID: s.UserID, Role: s.Role}, nil); err != nil {
+
+	resp := identityResponse{UserID: s.UserID, Role: s.Role}
+	// The profile count comes from the directory rather than the session, because the session
+	// carries only {userId, role} — deliberately, since that is all the router guard needs. A
+	// failed or empty lookup leaves the count at zero, which the client reads as "no switcher":
+	// the safe direction, since offering the control is the thing that could mislead.
+	if u, found := app.models.Users.Get(s.UserID); found && u.Phone != "" {
+		resp.ProfileCount = len(app.models.Users.LookupAll(u.Phone))
+	}
+
+	if err := app.WriteJSON(w, http.StatusOK, resp, nil); err != nil {
+		app.ServerErrorResponse(w, r, err)
+	}
+}
+
+// switchProfileHandler starts a profile switch for a number that carries several profiles.
+//
+// It returns the same `{choice_token, candidates}` shape a shared-number /auth/verify returns, so
+// the client drives both with one code path, and the switch completes through the **unchanged**
+// /auth/choose. Leaving that handler alone is deliberate: it is where ownership is re-checked and
+// the session is issued, and a second copy of that logic is how the login and switch paths would
+// drift apart.
+//
+// # What this preserves, and what it replaces
+//
+// /auth/choose is safe because of three properties (see its comment): the token is minted only
+// after a PIN verification, it is bound to the verified number, and the chosen user is re-checked
+// against that number's current owners. This handler keeps the second and third exactly as they
+// are, and replaces the first with **"minted for the number the caller is already authenticated
+// as"**.
+//
+// That is not a weakening this app can act on: the holder proved PIN control of the number at
+// login, and every profile on it is already reachable by that same holder through the login
+// chooser. The switch removes an SMS round-trip, not a barrier. PRD 012 §8 carries the full
+// reasoning and the honest residual (a 7-day session window), which is why the switch is logged.
+//
+// @Summary      Start a profile switch
+// @Description  For a phone number that carries several profiles. Returns a short-lived choice_token and the candidates, in the same shape a shared-number /auth/verify returns; the client then calls /auth/choose, which issues a session replacing the current one. Deliberately requires no new SMS code — the caller already proved control of this number at login, and every profile on it is reachable through the login chooser. 409 when the number carries fewer than two profiles or the caller has no number on file.
+// @Tags         auth
+// @Produce      json
+// @Success      200  {object}  chooseRequiredResponse
+// @Failure      401  {object}  map[string]string
+// @Failure      409  {object}  map[string]string  "nothing to switch to"
+// @Router       /auth/switch [post]
+func (app *application) switchProfileHandler(w http.ResponseWriter, r *http.Request) {
+	s, ok := contextGetSession(r)
+	if !ok {
+		app.AuthenticationRequiredResponse(w, r)
+		return
+	}
+
+	// The number is read from the directory for the *session's* user — never from the request.
+	// That is what binds a switch to the caller's own number and makes it impossible to ask for
+	// somebody else's owners.
+	current, found := app.models.Users.Get(s.UserID)
+	if !found {
+		app.AuthenticationRequiredResponse(w, r)
+		return
+	}
+	if current.Phone == "" {
+		// Some members have no number of their own (PRD 006 §11 Q13). Nothing to switch
+		// between, and not an error the user can act on.
+		app.ConflictResponse(w, r, "der er kun én profil på dette nummer")
+		return
+	}
+
+	owners := app.models.Users.LookupAll(current.Phone)
+	if len(owners) < 2 {
+		// A single-owner number must not return a list of one: the client would show a chooser
+		// offering the profile the user is already in.
+		app.ConflictResponse(w, r, "der er kun én profil på dette nummer")
+		return
+	}
+
+	// Logged because this is an identity change made without a fresh proof of the number
+	// (PRD 012 §8). The chosen profile is logged by /auth/choose; this is the other half.
+	app.Logger.Info("profile switch started",
+		"fromUserId", s.UserID,
+		"profiles", len(owners),
+	)
+
+	resp := chooseRequiredResponse{
+		ChoiceToken: app.choices.Issue(current.Phone),
+		Candidates:  candidatesFor(owners),
+	}
+	if err := app.WriteJSON(w, http.StatusOK, resp, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
 	}
 }

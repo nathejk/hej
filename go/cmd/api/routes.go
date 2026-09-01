@@ -36,6 +36,10 @@ func (app *application) routes() http.Handler {
 	// Public like the rest of /auth: it is authorised by the short-lived choice token
 	// from /auth/verify, not by a session — there is no session yet.
 	router.HandlerFunc(http.MethodPost, "/api/auth/choose", app.chooseHandler)
+	// Switching profile within a session (PRD 012). Behind requireAuth, and it mints a choice
+	// token for the number the caller is *already* authenticated as — the switch then completes
+	// through /auth/choose above, unchanged. No new SMS: see the handler comment and PRD 012 §8.
+	router.HandlerFunc(http.MethodPost, "/api/auth/switch", app.requireAuth(app.switchProfileHandler))
 	router.HandlerFunc(http.MethodPost, "/api/auth/logout", app.logoutHandler)
 	router.HandlerFunc(http.MethodGet, "/api/me", app.requireAuth(app.meHandler))
 	// The caller's own details (PRD 003). Session-scoped by construction: there is no
