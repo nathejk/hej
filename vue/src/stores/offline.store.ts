@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 
+import { logEvent } from '@/helpers/trackDb'
 import {
   reclaim,
   type EvictionResult,
@@ -93,11 +94,14 @@ export interface OfflineDatasetStatus {
   /**
    * Why the last attempt did not finish, when it did not.
    *
-   * Two causes worth telling a user apart, because the responses differ: `'quota'` means the phone is
-   * full and they must free space or accept less map; `'offline'` means try again with signal. Silence
-   * would leave a download that stopped at 60% looking like one that finished.
+   * Four causes, kept apart because the responses differ: `'quota'` means the phone is full and they must
+   * free space or accept less map; `'offline'` means try again with signal; `'no-area'` means the server
+   * has nothing to offer yet, which is nobody's fault and needs no action at all; `'error'` means the app
+   * broke, which is ours to fix and theirs to report. Silence would leave a download that stopped at 60%
+   * looking like one that finished — or, as reported on a real phone, a button that flickers and does
+   * nothing.
    */
-  problem: 'quota' | 'offline' | null
+  problem: 'quota' | 'offline' | 'no-area' | 'error' | null
 }
 
 /** What a dataset owner reports. Everything optional: report what you know. */
@@ -411,8 +415,13 @@ export const useOfflineStore = defineStore('offline', {
       this.statuses[id] = { ...this.statuses[id], state: 'syncing' }
       try {
         await handler()
-      } catch {
-        // The handler owns the error message; this only has to avoid lying about the state.
+      } catch (err) {
+        // An exception here used to be swallowed entirely, which produced precisely the bug reported on
+        // 2026-09-02: the button's label flickered to "Hentes…" and back with nothing else to show. A
+        // handler that throws is a bug in the app, so it is both surfaced to the user — who can then report
+        // it — and written to the diagnostic log, which is the only record that survives the app being killed.
+        this.statuses[id] = { ...this.statuses[id], problem: 'error' }
+        void logEvent('syncfail', `${id}: ${err instanceof Error ? err.message : String(err)}`)
         if (this.statuses[id].state === 'syncing') {
           this.statuses[id] = { ...this.statuses[id], state: previous }
         }

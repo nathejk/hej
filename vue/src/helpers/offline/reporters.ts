@@ -115,6 +115,9 @@ export function reportDirectory() {
     // The stored JSON is what occupies the quota, not the in-memory objects. UTF-16 in
     // localStorage, hence the doubling.
     bytes: contacts.entries.length ? JSON.stringify(contacts.entries).length * 2 : 0,
+    // This dataset *does* know when it synced, unlike the Cache API ones — and it was being dropped, so a
+    // freshly fetched directory read "aldrig" (task 203).
+    syncedAt: contacts.syncedAt,
     expiresAt: contacts.expiresAt || null,
   })
 }
@@ -204,13 +207,16 @@ export async function registerOfflineDatasets(caches: CachesApi | undefined) {
         // Non-Functional → Performance).
         const { downloadRaceArea, fetchRaceArea } = await import('@/helpers/offline/tileBulk')
 
-        const area = await fetchRaceArea()
-        if (!area) {
-          // No area yet (early in the year, no positioned checkpoints) or no signal. Not an error the
-          // user can act on — leave the row as it was.
+        const result = await fetchRaceArea()
+        if (result.kind !== 'area') {
+          // Say which. Leaving the row untouched is what produced the report this fix comes from: the
+          // button's label flickered for half a second and went back, with no size change and no
+          // explanation — the same silent-failure shape as task 197, in a different feature.
+          offline.report('tiles', { problem: result.kind === 'none' ? 'no-area' : 'offline' })
           await reportCaches(caches)
           return
         }
+        const area = result.area
 
         controller = new AbortController()
         try {

@@ -84,6 +84,10 @@ export interface TrackEvent {
     | 'uploadfail'
     | 'hidden'
     | 'visible'
+    // Not the track's own, but this is the app's only diagnostic channel that survives being killed, and
+    // a failed offline sync is exactly the kind of thing that needs to be readable after the fact
+    // (task 203). Kept here rather than given a second log nobody would think to look at.
+    | 'syncfail'
   detail?: string
 }
 

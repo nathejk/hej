@@ -21,7 +21,7 @@
 import { TILE_CACHE_NAME, TILE_TIERS, type TileTier } from '@/config/cache'
 import { DEFAULT_BASE_LAYER, type BaseLayerKey } from '@/config/map'
 import { dataforsyningenToken } from '@/config/runtime'
-import { fetchWrapper } from '@/helpers'
+import { HttpError, fetchWrapper } from '@/helpers'
 import { estimateResponseBytes, type CacheStorageLike } from '@/helpers/offline/eviction'
 import { tilesForArea, type RaceArea, type TileCoord } from '@/helpers/offline/tileArea'
 import { tileUrlSource } from '@/helpers/offline/tileUrls'
@@ -37,13 +37,30 @@ import { downloadTiles, type TileDownloadResult } from '@/helpers/offline/tileDo
  */
 export const BULK_LAYERS: readonly BaseLayerKey[] = [DEFAULT_BASE_LAYER, 'orto']
 
-export async function fetchRaceArea(): Promise<RaceArea | null> {
+/**
+ * The three outcomes of asking for the race area, kept apart because the user's situation differs.
+ *
+ * They were collapsed into `null` at first, with a comment claiming it was "not an error the user can act
+ * on". That was wrong in the same way task 197 was wrong: a participant taps a button, the label flickers
+ * for half a second, and nothing happens or is said. Reported on a real phone, 2026-09-02.
+ */
+export type RaceAreaResult =
+  /** The area, ready to download. */
+  | { kind: 'area'; area: RaceArea }
+  /** The server has no area yet — 404. Normal early in the year, before checkpoints have positions. */
+  | { kind: 'none' }
+  /** We could not ask. No signal, or the request failed. */
+  | { kind: 'offline' }
+
+export async function fetchRaceArea(): Promise<RaceAreaResult> {
   try {
-    return await fetchWrapper.get<RaceArea>('/api/race-area')
-  } catch {
-    // 404 early in the year (no positioned checkpoints yet), or no signal. Both mean "no download
-    // available", which the caller shows as an absent offer rather than an error.
-    return null
+    return { kind: 'area', area: await fetchWrapper.get<RaceArea>('/api/race-area') }
+  } catch (err) {
+    // 404 is a deliberate answer rather than a failure: the endpoint returns it when no area can be
+    // derived, precisely so a client cannot mistake "nothing" for "cache everything" and try to download
+    // the whole country. It means *not yet*, which is a different sentence from *no signal*.
+    if (err instanceof HttpError && err.status === 404) return { kind: 'none' }
+    return { kind: 'offline' }
   }
 }
 

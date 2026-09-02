@@ -97,7 +97,7 @@ interface Row {
   canSync: boolean
   canClear: boolean
   canCancel: boolean
-  problem: 'quota' | 'offline' | null
+  problem: 'quota' | 'offline' | 'no-area' | 'error' | null
 }
 
 const rows = computed<Row[]>(() =>
@@ -107,7 +107,11 @@ const rows = computed<Row[]>(() =>
 
     if (status.bytes !== null) parts.push(bytes(status.bytes))
     if (status.itemCount !== null) parts.push(`${nf.format(status.itemCount)} stk.`)
-    if (status.state !== 'unknown' && status.state !== 'empty') parts.push(since(status.syncedAt))
+    // Only when we actually know. The Cache API does not record when an entry was written, so for tiles,
+    // portraits and the app shell there is no honest timestamp to show — and printing "aldrig" beside
+    // "26,5 MB · 252 stk." is a contradiction a user is right to distrust (reported 2026-09-02). Silence is
+    // the truthful option; the size and count already say the data is there.
+    if (status.syncedAt) parts.push(since(status.syncedAt))
     // Stored, current and incomplete is its own thing: a map that covers part of the area is
     // useful, and calling it "Klar" would be the dishonesty this whole surface exists to avoid.
     if (status.complete === false && status.state === 'synced') parts.push('ikke komplet')
@@ -212,6 +216,18 @@ const trackUnrecoverable = computed(() => offlineDataset('track').unrecoverable)
             </p>
             <p v-else-if="row.problem === 'offline'" class="mt-1 text-xs text-amber-800">
               Forbindelsen holdt ikke hele vejen. Prøv igen, når du har wi-fi — det hentede beholdes.
+            </p>
+            <!-- Nobody's fault and nothing to do about it, so this is stated calmly and paired with the
+                 thing that *does* still work: browsing the map saves what you look at, no matter what. -->
+            <p v-else-if="row.problem === 'no-area'" class="mt-1 text-xs text-slate-500">
+              Løbsområdet er ikke lagt ind endnu, så kortet kan ikke hentes på forhånd. Det, du ser på
+              kortet, bliver gemt alligevel.
+            </p>
+            <!-- Our bug, not theirs. Says so plainly and points at the one thing that helps us: the
+                 diagnostic page, which now carries the failure. -->
+            <p v-else-if="row.problem === 'error'" class="mt-1 text-xs text-amber-800">
+              Der gik noget galt i appen. Sig det til Nathejk — detaljerne står under „Se detaljer om din
+              gemte rute“.
             </p>
 
             <div v-if="row.canSync || row.canClear || row.canCancel" class="mt-2 flex gap-2">

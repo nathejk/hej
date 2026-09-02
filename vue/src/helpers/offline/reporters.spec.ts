@@ -225,3 +225,40 @@ describe('browserEvictors', () => {
     expect(await tiles.keys()).toHaveLength(0)
   })
 })
+
+describe('when there is no race area to download', () => {
+  // The bug reported from a phone on 2026-09-02: tapping "Hent nu" on Kortbilleder flickered to "Hentes…"
+  // for half a second, went back to "Klar", and the size did not change. `/api/race-area` answers 404 when
+  // no checkpoint has coordinates yet, and the handler swallowed it — the same silent-failure shape as task
+  // 197, in a different feature. Half a second is the round trip.
+  it('reports a cause rather than flickering silently', async () => {
+    const store = useOfflineStore()
+    store.report('tiles', { state: 'synced', itemCount: 252, bytes: 26_500_000, complete: false })
+
+    // Stand in for the handler's own outcome, which is what the reporter sets.
+    store.report('tiles', { problem: 'no-area' })
+
+    expect(store.statuses.tiles.problem).toBe('no-area')
+    // And nothing about what is already cached is disturbed: 252 tiles from browsing are still there.
+    expect(store.statuses.tiles.itemCount).toBe(252)
+  })
+
+  // A handler that throws used to be swallowed by `sync()` entirely, producing exactly the same flicker.
+  // Whatever the cause turns out to be, the app must not be the thing that hides it.
+  it('surfaces a handler that throws', async () => {
+    const store = useOfflineStore()
+    store.report('tiles', { state: 'synced', complete: false })
+    store.registerHandlers('tiles', {
+      sync: async () => {
+        throw new Error('leaflet exploded')
+      },
+    })
+
+    await store.sync('tiles')
+
+    expect(store.statuses.tiles.problem).toBe('error')
+    // The previous state is restored rather than invented: a failed download does not empty the cache.
+    expect(store.statuses.tiles.state).toBe('synced')
+    expect(store.statuses.tiles.progress).toBeNull()
+  })
+})

@@ -43,8 +43,19 @@ export async function tileUrlSource(
   const cfg = baseLayers[key]
 
   const container = document.createElement('div')
-  // Off-document on purpose: nothing here is rendered, and attaching it would risk a stray map in the
-  // DOM if disposal were ever missed.
+  // Sized and attached, off-screen — not merely detached (task 203).
+  //
+  // A detached element has `clientWidth`/`clientHeight` of zero, and a zero-size Leaflet map is a hazard:
+  // `setView` and the tile layer's `onAdd` both compute a pixel bounds from the container, and a zero or
+  // NaN extent is the sort of thing that throws deep inside the library. An exception here would be
+  // swallowed by the sync handler and appear to a user as a button that flickers and does nothing — which
+  // is the bug this hardening comes from, and which was expensive to diagnose precisely because it was
+  // silent.
+  //
+  // One tile's worth of size is enough; nothing is ever painted, and the element is removed again below.
+  container.style.cssText = 'position:absolute;left:-9999px;top:0;width:256px;height:256px'
+  document.body.appendChild(container)
+
   const map = L.map(container, { center: [56, 11], zoom: 12, crs: L.CRS.EPSG3857 })
   const layer = L.tileLayer.wms(cfg.url, { ...wmsLayerOptions(cfg, token) } as L.WMSOptions)
   layer.addTo(map)
@@ -53,6 +64,9 @@ export async function tileUrlSource(
     url: (tile) =>
       // `getTileUrl` is Leaflet's own, which is the entire point of this module.
       (layer as unknown as { getTileUrl: (c: TileCoord) => string }).getTileUrl(tile),
-    dispose: () => map.remove(),
+    dispose: () => {
+      map.remove()
+      container.remove()
+    },
   }
 }
