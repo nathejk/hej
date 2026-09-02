@@ -78,6 +78,9 @@ const missingToken = computed(
 async function accept() {
   const coords = await location.request()
   if (coords) {
+    // Which source answered is worth knowing on a device run: an iPhone gets a GPS fix, a Wi-Fi-only
+    // iPad can only ever get a coarse one (task 198), and "it worked" hides that difference.
+    if (location.coarse) void logEvent('nofix', 'coarse fix used (no GPS?)')
     location.setFollowing(true)
     location.watch()
     return

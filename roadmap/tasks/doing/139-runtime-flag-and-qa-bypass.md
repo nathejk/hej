@@ -211,7 +211,10 @@ The webview row is a pass/fail on the escape hatch, not on installation.
   Worth noting what that says about this matrix: the rows that remain are not a formality. Three of
   the six problems found this week (142, 145, 149) were only observable on a real phone.
 
-- 2026-09-02 — **iPadOS row run on hardware, against the deployed host `https://hej.nathejk.dk`.** This is
+- 2026-09-02 — **iPadOS row run on hardware, against the deployed host `https://hej.nathejk.dk`.**
+  Device: **iPad (6th generation), iPadOS 17.7.10, MR7F2KN/A** — a Wi-Fi-only model, and one that is end
+  of life at iPadOS 17. Worth recording precisely, because two later findings turn on it: it is inside the
+  16.4+ baseline, and it has **no GPS receiver** (see tasks 197, 198). This is
   the row the matrix called most likely to fail, and it passed on both counts:
 
   | check | result |

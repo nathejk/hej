@@ -2,6 +2,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  GEO_COARSE,
+  GEO_PRECISE,
   GEO_STUCK_MS,
   classifyGeoError,
   geoFailureMessage,
@@ -201,5 +203,107 @@ describe('request', () => {
 
     expect(store.failure).toBeNull()
     expect(store.error).toBe('')
+  })
+})
+
+describe('the coarse fallback', () => {
+  // A Wi-Fi-only iPad has no GNSS receiver at all, so the first request asks for something the hardware
+  // cannot provide. Retrying coarse asks for what it can — and ±500 m still answers "which end of the
+  // forest is this patrol in", which is the question that matters at 03:00.
+  it('retries coarse when high accuracy cannot be satisfied', async () => {
+    const attempts: (PositionOptions | undefined)[] = []
+    const store = useLocationStore()
+    store.geo = {
+      getCurrentPosition: (ok, err, options) => {
+        attempts.push(options)
+        if (attempts.length === 1) {
+          err?.({ code: 2, message: 'kCLErrorLocationUnknown' } as GeolocationPositionError)
+        } else {
+          ok({
+            coords: { latitude: 55.9, longitude: 12.2, accuracy: 480 },
+            timestamp: 2_000,
+          } as GeolocationPosition)
+        }
+      },
+      watchPosition: () => 1,
+      clearWatch: () => {},
+    }
+
+    const coords = await store.request()
+
+    expect(attempts).toHaveLength(2)
+    expect(attempts[0]?.enableHighAccuracy).toBe(true)
+    expect(attempts[1]?.enableHighAccuracy).toBe(false)
+
+    // A coarse fix is a normal success, not a degraded state: the map's accuracy circle draws the truth.
+    expect(coords?.accuracy).toBe(480)
+    expect(store.permission).toBe('granted')
+    expect(store.failure).toBeNull()
+    expect(store.coarse).toBe(true)
+  })
+
+  it('does not retry when the first attempt succeeds', async () => {
+    let calls = 0
+    const store = useLocationStore()
+    store.geo = {
+      getCurrentPosition: (ok) => {
+        calls++
+        ok(position)
+      },
+      watchPosition: () => 1,
+      clearWatch: () => {},
+    }
+
+    await store.request()
+
+    expect(calls).toBe(1)
+    expect(store.coarse).toBe(false)
+  })
+
+  // Retrying a refusal cannot change the answer — that needs a trip to Settings — and on some platforms
+  // repeat requests are exactly what gets a permission permanently blocked.
+  it('never retries a refusal', async () => {
+    let calls = 0
+    const store = useLocationStore()
+    store.geo = {
+      getCurrentPosition: (_ok, err) => {
+        calls++
+        err?.({ code: 1, message: 'denied' } as GeolocationPositionError)
+      },
+      watchPosition: () => 1,
+      clearWatch: () => {},
+    }
+
+    await store.request()
+
+    expect(calls).toBe(1)
+    expect(store.failure).toBe('denied')
+  })
+
+  it('reports the last thing tried when both attempts fail', async () => {
+    const store = useLocationStore()
+    store.geo = {
+      getCurrentPosition: (_ok, err, options) =>
+        err?.({
+          code: options?.enableHighAccuracy ? 2 : 3,
+          message: 'still nothing',
+        } as GeolocationPositionError),
+      watchPosition: () => 1,
+      clearWatch: () => {},
+    }
+
+    await store.request()
+
+    // The coarse attempt's cause, not the precise one's: what the user is told should describe the last
+    // thing actually attempted.
+    expect(store.failure).toBe('timeout')
+  })
+
+  it('gives the coarse attempt room to work', () => {
+    // Both relaxations matter: a Wi-Fi database lookup needs the time, and accepting an older fix is what
+    // makes a cached position usable rather than demanding a fresh lookup that may never succeed.
+    expect(GEO_COARSE.timeout ?? 0).toBeGreaterThan(GEO_PRECISE.timeout ?? 0)
+    expect(GEO_COARSE.maximumAge ?? 0).toBeGreaterThan(GEO_PRECISE.maximumAge ?? 0)
+    expect(GEO_COARSE.enableHighAccuracy).toBe(false)
   })
 })

@@ -132,11 +132,28 @@ several gigabytes, that is worth knowing before anyone plans a bigger tile set.
 
 Then either find a 16.x device, or fill the disk first, and record which.
 
+**Measured so far:** an iPad 6th generation on iPadOS 17.7.10 reported 6.4 MB stored at "0 % of the phone's
+space for the app", which puts its quota in the gigabytes. So on anything at 17 or newer this scenario needs
+the disk filled deliberately; it will not arrive on its own.
+
 1. Fill the origin — pan the map across a large area at high zoom until writes start failing.
 2. Watch for: the map keeps working with what it has; tiles stop being *added* rather than the cache
    emptying; the readiness section reports something was dropped.
 3. Check `Din rute` on the profile still shows its points. **The track must never be what gets
    sacrificed** — it is the only data on the device that exists nowhere else.
+
+## 6a. A device with no GPS
+
+Not every supported device can produce a precise position. **Wi-Fi-only iPads have no GNSS receiver at
+all** — the iPad 6th generation that found tasks 197/198 is one — so their only source is Apple's Wi-Fi
+network database.
+
+Worth one deliberate check, because it is invisible on a phone: on such a device, "Slå placering til" should
+end with a marker and a **large** accuracy circle, not a failure. If it fails, `/sporing` will carry a
+`geoerror` entry naming the cause, and that is the thing to report.
+
+If Apple's own Kort app cannot locate the device either, the problem is the device or its Location Services
+setting, not this app — check that before filing anything.
 
 ## 6. Recording survives, offline, for hours
 

@@ -30,6 +30,40 @@ export type GeoFailure = 'denied' | 'unavailable' | 'timeout' | 'stuck' | null
  */
 export const GEO_STUCK_MS = 25_000
 
+/**
+ * Options for the first attempt: precise, and quick to give up.
+ *
+ * High accuracy is right as a *first* choice — the position track wants precision, since 30 s sampling at
+ * walking pace puts points 33–50 m apart and a GPS error of 10–30 m is already most of that.
+ */
+export const GEO_PRECISE: PositionOptions = {
+  enableHighAccuracy: true,
+  timeout: 10_000,
+  maximumAge: 30_000,
+}
+
+/**
+ * Options for the second attempt: coarse, patient, and willing to accept an old fix.
+ *
+ * For devices with **no GNSS receiver at all** — every Wi-Fi-only iPad, including the iPad 6th generation
+ * that found this bug (task 198). Their only source is Apple's Wi-Fi network database, which is slower and
+ * coarser than GPS and fails outright where the surrounding networks are unknown. Asking such a device for
+ * high accuracy is asking for something the hardware cannot do; the answer is a slow failure, or none.
+ *
+ * Both relaxations matter and neither is padding: the longer timeout is what a network lookup needs, and
+ * accepting a two-minute-old fix is what makes a *cached* Wi-Fi position usable instead of demanding a
+ * fresh lookup that may not succeed.
+ *
+ * A coarse fix is a normal success. ±500 m still answers "which end of the forest is this patrol in",
+ * which is the question that matters at 03:00, and the map's accuracy circle draws the uncertainty
+ * honestly without any extra copy.
+ */
+export const GEO_COARSE: PositionOptions = {
+  enableHighAccuracy: false,
+  timeout: 15_000,
+  maximumAge: 120_000,
+}
+
 // Remembers that this device has granted location at least once.
 //
 // WHY THIS IS NECESSARY, measured on an iPhone (iOS 18.7, task 082's device run).
@@ -168,6 +202,14 @@ export const useLocationStore = defineStore('location', {
     failure: null as GeoFailure,
     /** True while a one-shot request is outstanding, so a tap is never silent. */
     requesting: false,
+    /**
+     * True when the current position came from the coarse fallback rather than GPS (task 198).
+     *
+     * Not shown to the user — the accuracy circle already draws the uncertainty, and a Wi-Fi fix is a
+     * normal success, not a degraded one. It exists so a device run can tell "GPS worked" from "only
+     * Wi-Fi worked", which is the difference between an iPhone and a Wi-Fi-only iPad.
+     */
+    coarse: false,
     // Whether the map should keep recentring on the position. Manual panning
     // turns this off; the locate button turns it back on.
     following: true,
@@ -243,6 +285,7 @@ export const useLocationStore = defineStore('location', {
       this.requesting = true
       this.failure = null
       this.error = ''
+      this.coarse = false
 
       return new Promise((resolve) => {
         // Whichever arrives first wins; the loser is ignored. A late success after the guard has fired
@@ -263,30 +306,49 @@ export const useLocationStore = defineStore('location', {
           settle(null)
         }, GEO_STUCK_MS)
 
+        const onSuccess = (coarse: boolean) => (pos: GeolocationPosition) => {
+          this.position = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            accuracy: pos.coords.accuracy,
+          }
+          this.positionAt = pos.timestamp || Date.now()
+          this.permission = 'granted'
+          this.coarse = coarse
+          rememberGrant(true)
+          this.error = ''
+          this.failure = null
+          settle(this.position)
+        }
+
+        const onFinalError = (err: { code?: number; message?: string }) => {
+          this.error = err.message ?? ''
+          this.failure = classifyGeoError(err)
+          if (this.failure === 'denied') {
+            this.permission = 'denied'
+            rememberGrant(false)
+          }
+          settle(null)
+        }
+
         geo.getCurrentPosition(
-          (pos) => {
-            this.position = {
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude,
-              accuracy: pos.coords.accuracy,
-            }
-            this.positionAt = pos.timestamp || Date.now()
-            this.permission = 'granted'
-            rememberGrant(true)
-            this.error = ''
-            this.failure = null
-            settle(this.position)
-          },
+          onSuccess(false),
           (err) => {
-            this.error = err.message
-            this.failure = classifyGeoError(err)
-            if (this.failure === 'denied') {
-              this.permission = 'denied'
-              rememberGrant(false)
+            const cause = classifyGeoError(err)
+
+            // A refusal is final. Retrying it would be pointless — the answer cannot change without a
+            // trip to Settings — and on some platforms repeat requests are what get a permission
+            // permanently blocked.
+            if (cause === 'denied') {
+              onFinalError(err)
+              return
             }
-            settle(null)
+
+            // Second attempt, coarse (task 198). On a device with no GPS chip the first request asked for
+            // something the hardware cannot provide; this asks for what it can.
+            geo.getCurrentPosition(onSuccess(true), onFinalError, GEO_COARSE)
           },
-          { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 },
+          GEO_PRECISE,
         )
       })
     },

@@ -415,7 +415,7 @@ on their own.
   quota ceiling this budget is designed around. Confirming the app works there says nothing about
   eviction. See `roadmap/offline-test-protocol.md` §5.*
 
-  *First measurement, 2026-09-02 (iPad, iPadOS, task 139's device run): the readiness section reported
+  *First measurement, 2026-09-02 (iPad 6th generation, iPadOS 17.7.10, task 139's device run): the readiness section reported
   **6.4 MB stored at "0 % of the phone's space for the app"**. Rounding to zero at 6.4 MB puts the real
   quota in the **gigabytes**, so the figures above are confirmed to be a floor rather than a limit on a
   current device. The ~1 GB planning ceiling stays, because it exists for iOS 16.x devices — but whether

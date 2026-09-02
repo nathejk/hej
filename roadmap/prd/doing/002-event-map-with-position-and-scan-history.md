@@ -570,6 +570,21 @@ These were written as "open" but had in fact shipped as tasks 040, 041, 042, 045
 
 **Legend:** `[x]` done · `[~]` partly done, see the note · `[—]` closed unbuilt, moved elsewhere.
 
+### Open question added 2026-09-02 (from the iPad device run)
+
+**Should the position track accept a coarse fix?** Task 198 made the *map* fall back to a low-accuracy
+position when high accuracy cannot be satisfied — which on a Wi-Fi-only iPad is always, since there is no
+GPS receiver in it. `track.store` was deliberately left asking for high accuracy only, because the two
+surfaces are not equivalent:
+
+- the map draws an **accuracy circle**, so a ±500 m fix is visibly approximate and honest;
+- a recorded track is drawn as a **line**, which implies a precision a Wi-Fi fix does not have — and that
+  line is what a team is shown after the race (PRD 011).
+
+So a coarse track is either better than no track, or a misleading artefact. It needs a decision rather
+than a default. Note the sampling reasoning in §11.1 assumed GPS: 30 s puts points 33–50 m apart against
+a 10–30 m GPS error, and neither number survives a ±500 m source.
+
 ### What is actually left (2026-09-02)
 
 One item, and it is a measurement rather than code:
