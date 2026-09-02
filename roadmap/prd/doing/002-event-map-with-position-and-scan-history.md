@@ -570,6 +570,24 @@ These were written as "open" but had in fact shipped as tasks 040, 041, 042, 045
 
 **Legend:** `[x]` done · `[~]` partly done, see the note · `[—]` closed unbuilt, moved elsewhere.
 
+### Measured 2026-09-02 — what "coverage while the app is open" costs in practice
+
+First device measurement of the position track (task 082, iPad 6th gen, iPadOS 17.7.10, installed): over a
+10m 44s period the recorder captured **12 of an expected 22 points — 55% coverage**, with 3 gaps totalling
+7m 22s. Those gaps match the 3 backgroundings (6m 14s) almost to the second, and iOS killed the app zero
+times.
+
+So the loss is entirely the documented platform limit — a web app does not run while backgrounded — and not
+sampling failure or throttling. §11.1's framing was right, and now has a number: **three glances away from
+the app in eleven minutes cost 45% of the wall clock.**
+
+Two consequences worth carrying into PRD 011, which is what shows a team its own route:
+
+- a track is a **dotted record of where the app was open**, not a route. Drawing it as a continuous line
+  will overstate it, and the gaps are the interesting part rather than noise to smooth over.
+- accuracy on that device was **35–40 m** (Wi-Fi only, no GPS), which is fine for "which end of the forest"
+  and not fine for "which path did they take".
+
 ### Finding added 2026-09-02 — asking for location too early can wedge an install
 
 From the iPad runs (tasks 197–200). A device arrived with **Location Services off for the whole device**.

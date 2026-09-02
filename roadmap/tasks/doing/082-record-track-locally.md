@@ -332,3 +332,35 @@ so there is no reason to be clever about compaction.
   pocket, app open, before/after read from Settings → Battery by hand (iOS exposes no Battery Status
   API). Worth pairing with the offline device pass in `roadmap/offline-test-protocol.md` — same phone,
   same session.
+
+- 2026-09-02 — **Coverage measured on hardware for the first time** (iPad 6th gen, iPadOS 17.7.10,
+  installed, 11 minutes, crew user). This is the number this task existed to find, and it is worse than the
+  design hoped and exactly what the design predicted:
+
+  | | |
+  |---|---|
+  | wall-clock period | 10m 44s |
+  | points recorded / expected at 30 s | **12 / 22** |
+  | **coverage** | **55%** |
+  | gaps > 60 s | 3, totalling 7m 22s |
+  | time backgrounded | 6m 14s across 3 backgroundings |
+  | killed by iOS with no resume | **0** |
+  | accuracy min/median/max | 35 / 35 / 40 m |
+  | fixes reusing the map's own | 3 / 12 |
+
+  **The gaps are the backgroundings, almost to the second**: gap 1 is 4m 58s and background 1 is 4m 51s.
+  So the loss is not sampling failure, jitter or battery throttling — it is the documented platform limit
+  that a web app does not run while backgrounded, and nothing in the recorder is misbehaving.
+
+  What that means for PRD 002's framing: "coverage of everywhere the member was **while the app was open**"
+  is exactly right, and now has a figure attached. Three glances away from the app in eleven minutes cost
+  **45% of the wall clock**. A participant who keeps the app foregrounded while walking gets a good track;
+  one who pockets the phone gets a dotted line. Worth saying out loud before anyone promises a route map.
+
+  Also confirmed working: `persisted() = true`, the map-fix reuse optimisation (3 of 12 points cost nothing
+  extra), and the uploader (4 batches, 11 of 12 points shipped, 1 pending at report time, no failures).
+
+- 2026-09-02 — **Battery still outstanding**, and this run cannot supply it either: 11 minutes with the
+  screen mostly on measures nothing, and the report's battery fields are blank by design because iOS exposes
+  no battery API. Still needs a couple of hours with the phone in a pocket and a manual before/after reading.
+  That is the only criterion left on this task.

@@ -78,3 +78,11 @@ than the blank marker the iPad got.
 - 2026-09-02 — ✅ All criteria complete. 5 new tests (19 in this store's spec); suite 376 across 31
   files; `type-check` and `build` clean. Still unverified on the iPad itself: what this changes is that
   the coarse path now exists and, if it answers, the map will show a position with an honest circle.
+
+- 2026-09-02 — **Corrected by measurement.** This task asserted that high accuracy is "a request the
+  hardware cannot satisfy" on a Wi-Fi-only iPad. The first real report from that device shows fixes at
+  **35–40 m** accuracy, `placeringstilladelse: granted`, 12 points recorded — so Wi-Fi positioning on it is
+  not merely usable, it is good enough that the distinction from GPS barely matters for this app's purpose.
+  The claim should have been narrower: high accuracy cannot be satisfied *by GPS*, and WebKit may take
+  longer or fail where the network is unknown. The coarse fallback is still worth having for the case where
+  it does fail, but it is insurance rather than the load-bearing fix I described.

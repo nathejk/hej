@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 
+import { logEvent } from '@/helpers/trackDb'
+
 export type GeoPermission = 'unknown' | 'prompt' | 'granted' | 'denied' | 'unavailable'
 
 /**
@@ -373,6 +375,11 @@ export const useLocationStore = defineStore('location', {
           rememberGrant(true)
           this.error = ''
           this.failure = null
+          // Logged **here**, not at the call site. The first version logged this from the map's own
+          // permission card, and the first real report came back without it — because that device granted
+          // location during onboarding instead, so the map's card never appeared and the line never ran.
+          // Whichever surface asks, the answer is worth the same, so it belongs where the answer arrives.
+          void logEvent('nofix', `fix via ${strategy}, acc=${Math.round(pos.coords.accuracy)}m`)
           // Set before settling so `cleanup` can see which strategy won.
           if (strategy === 'watch') {
             watchWon = true
@@ -393,6 +400,7 @@ export const useLocationStore = defineStore('location', {
           if (settled) return
           this.failure = 'stuck'
           this.error = 'no geolocation strategy answered'
+          void logEvent('geoerror', 'stuck: no strategy answered')
           settle(null)
         }, GEO_STUCK_MS)
 
@@ -411,6 +419,7 @@ export const useLocationStore = defineStore('location', {
             this.failure = 'denied'
             this.permission = 'denied'
             rememberGrant(false)
+            void logEvent('geoerror', 'denied')
             settle(null)
             return
           }
@@ -429,6 +438,7 @@ export const useLocationStore = defineStore('location', {
 
           if (outstanding <= 0) {
             this.failure = lastFailure
+            void logEvent('geoerror', `${lastFailure}: ${this.error}`)
             settle(null)
           }
         }

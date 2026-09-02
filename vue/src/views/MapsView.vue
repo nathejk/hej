@@ -91,18 +91,11 @@ async function accept() {
     location.watch()
   }
 
-  if (coords) {
-    // Which strategy answered is the finding a device run is looking for: an iPhone should be served by
-    // the precise one-shot, a Wi-Fi-only iPad only by the coarse one, and 'watch' would confirm the
-    // hypothesis behind task 199 — that iPadOS answers a watch while ignoring a one-shot.
-    void logEvent('nofix', `fix via ${location.strategy}${location.coarse ? ' (coarse)' : ''}`)
-    return
-  }
+  if (coords) return
 
-  // Record what the browser actually did, so the next device run can answer the question the iPad run
-  // raised (task 197). Written to the track's diagnostic log because that survives the app being killed,
-  // which a console message on a phone does not.
-  void logEvent('geoerror', `request/${location.failure ?? 'unknown'}: ${location.error}`)
+  // The cause is logged by the store now (task 201), so every surface that asks for a position records the
+  // same thing — the map's card is not the only way permission gets requested, and the first device report
+  // came back without any of this because the user granted during onboarding instead.
 }
 
 function dismiss() {

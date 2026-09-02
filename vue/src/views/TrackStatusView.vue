@@ -125,6 +125,11 @@ const report = computed(() => {
   lines.push('=== HEJ NATHEJK — SPORINGSSTATUS (task 082) ===')
   L('rapport', new Date().toISOString())
   L('app', __APP_VERSION__)
+  // The build id, not just the version: `npm_package_version` is `0.0.0` in this project, so `app` alone
+  // cannot tell one bundle from another — and "which build is this device actually running" is the first
+  // question a shared report has to answer. An installed PWA keeps its old bundle until the update prompt
+  // is accepted (`registerType: 'prompt'`), so a device can be a week behind while looking current.
+  L('build', __BUILD_ID__)
   lines.push('')
   lines.push('-- miljø --')
   L('standalone', window.matchMedia('(display-mode: standalone)').matches)
@@ -136,6 +141,11 @@ const report = computed(() => {
   lines.push('-- optagelse --')
   L('optager nu', track.recording)
   L('placeringstilladelse', location.permission)
+  // Which strategy produced the last fix (task 199), and whether it was coarse (task 198). The report that
+  // prompted this carried neither, because the only place logging it was the map's own prompt — and the
+  // permission had been granted during onboarding instead, so it never ran.
+  L('sidste fix via', location.strategy ?? '(ukendt)')
+  L('kun grov placering', location.coarse)
   L('problem', track.problem || '(ingen)')
   L('interval', `${TRACK_SAMPLE_SECONDS}s`)
   lines.push('')

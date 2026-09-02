@@ -415,12 +415,14 @@ on their own.
   quota ceiling this budget is designed around. Confirming the app works there says nothing about
   eviction. See `roadmap/offline-test-protocol.md` §5.*
 
-  *First measurement, 2026-09-02 (iPad 6th generation, iPadOS 17.7.10, task 139's device run): the readiness section reported
-  **6.4 MB stored at "0 % of the phone's space for the app"**. Rounding to zero at 6.4 MB puts the real
-  quota in the **gigabytes**, so the figures above are confirmed to be a floor rather than a limit on a
-  current device. The ~1 GB planning ceiling stays, because it exists for iOS 16.x devices — but whether
-  any participant still runs one is a **fleet** question, and if the answer is no, the tile budget could
-  be considerably more generous.*
+  *Measured 2026-09-02 on an iPad 6th generation, iPadOS 17.7.10 (a 32 GB model), from the diagnostic
+  report rather than inferred: **quota 19,327 MB (≈18.9 GB), `navigator.storage.persisted()` true**.
+  Two things confirmed outright. The **60%-of-disk** rule holds exactly — 60% of 32 GB is 19.2 GB — and
+  **`persist()` is granted to an installed PWA**, which §8 assumed on the strength of WebKit's documented
+  heuristics and had never verified. So the ~1 GB planning ceiling has **19× headroom** on this device.
+  It stays, because it exists for iOS 16.x devices; but whether any participant still runs one is a
+  **fleet** question, and if the answer is no, the tile budget could be far more generous — the whole
+  race area at z12–17, or several years of areas, would fit.*
 
   *And a caveat on the table itself: the figures above were read from WebKit's published storage policy
   as it stood when this PRD was written, which predates iOS 26. **Nobody has checked whether the policy
