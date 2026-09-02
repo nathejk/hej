@@ -110,6 +110,11 @@ export const PORTRAIT_CACHE_MAX_ENTRIES = 1_000
 /**
  * How long a cached portrait is kept, in seconds. Two weeks.
  *
+ * **Approved by the maintainer 2026-09-01**, and deliberately equal to the BFF's
+ * `CACHED_DIRECTORY_TTL`: the index and the faces expire together, because a directory of names
+ * with no photographs and a set of photographs with no names are both worse than neither. If one
+ * changes, change both in the same commit — otherwise half a purge looks like a whole one.
+ *
  * Long enough to cover the run-up plus the race, so a participant who prepares a fortnight early
  * still has faces on the night. Short enough that a device which never reopens the app after the
  * event drops them on its own — the dormant-device case where no purge can run (PRD 009 §11.5).

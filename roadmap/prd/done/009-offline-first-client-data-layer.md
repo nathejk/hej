@@ -1,11 +1,11 @@
 # PRD 009 — Offline-first client data layer (shared budget, readiness and freshness)
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed)
 **Created:** 2026-08-25
 **Last updated:** 2026-09-01
 **Approved:** 2026-09-01
-**Shipped:**
+**Shipped:** 2026-09-01
 **Target users:** all app users, indirectly — this is the mechanism behind every offline-capable feature
 
 <!--
@@ -24,6 +24,21 @@ changed to say so. See §11.2 for the record of what was cut and why.
 Approved 2026-09-01, once the two outstanding inputs were confirmed by the maintainer:
 the priority order (§6) and the race area (derived from checkpoints, fixed during an
 event). Tasks 183–195.
+
+Shipped 2026-09-01. All thirteen tasks are in `roadmap/tasks/done/`, and the maintainer
+confirmed the app works on a real device — which was the outstanding condition, since every
+claim in this document is about behaviour on a phone. Two things it does **not** mean, recorded
+so the `done/` folder is not read as more than it is:
+
+  - the awkward scenarios in `roadmap/offline-test-protocol.md` — an OS-cleared cache, a full
+    origin, a device dormant for three weeks — have not all been exercised. They are what the
+    protocol exists for and a quick check does not reach them.
+  - the **post-event purge** cannot be verified before an event has ended. Task 173 stays open on
+    PRD 007's board for that, and this PRD's §11.5 is the reasoning behind it.
+
+Rescoping note: what shipped is narrower than the original draft and deliberately so — see
+§11.2 for the registry and sync engine that were cut, and §7 for the onboarding step that
+dissolved once the maintainer pointed out that a megabyte does not need a prompt.
 -->
 
 ---
@@ -425,6 +440,11 @@ on their own.
 
 Measurable from the device or by inspection; this PRD introduces no telemetry endpoint, so
 nothing here depends on one.
+
+*Status at ship, 2026-09-01: the automated ones pass (`quota.spec.ts`, `offline.spec.ts`), and the
+app has been confirmed working on a device. The ones that need a deliberately broken phone — a
+full origin, a cleared cache, a dormant device — are written down in
+`roadmap/offline-test-protocol.md` and owed a pass before the event.*
 
 - Every cached dataset verifiably works with the radio off on real iOS and Android devices
   (the offline test protocol, §10).

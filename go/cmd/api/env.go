@@ -165,11 +165,15 @@ type config struct {
 	// §11.5, PRD 007 §11.8). A baked-in deadline is checked the next time the app opens at all,
 	// whenever that is, which is more than any server-side purge can promise.
 	//
-	// Fourteen days, matching `PORTRAIT_CACHE_MAX_AGE_SECONDS` on the client — the index and the
-	// faces expire together on purpose, because a directory of names with no photos and a set of
-	// photos with no names are both worse than neither. Long enough for a participant who
-	// prepares a fortnight early; short enough that the data is gone within a fortnight of the
-	// race whatever the device does afterwards.
+	// Fourteen days, **approved by the maintainer 2026-09-01**, matching
+	// `PORTRAIT_CACHE_MAX_AGE_SECONDS` on the client — the index and the faces expire together on
+	// purpose, because a directory of names with no photos and a set of photos with no names are
+	// both worse than neither. Long enough for a participant who prepares a fortnight early; short
+	// enough that the data is gone within a fortnight of the race whatever the device does
+	// afterwards.
+	//
+	// Unlike `portraitRetention` above, this number is settled rather than a placeholder. If it
+	// changes, change the client constant in the same commit or the two halves of one purge drift.
 	//
 	// Zero or negative disables the deadline. That is for a diagnostic run, not a supported
 	// production setting: it means "keep other people's phone numbers on this phone forever".

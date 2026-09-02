@@ -84,3 +84,12 @@ minutes is worth more than an elaborate harness nobody runs.
   because someone following it without them would spend an evening discovering the first and get a
   meaningless pass from the second. Kept as two tasks rather than merged — different scopes — and
   cross-linked both ways.
+- 2026-09-01 — **First real-device run happened**: the maintainer tested the app on a device and
+  reports it works. That clears the largest unknown hanging over PRD 009 — every claim in it is about
+  behaviour on a phone, and until now none had been seen on one.
+
+  Recorded honestly rather than ticked off: the run was reported as working, without device, OS
+  version, install method, or which of the six scenarios above were exercised. So the protocol has
+  been *used*, not yet *completed* — in particular the deliberately awkward ones (OS-cleared cache,
+  full origin, three-weeks-dormant) are the ones a quick check would not reach, and they are the ones
+  the protocol exists for. Left to a later pass rather than assumed.

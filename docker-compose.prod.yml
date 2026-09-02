@@ -163,11 +163,12 @@ services:
       # the only lever that reaches a **dormant device**: a phone that never reopens the
       # app after the event, where no purge job, service worker or push will ever run.
       #
-      # 14 days, and it must stay in step with PORTRAIT_CACHE_MAX_AGE_SECONDS in the
-      # frontend (src/config/cache.ts) — the names and the faces expire together on
-      # purpose, since a directory with no photos and photos with no names are both worse
-      # than neither. 0 disables the deadline, which in production means "keep this
-      # forever"; diagnostic only.
+      # 14 days, **approved by the maintainer 2026-09-01**. It must stay in step with
+      # PORTRAIT_CACHE_MAX_AGE_SECONDS in the frontend (src/config/cache.ts) — the names
+      # and the faces expire together on purpose, since a directory with no photos and
+      # photos with no names are both worse than neither. Change both or neither. 0
+      # disables the deadline, which in production means "keep this forever"; diagnostic
+      # only.
       CACHED_DIRECTORY_TTL: ${CACHED_DIRECTORY_TTL:-336h}
       # Retain the uploaded image at full resolution, metadata stripped (task 111),
       # so thumbnail sizes can be regenerated later instead of applying only to

@@ -79,3 +79,9 @@ Shared with task 173, which verifies the whole loop end to end.
   `docker-compose.prod.yml` with the reasoning and the cross-reference.
 - 2026-09-01 — Done. Task 173 still owns verifying the whole loop on a real device — this is the
   mechanism, not the proof.
+- 2026-09-01 — **14 days approved by the maintainer.** No longer a placeholder: `CACHED_DIRECTORY_TTL`
+  and `PORTRAIT_CACHE_MAX_AGE_SECONDS` are settled at a fortnight, and the code comments at both ends
+  now say so and say to change them together.
+- 2026-09-01 — **Verified on a device by the maintainer**, reported working. Device, OS version and
+  install method were not captured; noted as a gap rather than invented, because the protocol asks for
+  all three and a result without them is not reproducible.

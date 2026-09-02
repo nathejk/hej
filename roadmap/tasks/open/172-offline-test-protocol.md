@@ -94,3 +94,10 @@ airplane mode toggled mid-session (reconnect triggering a version check, task 16
   including the one behaviour where working offline would be a *bug* — the patrol lookup must still
   refuse. Cross-linked in both directions, and the protocol now opens with this task's device-access
   wall so nobody follows it into 127.0.0.1.
+- 2026-09-01 — **The device-access wall is apparently down**: the maintainer has run the app on a real
+  device (reported against PRD 009, task 195). This task still asks for the *method* to be written
+  above — tunnel, tailnet or LAN DNS, plus any `allowedHosts` or cookie-flag changes it needed —
+  because the next person to test will hit the same wall and the compose file does not explain it.
+  Criteria left unchecked deliberately: this task is about PRD 007 pane behaviour, and none of it has
+  been reported yet — in particular the patrol lookup refusing offline, which is the one case where
+  working offline would be the bug.
