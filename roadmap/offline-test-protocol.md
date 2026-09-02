@@ -175,3 +175,8 @@ OS version, and whether the app was installed — a result without those three i
 - **What a full event's worth of devices does to the BFF.** The freshness poll is the app's only
   continuous during-race traffic; its interval is served from `/api/config` so it can be widened
   during an event (task 190).
+- 2026-09-02 — Add the bulk tile download to the device pass: task 087 shipped it the same day, and its
+  byte-identical-URL claim is argued rather than observed. Order that matters: download the orientation
+  tier on wi-fi, then aeroplane mode, then open the map. If the tiles were stored under URLs the map does
+  not ask for, the map draws blank and the cache is full — which is exactly the failure no unit test can
+  see.

@@ -82,6 +82,22 @@ export interface OfflineDatasetStatus {
   complete: boolean
   /** Server-issued expiry, epoch ms (task 193). Null when the data does not expire. */
   expiresAt: number | null
+  /**
+   * How far a running fetch has got, or null when nothing is running.
+   *
+   * Only meaningful for a dataset whose work is countable — the tile download (task 087) knows it has
+   * 5,291 tiles to get. A dataset that is one request keeps this null rather than reporting 0/1, so the
+   * view can tell "working, indeterminate" from "working, 12% done".
+   */
+  progress: { done: number; total: number } | null
+  /**
+   * Why the last attempt did not finish, when it did not.
+   *
+   * Two causes worth telling a user apart, because the responses differ: `'quota'` means the phone is
+   * full and they must free space or accept less map; `'offline'` means try again with signal. Silence
+   * would leave a download that stopped at 60% looking like one that finished.
+   */
+  problem: 'quota' | 'offline' | null
 }
 
 /** What a dataset owner reports. Everything optional: report what you know. */
@@ -102,6 +118,13 @@ export interface OfflineDatasetHandlers {
   sync?: () => Promise<void>
   /** Delete this dataset's local copy. Never offered for unrecoverable data — see `clear`. */
   clear?: () => Promise<void> | void
+  /**
+   * Stop a running `sync`, keeping whatever it already stored.
+   *
+   * Only for work long enough that a user would want out of it — a 324 MB tile download can run for
+   * minutes on rural mobile data, and a progress bar with no way to stop it is a trap.
+   */
+  cancel?: () => void
 }
 
 /**
@@ -124,6 +147,8 @@ function unknownStatus(): OfflineDatasetStatus {
     bytes: null,
     complete: false,
     expiresAt: null,
+    progress: null,
+    problem: null,
   }
 }
 
@@ -199,6 +224,22 @@ export const useOfflineStore = defineStore('offline', {
     /** True while any dataset is fetching, so one progress indicator can cover them all. */
     syncing(state): boolean {
       return OFFLINE_DATASETS.some((d) => state.statuses[d.id].state === 'syncing')
+    },
+
+    /** Percentage complete for whichever dataset is reporting countable progress, else null. */
+    syncPercent(state): number | null {
+      for (const dataset of OFFLINE_DATASETS) {
+        const p = state.statuses[dataset.id].progress
+        if (p && p.total > 0) return Math.min(100, Math.round((p.done / p.total) * 100))
+      }
+      return null
+    },
+
+    /** Datasets that can be stopped mid-sync. */
+    cancellable(state): OfflineDatasetId[] {
+      return OFFLINE_DATASETS.filter(
+        (d) => state.handlers[d.id]?.cancel && state.statuses[d.id].state === 'syncing',
+      ).map((d) => d.id)
     },
 
     /**
@@ -375,7 +416,16 @@ export const useOfflineStore = defineStore('offline', {
         if (this.statuses[id].state === 'syncing') {
           this.statuses[id] = { ...this.statuses[id], state: previous }
         }
+      } finally {
+        // Progress belongs to a *running* job. Leaving the last numbers behind would show a finished
+        // download as though it were still at 4,912 of 5,291.
+        this.statuses[id] = { ...this.statuses[id], progress: null }
       }
+    },
+
+    /** Stop a running sync, if this dataset offers a way to. */
+    cancel(id: OfflineDatasetId) {
+      this.handlers[id]?.cancel?.()
     },
 
     /**

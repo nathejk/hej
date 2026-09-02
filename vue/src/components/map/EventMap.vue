@@ -12,6 +12,7 @@ import {
   MIN_ZOOM,
   TILE_RETRY_BASE_DELAY_MS,
   TILE_RETRY_LIMIT,
+  wmsLayerOptions,
   type BaseLayerKey,
 } from '@/config/map'
 import { dataforsyningenToken } from '@/config/runtime'
@@ -115,41 +116,12 @@ function cancelRetries() {
 
 function buildBaseLayer(key: BaseLayerKey): L.TileLayer.WMS {
   const cfg = baseLayers[key]
-  // Leaflet copies any option it does not recognise into the WMS query string,
-  // which is how `token` reaches Dataforsyningen.
+  // Options come from `wmsLayerOptions` rather than being written here, so the offline downloader
+  // (task 087) produces byte-identical URLs. If the two ever differ, the bulk download fills the
+  // cache with entries this map never looks up — which looks like a working feature right up until
+  // somebody opens the map in a forest. The reasoning for each option lives with the function.
   const layer = L.tileLayer.wms(cfg.url, {
-    layers: cfg.layer,
-    // Per-layer, not hardcoded: the aerial layer is ~15x smaller as JPEG (see
-    // BaseLayerConfig.format).
-    format: cfg.format,
-    // Request tiles with CORS so the service worker can cache them as ordinary,
-    // readable responses (task 087).
-    //
-    // Without this, `<img>` tiles are fetched no-cors and the responses are **opaque**.
-    // Opaque responses can be stored, but browsers pad them for quota accounting to stop
-    // cross-origin size leaks, so a few thousand tiles would consume far more of the
-    // origin's quota than their real ~324 MB — on iOS 16's ~1 GB ceiling that is the
-    // difference between fitting and not.
-    //
-    // Safe because Dataforsyningen sends `Access-Control-Allow-Origin`, reflecting whatever
-    // Origin is presented (verified against the live service for both the dev and
-    // production hostnames, 2026-08-26). If that ever stops, tiles fail to load rather than
-    // silently degrade — and it surfaces through the existing tile-retry and
-    // "Kortbilleder kunne ikke hentes" notice rather than as a blank map.
-    crossOrigin: 'anonymous',
-    // Do NOT add `version: '1.3.0'` here without also uppercasing this value.
-    //
-    // Leaflet emits WMS params with lowercase names and stringified values
-    // (`transparent=false`) and defaults to WMS 1.1.1, which Dataforsyningen accepts.
-    // Under 1.3.0 the same service rejects the lowercase value with
-    // `ServiceException: TRANSPARENT must be either TRUE or FALSE` — verified against
-    // the live service, 2026-08-26. Since Leaflet sends this parameter on *every* tile
-    // request, bumping the version alone would break every layer at once, and the
-    // failure arrives as a 200 response containing XML rather than as an HTTP error.
-    transparent: false,
-    attribution: cfg.attribution,
-    token: dataforsyningenToken.value,
-    maxZoom: MAX_ZOOM,
+    ...wmsLayerOptions(cfg, dataforsyningenToken.value),
   } as L.WMSOptions)
   attachTileRetry(layer)
   // Once a full screen of tiles has loaded, any earlier failure is stale.

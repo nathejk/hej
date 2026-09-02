@@ -6,8 +6,8 @@ import type { CacheLike, CacheStorageLike } from '@/helpers/offline/eviction'
 function cacheOf(entries: Record<string, number | null>): CacheLike {
   return {
     keys: async () => Object.keys(entries).map((url) => ({ url }) as Request),
-    match: async (request: Request) => {
-      const length = entries[request.url]
+    match: async (request: Request | string) => {
+      const length = entries[typeof request === 'string' ? request : request.url]
       if (length === undefined) return undefined
       return {
         headers: { get: () => (length === null ? null : String(length)) },

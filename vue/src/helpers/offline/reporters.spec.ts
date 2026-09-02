@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { PORTRAIT_CACHE_NAME, TILE_CACHE_NAME } from '@/config/cache'
 import type { CacheLike, CacheStorageLike } from '@/helpers/offline/eviction'
 import { browserEvictors } from '@/helpers/offline/evictors'
-import { purgeSensitiveData, reportCaches } from '@/helpers/offline/reporters'
+import { purgeSensitiveData, registerOfflineDatasets, reportCaches } from '@/helpers/offline/reporters'
 import { useOfflineStore } from '@/stores/offline.store'
 
 beforeEach(() => {
@@ -16,7 +16,7 @@ function cacheOf(urls: string[], bytes = 1000): CacheLike {
   return {
     keys: async () => [...store].map((url) => ({ url }) as Request),
     match: async () => ({ headers: { get: () => String(bytes) } }) as unknown as Response,
-    delete: async (request: Request) => store.delete(request.url),
+    delete: async (request: Request | string) => store.delete(typeof request === 'string' ? request : request.url),
   }
 }
 
@@ -117,6 +117,53 @@ describe('purgeSensitiveData', () => {
     await purgeSensitiveData(undefined)
 
     expect(store.statuses.directory.state).toBe('empty')
+  })
+})
+
+describe('tile download handlers', () => {
+  it('offers sync, cancel and clear for tiles once the Cache API exists', async () => {
+    const api = caches({ [TILE_CACHE_NAME]: cacheOf([]) })
+    const store = useOfflineStore()
+
+    await registerOfflineDatasets(api)
+
+    expect(Boolean(store.handlers.tiles?.sync)).toBe(true)
+    expect(Boolean(store.handlers.tiles?.cancel)).toBe(true)
+    expect(Boolean(store.handlers.tiles?.clear)).toBe(true)
+  })
+
+  // A progress bar with no way out is a trap: this download runs for minutes on rural mobile data.
+  it('reports tiles as cancellable only while a download is running', async () => {
+    const api = caches({ [TILE_CACHE_NAME]: cacheOf([]) })
+    const store = useOfflineStore()
+    await registerOfflineDatasets(api)
+
+    expect(store.cancellable).toEqual([])
+    store.report('tiles', { state: 'syncing' })
+    expect(store.cancellable).toEqual(['tiles'])
+  })
+
+  it('turns a countable progress report into a percentage', () => {
+    const store = useOfflineStore()
+    expect(store.syncPercent).toBeNull()
+
+    store.report('tiles', { state: 'syncing', progress: { done: 1_323, total: 5_291 } })
+    expect(store.syncPercent).toBe(25)
+  })
+
+  // Progress belongs to a running job. Left behind, a finished download would show for ever as though it
+  // were still at 4,912 of 5,291.
+  it('clears progress when a sync ends', async () => {
+    const store = useOfflineStore()
+    store.registerHandlers('tiles', {
+      sync: async () => {
+        store.report('tiles', { progress: { done: 5, total: 10 } })
+      },
+    })
+
+    await store.sync('tiles')
+
+    expect(store.statuses.tiles.progress).toBeNull()
   })
 })
 

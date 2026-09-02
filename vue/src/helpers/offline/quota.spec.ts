@@ -38,7 +38,7 @@ function fullCache(urls: string[]): CacheLike & { remaining: () => string[] } {
   return {
     keys: async () => [...store].map((url) => ({ url }) as Request),
     match: async () => ({ headers: { get: () => '32768' } }) as unknown as Response,
-    delete: async (request: Request) => store.delete(request.url),
+    delete: async (request: Request | string) => store.delete(typeof request === 'string' ? request : request.url),
     remaining: () => [...store],
   }
 }

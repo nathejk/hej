@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
-import { Check, CloudDownload, HardDrive, RefreshCw, Trash2, TriangleAlert } from '@lucide/vue'
+import { Check, CloudDownload, HardDrive, RefreshCw, Square, Trash2, TriangleAlert } from '@lucide/vue'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -96,6 +96,8 @@ interface Row {
   detail: string
   canSync: boolean
   canClear: boolean
+  canCancel: boolean
+  problem: 'quota' | 'offline' | null
 }
 
 const rows = computed<Row[]>(() =>
@@ -121,6 +123,8 @@ const rows = computed<Row[]>(() =>
       badge: STATE_COPY[status.state],
       detail: parts.join(' · ') || 'Ikke hentet endnu',
       canSync: Boolean(offline.handlers[dataset.id]?.sync),
+      canCancel: Boolean(offline.handlers[dataset.id]?.cancel) && status.state === 'syncing',
+      problem: status.problem,
       // Never offered for unrecoverable data. `offline.store.clear` refuses it too — belt and
       // braces, because this is the one button in the app whose bug is unrecoverable data loss.
       canClear: Boolean(offline.handlers[dataset.id]?.clear) && !dataset.unrecoverable,
@@ -164,8 +168,12 @@ const trackUnrecoverable = computed(() => offlineDataset('track').unrecoverable)
           <Progress
             v-if="offline.syncing"
             class="mt-2"
+            :model-value="offline.syncPercent ?? 0"
             aria-label="Henter data til offline brug"
           />
+          <p v-if="offline.syncPercent !== null" class="mt-1 text-xs text-slate-500">
+            {{ offline.syncPercent }} % hentet. Du kan lukke appen — det, der er hentet, bliver gemt.
+          </p>
 
           <Button
             v-if="offline.syncable.length"
@@ -196,7 +204,17 @@ const trackUnrecoverable = computed(() => offlineDataset('track').unrecoverable)
             </div>
             <p class="mt-1 text-xs text-slate-500">{{ row.detail }}</p>
 
-            <div v-if="row.canSync || row.canClear" class="mt-2 flex gap-2">
+            <!-- Two causes, two different things to do about them. Silence would leave a download that
+                 stopped at 60% looking like one that finished. -->
+            <p v-if="row.problem === 'quota'" class="mt-1 text-xs text-amber-800">
+              Der er ikke mere plads på telefonen. Det, der er hentet, virker stadig — slet noget andet,
+              hvis du vil have resten af kortet med.
+            </p>
+            <p v-else-if="row.problem === 'offline'" class="mt-1 text-xs text-amber-800">
+              Forbindelsen holdt ikke hele vejen. Prøv igen, når du har wi-fi — det hentede beholdes.
+            </p>
+
+            <div v-if="row.canSync || row.canClear || row.canCancel" class="mt-2 flex gap-2">
               <Button
                 v-if="row.canSync"
                 size="sm"
@@ -206,6 +224,12 @@ const trackUnrecoverable = computed(() => offlineDataset('track').unrecoverable)
               >
                 <RefreshCw aria-hidden="true" />
                 Hent nu
+              </Button>
+              <!-- A progress bar with no way out of it is a trap: the tile download can run for minutes
+                   on rural mobile data. Stopping keeps every tile already fetched. -->
+              <Button v-if="row.canCancel" size="sm" variant="outline" @click="offline.cancel(row.id)">
+                <Square aria-hidden="true" />
+                Stop
               </Button>
               <Button
                 v-if="row.canClear"

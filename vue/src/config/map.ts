@@ -78,6 +78,43 @@ export const baseLayers: Record<BaseLayerKey, BaseLayerConfig> = {
 
 export const DEFAULT_BASE_LAYER: BaseLayerKey = 'dtk25'
 
+/**
+ * The WMS options a tile layer is built with — shared by the map and the offline downloader.
+ *
+ * **This function exists so the two cannot drift.** Task 087's bulk download has to produce byte-identical
+ * URLs to the ones the map requests, or it fills the cache with entries the map will never look up: the
+ * service worker matches on the whole URL, and only `token` and `_retry` are normalised away
+ * (`TILE_CACHE_KEY_IGNORED_PARAMS`). Any other difference — a parameter present, absent, or in another
+ * order — means a few hundred megabytes downloaded and then ignored, which would look exactly like a
+ * working feature until somebody opened the map in a forest.
+ *
+ * Every option below has a reason recorded at the one place it is set:
+ *
+ *  - `format` is per-layer, because the aerial layer is ~15× smaller as JPEG than as PNG.
+ *  - `crossOrigin` makes tiles CORS-readable so the worker can store them as ordinary responses.
+ *    Without it they are **opaque**, and browsers pad opaque responses for quota accounting to prevent
+ *    cross-origin size leaks — turning a 324 MB tile set into something far larger against the same
+ *    quota. Safe because Dataforsyningen reflects `Access-Control-Allow-Origin` (verified against the
+ *    live service for the dev and production hostnames, 2026-08-26).
+ *  - `transparent: false` and the implied WMS **1.1.1**: do not add `version: '1.3.0'` without
+ *    uppercasing the value. Leaflet emits lowercase parameter values, and 1.3.0 makes the same service
+ *    answer `ServiceException: TRANSPARENT must be either TRUE or FALSE` — on *every* tile, arriving as
+ *    a 200 containing XML rather than as an HTTP error.
+ *  - `token` is not a WMS parameter; Leaflet copies unrecognised options into the query string, which is
+ *    how the Dataforsyningen key reaches the service.
+ */
+export function wmsLayerOptions(cfg: BaseLayerConfig, token: string) {
+  return {
+    layers: cfg.layer,
+    format: cfg.format,
+    crossOrigin: 'anonymous' as const,
+    transparent: false,
+    attribution: cfg.attribution,
+    token,
+    maxZoom: MAX_ZOOM,
+  }
+}
+
 /** localStorage key for the user's base-layer choice. */
 export const BASE_LAYER_STORAGE_KEY = 'hej.map.baseLayer'
 

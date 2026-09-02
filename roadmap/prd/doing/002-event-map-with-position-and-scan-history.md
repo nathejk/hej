@@ -561,23 +561,27 @@ These were written as "open" but had in fact shipped as tasks 040, 041, 042, 045
 **Tile caching — created 2026-08-26 from §11.2:**
 
 - [x] 088 — Derive the race area from checkpoints and serve it to the client
-- [~] 087 — Cache map tiles for the race area (z12–16, ~358 MB as published). *Half shipped: tiles
-      are cached unconditionally as the map is browsed (2026-08-26). The **bulk download** of the
-      whole area — user-initiated, resumable, cancellable, with the size shown first — is what
-      remains, and nothing blocks it any more: the area is served by `GET /api/race-area` and PRD
-      009 gave tiles a budget and a rank.*
+- [~] 087 — Cache map tiles for the race area (z12–16, ~358 MB as published). *Both halves now
+      shipped (2026-09-02): tiles are cached as the map is browsed, and the whole race area can be
+      downloaded from the readiness view — user-initiated with the size shown, resumable, cancellable,
+      tiered so an interruption leaves the orientation view complete. **Unverified against the live
+      service on a device**, which is the one thing that would confirm the downloaded URLs are the ones
+      the map asks for; first item for the device pass.*
 
 **Legend:** `[x]` done · `[~]` partly done, see the note · `[—]` closed unbuilt, moved elsewhere.
 
 ### What is actually left (2026-09-02)
 
-Two items, both narrow:
+One item, and it is a measurement rather than code:
 
-1. **A battery measurement** (task 082) — not code.
-2. **The bulk tile download** (task 087) — the last piece of code this PRD owes.
+1. **A battery measurement** (task 082) — a couple of hours with the phone in a pocket, read out of
+   Settings → Battery by hand.
 
-Everything else in §6 and §10 has been verified against the shipped source. One requirement left this
-PRD rather than being met: the post-race team track, now PRD 011's.
+The bulk tile download landed the same day (task 087), so this PRD owes no further code. What it does owe
+is a **device pass**: the tile download has never met the live service on a phone, and the offline
+protocol's awkward scenarios are unexercised. Everything else in §6 and §10 has been verified against the
+shipped source. One requirement left this PRD rather than being met: the post-race team track, now PRD
+011's.
 
 ## 11. Open Questions
 

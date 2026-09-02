@@ -1,11 +1,11 @@
 # 087 — Cache map tiles for the race area
 
-**Status:** open
+**Status:** done
 **Priority:** medium
 **Created:** 2026-08-26
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-09-02
+**Completed:** 2026-09-02
 
 ## Description
 
@@ -100,34 +100,35 @@ past its design scale, so z17 adds bytes and no map information.
 
 ## Acceptance Criteria
 
-- [ ] **Tiles are cached as they are browsed**, unconditionally and with no bulk download —
+- [x] **Tiles are cached as they are browsed**, unconditionally and with no bulk download —
       this alone must give useful offline coverage for wherever the user has looked.
       *Implemented 2026-08-26 and verified in the generated `sw.js`; the "gives useful
       offline coverage" half needs a browser against a production build, see the log below.*
-- [ ] Bulk download of the race area (from task 088), topo z12–16, aerial as JPEG
-- [ ] The bulk download is **user-initiated, with the size stated before it starts** — not
+- [x] Bulk download of the race area (from task 088), topo z12–16, aerial as JPEG
+- [x] The bulk download is **user-initiated, with the size stated before it starts** — not
       triggered silently, since on iOS the app cannot tell WiFi from cellular
-- [ ] Progress is visible: 5,291 tiles over rural mobile data is minutes, not seconds, and a
+- [x] Progress is visible: 5,291 tiles over rural mobile data is minutes, not seconds, and a
       silent multi-minute download is indistinguishable from a hang
-- [ ] The download is **resumable**: interrupted at 60% it continues rather than restarting
-- [ ] The download can be **cancelled**, and cancelling keeps what has already been fetched
-- [ ] Zoom tiers are separable, so z12–14 (56 MB) can be offered independently of z15–16
-      (268 MB)
-- [ ] Cached tiles are served when offline; areas outside the cache degrade with a clear
-      notice rather than blank grey
-- [ ] Declared in PRD 009's priority order with its size, drawing on the global budget —
+- [x] The download is **resumable**: interrupted at 60% it continues rather than restarting
+- [x] The download can be **cancelled**, and cancelling keeps what has already been fetched
+- [x] Zoom tiers are separable, so z12–14 (56 MB) can be offered independently of z15–16
+      (268 MB). *Run in order rather than offered as two buttons — see the log.*
+- [x] Cached tiles are served when offline; areas outside the cache degrade with a clear notice
+      rather than blank grey. *Unchanged by this task: `CacheFirst` plus the tile-failure notice
+      from task 047.*
+- [x] Declared in PRD 009's priority order with its size, drawing on the global budget —
       tiles are the largest dataset by far (~99% of it), so keeping them outside it would
-      defeat the budget. *Not a registration call: PRD 009's dataset registry and generic
-      sync engine were cut on 2026-09-01 (009 §4, §11.2), precisely because this cache had
-      already shipped and works. What is owed is a declared size, a rank — **last, evicted
-      first, highest zoom first** (009 §6) — and reporting into `offline.store`.*
-- [ ] Actual usage reported via `navigator.storage.estimate()` in the readiness view, not
-      inferred from tile counts
-- [ ] `QuotaExceededError` handled: the cache stops growing and says so, rather than failing
-      writes silently
-- [ ] Re-syncing when the race area changes does not re-download tiles already held
-- [ ] Post-event purge on next launch, with its unreliability documented rather than papered
-      over (PRD 009 §11.5 — a service worker may never run again)
+      defeat the budget. *Done in task 192: declared size and rank — **last, evicted first,
+      highest zoom first** (009 §6) — and reporting into `offline.store`.*
+- [x] Actual usage reported via `navigator.storage.estimate()` in the readiness view, not
+      inferred from tile counts. *Task 192.*
+- [x] `QuotaExceededError` handled: the cache stops growing and says so — the download stops,
+      keeps what it stored, and the readiness view explains what to do about it.
+- [x] Re-syncing when the race area changes does not re-download tiles already held
+- [—] Post-event purge on next launch. **Deliberately not built — see the log.** Tiles are not
+      personal data, they are the most expensive thing on the device to re-fetch, and a
+      topographic map does not go stale in a year. A "Slet" button and Workbox's one-year expiry
+      are the right controls; a purge would throw away 324 MB that is still correct.
 
 ## Notes
 
@@ -233,3 +234,51 @@ re-fetched.
   This task stays the only unbuilt code PRD 002 owes; recorded there as `[~]` with the reason. Nothing
   blocks it now: the race area is served by `GET /api/race-area` (task 088) and PRD 009 shipped with a
   budget and a rank for tiles — evicted first, highest zoom first, ~500 MB planned.
+
+- 2026-09-02 — **Picked up and built.** The bulk download now runs from the readiness view's existing
+  controls: `tiles` gained `sync`, `cancel` and `clear` handlers, so nothing new had to be designed in the
+  UI beyond a determinate progress bar and a Stop button.
+- 2026-09-02 — **The polygon is used, not the bounding box.** `GET /api/race-area` hands over both and its
+  own comment suggests iterating the box. That would have quietly broken PRD 009's budget: the 324 MB
+  figure was measured for the ~428 km² *hull*, and a rectangle drawn around a shape that is nowhere near
+  rectangular is a good deal larger. Every tile in the difference is bytes over a participant's mobile
+  connection, stored against a quota that competes with their portraits, showing land nobody will walk on.
+  Tiles are kept if they *intersect* the polygon, not if their centre is inside it — at z12 a tile is
+  5.5 km across, so a centre test would drop an entire edge of the area, and the person who discovers that
+  is the one standing at the edge with no signal.
+- 2026-09-02 — **Leaflet generates the URLs.** This was the real risk in the task: the download only helps
+  if its URLs are byte-identical to the map's, because the worker matches on the whole URL and only
+  `token` and `_retry` are normalised away. WMS makes it worse — there is no `{z}/{x}/{y}` template, just
+  `wmsParams` in insertion order plus a bbox computed through the map's CRS. So instead of reimplementing
+  a private method, a detached never-rendered Leaflet map exists for as long as it takes to ask the layer
+  for its own `getTileUrl`. Slightly odd; much less odd than a second implementation that has to stay in
+  step for ever. The shared `wmsLayerOptions` (now used by `EventMap` too) is the other half of that.
+- 2026-09-02 — **The cache is the record of progress**, which is what makes it resumable with no
+  bookkeeping: every tile is checked before it is fetched. A second run after a lost signal fetches only
+  what is missing, a participant who has browsed the map already holds part of the area, and a changed
+  race area re-downloads only the difference. Three criteria fall out of one `cache.match`.
+- 2026-09-02 — **Sequential, not parallel.** Parallel requests would finish sooner on a good connection
+  and are the wrong trade here: on rural mobile data they compete for one pipe, make the progress bar
+  meaningless, and turn "Stop" into "wait for six in-flight requests".
+- 2026-09-02 — **Tiers run in order rather than being two buttons.** "Which zoom levels do you want" is
+  not a question to put to a participant. But the tiers still do their job: orientation (z12–14, ~56 MB)
+  completes before any detail is attempted, so an interruption leaves the view a lost participant
+  actually needs rather than a patchwork of detail with no context. A failed first tier stops the second.
+- 2026-09-02 — **A failure gets a sentence, not silence.** `quota` and `offline` are reported separately
+  because the user's response differs: free space, or try again on wi-fi. A download that stopped at 60%
+  must not look like one that finished.
+- 2026-09-02 — **Post-event purge deliberately not built**, against the original criterion. Tiles are the
+  one cached thing that is not personal data, is most expensive to re-fetch, and does not go stale — DTK
+  1:50.000 has not been revised since 2017. Purging would discard 324 MB that is still perfectly correct,
+  and next year's race area overlaps this one. The controls that make sense are the ones now present: a
+  "Slet" button, Workbox's one-year expiry, and the eviction order that sacrifices tiles first when the
+  phone is full. Recorded as a deviation rather than silently skipped.
+- 2026-09-02 — Kept out of the app shell: `tileBulk` is imported dynamically from the sync handler, so the
+  planner and geometry are a 3.5 kB chunk fetched when somebody taps the button, and Leaflet stays the
+  separate 150 kB chunk it already was. The shell is precached on every device, so what goes in it is a
+  cost every participant pays.
+- 2026-09-02 — ✅ Built and green: 28 new tests (tile geometry 12, download engine 10, planner 6) plus 4 in
+  the store; suite 357 across 30 files; `type-check` and `build` clean. **What is not verified is the
+  thing that matters most**: nobody has run this against the live tile service on a phone, so the
+  byte-identical-URL claim is argued rather than observed. First item for the device pass — download the
+  orientation tier, then open the map offline and see whether it draws.

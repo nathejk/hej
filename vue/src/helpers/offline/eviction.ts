@@ -108,11 +108,19 @@ export async function reclaim(
   return result
 }
 
-/** The subset of the Cache API used here, injected so the spec can run in node. */
+/**
+ * The subset of the Cache API used here, injected so the spec can run in node.
+ *
+ * `match`/`delete`/`put` take a URL string as well as a `Request`, which the real API allows
+ * (`RequestInfo`) and which keeps the callers — and the fakes in the tests — from having to construct
+ * `Request` objects for no reason.
+ */
 export interface CacheLike {
   keys: () => Promise<readonly Request[]>
-  match: (request: Request) => Promise<Response | undefined>
-  delete: (request: Request) => Promise<boolean>
+  match: (request: Request | string) => Promise<Response | undefined>
+  delete: (request: Request | string) => Promise<boolean>
+  /** Optional: eviction never writes, so only the downloader needs it. */
+  put?: (request: Request | string, response: Response) => Promise<void>
 }
 
 export interface CacheStorageLike {

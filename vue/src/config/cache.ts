@@ -85,6 +85,27 @@ export const TILE_HOST = 'api.dataforsyningen.dk'
 export const TILE_CACHE_KEY_IGNORED_PARAMS = ['token', '_retry']
 
 /**
+ * Zoom tiers for the bulk race-area download (task 087).
+ *
+ * Two tiers because they are two different offers, not one download with a slider. Measured for the 2026
+ * race area (428 km², topo + aerial):
+ *
+ *  - **orientation, z12–14** — 404 tiles, ~56 MB. The view a lost participant actually needs: where the
+ *    area is, which way the roads run. Cheap enough to accept without much thought.
+ *  - **detail, z15–16** — 4,887 tiles, ~268 MB. Refinement on top, and five times the bytes.
+ *
+ * z16 is the ceiling and not a candidate for trimming: DTK25 is a 508 DPI 1:25.000 product whose native
+ * resolution is 1.25 m/px, which *is* z16 (1.34 m/px). z15 halves the source map's resolution, and z17 is
+ * the same cartography upsampled — more bytes, no more information, which is why its tiles shrink.
+ */
+export const TILE_TIERS = {
+  orientation: [12, 13, 14],
+  detail: [15, 16],
+} as const
+
+export type TileTier = keyof typeof TILE_TIERS
+
+/**
  * Cache holding portrait thumbnails (`/api/contacts/people/{id}/photo`).
  *
  * **Its own cache, added in task 192.** Before that, portraits relied on the browser's HTTP cache

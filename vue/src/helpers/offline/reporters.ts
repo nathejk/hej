@@ -151,17 +151,14 @@ export async function purgeSensitiveData(caches: CachesApi | undefined) {
 /**
  * Connect every existing cache to the readiness surface, and register what the user may ask of it.
  *
- * Called once from `App.vue`. Handlers are registered for the two datasets that have something
- * honest to offer:
+ * Called once from `App.vue`. Handlers:
  *
  * - **directory** — refetch, and clear. Both already exist as store actions.
- * - **tiles** — clear only. There is no bulk download yet (task 087), and a "hent nu" that only
- *   fetched whatever the map last showed would be a button that appears to work and does almost
- *   nothing.
+ * - **tiles** — the bulk race-area download (task 087), cancel, and clear.
  *
- * The shell, portraits and track get none: the shell cannot usefully be re-fetched by a user,
- * portraits arrive with the rows that need them, and the track has nothing to fetch and must never
- * be clearable (PRD 009 §6).
+ * The shell, portraits and track get none: the shell cannot usefully be re-fetched by a user, portraits
+ * arrive with the rows that need them, and the track has nothing to fetch and must never be clearable
+ * (PRD 009 §6).
  */
 export async function registerOfflineDatasets(caches: CachesApi | undefined) {
   const offline = useOfflineStore()
@@ -188,7 +185,69 @@ export async function registerOfflineDatasets(caches: CachesApi | undefined) {
   })
 
   if (caches) {
+    // The bulk race-area download (task 087). Registered as the tiles dataset's `sync`, so the readiness
+    // view's existing controls drive it — including the size estimate it already shows before starting,
+    // which is the whole consent mechanism on iOS where WiFi cannot be detected.
+    //
+    // Two tiers, run in order: orientation (z12–14, ~56 MB) then detail (z15–16, ~268 MB). One button
+    // rather than two, because "which zoom levels do you want" is not a question to ask a participant —
+    // but the tiers still matter, because an interrupted or cancelled run then leaves the *useful* half
+    // complete rather than a patchwork of detail with no context.
+    let controller: AbortController | null = null
+
     offline.registerHandlers('tiles', {
+      sync: async () => {
+        // Imported here, not at the top of the file. `App.vue` loads this module on every launch, and the
+        // bulk downloader drags in the tile geometry, the planner and (indirectly) Leaflet's URL builder —
+        // ~14 kB of code that only matters after somebody taps a button, in a shell that is precached on
+        // every device. The map library is already a separate chunk for the same reason (PRD 002,
+        // Non-Functional → Performance).
+        const { downloadRaceArea, fetchRaceArea } = await import('@/helpers/offline/tileBulk')
+
+        const area = await fetchRaceArea()
+        if (!area) {
+          // No area yet (early in the year, no positioned checkpoints) or no signal. Not an error the
+          // user can act on — leave the row as it was.
+          await reportCaches(caches)
+          return
+        }
+
+        controller = new AbortController()
+        try {
+          offline.report('tiles', { problem: null })
+
+          for (const tier of ['orientation', 'detail'] as const) {
+            const result = await downloadRaceArea({
+              area,
+              tier,
+              caches,
+              signal: controller.signal,
+              onProgress: (done, total) => {
+                offline.report('tiles', { progress: { done, total } })
+              },
+            })
+
+            await reportCaches(caches)
+
+            // Stop the second tier when the first could not finish. Carrying on would spend a
+            // participant's data on detail while the orientation view has holes in it — and on a full
+            // origin it would fail tile by tile for another 4,887 tiles.
+            if (result.outcome !== 'complete') {
+              if (result.outcome === 'quota' || result.outcome === 'offline') {
+                offline.report('tiles', { complete: false, problem: result.outcome })
+              }
+              return
+            }
+          }
+
+          // Both tiers complete: this is the one moment tiles may honestly claim to be complete, and it
+          // is why `reportCaches` never sets it — browsing produces some of the map, never all of it.
+          offline.report('tiles', { state: 'synced', complete: true, problem: null })
+        } finally {
+          controller = null
+        }
+      },
+      cancel: () => controller?.abort(),
       clear: async () => {
         const cache = await caches.open(TILE_CACHE_NAME)
         for (const key of await cache.keys()) await cache.delete(key)

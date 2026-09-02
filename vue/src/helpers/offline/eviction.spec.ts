@@ -13,15 +13,18 @@ import {
 } from '@/helpers/offline/eviction'
 
 // A Cache API stand-in. Only what the evictor touches: keys, match, delete.
+// `urlOf` mirrors the real API accepting either a Request or a URL string.
+const urlOf = (request: Request | string) => (typeof request === 'string' ? request : request.url)
+
 function fakeCache(urls: string[], bytes = 32 * 1024): CacheLike & { remaining: () => string[] } {
   const store = new Map(urls.map((url) => [url, bytes]))
   return {
     keys: async () => [...store.keys()].map((url) => ({ url }) as Request),
-    match: async (request: Request) =>
-      store.has(request.url)
-        ? ({ headers: { get: () => String(store.get(request.url)) } } as unknown as Response)
+    match: async (request: Request | string) =>
+      store.has(urlOf(request))
+        ? ({ headers: { get: () => String(store.get(urlOf(request))) } } as unknown as Response)
         : undefined,
-    delete: async (request: Request) => store.delete(request.url),
+    delete: async (request: Request | string) => store.delete(urlOf(request)),
     remaining: () => [...store.keys()],
   }
 }
