@@ -730,6 +730,13 @@ modern colour syntax Tailwind v4 emits, because a fallback for browsers that can
 depend on CSS they cannot read either. It reveals itself after a two-second delay, so a slow-but-supported
 phone never flashes "your device is too old" on its way to booting.
 
+**What comes next is a separate decision, now PRD 013.** Task 204's fallback is honest and empty: it tells
+someone their device is too old and gives them nothing to do about it. The rules, the programme and the
+practical information were never device-dependent, and the maintainer's direction (2026-09-02) is that a
+blank page is the only unacceptable outcome. PRD 013 drafts the anonymous website those visitors land on —
+which is also the answer for desktop visitors and for anyone who has not installed anything, so it is one
+site for three audiences rather than a legacy fork.
+
 **What this changes about §8's reasoning.** §8 mitigates heuristic detection with an escape hatch rather
 than better sniffing, and that still holds for *modern* browsers we classify wrongly. But it assumed the
 spectrum ran from "classified correctly" to "classified wrongly", when there is a third state below both:
