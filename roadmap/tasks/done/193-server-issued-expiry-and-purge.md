@@ -85,5 +85,5 @@ Shared with task 173, which verifies the whole loop end to end.
 - 2026-09-01 — **Verified on a device by the maintainer**, reported working. Device, OS version and
   install method were not captured; noted as a gap rather than invented, because the protocol asks for
   all three and a result without them is not reproducible.
-- 2026-09-01 — Device details captured: **iPhone 14 Pro, newest iOS**, against the deployed public host
+- 2026-09-01 — Device details captured: **iPhone 14 Pro, iOS 26.6**, against the deployed public host
   `https://hej.nathejk.dk` (not production yet). The gap noted in the entry above is closed.

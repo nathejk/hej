@@ -102,7 +102,7 @@ airplane mode toggled mid-session (reconnect triggering a version check, task 16
   been reported yet — in particular the patrol lookup refusing offline, which is the one case where
   working offline would be the bug.
 - 2026-09-01 — **Prerequisite solved: the app is deployed to `https://hej.nathejk.dk`** (public, not
-  production yet) and reached from an **iPhone 14 Pro on the newest iOS**. That is a better subject than
+  production yet) and reached from an **iPhone 14 Pro on iOS 26.6**. That is a better subject than
   any of the three local options above: real host, real certificate, `prod` build served by the Go
   binary exactly as production serves it. Both criteria above ticked.
 

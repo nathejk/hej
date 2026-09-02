@@ -119,10 +119,18 @@ think it is.
 Automated as far as it can be (`quota.spec.ts`), but the numbers there are fake and iOS's are not.
 
 **Pick the device for this one deliberately.** The budget is planned against the **iOS 16.4–16.7**
-quota of ~1 GB, because `.rules` puts the baseline there. iOS **17+** gives 60% of total disk instead,
+quota of ~1 GB, because `.rules` puts the baseline there. Later iOS grants a share of total disk
+instead — documented as 60% when this was written, which predates iOS 26 and has not been rechecked —
 so on a recent iPhone with free space the origin will not fill and this scenario cannot be reached at
-all — a pass on a 14 Pro says nothing about the constraint the budget was designed for. Either find a
-16.x device, or fill the disk first, and record which.
+all. A pass on a 14 Pro on iOS 26.6 says nothing about the constraint the budget was designed for.
+
+**Before anything else, read the real number off the device.** Open the profile: the readiness section
+renders usage as a percentage of the quota the browser actually reports, and `offline.store` holds
+`quotaBytes` from `navigator.storage.estimate()`. One look replaces a policy document of uncertain
+vintage with a fact about the phone in your hand — and if it turns out modern iOS grants this origin
+several gigabytes, that is worth knowing before anyone plans a bigger tile set.
+
+Then either find a 16.x device, or fill the disk first, and record which.
 
 1. Fill the origin — pan the map across a large area at high zoom until writes start failing.
 2. Watch for: the map keeps working with what it has; tiles stop being *added* rather than the cache

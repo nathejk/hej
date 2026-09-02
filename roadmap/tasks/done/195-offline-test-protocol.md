@@ -93,7 +93,7 @@ minutes is worth more than an elaborate harness nobody runs.
   been *used*, not yet *completed* — in particular the deliberately awkward ones (OS-cleared cache,
   full origin, three-weeks-dormant) are the ones a quick check would not reach, and they are the ones
   the protocol exists for. Left to a later pass rather than assumed.
-- 2026-09-01 — **Device run recorded**: iPhone 14 Pro, newest iOS, against the deployed public host
+- 2026-09-01 — **Device run recorded**: iPhone 14 Pro, iOS 26.6, against the deployed public host
   `https://hej.nathejk.dk` (not production yet). Reported working. That is the app confirmed on the
   primary platform, on the current OS, from a real production-shaped build — the largest unknown in
   PRD 009.
@@ -104,3 +104,13 @@ minutes is worth more than an elaborate harness nobody runs.
   path — the one the priority order exists for — was not exercised and cannot be on that device without
   filling the disk first. Noted in the protocol next to the step, so the next person picks the device
   deliberately rather than reaching for the newest phone in the room.
+- 2026-09-02 — OS version pinned: **iOS 26.6**, not merely "newest". Worth being exact, because the
+  storage figures in PRD 009 §8 were read from WebKit’s published policy *before* iOS 26 existed and
+  nobody has rechecked them since. So "60% of disk" is now an assumption of uncertain vintage rather
+  than a fact about the test device.
+
+  Cheapest way to stop guessing: the profile readiness section already renders usage against the quota
+  the browser reports, and `offline.store.quotaBytes` comes straight from
+  `navigator.storage.estimate()`. Reading that one number off the 14 Pro settles what the real ceiling
+  is on a current phone — and if it is several gigabytes, the ~1 GB planning figure is a floor kept only
+  for iOS 16.x devices, which is a fleet question rather than a platform one.
