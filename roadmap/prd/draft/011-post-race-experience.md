@@ -3,7 +3,7 @@
 **Status:** draft
 **Author:** agent session (Zed)
 **Created:** 2026-08-28
-**Last updated:** 2026-08-28
+**Last updated:** 2026-09-02
 **Approved:**
 **Shipped:**
 **Target users:** participants — spejder and bandit primarily, as members of a team
@@ -15,6 +15,28 @@ moves to done/. See roadmap/prd/README.md for the lifecycle.
 -->
 
 ---
+
+## 0. Inherited measurements (added 2026-09-02, when PRD 002 closed)
+
+PRD 002 shipped the position track and then measured it on real devices. Whatever this PRD does with a
+team's route, it inherits these facts — and the first two constrain what can honestly be drawn:
+
+| | |
+|---|---|
+| accuracy | **10.5 m median** on an iPhone (GPS) · **35 m** on a Wi-Fi-only iPad |
+| coverage | good while the app is foregrounded; **2% of a 22-hour day**, because a web app does not run backgrounded |
+| gaps | one per backgrounding, matching it almost to the second |
+| iOS kills | 8 of 28 backgroundings, always resumed |
+
+**So a track is a dotted record of where the app was open, not a route.** Drawing it as a continuous line
+implies a precision and a continuity it does not have: it would invent path between two points recorded
+twenty minutes and half a kilometre apart, and on an iPad it would invent it at 35 m accuracy. The gaps are
+information — they say "the phone was in a pocket here" — and smoothing them away is the one presentation
+choice this PRD should not make by default.
+
+Task 086 (the original post-race team track) was closed unbuilt in favour of this PRD; its analysis is in
+that task file.
+
 
 ## 1. Summary
 

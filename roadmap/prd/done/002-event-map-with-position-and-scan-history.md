@@ -1,11 +1,11 @@
 # PRD 002 — Event Map (own position, Danish topo + aerial layers, patrol scan history)
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed / Claude Opus 5)
 **Created:** 2026-08-24
 **Last updated:** 2026-09-02
 **Approved:** 2026-08-24
-**Shipped:**
+**Shipped:** 2026-09-02
 **Target users:** spejder (patrol members) primarily; bandit, postmandskab, guide, samarit secondarily
 
 <!--
@@ -633,24 +633,43 @@ So a coarse track is either better than no track, or a misleading artefact. It n
 than a default. Note the sampling reasoning in §11.1 assumed GPS: 30 s puts points 33–50 m apart against
 a 10–30 m GPS error, and neither number survives a ±500 m source.
 
-### What is actually left (2026-09-02, evening)
+### Closed 2026-09-02
 
-**Nothing on the task board.** Every task derived from this PRD is in `roadmap/tasks/done/`, including the
-two that were outstanding this morning: task 087 (the bulk race-area tile download) and task 082 (the
-recorder, whose battery measurement was the last open criterion anywhere in this PRD).
+Every task derived from this PRD is in `roadmap/tasks/done/`: the map, the three base layers, the layer
+switcher, own position and the locate button, scan markers and the registrations list, degradation and
+polish (tasks 040–047), the telemetry stream and the position track (081–085), the race area and its tile
+cache (088, 087), and the recorder's own measurement (082).
 
-Two things are true and neither is a task:
+**What this PRD delivered, measured rather than asserted.** Six device runs over two days on an iPhone and
+an iPad produced numbers for every claim that could be tested:
 
-1. **One requirement left this PRD rather than being met.** The post-race team track is PRD 011's now
-   (task 086, closed unbuilt). It stays unticked in §6 on purpose.
-2. **A device pass is owed, not outstanding work.** The bulk tile download has never met the live tile
-   service on a phone — its byte-identical-URL claim is argued rather than observed — and the awkward
-   scenarios in `roadmap/offline-test-protocol.md` (OS-cleared cache, full origin) are unexercised. That
-   is verification of shipped code, which is what the protocol exists for.
+| | |
+|---|---|
+| position accuracy | **3.9 / 10.5 / 20 m** (iPhone, GPS) · **35–40 m** (Wi-Fi-only iPad) |
+| coverage while the app is open | good; **2% of a 22-hour day**, because a web app does not run backgrounded |
+| iOS kills | **8 of 28** backgroundings, recorder resumed correctly every time |
+| battery | **~4.7 pp/hour** foregrounded → **~56 pp over a 12-hour race** |
+| tile cache after ordinary browsing | 252 tiles / 26.5 MB, unprompted |
+| storage quota | 19 GB (iPad) · 41 GB (iPhone), `persisted()` true on both |
 
-So this PRD is ready to move to `done/` on the maintainer's word. Worth noting what the device runs
-already established for it: coverage, accuracy on two device classes, iOS kill behaviour, storage quota,
-and battery — all measured rather than assumed, and two of them (tasks 197–202) found real bugs.
+**Two things did not ship, and both are recorded rather than quietly dropped:**
+
+1. **The post-race team track left this PRD.** Task 086 was closed unbuilt and superseded by **PRD 011**,
+   which is why one §6 criterion stays unticked. The measurements above are its inheritance, and the
+   important one is uncomfortable: a track is a **dotted record of where the app was open**, at 10–35 m
+   accuracy, with gaps wherever the phone was in a pocket. Drawn as a continuous line it will claim more
+   than it knows.
+2. **The bulk tile download has never met the live tile service on a phone.** Its correctness rests on
+   generating URLs byte-identical to the map's, which is argued in code and unobserved in the field — and
+   it fails invisibly if wrong. First item in `roadmap/offline-test-protocol.md`, along with the awkward
+   offline scenarios (OS-cleared cache, full origin) that no unit test reaches.
+
+**What the device runs cost, and returned.** They found four real bugs that no amount of local testing
+would have: a silent location failure (197), a coarse-fallback that could not reach the device it was
+written for (199), 48 pointless GPS attempts per quarter-hour while backgrounded (202), and a download
+button that flickered and said nothing (203). Three of the four were failures of *honesty* rather than of
+logic — the app doing something reasonable and being unable to say so — which is worth remembering when
+the next feature is specified.
 
 ## 11. Open Questions
 
