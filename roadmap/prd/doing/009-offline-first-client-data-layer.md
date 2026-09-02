@@ -306,10 +306,24 @@ on their own.
 - **Per-feature staleness** is shown inline and quietly (a timestamp, not a warning), except
   where acting on stale data is risky — a phone number for a member who may have withdrawn
   is the live example.
-- **First sync is hosted by onboarding** (PRD 005 step 6) — a natural moment, usually on
-  wifi, when the user expects setup steps. It is **skippable**, consistent with PRD 005's
-  rule that only login is mandatory, which makes §11.6 (re-surfacing a skipped sync) more
-  important than it looks.
+- **The cheap datasets are prefetched without asking** (maintainer direction, 2026-09-01, task
+  194). The contacts directory is under ~1 MB for the largest role, so a screen asking permission
+  to spend a megabyte would only teach people to tap past screens — and the one prompt that matters,
+  the ~324 MB map download, has to be believed when it appears. Gated on **role**: spejdere have no
+  contacts pane and must not generate a request for one.
+- **First sync is therefore not an onboarding step.** PRD 005's slot stays reserved for the bulk map
+  download (task 087's second half), which is a genuine choice worth a screen. A step whose content
+  is "we have done something for you" costs a tap and earns nothing.
+- **Catching up matters more than the first fetch.** Details and portraits churn hardest in the
+  run-up, while people are still adding photographs and checking their own records, so a copy synced
+  three weeks out is the least accurate one a device will ever hold. The prefetch therefore re-checks
+  on foreground and reconnect at app level — covering the device whose owner never opens `Kontakter`
+  — while adding no timer of its own.
+- **Declining the map download must never stop the map caching itself.** Tiles are stored as they are
+  browsed, unconditionally, because the bytes are already being fetched to draw the map: a
+  participant who looks at the map along the route arrives with that area offline without having
+  agreed to anything. No preference, consent flag or data-saver setting may gate it
+  (`tileCaching.spec.ts` asserts this).
 - shadcn-vue primitives (`Card`, `Progress`, `Badge`, `Button`, `Alert`) and Lucide icons
   (`WifiOff`, `RefreshCw`, `HardDrive`, `Check`) per `.rules`. `progress`, `alert` and
   `card` are generated in `vue/src/components/ui/`; **`badge` is not yet** — generate it
@@ -452,7 +466,8 @@ Tasks created in `roadmap/tasks/open/` on approval (2026-09-01):
       shell. *No rewrites; declared sizes, ranks and flags. This is the task that decides
       whether this PRD took effect or merely produced a document.*
 - [ ] **193** — server-issued expiry + post-event purge on the device *(with task 173)*
-- [ ] **194** — prepare-for-offline step in onboarding, filling PRD 005's reserved slot
+- [ ] Task: **194** — prefetch the cheap datasets quietly, role-gated; keep browse-time map caching
+      ungated *(the onboarding step dissolved — see §7)*
 - [ ] **195** — offline test protocol: radio off on real devices, plus quota exhaustion
 
 Already shipped, and **not** tasks here: the Workbox tile route and opportunistic tile caching
@@ -559,11 +574,12 @@ day.
    unsolved in principle — a baked-in server-issued expiry is the only lever we hold. Shared
    with PRD 007 §11 and task 173.
 
-6. **How prominently should a skipped first sync be re-surfaced?** The step is skippable (PRD
-   005 allows only login to be mandatory), so a user can reach the race with nothing cached —
-   and skipping is a *reasonable* choice for someone on cellular facing a 324 MB estimate.
-   Since blocking would contradict 005, the lever is nagging: a persistent readiness banner, a
-   reminder at check-in, or the push in §11.7.
+6. **How prominently should a skipped first sync be re-surfaced?** **Largely dissolved 2026-09-01**
+   (task 194). The cheap data is now prefetched without asking, and the map caches itself while being
+   used, so there is no "skipped sync" for the common case — a participant who never taps anything
+   still arrives with the directory and whatever map they looked at. What remains skippable is the
+   **bulk map download**, and there the readiness section plus §11.7's pre-race push are the levers.
+   Blocking was never available: PRD 005 allows only login to be mandatory.
 
 7. **Do we need a "prepare for offline" push at event start** — a notification a few hours
    before, prompting a final sync while the user still has coverage? This is the natural vehicle

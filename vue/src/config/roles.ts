@@ -42,6 +42,26 @@ export function allRolesExcept(...excluded: Role[]): Role[] {
   return ALL_ROLES.filter((r) => !excluded.includes(r))
 }
 
+/**
+ * Whether this role has the contacts pane at all.
+ *
+ * Mirrors `users.MayUseContacts` in the BFF, which is the actual authority — this is for deciding
+ * whether to *ask*. Two uses, and the second is why it exists as a function rather than being
+ * inlined in the navigation config:
+ *
+ *  - drawing the nav entry (via `allRolesExcept('spejder')`);
+ *  - the quiet prefetch (task 194), which runs on every launch. Without a role gate, every spejder
+ *    device would ask for a directory the server will always refuse, on every foreground — a few
+ *    hundred phones generating 403s all race for a pane they cannot open.
+ *
+ * A `null` role — nobody signed in, or a role this build does not know — answers false: prefetching
+ * on a guess is worse than not prefetching.
+ */
+export function hasContactsPane(role: string | null | undefined): boolean {
+  if (!role) return false
+  return role !== 'spejder' && (ALL_ROLES as readonly string[]).includes(role)
+}
+
 // The crew roles, including the least-privileged fallback.
 //
 // Mirrors `Role.IsCrew()` in `go/internal/users/directory.go`, and like it says nothing about

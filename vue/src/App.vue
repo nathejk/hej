@@ -8,6 +8,7 @@ import { useTrackStore } from '@/stores/track.store'
 import { useOnboardingStore } from '@/stores/onboarding.store'
 import { useOfflineStore } from '@/stores/offline.store'
 import { registerOfflineDatasets } from '@/helpers/offline/reporters'
+import { useQuietPrefetch } from '@/helpers/offline/prefetch'
 import { logEvent } from '@/helpers/trackDb'
 import BottomNav from '@/components/BottomNav.vue'
 import PortraitNudge from '@/components/PortraitNudge.vue'
@@ -24,6 +25,12 @@ const location = useLocationStore()
 const track = useTrackStore()
 const onboarding = useOnboardingStore()
 const offline = useOfflineStore()
+
+// Keeps the small datasets current without asking anyone (task 194). Scoped to the app, so it covers
+// the device whose owner never opens `Kontakter` — which matters most in the run-up, when portraits
+// and details are still churning. Foreground and reconnect only; the during-race interval belongs to
+// the pane.
+useQuietPrefetch()
 const route = useRoute()
 
 // Connectivity (task 090). The browser events are a hint, not the truth —
