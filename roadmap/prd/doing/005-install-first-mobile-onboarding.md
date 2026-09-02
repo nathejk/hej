@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed)
 **Created:** 2026-08-25
-**Last updated:** 2026-08-30 (impl. — §10 carries the shipped/outstanding state)
+**Last updated:** 2026-09-02 (impl. — §10 carries the shipped/outstanding state; §10a is the legacy-device finding)
 **Approved:** 2026-08-30
 **Shipped:**
 **Target users:** participant (spejder, bandit), postmandskab, guide, samarit — i.e. every in-event app user
@@ -708,6 +708,33 @@ installed), **143** (website anonymous / login PWA-only), **144** (flow ended af
       installed iOS Safari, Android Chrome, Android Firefox, iPadOS — are outstanding, and no user-agent
       string can stand in for them: `isMobileDevice()` only trusts the *Apple* UA patterns, so
       Android and iPadOS classification depends on touch signals a laptop cannot fake.
+
+## 10a. Finding 2026-09-02 — the gate assumes the app boots
+
+Tested on an **iPad mini 2, iOS 12.5.8**, well below the `.rules` baseline of iPadOS 16.4+. Expected: the
+desktop placeholder, or some statement that the device is unsupported. Actual: **a blank white page.**
+
+The cause is structural rather than a bug in any one place. Everything this PRD specifies — device
+classification, the standalone check, the install wall, the redirect to `/desktop.html`, the escape-hatch
+reasoning in §8 — is **JavaScript**, and on a browser that cannot parse the app's bundle none of it runs.
+The gate cannot classify a browser that never reached the gate.
+
+That is the worst possible presentation of "unsupported": indistinguishable from the event's app being
+broken, on a device a family may well hand to a child for the weekend.
+
+**Fixed (task 204)** with static markup inside `#app`: on screen before the bundle is fetched, surviving a
+bundle that cannot run, removed by Vue on a successful mount. It states that the participant can still take
+part, names the baseline so "try a different phone" is actionable, and links to `/desktop.html`, which is a
+plain file and therefore works on exactly the browsers in question. Its styling is inline and free of the
+modern colour syntax Tailwind v4 emits, because a fallback for browsers that cannot run the app must not
+depend on CSS they cannot read either. It reveals itself after a two-second delay, so a slow-but-supported
+phone never flashes "your device is too old" on its way to booting.
+
+**What this changes about §8's reasoning.** §8 mitigates heuristic detection with an escape hatch rather
+than better sniffing, and that still holds for *modern* browsers we classify wrongly. But it assumed the
+spectrum ran from "classified correctly" to "classified wrongly", when there is a third state below both:
+**too old to be classified at all**. The mitigation there cannot be a route, a flag or a redirect — it has
+to be something already on the page.
 
 ## 11. Decisions
 

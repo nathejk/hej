@@ -52,6 +52,7 @@ heuristics are wrong; it cannot be automated from here, and no unit test substit
 | Desktop | classified desktop, lands on `/desktop`, never sees `/welcome` or `/install` |
 | iPadOS | reports itself as **macOS Safari** — verify it still classifies as **mobile** (PRD 005 §11: ambiguous → mobile) |
 | In-app webview (e.g. Facebook browser) | installation is impossible; the escape hatch must be reachable and sufficient |
+| **Legacy device below the baseline** | **added 2026-09-02.** A device too old to run the bundle never reaches the gate at all, so this row is not about classification — it is about what is on screen when no JavaScript of ours has run. Tested on an iPad mini 2 / iOS 12.5.8: it showed a **blank white page** until task 204 added a static fallback. |
 
 The iPadOS row is the one most likely to fail, and the tie-break exists because of it: a
 false positive costs a desktop user one click on "Fortsæt i browseren", a false negative
@@ -246,3 +247,10 @@ The webview row is a pass/fail on the escape hatch, not on installation.
 
 - 2026-09-02 — **Remaining rows: Android Chrome, Android Firefox, and installed iOS Safari on a phone.**
   Three of seven are automated, iPadOS is now done on hardware, so three device rows are left.
+
+- 2026-09-02 — **A row nobody had thought of, found by testing an old device: below the baseline, the gate
+  does not run at all.** An iPad mini 2 on iOS 12.5.8 showed a blank white page — not the desktop
+  placeholder, not an unsupported message. Everything in this matrix assumes the app boots well enough to
+  classify the browser, and the row above now records the case where it does not. Fixed in task 204 with
+  static markup in `index.html`; the matrix keeps the row because the fallback is the sort of thing a future
+  build tool change could silently drop.

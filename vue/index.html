@@ -225,9 +225,82 @@
     />
     <!-- END apple-touch-startup-image -->
     <title>Hej Nathejk</title>
+
+    <!--
+      Boot fallback styling (task 204).
+
+      Deliberately here, inline, in plain old CSS: this exists for a browser that could not run the app,
+      so it must not depend on the app's stylesheet either. Tailwind v4 emits `oklch()` colours and modern
+      at-rules that an old Safari cannot parse, which would leave the fallback unstyled at best.
+
+      The delayed reveal is the important part. The markup below sits inside `#app` and Vue clears the
+      container on mount, so on a working device it is removed within a few hundred milliseconds — but
+      without the delay a slow-but-supported phone would flash "your device is too old" before booting,
+      which is a worse lie than saying nothing. Two seconds is longer than any successful boot observed on
+      the devices we have measured, and shorter than a person's patience with a white screen.
+    -->
+    <style>
+      #boot-fallback {
+        opacity: 0;
+        animation: boot-fallback-in 0.3s ease-in 2s forwards;
+        max-width: 30rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.5rem;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        color: #1e293b;
+        line-height: 1.5;
+      }
+      @keyframes boot-fallback-in {
+        to {
+          opacity: 1;
+        }
+      }
+      #boot-fallback h1 {
+        font-size: 1.5rem;
+        margin: 0 0 0.75rem;
+      }
+      #boot-fallback p {
+        margin: 0 0 0.75rem;
+        font-size: 0.95rem;
+        color: #475569;
+      }
+      #boot-fallback a {
+        color: #1e293b;
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <!--
+        What an unsupported browser sees. Found on an iPad mini 2 running iOS 12.5.8 (task 204): the app's
+        bundle uses syntax that Safari cannot parse, the module throws before anything renders, and the
+        device gate — which would have sent it somewhere sensible — is itself JavaScript that never ran. The
+        result was a blank white page, which is the worst possible way to say "unsupported".
+
+        Everything here is static markup and therefore immune to that: it is on screen before the bundle is
+        fetched, and it survives a bundle that cannot run. Vue removes it on a successful mount.
+
+        The copy is aimed at a participant or a parent, and it leads with the thing they actually need to
+        know — that they can still take part — rather than with the technical reason.
+      -->
+      <div id="boot-fallback">
+        <h1>Hej Nathejk kan ikke køre på denne enhed</h1>
+        <p>
+          Du kan stadig være med i løbet. Appen er et ekstra hjælpemiddel — kort, kontakter og beskeder —
+          og alt det vigtige får I også at vide i startområdet.
+        </p>
+        <p>
+          Appen kræver en nyere telefon eller tablet: <strong>iOS 16.4</strong> eller nyere, eller
+          <strong>Android med Chrome 111</strong> eller nyere. Har du en anden telefon, kan du prøve den.
+        </p>
+        <p>
+          <a href="/desktop.html">Læs mere om Nathejk</a>
+        </p>
+        <noscript>
+          <p><strong>JavaScript er slået fra i din browser. Appen kan ikke virke uden.</strong></p>
+        </noscript>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
