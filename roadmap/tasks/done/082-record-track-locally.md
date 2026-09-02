@@ -1,11 +1,11 @@
 # 082 — Record the position track locally
 
-**Status:** doing
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-26
 **Picked up by:** agent session (Zed)
 **Started:** 2026-08-27
-**Completed:**
+**Completed:** 2026-09-02
 
 ## Description
 
@@ -98,7 +98,10 @@ so there is no reason to be clever about compaction.
 - [x] Sampling at 30 s, with the acquisition mode chosen deliberately: continuous
       high-accuracy `watchPosition` is not obviously right for a 30 s cadence, and battery
       cost over a night is the deciding factor
-- [ ] Battery cost measured on a device over a representative period, result recorded here
+- [x] Battery cost measured on a device over a representative period, result recorded here — **2h 08m
+      foregrounded on an iPhone (iOS 18.7), 2026-09-02: 75% → 65%, i.e. ~4.7 percentage points per hour.**
+      Read off the status bar in eight screenshots; see the log for the segment breakdown and what the
+      figure does and does not include.
 - [x] The track survives a page reload, backgrounding, and the app being killed
       *All three now measured. The device run included three cold starts (iOS killing the
       backgrounded app) and the points from before each survived — 9 points spanning
@@ -397,3 +400,47 @@ so there is no reason to be clever about compaction.
 - 2026-09-02 — Battery is *still* the only open criterion, and neither run supplies it: this one spans a
   night with the app mostly closed, so the battery delta measures the phone, not the recorder. Needs a
   couple of hours foregrounded in a pocket, with a manual before/after reading.
+
+- 2026-09-02 — **Battery measured, which closes the last criterion on this task.** Eight screenshots taken
+  over 2h 08m on an iPhone (iOS 18.7), app foregrounded with the map open for most of it, a few short visits
+  to other apps. Time and battery read off the status bar, since iOS exposes no battery API.
+
+  | from → to | minutes | drop | rate |
+  |---|---|---|---|
+  | 10:44 → 11:02 | 18 | 2 pp | 6.7 pp/h |
+  | 11:02 → 11:20 | 18 | 1 pp | 3.3 pp/h |
+  | 11:20 → 11:33 | 13 | 1 pp | 4.6 pp/h |
+  | 11:33 → 12:14 | 41 | 5 pp | 7.3 pp/h |
+  | 12:14 → 12:25 | 11 | 0 pp | 0 |
+  | 12:25 → 12:45 | 20 | 1 pp | 3.0 pp/h |
+  | 12:45 → 12:52 | 7 | 0 pp | 0 |
+  | **total** | **128** | **10 pp** | **4.7 pp/h** |
+
+  **Projected: ~38 pp over 8 hours, ~56 pp over 12, ~66 pp over 14.** So a 12-hour race on a phone that
+  starts full ends somewhere around 44%, which is survivable — and a phone that starts at 60% does not
+  finish. That is the number to plan around, and it argues for telling participants to start charged and to
+  bring a power bank rather than for shaving the sampling interval.
+
+  **What the figure includes**, because the temptation is to read it as "the cost of the track" and it is
+  not: the screen on for most of two hours, Leaflet redrawing, a high-accuracy `watchPosition` for the map's
+  live marker, the recorder's own fixes, and the uploader every two minutes. The screen alone is normally the
+  largest single consumer on an iPhone. This measures **the app as a participant would use it**, which is the
+  useful quantity, but it does not isolate the recorder and should not be quoted as if it did.
+
+  **Two ways it is optimistic**, both worth stating before anyone treats 4.7 pp/h as a ceiling:
+
+  - **Good signal throughout.** The screenshots show WiFi plus two bars of cellular. In a forest a phone
+    hunting for signal is markedly more expensive, and our uploader retries every two minutes into whatever
+    coverage exists — exactly the condition this measurement did not have.
+  - **A cold night reduces usable capacity** on a lithium cell irrespective of what the app does, so the
+    same 56 pp of consumption leaves less headroom at 3 am in October than it does indoors in September.
+
+  One way it is **pessimistic**: this run predates task 202, so the short visits to other apps each started
+  the 30-second timeout loop that task removed. The effect over a few short absences is small, but the true
+  figure after 202 is a little better than 4.7 pp/h.
+
+  Deliberately not repeated per sampling interval: the interval is 30 s by maintainer decision and for a
+  reason unrelated to battery (below 30 s the spacing between points is smaller than the GPS error). If
+  battery ever forces a change, this measurement is the baseline to compare against.
+- 2026-09-02 — All criteria met. Moving to done. The recorder is measured on hardware for coverage
+  (task 202's report), accuracy, cold starts, iOS kills and now battery.

@@ -256,8 +256,14 @@ this section for the one place those two disagree.*
   the variable, not our bundle.*
 - **Battery:** use a single `watchPosition` subscription owned by the store,
   suspended when the document is hidden.
-  *Structurally done — one subscription in `location.store`, suspended on `hidden`. The **cost** is
-  the open half of task 082, and it is the same measurement the recorder needs.*
+  *Structurally done, and now **measured** (task 082, 2026-09-02): 2h 08m foregrounded on an iPhone with
+  the map open cost **10 percentage points — ~4.7 pp/hour**, which projects to **~56 pp over a 12-hour
+  race**. So a phone that starts full finishes around 44%; a phone that starts at 60% does not finish.
+  That is a briefing-and-power-bank problem rather than a sampling-interval problem, and the figure
+  measures the app as a participant uses it (screen, map, watch, recorder, uploader together) rather than
+  the recorder alone. It is optimistic in one way that matters here: the measurement had WiFi and two bars
+  throughout, whereas a phone hunting for signal in a forest — with the uploader retrying every two
+  minutes — costs more.*
 - **Accessibility:** controls are ≥44px touch targets with `aria-label`s; the
   registrations list is a real list navigable by screen reader; the map itself is
   acknowledged as not fully accessible, so the list is the accessible equivalent.
@@ -627,18 +633,24 @@ So a coarse track is either better than no track, or a misleading artefact. It n
 than a default. Note the sampling reasoning in §11.1 assumed GPS: 30 s puts points 33–50 m apart against
 a 10–30 m GPS error, and neither number survives a ±500 m source.
 
-### What is actually left (2026-09-02)
+### What is actually left (2026-09-02, evening)
 
-One item, and it is a measurement rather than code:
+**Nothing on the task board.** Every task derived from this PRD is in `roadmap/tasks/done/`, including the
+two that were outstanding this morning: task 087 (the bulk race-area tile download) and task 082 (the
+recorder, whose battery measurement was the last open criterion anywhere in this PRD).
 
-1. **A battery measurement** (task 082) — a couple of hours with the phone in a pocket, read out of
-   Settings → Battery by hand.
+Two things are true and neither is a task:
 
-The bulk tile download landed the same day (task 087), so this PRD owes no further code. What it does owe
-is a **device pass**: the tile download has never met the live service on a phone, and the offline
-protocol's awkward scenarios are unexercised. Everything else in §6 and §10 has been verified against the
-shipped source. One requirement left this PRD rather than being met: the post-race team track, now PRD
-011's.
+1. **One requirement left this PRD rather than being met.** The post-race team track is PRD 011's now
+   (task 086, closed unbuilt). It stays unticked in §6 on purpose.
+2. **A device pass is owed, not outstanding work.** The bulk tile download has never met the live tile
+   service on a phone — its byte-identical-URL claim is argued rather than observed — and the awkward
+   scenarios in `roadmap/offline-test-protocol.md` (OS-cleared cache, full origin) are unexercised. That
+   is verification of shipped code, which is what the protocol exists for.
+
+So this PRD is ready to move to `done/` on the maintainer's word. Worth noting what the device runs
+already established for it: coverage, accuracy on two device classes, iOS kill behaviour, storage quota,
+and battery — all measured rather than assumed, and two of them (tasks 197–202) found real bugs.
 
 ## 11. Open Questions
 
