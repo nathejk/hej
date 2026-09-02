@@ -96,3 +96,9 @@ the forest has silently opted out of the whole feature — and we would have no 
 - 2026-09-02 — ✅ All criteria complete. 14 new tests; suite 371 across 31 files; `type-check` and `build`
   clean. **The original symptom is not proven fixed** — nobody has re-run it on the iPad. What is fixed is
   that the next attempt will *say* what happened, in Danish, and log the cause for the run after that.
+- 2026-09-02 — Second iPad run: Location Services had been **off device-wide** (Apple Kort said so), which
+  explains the original silence. With it enabled, Apple Kort locates the device but our `getCurrentPosition`
+  still returns neither callback — the app now says so (`stuck`), which is task 197 working. Task 199 races
+  a `watchPosition` against it on the strength of that evidence, and logs which strategy answers, so the
+  next run settles it. The pending state ("Venter på telefonen…") and the named failure both rendered
+  correctly on the device.

@@ -77,14 +77,28 @@ const missingToken = computed(
 
 async function accept() {
   const coords = await location.request()
-  if (coords) {
-    // Which source answered is worth knowing on a device run: an iPhone gets a GPS fix, a Wi-Fi-only
-    // iPad can only ever get a coarse one (task 198), and "it worked" hides that difference.
-    if (location.coarse) void logEvent('nofix', 'coarse fix used (no GPS?)')
+
+  // The watch is started **regardless of the one-shot's outcome** (task 199). It used to be conditional on
+  // success, which meant a `getCurrentPosition` that hung — exactly what iPadOS does — stopped the app
+  // ever starting the subscription the map actually needs, even though the watch is a different WebKit
+  // code path that may well work. The less important call was gatekeeping the more important one.
+  //
+  // Safe to call after a denial too: `watch()` refuses when permission is `denied`, and the request has
+  // already recorded that. And when the *watch* is what answered, `request()` has kept it, so this is a
+  // no-op rather than a second subscription.
+  if (location.permission !== 'denied' && location.permission !== 'unavailable') {
     location.setFollowing(true)
     location.watch()
+  }
+
+  if (coords) {
+    // Which strategy answered is the finding a device run is looking for: an iPhone should be served by
+    // the precise one-shot, a Wi-Fi-only iPad only by the coarse one, and 'watch' would confirm the
+    // hypothesis behind task 199 — that iPadOS answers a watch while ignoring a one-shot.
+    void logEvent('nofix', `fix via ${location.strategy}${location.coarse ? ' (coarse)' : ''}`)
     return
   }
+
   // Record what the browser actually did, so the next device run can answer the question the iPad run
   // raised (task 197). Written to the track's diagnostic log because that survives the app being killed,
   // which a console message on a phone does not.

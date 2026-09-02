@@ -64,6 +64,18 @@ export const GEO_COARSE: PositionOptions = {
   maximumAge: 120_000,
 }
 
+/**
+ * How long to wait before *also* trying the coarse one-shot, in ms.
+ *
+ * The precise attempt is not abandoned — both stay in flight and the first answer wins. That is the
+ * correction task 199 makes to task 198: chaining the fallback off the precise attempt's error callback
+ * cannot help a call that never calls back, which is exactly what iPadOS does (see the task).
+ */
+export const GEO_COARSE_AFTER_MS = 6_000
+
+/** Which strategy produced the position. Logged, so a device run can confirm what actually works. */
+export type GeoStrategy = 'precise' | 'coarse' | 'watch' | null
+
 // Remembers that this device has granted location at least once.
 //
 // WHY THIS IS NECESSARY, measured on an iPhone (iOS 18.7, task 082's device run).
@@ -210,6 +222,8 @@ export const useLocationStore = defineStore('location', {
      * Wi-Fi worked", which is the difference between an iPhone and a Wi-Fi-only iPad.
      */
     coarse: false,
+    /** Which strategy answered (task 199). Diagnostic only. */
+    strategy: null as GeoStrategy,
     // Whether the map should keep recentring on the position. Manual panning
     // turns this off; the locate button turns it back on.
     following: true,
@@ -286,27 +300,62 @@ export const useLocationStore = defineStore('location', {
       this.failure = null
       this.error = ''
       this.coarse = false
+      this.strategy = null
 
       return new Promise((resolve) => {
-        // Whichever arrives first wins; the loser is ignored. A late success after the guard has fired
-        // is still worth keeping — the position is good — but it must not resolve twice.
+        // Three strategies in a race, and the shape is the point (task 199).
+        //
+        // On the iPad that produced this design, `getCurrentPosition` never calls **either** callback:
+        // not an error, silence. Task 198's coarse retry hung off the precise attempt's error handler, so
+        // on that device it could never run — a fallback chained to a failure cannot rescue a call that
+        // does not fail. Everything here is therefore started independently and the first answer wins:
+        //
+        //   - `precise`  — high accuracy, straight away. What a phone with GPS should satisfy quickly.
+        //   - `watch`    — started straight away too, because it is a *different* WebKit code path, and
+        //                  iOS home-screen web apps have a long history of the watch delivering while the
+        //                  one-shot hangs. It is also the call the map wants anyway.
+        //   - `coarse`   — after a short delay, for hardware with no GNSS receiver at all (task 198).
+        //                  Delayed rather than immediate so a device that can do better is given the
+        //                  chance to, but not gated on the precise attempt failing.
         let settled = false
+        let watchId: number | null = null
+        // How many strategies could still answer. The race ends when this reaches zero (everything failed)
+        // or when one succeeds — and *not* on the first failure, because a strategy that fails says
+        // nothing about the ones still in flight.
+        let outstanding = 0
+        // Whether the watch is the strategy that answered. Tracked as a flag rather than read back from
+        // `watchId`, because a callback can fire **before** `watchPosition` returns its id — a real
+        // browser is asynchronous, but nothing in the API promises that, and if it happens the id is lost
+        // and the subscription leaks: a high-accuracy watch nobody can stop, on a battery that has to last
+        // the night.
+        let watchWon = false
+        // The most recent cause, which is what the user is told: it describes the last thing actually
+        // tried, and by construction that is the coarse attempt when it ran.
+        let lastFailure: GeoFailure = null
+        let coarseStarted = false
+
+        const cleanup = () => {
+          clearTimeout(stuckTimer)
+          clearTimeout(coarseTimer)
+          // The watch is only dropped when it did NOT win. When it did, it is exactly the subscription
+          // the map is about to need, so tearing it down and starting another would throw away the one
+          // thing on this device that answered.
+          if (watchId !== null && !watchWon) {
+            geo.clearWatch(watchId)
+            watchId = null
+          }
+        }
+
         const settle = (coords: Coords | null) => {
           if (settled) return
           settled = true
           this.requesting = false
-          clearTimeout(timer)
+          cleanup()
           resolve(coords)
         }
 
-        const timer = setTimeout(() => {
+        const onSuccess = (strategy: GeoStrategy) => (pos: GeolocationPosition) => {
           if (settled) return
-          this.failure = 'stuck'
-          this.error = 'geolocation did not answer'
-          settle(null)
-        }, GEO_STUCK_MS)
-
-        const onSuccess = (coarse: boolean) => (pos: GeolocationPosition) => {
           this.position = {
             lat: pos.coords.latitude,
             lng: pos.coords.longitude,
@@ -314,44 +363,98 @@ export const useLocationStore = defineStore('location', {
           }
           this.positionAt = pos.timestamp || Date.now()
           this.permission = 'granted'
-          this.coarse = coarse
+          this.strategy = strategy
+          this.coarse = strategy === 'coarse'
           rememberGrant(true)
           this.error = ''
           this.failure = null
+          // Set before settling so `cleanup` can see which strategy won.
+          if (strategy === 'watch') {
+            watchWon = true
+            if (watchId !== null) this.watchId = watchId
+          }
           settle(this.position)
         }
 
-        const onFinalError = (err: { code?: number; message?: string }) => {
-          this.error = err.message ?? ''
-          this.failure = classifyGeoError(err)
-          if (this.failure === 'denied') {
-            this.permission = 'denied'
-            rememberGrant(false)
-          }
-          settle(null)
+        const startCoarse = () => {
+          if (coarseStarted || settled) return
+          coarseStarted = true
+          clearTimeout(coarseTimer)
+          outstanding++
+          geo.getCurrentPosition(onSuccess('coarse'), (err) => handleError(err), GEO_COARSE)
         }
 
-        geo.getCurrentPosition(
-          onSuccess(false),
-          (err) => {
-            const cause = classifyGeoError(err)
+        const stuckTimer = setTimeout(() => {
+          if (settled) return
+          this.failure = 'stuck'
+          this.error = 'no geolocation strategy answered'
+          settle(null)
+        }, GEO_STUCK_MS)
 
-            // A refusal is final. Retrying it would be pointless — the answer cannot change without a
-            // trip to Settings — and on some platforms repeat requests are what get a permission
-            // permanently blocked.
-            if (cause === 'denied') {
-              onFinalError(err)
-              return
+        const coarseTimer = setTimeout(startCoarse, GEO_COARSE_AFTER_MS)
+
+        // Declared after `startCoarse` because it calls it; `startCoarse` reaches this through a closure
+        // rather than a forward reference, hence the arrow wrapper at its call site.
+        const handleError = (err: { code?: number; message?: string }) => {
+          if (settled) return
+          const cause = classifyGeoError(err)
+
+          // A refusal ends the race outright: it is final until the user visits Settings, and on some
+          // platforms continuing to ask is what gets a permission permanently blocked.
+          if (cause === 'denied') {
+            this.error = err.message ?? ''
+            this.failure = 'denied'
+            this.permission = 'denied'
+            rememberGrant(false)
+            settle(null)
+            return
+          }
+
+          lastFailure = cause
+          this.error = err.message ?? ''
+          outstanding--
+
+          // Nothing else is going to answer, so stop waiting out the delay and try the coarse attempt now.
+          // This is what keeps a device that fails *fast* — location switched off, say — from sitting
+          // through the full stuck timeout before being told anything, which was the whole point of 197.
+          if (outstanding <= 0 && !coarseStarted) {
+            startCoarse()
+            return
+          }
+
+          if (outstanding <= 0) {
+            this.failure = lastFailure
+            settle(null)
+          }
+        }
+
+        outstanding++
+        geo.getCurrentPosition(onSuccess('precise'), handleError, GEO_PRECISE)
+
+        // Wrapped: a browser without `watchPosition`, or one that throws on it, must not take the
+        // one-shot down with it.
+        //
+        // Skipped entirely once something has already answered — otherwise a one-shot that resolves
+        // synchronously would leave a watch running that nothing ever clears.
+        if (!settled) {
+          try {
+            outstanding++
+            watchId = geo.watchPosition(onSuccess('watch'), handleError, GEO_PRECISE)
+            // The callback may have fired during the call above. Adopt the id if the watch won; drop the
+            // subscription if the race finished without it.
+            if (watchWon) this.watchId = watchId
+            else if (settled && watchId !== null) {
+              geo.clearWatch(watchId)
+              watchId = null
             }
-
-            // Second attempt, coarse (task 198). On a device with no GPS chip the first request asked for
-            // something the hardware cannot provide; this asks for what it can.
-            geo.getCurrentPosition(onSuccess(true), onFinalError, GEO_COARSE)
-          },
-          GEO_PRECISE,
-        )
+          } catch {
+            outstanding--
+            watchId = null
+          }
+        }
       })
     },
+
 
     // watch starts (or reuses) a single continuous position subscription. Callers
     // must pair it with stopWatch() — the map does so on unmount and whenever the

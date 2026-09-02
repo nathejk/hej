@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   GEO_COARSE,
+  GEO_COARSE_AFTER_MS,
   GEO_PRECISE,
   GEO_STUCK_MS,
   classifyGeoError,
@@ -23,10 +24,14 @@ const position = {
 /** A geolocation that answers with the given error code. Plain object: a real browser error carries the
  *  code constants on the instance, and stubbing those adds nothing a spec-fixed number does not. */
 function failingGeo(code: number): GeolocationLike {
+  // Every strategy fails, because the race only gives up when they all have — a single failure says
+  // nothing about the calls still in flight (task 199).
   return {
-    getCurrentPosition: (_ok, err) =>
-      err?.({ code, message: 'nope' } as GeolocationPositionError),
-    watchPosition: () => 1,
+    getCurrentPosition: (_ok, err) => err?.({ code, message: 'nope' } as GeolocationPositionError),
+    watchPosition: (_ok, err) => {
+      err?.({ code, message: 'nope' } as GeolocationPositionError)
+      return 1
+    },
     clearWatch: () => {},
   }
 }
@@ -216,7 +221,7 @@ describe('the coarse fallback', () => {
     store.geo = {
       getCurrentPosition: (ok, err, options) => {
         attempts.push(options)
-        if (attempts.length === 1) {
+        if (options?.enableHighAccuracy) {
           err?.({ code: 2, message: 'kCLErrorLocationUnknown' } as GeolocationPositionError)
         } else {
           ok({
@@ -225,7 +230,10 @@ describe('the coarse fallback', () => {
           } as GeolocationPosition)
         }
       },
-      watchPosition: () => 1,
+      watchPosition: (_ok, err) => {
+        err?.({ code: 2, message: 'kCLErrorLocationUnknown' } as GeolocationPositionError)
+        return 1
+      },
       clearWatch: () => {},
     }
 
@@ -242,7 +250,7 @@ describe('the coarse fallback', () => {
     expect(store.coarse).toBe(true)
   })
 
-  it('does not retry when the first attempt succeeds', async () => {
+  it('does not start the coarse attempt when the precise one succeeds', async () => {
     let calls = 0
     const store = useLocationStore()
     store.geo = {
@@ -258,6 +266,7 @@ describe('the coarse fallback', () => {
 
     expect(calls).toBe(1)
     expect(store.coarse).toBe(false)
+    expect(store.strategy).toBe('precise')
   })
 
   // Retrying a refusal cannot change the answer — that needs a trip to Settings — and on some platforms
@@ -276,11 +285,13 @@ describe('the coarse fallback', () => {
 
     await store.request()
 
+    // One attempt, and no coarse follow-up: the answer cannot change without a trip to Settings, and on
+    // some platforms continuing to ask is what gets a permission permanently blocked.
     expect(calls).toBe(1)
     expect(store.failure).toBe('denied')
   })
 
-  it('reports the last thing tried when both attempts fail', async () => {
+  it('reports the last thing tried when every attempt fails', async () => {
     const store = useLocationStore()
     store.geo = {
       getCurrentPosition: (_ok, err, options) =>
@@ -288,7 +299,10 @@ describe('the coarse fallback', () => {
           code: options?.enableHighAccuracy ? 2 : 3,
           message: 'still nothing',
         } as GeolocationPositionError),
-      watchPosition: () => 1,
+      watchPosition: (_ok, err) => {
+        err?.({ code: 2, message: 'still nothing' } as GeolocationPositionError)
+        return 1
+      },
       clearWatch: () => {},
     }
 
@@ -305,5 +319,148 @@ describe('the coarse fallback', () => {
     expect(GEO_COARSE.timeout ?? 0).toBeGreaterThan(GEO_PRECISE.timeout ?? 0)
     expect(GEO_COARSE.maximumAge ?? 0).toBeGreaterThan(GEO_PRECISE.maximumAge ?? 0)
     expect(GEO_COARSE.enableHighAccuracy).toBe(false)
+  })
+})
+
+describe('the strategy race', () => {
+  // The iPad, exactly: `getCurrentPosition` never calls either callback, while `watchPosition` — a
+  // different WebKit code path — delivers. Task 198's coarse retry hung off the one-shot's error handler,
+  // so on this device it could never run: a fallback chained to a failure cannot rescue a call that does
+  // not fail. This is the test that would have caught that.
+  it('is answered by the watch when the one-shot never calls back', async () => {
+    const store = useLocationStore()
+    store.geo = {
+      getCurrentPosition: () => {},
+      watchPosition: (ok) => {
+        ok(position)
+        return 7
+      },
+      clearWatch: () => {},
+    }
+
+    const coords = await store.request()
+
+    expect(coords).not.toBeNull()
+    expect(store.strategy).toBe('watch')
+    expect(store.permission).toBe('granted')
+    expect(store.failure).toBeNull()
+  })
+
+  // When the watch wins it is exactly the subscription the map is about to need, so tearing it down and
+  // starting another would throw away the one thing on that device that answered.
+  it('keeps the winning watch instead of clearing it', async () => {
+    let cleared: number | null = null
+    const store = useLocationStore()
+    store.geo = {
+      getCurrentPosition: () => {},
+      watchPosition: (ok) => {
+        ok(position)
+        return 7
+      },
+      clearWatch: (id) => {
+        cleared = id
+      },
+    }
+
+    await store.request()
+
+    expect(cleared).toBeNull()
+    expect(store.watchId).toBe(7)
+  })
+
+  // Better than starting one and tearing it down: if the one-shot has already answered, there is nothing
+  // for a watch to add and every reason not to open a high-accuracy subscription on a phone.
+  it('does not start a watch at all when the one-shot has already answered', async () => {
+    let watches = 0
+    const store = useLocationStore()
+    store.geo = {
+      getCurrentPosition: (ok) => ok(position),
+      watchPosition: () => {
+        watches++
+        return 7
+      },
+      clearWatch: () => {},
+    }
+
+    await store.request()
+
+    expect(store.strategy).toBe('precise')
+    expect(watches).toBe(0)
+  })
+
+  // And when it *was* started — the normal case, where the one-shot answers a moment later — it must be
+  // cleared. A watch left running is a live high-accuracy subscription nobody asked for, on a battery that
+  // has to last the night.
+  it('clears a started watch when something else wins', async () => {
+    let cleared: number | null = null
+    const store = useLocationStore()
+    store.geo = {
+      // Asynchronous, like a real browser, so the watch is started before this answers.
+      getCurrentPosition: (ok) => {
+        setTimeout(() => ok(position), 0)
+      },
+      watchPosition: () => 7,
+      clearWatch: (id) => {
+        cleared = id
+      },
+    }
+
+    await store.request()
+
+    expect(store.strategy).toBe('precise')
+    expect(cleared).toBe(7)
+  })
+
+  // The regression this design nearly introduced: ignoring non-denied errors so the race can continue is
+  // right, but if every strategy fails *fast* the user must be told immediately rather than sitting
+  // through the 25 s guard. Task 197 exists precisely because a silent wait reads as a dead button.
+  it('gives up as soon as every strategy has failed, without waiting out the guard', async () => {
+    vi.useFakeTimers()
+    const store = useLocationStore()
+    store.geo = failingGeo(2)
+
+    const pending = store.request()
+    // No timer advanced at all: the coarse attempt is pulled forward because nothing else can answer.
+    await pending
+
+    expect(store.failure).toBe('unavailable')
+    expect(store.requesting).toBe(false)
+  })
+
+  it('reports stuck only when nothing answers at all', async () => {
+    vi.useFakeTimers()
+    const store = useLocationStore()
+    store.geo = {
+      getCurrentPosition: () => {},
+      watchPosition: () => 1,
+      clearWatch: () => {},
+    }
+
+    const pending = store.request()
+    vi.advanceTimersByTime(GEO_STUCK_MS)
+
+    expect(await pending).toBeNull()
+    expect(store.failure).toBe('stuck')
+  })
+
+  it('survives a browser whose watchPosition throws', async () => {
+    const store = useLocationStore()
+    store.geo = {
+      getCurrentPosition: (ok) => ok(position),
+      watchPosition: () => {
+        throw new Error('no watch here')
+      },
+      clearWatch: () => {},
+    }
+
+    expect(await store.request()).not.toBeNull()
+    expect(store.strategy).toBe('precise')
+  })
+
+  it('starts the coarse attempt on a delay rather than immediately', () => {
+    // A device that can do better should be given the chance to, so the coarse attempt is a fallback in
+    // time as well as in accuracy — but not gated on the precise attempt failing.
+    expect(GEO_COARSE_AFTER_MS).toBeGreaterThan(0)
+    expect(GEO_COARSE_AFTER_MS).toBeLessThan(GEO_STUCK_MS)
   })
 })
