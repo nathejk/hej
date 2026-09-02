@@ -104,6 +104,26 @@ describe('geoFailureMessage', () => {
     expect(geoFailureMessage('unavailable')).toMatch(/Stedtjenester/)
   })
 
+  // Task 200. Reinstalling is what actually recovered the wedged iPad, and it is deliberately NOT
+  // suggested here: it clears the app's storage, including a position track that has not been uploaded —
+  // the one thing on the device that exists nowhere else. A participant cannot know that, so the advice
+  // they get is the safe half, and the destructive half is documented for organisers.
+  it('never tells a participant to delete the app', () => {
+    for (const failure of ['denied', 'unavailable', 'timeout', 'stuck'] as const) {
+      const message = geoFailureMessage(failure).toLowerCase()
+      for (const word of ['slet', 'afinstal', 'geninstal', 'fjern app']) {
+        expect(message, `${failure} suggests "${word}"`).not.toContain(word)
+      }
+    }
+  })
+
+  it('offers the two safe steps when nothing answered', () => {
+    const message = geoFailureMessage('stuck')
+    expect(message).toMatch(/Stedtjenester/)
+    // Closing and reopening is free and sometimes enough.
+    expect(message).toMatch(/luk appen/i)
+  })
+
   it('says nothing when there is no failure', () => {
     expect(geoFailureMessage(null)).toBe('')
   })

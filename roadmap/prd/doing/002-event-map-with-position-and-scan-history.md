@@ -570,6 +570,30 @@ These were written as "open" but had in fact shipped as tasks 040, 041, 042, 045
 
 **Legend:** `[x]` done · `[~]` partly done, see the note · `[—]` closed unbuilt, moved elsewhere.
 
+### Finding added 2026-09-02 — asking for location too early can wedge an install
+
+From the iPad runs (tasks 197–200). A device arrived with **Location Services off for the whole device**.
+The app asked for location anyway. Afterwards, that installed instance could **never ask again**: no
+dialog, no error, nothing — not even after Location Services was switched back on. A **fresh install
+worked immediately**, with no code change in between.
+
+The best explanation is per-origin permission state inside the installed app, which enabling the
+device-wide setting does not reset. What matters for this PRD is that the sequence is ordinary and will
+happen at an event: onboarding asks for location early (PRD 005 step 5), and any participant whose device
+has location switched off is a candidate for it.
+
+Three things follow, and only the first is built:
+
+1. **The failure now says what it is** and offers the two safe recovery steps (tasks 197, 200). Before
+   this, it was silence.
+2. **The destructive fix — reinstalling — is documented for organisers, not participants**, because it
+   clears an unshipped position track. See `roadmap/offline-test-protocol.md`.
+3. **Whether to ask at all when the platform is not ready** is unresolved. There may be no way to detect
+   "Location Services is off device-wide" before asking — the Permissions API does not report it, and
+   WebKit answers `prompt` for a granted permission anyway (see `location.store`'s `GRANT_KEY` note). If
+   there is no reliable pre-check, the honest mitigation is the one now in place: ask, and explain the
+   failure well.
+
 ### Open question added 2026-09-02 (from the iPad device run)
 
 **Should the position track accept a coarse fix?** Task 198 made the *map* fall back to a low-accuracy

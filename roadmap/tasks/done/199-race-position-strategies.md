@@ -99,3 +99,8 @@ strategy that answers is written to the diagnostic log.
   it logs `stuck` again, then iPadOS is refusing both paths and the next thing to examine is whether
   Safari's per-site location setting for `hej.nathejk.dk` is set to Deny — Location Services being on
   device-wide does not imply this origin is allowed.
+- 2026-09-02 — **A fresh install on the same iPad worked immediately**, with no code change. So the watch
+  hypothesis behind this task is *unconfirmed*: the failure was almost certainly per-origin permission state
+  left behind by asking while Location Services was off device-wide, not a WebKit code-path defect. This
+  race stands on its own merits and the `fix via ...` log line still tells us which strategy answers, but it
+  should not be called the fix for that bug. Task 200 carries the actual fix: telling the user what to do.

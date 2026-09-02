@@ -155,6 +155,22 @@ end with a marker and a **large** accuracy circle, not a failure. If it fails, `
 If Apple's own Kort app cannot locate the device either, the problem is the device or its Location Services
 setting, not this app — check that before filing anything.
 
+**If location stays silent even with Location Services on** — no dialog, no error, and the app reports
+"Der kom ikke noget svar fra telefonen" — this happened on a real iPad (tasks 197–200) and here is the
+order to work through:
+
+1. **Settings → Privacy → Location Services**, on for the device *and* for Safari.
+2. **This app's own permission** for the site.
+3. **Close the app completely and reopen it.**
+4. **Last resort: remove it from the home screen and install it again.** That is what recovered the iPad,
+   and it is almost certainly a per-origin permission state that nothing else clears.
+
+   **Get the device online before doing step 4.** Reinstalling wipes the app's storage, which includes any
+   **position track that has not been uploaded yet** — the one thing on the device that exists nowhere
+   else. Open the app on a connection, check `/sporing` shows nothing pending, and only then reinstall.
+   This step is for organisers; the app deliberately does not suggest it to participants, who cannot know
+   what it costs.
+
 ## 6. Recording survives, offline, for hours
 
 Not strictly a cache test, but it shares the storage and it is the thing that cannot be re-fetched.

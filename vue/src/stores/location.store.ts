@@ -183,7 +183,12 @@ export function geoFailureMessage(failure: GeoFailure): string {
     case 'timeout':
       return 'Det tog for lang tid at finde din placering. Prøv igen — helst udendørs.'
     case 'stuck':
-      return 'Der kom ikke noget svar fra telefonen. Prøv igen, eller tjek Stedtjenester under Indstillinger.'
+      // Two safe, cheap steps and nothing else. Reinstalling would probably also work — it is what
+      // recovered the iPad this copy exists for — but it clears the app's storage, including a position
+      // track that has not been uploaded yet, and a participant cannot know that. Telling them to delete
+      // the app is advice that can destroy their own recorded route (task 200); it lives in the device
+      // protocol, aimed at organisers, with "get online first" attached.
+      return 'Der kom ikke noget svar fra telefonen. Tjek under Indstillinger, at Stedtjenester er slået til, og at Hej Nathejk må bruge din placering. Hjælper det ikke, så luk appen helt og åbn den igen.'
     default:
       return ''
   }
