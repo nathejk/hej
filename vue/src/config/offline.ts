@@ -40,6 +40,15 @@ export interface OfflineDataset {
   id: OfflineDatasetId
   /** Danish, for the readiness view. */
   label: string
+  /**
+   * What this data is *for*, in one plain-Danish sentence, addressed to the person whose phone it is.
+   *
+   * Lives here rather than in a template because two pages ask about the same data and must not
+   * describe it differently: the profile page's readiness section (task 187) and the privacy page's
+   * "what is on your phone" (task 196). The privacy page's voice is the stricter of the two — readable
+   * by a 12-year-old and their parent, no jargon — so that is the register these are written in.
+   */
+  purpose: string
   kind: OfflineStorageKind
   /**
    * Bytes planned for this dataset.
@@ -84,6 +93,7 @@ export const OFFLINE_DATASETS: readonly OfflineDataset[] = [
   {
     id: 'track',
     label: 'Din rute',
+    purpose: 'Vejen du er gået, så I kan se den bagefter. Den gemmes her, indtil den er sendt.',
     kind: 'indexeddb',
     // Budgeted against the *hard ceiling* (TRACK_MAX_POINTS = 20,000 points ≈ 2.7 MB), not the
     // expected 12-hour race (~1,440 points ≈ 195 KB). Everything else here is budgeted for
@@ -96,6 +106,7 @@ export const OFFLINE_DATASETS: readonly OfflineDataset[] = [
   {
     id: 'shell',
     label: 'Appen selv',
+    purpose: 'Selve appen, så den kan åbne, når der ikke er signal.',
     kind: 'cache-api',
     // **Measured** in task 192: Workbox precaches 47 entries / 738 kB, including the icon and splash
     // set from task 091. 2 MB rather than 0.8 leaves room for the app to grow without a re-plan,
@@ -107,6 +118,8 @@ export const OFFLINE_DATASETS: readonly OfflineDataset[] = [
   {
     id: 'directory',
     label: 'Kontaktliste',
+    purpose:
+      'Navne, grupper og telefonnumre på dem, du er i løb sammen med, så du kan finde dem uden signal.',
     kind: 'local-storage',
     // The text index only; portraits are the entry below. Ranked above them on purpose: names,
     // groups and status must keep working when the images are gone, which is the point of
@@ -118,6 +131,7 @@ export const OFFLINE_DATASETS: readonly OfflineDataset[] = [
   {
     id: 'portraits',
     label: 'Portrætter',
+    purpose: 'Små billeder af de andres ansigter, så I kan genkende hinanden i mørket.',
     kind: 'cache-api',
     // ~4.5 kB per face at thumb256 (task 104): ~0.7 MB for the largest single role, ~3.7 MB
     // event-wide (PRD 007 §8). 5 MB matches the cache's own ceiling —
@@ -128,7 +142,8 @@ export const OFFLINE_DATASETS: readonly OfflineDataset[] = [
   },
   {
     id: 'tiles',
-    label: 'Kort',
+    label: 'Kortbilleder',
+    purpose: 'Kortet omkring løbsområdet, så du kan se det uden signal.',
     kind: 'cache-api',
     // The 2026 race area at z12–16 measures 324 MB across both base layers. 500 MB is planned
     // rather than 324 so a larger year (600 km² ≈ 446 MB) does not need a re-plan; the area is

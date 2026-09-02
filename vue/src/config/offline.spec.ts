@@ -51,6 +51,33 @@ describe('the priority order', () => {
   })
 })
 
+describe('what the user is told', () => {
+  // Two pages describe this data — the profile's readiness section and the privacy page's "what is on
+  // your phone" — and they must not describe it differently. Both read these strings, so a dataset
+  // added without them would show up on one surface as a blank line and on the other as nothing at all.
+  it('gives every dataset a Danish name and a purpose', () => {
+    for (const dataset of OFFLINE_DATASETS) {
+      expect(dataset.label.trim(), `${dataset.id} label`).not.toBe('')
+      expect(dataset.purpose.trim(), `${dataset.id} purpose`).not.toBe('')
+      // A whole sentence, not a noun. The privacy page has to answer "what for", and "Kort" does not.
+      expect(dataset.purpose.length, `${dataset.id} purpose is too short to explain anything`)
+        .toBeGreaterThan(25)
+    }
+  })
+
+  // The privacy page's own rule, stricter than the rest of the app: readable by a 12-year-old and their
+  // parent. Words like "cache" and "tiles" fail that even though they are what the code calls things.
+  it('uses no jargon a participant would not recognise', () => {
+    const jargon = ['cache', 'tile', 'indexeddb', 'localstorage', 'quota', 'dataset', 'sync']
+    for (const dataset of OFFLINE_DATASETS) {
+      const text = `${dataset.label} ${dataset.purpose}`.toLowerCase()
+      for (const word of jargon) {
+        expect(text, `${dataset.id} says "${word}"`).not.toContain(word)
+      }
+    }
+  })
+})
+
 describe('the budget', () => {
   it('fits inside the origin ceiling', () => {
     expect(totalPlannedBytes()).toBeLessThanOrEqual(OFFLINE_ORIGIN_BUDGET_BYTES)
