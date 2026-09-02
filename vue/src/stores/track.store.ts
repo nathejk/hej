@@ -74,6 +74,25 @@ export const useTrackStore = defineStore('track', {
     starting: false,
     /** Set while a sample is in flight, so two never overlap (see start()'s note). */
     sampling: false,
+    /**
+     * True once a hidden sample has been skipped, so the log records the state once per run (task 202).
+     *
+     * Reset the moment the document is visible again, so a later backgrounding logs afresh — the useful
+     * information is "it went quiet here", not "it is still quiet" repeated 30 times.
+     */
+    skippedWhileHidden: false,
+    /**
+     * Is the document hidden? Injected rather than read from `document` directly, so the behaviour that
+     * cost 48 pointless GPS attempts on a real phone can be tested at all.
+     */
+    isHidden: (() => typeof document !== 'undefined' && document.hidden) as () => boolean,
+    /**
+     * The last geolocation failure written to the log, so an identical one is not written again.
+     *
+     * Cleared on a successful fix, so a condition that comes back is recorded again — the log should show
+     * that it recurred, just not 48 times in a row.
+     */
+    lastGeoErrorLogged: '',
 
     // ---- upload (task 083) ---------------------------------------------------------
     /** How many of this user's points have not been accepted by the server yet. */
@@ -189,6 +208,30 @@ export const useTrackStore = defineStore('track', {
         return
       }
 
+      // Nothing to gain while the document is hidden, and three things to lose (task 202).
+      //
+      // Measured on a 22-hour device run: while hidden, the interval kept firing and every fix timed out
+      // — 48 of them, one every 30 s, in two runs of a quarter of an hour each — and **not one point was
+      // recorded**. iOS leaves the page alive enough to run timers and does not service its location
+      // requests. So each attempt spent 20 s asking for a high-accuracy fix with `maximumAge: 0`, the most
+      // expensive request available, on a phone in a pocket; and each failure wrote two entries into a
+      // capped diagnostic log, pushing out the events that are the only way problems like this get found.
+      //
+      // This does not narrow what the feature promises. PRD 002 §11.1 already says "coverage of everywhere
+      // the member was **while the app was open**", and a hidden document is not open — the platform is
+      // simply agreeing. `visibilitychange` samples immediately on return, so the boundary costs at most
+      // one interval.
+      if (this.isHidden()) {
+        // Once per run of hidden samples, not once per attempt: the point of the log is to say the state
+        // was entered, and repeating it every 30 s is what flooded the buffer in the first place.
+        if (!this.skippedWhileHidden) {
+          this.skippedWhileHidden = true
+          void logEvent('skip', 'hidden — not sampling until visible')
+        }
+        return
+      }
+      this.skippedWhileHidden = false
+
       // Don't sample if the track already has a recent point. Guards the two ways the
       // cadence can be undercut: a page load taking an immediate fix, and a recorder
       // accidentally started twice. The 80% margin keeps a scheduled sample that fires a
@@ -298,10 +341,19 @@ export const useTrackStore = defineStore('track', {
             // freshness check above will reuse it if a sample lands close behind.
             location.position = coords
             location.positionAt = at
+            // A success clears the dedup key, so a failure that returns later is recorded again.
+            this.lastGeoErrorLogged = ''
             resolve({ coords, at })
           },
           (err) => {
-            void logEvent('geoerror', `code=${err.code} ${err.message}`)
+            // Deduplicated: an identical failure repeated every 30 s is what filled a real device's
+            // capped event buffer with 48 copies of one condition, pushing out the events that make other
+            // problems findable (task 202). The first is worth recording; the ninetieth is not.
+            const signature = `code=${err.code} ${err.message}`
+            if (signature !== this.lastGeoErrorLogged) {
+              this.lastGeoErrorLogged = signature
+              void logEvent('geoerror', signature)
+            }
             if (err.code === err.PERMISSION_DENIED) {
               // Clears the remembered grant too, which is what makes a revocation in iOS
               // Settings self-correcting rather than a permanent wrong belief.

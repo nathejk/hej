@@ -364,3 +364,36 @@ so there is no reason to be clever about compaction.
   screen mostly on measures nothing, and the report's battery fields are blank by design because iOS exposes
   no battery API. Still needs a couple of hours with the phone in a pocket and a manual before/after reading.
   That is the only criterion left on this task.
+
+- 2026-09-02 — **Second measurement, 22h23m on an iPhone (iOS 18.7), and it found a bug** — see task 202.
+  The headline numbers:
+
+  | | |
+  |---|---|
+  | period | 22h 23m |
+  | points | 47 |
+  | wall-clock coverage | **2%** (47 of 2,688 expected) |
+  | time backgrounded | 6h 18m across **28** backgroundings |
+  | **killed by iOS with no resume** | **8 of 28** |
+  | accuracy min/median/max | **3.9 / 10.5 / 20 m** |
+  | fixes reusing the map's own | 14 / 47 |
+  | quota / persisted | 41,232 MB / true |
+
+  Three readings, in order of importance:
+
+  1. **48 pointless GPS attempts while hidden**, in two 15-minute runs, recording nothing. Fixed in task
+     202: the recorder now skips while the document is hidden. This is the first real finding the
+     diagnostic log has produced on its own.
+  2. **2% wall-clock coverage is not the feature's number.** It divides by an expectation of continuous
+     sampling across a night when the app was not running. The report now also prints coverage of the time
+     the app was open. Both matter; only one describes the feature.
+  3. **iOS killed the app 8 times in 28 backgroundings** — quantifying what this task's description
+     asserted. The recorder resumed correctly every time (16 `load` / 16 `start` pairs, `skip` guarding the
+     cadence across reloads), which is the behaviour those cold-start protections were written for.
+
+  Accuracy is worth keeping for PRD 011: **10.5 m median on an iPhone** against 35 m on a Wi-Fi-only iPad,
+  from our own two devices.
+
+- 2026-09-02 — Battery is *still* the only open criterion, and neither run supplies it: this one spans a
+  night with the app mostly closed, so the battery delta measures the phone, not the recorder. Needs a
+  couple of hours foregrounded in a pocket, with a manual before/after reading.

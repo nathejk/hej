@@ -162,6 +162,21 @@ const report = computed(() => {
     L('samlet periode', dur(a.span))
     L('punkter faktisk / forventet', `${p.length} / ${a.expected}`)
     L('dækning', `${Math.round((p.length / Math.max(a.expected, 1)) * 100)}%`)
+    // Wall-clock coverage on its own is arithmetically right and rhetorically misleading over a long
+    // period: it divides by an expectation of continuous sampling across hours when the app was not
+    // running at all, so a 22-hour report reads as 2% and looks like a fault. What describes the feature
+    // is coverage of the time the app was actually open — which is all it has ever promised (PRD 002
+    // §11.1). Both are printed, because the gap between them is the platform limit, and that is the
+    // number worth knowing. Task 202.
+    if (a.covered > 0) {
+      const openMs = a.covered
+      const expectedWhileOpen = Math.round(openMs / (TRACK_SAMPLE_SECONDS * 1000)) + 1
+      L('tid med appen åben (uden huller)', dur(openMs))
+      L(
+        'dækning mens appen var åben',
+        `${Math.min(100, Math.round((p.length / Math.max(expectedWhileOpen, 1)) * 100))}%`,
+      )
+    }
     L(`huller (> ${(gapThresholdMs / 1000) | 0}s)`, a.gaps.length)
     L('tid i huller', dur(a.span - a.covered))
     a.gaps.slice(0, 15).forEach((g, i) => {
