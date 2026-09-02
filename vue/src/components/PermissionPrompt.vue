@@ -47,6 +47,17 @@ withDefaults(
     blocked?: boolean
     /** Task 101's platform-specific settings guidance, shown when `blocked`. */
     blockedGuidance?: string
+    /**
+     * A request is in flight.
+     *
+     * Not decoration. Task 197: on an iPad the native dialog never appeared and neither geolocation
+     * callback ever fired, so a tap on the accept button produced no visible change whatsoever — which
+     * is indistinguishable from a broken button, and the user walked away from the feature. A prompt that
+     * asks the OS for something must be able to say it is waiting.
+     */
+    busy?: boolean
+    /** Why the last attempt failed, in Danish. Shown under the buttons; the prompt stays usable. */
+    failure?: string
   }>(),
   { moreLabel: 'Læs mere', variant: 'compact', dismissLabel: 'Ikke nu' },
 )
@@ -91,14 +102,18 @@ const emit = defineEmits<{ accept: []; dismiss: [] }>()
       <button
         v-else
         type="button"
-        class="rounded-lg bg-slate-900 px-4 py-3 font-medium text-white"
+        class="rounded-lg bg-slate-900 px-4 py-3 font-medium text-white disabled:opacity-60"
+        :disabled="busy"
         @click="emit('accept')"
       >
-        {{ cta }}
+        {{ busy ? 'Venter på telefonen…' : cta }}
       </button>
       <button type="button" class="px-2 py-2 text-sm text-slate-500" @click="emit('dismiss')">
         {{ dismissLabel }}
       </button>
+      <!-- Named cause, not a generic apology: "Stedtjenester er slået fra" and "vi kunne ikke få fat i
+           en position" need different things from the user. -->
+      <p v-if="failure" class="text-center text-sm leading-relaxed text-amber-800">{{ failure }}</p>
     </div>
   </div>
 
@@ -125,15 +140,17 @@ const emit = defineEmits<{ accept: []; dismiss: [] }>()
         <div class="mt-3 flex items-center gap-2">
           <button
             type="button"
-            class="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white"
+            class="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+            :disabled="busy"
             @click="emit('accept')"
           >
-            {{ cta }}
+            {{ busy ? 'Venter på telefonen…' : cta }}
           </button>
           <button type="button" class="px-2 py-1.5 text-sm text-slate-500" @click="emit('dismiss')">
             {{ dismissLabel }}
           </button>
         </div>
+        <p v-if="failure" class="mt-2 text-sm leading-relaxed text-amber-800">{{ failure }}</p>
       </div>
     </div>
   </div>

@@ -2,6 +2,34 @@ import { defineStore } from 'pinia'
 
 export type GeoPermission = 'unknown' | 'prompt' | 'granted' | 'denied' | 'unavailable'
 
+/**
+ * Why the last attempt to get a position failed.
+ *
+ * Four causes, and they are kept apart because the user's next move differs for each — which is the whole
+ * lesson of task 197, where every one of them looked identical (like nothing at all):
+ *
+ *  - `denied` — this site was refused. Recoverable only in Settings; `blockedGuidance` says how.
+ *  - `unavailable` — iOS reports `POSITION_UNAVAILABLE`, which on an iPhone or iPad most often means
+ *    **Location Services is off for the whole device**. Telling that user "you denied this app" would
+ *    send them to the wrong screen.
+ *  - `timeout` — no fix in time. Indoors, or a WiFi-only iPad with nothing to triangulate. Worth
+ *    retrying, unlike the two above.
+ *  - `stuck` — neither callback ever fired. Not a Geolocation error code at all: it is our own
+ *    wall-clock guard, because the API's `timeout` bounds acquiring a fix and does **not** cover waiting
+ *    for the permission dialog to be answered. Without this the UI waits for ever.
+ */
+export type GeoFailure = 'denied' | 'unavailable' | 'timeout' | 'stuck' | null
+
+/**
+ * How long to wait before concluding the browser is never going to answer, in ms.
+ *
+ * Comfortably longer than the 10 s fix timeout, because the legitimate slow case is a human reading an
+ * iOS dialog and deciding — cutting that off early would report a failure to someone who is about to
+ * grant permission. Short enough that a button cannot appear dead: 25 s of a spinner is annoying,
+ * whereas an unbounded wait is what task 197 was filed for.
+ */
+export const GEO_STUCK_MS = 25_000
+
 // Remembers that this device has granted location at least once.
 //
 // WHY THIS IS NECESSARY, measured on an iPhone (iOS 18.7, task 082's device run).
@@ -49,6 +77,72 @@ export interface Coords {
   accuracy: number
 }
 
+/**
+ * The part of `navigator.geolocation` this store uses.
+ *
+ * Injectable for the same reason as `helpers/platform.ts`'s environment: the interesting cases here — a
+ * call that hangs, `POSITION_UNAVAILABLE` from a device with Location Services off — cannot be produced
+ * on the machine running the tests, so they have to be handed in.
+ */
+export interface GeolocationLike {
+  getCurrentPosition: (
+    success: PositionCallback,
+    error?: PositionErrorCallback | null,
+    options?: PositionOptions,
+  ) => void
+  watchPosition: (
+    success: PositionCallback,
+    error?: PositionErrorCallback | null,
+    options?: PositionOptions,
+  ) => number
+  clearWatch: (id: number) => void
+}
+
+function browserGeolocation(): GeolocationLike | null {
+  if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return null
+  return navigator.geolocation
+}
+
+/**
+ * Fold a `GeolocationPositionError` into one of our causes.
+ *
+ * The numeric codes are used rather than the `err.PERMISSION_DENIED` constants: those live on the error
+ * instance, and a stubbed error in a test — or a browser that returns a plain object — does not carry
+ * them. The values are fixed by the spec (1, 2, 3).
+ */
+export function classifyGeoError(err: { code?: number }): GeoFailure {
+  switch (err.code) {
+    case 1:
+      return 'denied'
+    case 2:
+      return 'unavailable'
+    case 3:
+      return 'timeout'
+    default:
+      // An error we do not recognise is still a failure, and "we could not get a fix" is the honest
+      // reading of it — not "you denied this", which would send the user to the wrong Settings screen.
+      return 'unavailable'
+  }
+}
+
+/** Danish, plain, and specific to the cause — task 197. */
+export function geoFailureMessage(failure: GeoFailure): string {
+  switch (failure) {
+    case 'denied':
+      return 'Appen har ikke lov til at bruge din placering.'
+    case 'unavailable':
+      // The likeliest cause on an iPhone or iPad, and the one nobody guesses: the setting is off for the
+      // whole device, not for this app.
+      return 'Telefonen ville ikke oplyse din placering. Tjek at Stedtjenester er slået til under Indstillinger → Anonymitet og sikkerhed.'
+    case 'timeout':
+      return 'Det tog for lang tid at finde din placering. Prøv igen — helst udendørs.'
+    case 'stuck':
+      return 'Der kom ikke noget svar fra telefonen. Prøv igen, eller tjek Stedtjenester under Indstillinger.'
+    default:
+      return ''
+  }
+}
+
 // location.store wraps the browser Geolocation API in a permission-aware store.
 // Requires a secure context (HTTPS) — provided by the dev Traefik setup and prod.
 //
@@ -65,13 +159,24 @@ export const useLocationStore = defineStore('location', {
     // recording free while the map is open.
     positionAt: 0,
     error: '',
+    /**
+     * Why the last attempt failed, or null. Task 197.
+     *
+     * Separate from `error`, which holds WebKit's own English string: that is worth keeping for the
+     * diagnostic log and is not worth showing to a Danish twelve-year-old.
+     */
+    failure: null as GeoFailure,
+    /** True while a one-shot request is outstanding, so a tap is never silent. */
+    requesting: false,
     // Whether the map should keep recentring on the position. Manual panning
     // turns this off; the locate button turns it back on.
     following: true,
     watchId: null as number | null,
+    /** Injected in tests; the browser's own by default. */
+    geo: browserGeolocation() as GeolocationLike | null,
   }),
   getters: {
-    available: () => typeof navigator !== 'undefined' && 'geolocation' in navigator,
+    available: (state) => state.geo !== null,
     watching: (state) => state.watchId !== null,
   },
   actions: {
@@ -122,13 +227,43 @@ export const useLocationStore = defineStore('location', {
     // request prompts for (or reuses) permission and reads the current position.
     // Resolves to the coords on success, or null on denial/error/unavailable —
     // it never rejects, so callers can degrade gracefully.
+    //
+    // **Guarded by our own clock** (task 197). The `timeout` option below bounds acquiring a fix; it
+    // does not bound waiting for the permission dialog to be answered. On the iPad that filed this
+    // task neither callback ever fired, so without a wall-clock guard the promise never settles and the
+    // button is indistinguishable from a dead one. Whatever WebKit is doing, the app now has an answer.
     request(): Promise<Coords | null> {
-      if (!this.available) {
+      const geo = this.geo
+      if (!geo) {
         this.permission = 'unavailable'
+        this.failure = 'unavailable'
         return Promise.resolve(null)
       }
+
+      this.requesting = true
+      this.failure = null
+      this.error = ''
+
       return new Promise((resolve) => {
-        navigator.geolocation.getCurrentPosition(
+        // Whichever arrives first wins; the loser is ignored. A late success after the guard has fired
+        // is still worth keeping — the position is good — but it must not resolve twice.
+        let settled = false
+        const settle = (coords: Coords | null) => {
+          if (settled) return
+          settled = true
+          this.requesting = false
+          clearTimeout(timer)
+          resolve(coords)
+        }
+
+        const timer = setTimeout(() => {
+          if (settled) return
+          this.failure = 'stuck'
+          this.error = 'geolocation did not answer'
+          settle(null)
+        }, GEO_STUCK_MS)
+
+        geo.getCurrentPosition(
           (pos) => {
             this.position = {
               lat: pos.coords.latitude,
@@ -139,15 +274,17 @@ export const useLocationStore = defineStore('location', {
             this.permission = 'granted'
             rememberGrant(true)
             this.error = ''
-            resolve(this.position)
+            this.failure = null
+            settle(this.position)
           },
           (err) => {
             this.error = err.message
-            if (err.code === err.PERMISSION_DENIED) {
+            this.failure = classifyGeoError(err)
+            if (this.failure === 'denied') {
               this.permission = 'denied'
               rememberGrant(false)
             }
-            resolve(null)
+            settle(null)
           },
           { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 },
         )
@@ -158,10 +295,11 @@ export const useLocationStore = defineStore('location', {
     // must pair it with stopWatch() — the map does so on unmount and whenever the
     // page is hidden, since a high-accuracy watch is expensive on battery.
     watch() {
-      if (!this.available || this.watchId !== null) {
+      const geo = this.geo
+      if (!geo || this.watchId !== null) {
         return
       }
-      this.watchId = navigator.geolocation.watchPosition(
+      this.watchId = geo.watchPosition(
         (pos) => {
           this.position = {
             lat: pos.coords.latitude,
@@ -172,10 +310,12 @@ export const useLocationStore = defineStore('location', {
           this.permission = 'granted'
           rememberGrant(true)
           this.error = ''
+          this.failure = null
         },
         (err) => {
           this.error = err.message
-          if (err.code === err.PERMISSION_DENIED) {
+          this.failure = classifyGeoError(err)
+          if (this.failure === 'denied') {
             this.permission = 'denied'
             rememberGrant(false)
             // A denied watch will never fire; drop it so we don't hold a dead
@@ -191,6 +331,7 @@ export const useLocationStore = defineStore('location', {
     // request), so the remembered grant is cleared in one place rather than two.
     markDenied(message = '') {
       this.permission = 'denied'
+      this.failure = 'denied'
       if (message) this.error = message
       rememberGrant(false)
       this.stopWatch()
@@ -198,7 +339,7 @@ export const useLocationStore = defineStore('location', {
 
     stopWatch() {
       if (this.watchId !== null) {
-        navigator.geolocation.clearWatch(this.watchId)
+        this.geo?.clearWatch(this.watchId)
         this.watchId = null
       }
     },

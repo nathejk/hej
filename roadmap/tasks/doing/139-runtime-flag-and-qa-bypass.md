@@ -73,7 +73,8 @@ The webview row is a pass/fail on the escape hatch, not on installation.
 - [ ] The manual matrix above is executed and the outcome per row recorded in this task's
       progress log — including misclassifications found, not only passes. **Three of seven rows are
       now automated and passing; the four device rows are outstanding.**
-- [ ] iPadOS is confirmed to classify as **mobile**
+- [x] iPadOS is confirmed to classify as **mobile** — **verified on hardware 2026-09-02.** See the log:
+      it classified as mobile in the browser (install wall shown) and as standalone once installed.
 - [~] ~~The in-app-webview case reaches the escape hatch and gets into the app~~ — **superseded by
       task 143**: there is no escape hatch, and no login outside the installed app. What replaces it
       is verified automatically for the iOS webview (told to reopen in Safari, and *not* shown
@@ -209,3 +210,36 @@ The webview row is a pass/fail on the escape hatch, not on installation.
 
   Worth noting what that says about this matrix: the rows that remain are not a formality. Three of
   the six problems found this week (142, 145, 149) were only observable on a real phone.
+
+- 2026-09-02 — **iPadOS row run on hardware, against the deployed host `https://hej.nathejk.dk`.** This is
+  the row the matrix called most likely to fail, and it passed on both counts:
+
+  | check | result |
+  |---|---|
+  | classified **mobile** in Safari despite the macOS user agent | pass — the install wall was shown, debug overlay `browser / install` |
+  | add-to-home-screen instructions correct for iPadOS Safari | pass — the Del/Share sheet contained `Føj til hjemmeskærm` as described |
+  | classified **standalone** once opened from the home screen | pass — debug overlay `standalone / maps`, `standalone / profile`, app chrome present |
+  | reached `/welcome` and then the app, never stuck at a placeholder | pass — signed in, profile and map both rendered |
+
+  So the tie-break rule from PRD 005 §11 (ambiguous → mobile) is doing its job on the device it was
+  written for, and the false-negative risk it was hedging against — an iPad user stranded at a
+  placeholder with no way in, which task 143 made unrecoverable by removing the escape hatch — did not
+  materialise.
+
+- 2026-09-02 — **One failure found, and it is not a classification bug: location could not be enabled.**
+  Tapping "Slå placering til" on the map did nothing at all — no iOS dialog, no error, no state change,
+  and the profile page went on reporting `Placering — Fra`. Filed as **task 197**, which turned out to be
+  a fault in our code regardless of what WebKit did: every failure path was silent, including a
+  `getCurrentPosition` that never calls either callback (the API's own `timeout` bounds acquiring a fix,
+  not waiting for the dialog). Fixed there, with a wall-clock guard, a pending state on the button, and a
+  named cause per error code. **The iPadOS row above is unaffected** — this is a map/permission bug, not a
+  device-detection one.
+
+- 2026-09-02 — Incidental but useful: the readiness section reported `6,4 MB gemt · 0 % af telefonens
+  plads`. Rounding to zero at 6.4 MB puts the origin quota in the gigabytes, which is the first real
+  evidence about the iOS 26 storage policy — PRD 009 §8's ~1 GB planning ceiling is conservative on a
+  current iPad. Recorded in PRD 009 rather than acted on: the ceiling exists for iOS 16.x devices, and
+  whether any participant still has one is a fleet question.
+
+- 2026-09-02 — **Remaining rows: Android Chrome, Android Firefox, and installed iOS Safari on a phone.**
+  Three of seven are automated, iPadOS is now done on hardware, so three device rows are left.

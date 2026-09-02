@@ -15,6 +15,9 @@ import {
   type BaseLayerKey,
 } from '@/config/map'
 import { dataforsyningenToken, loadRuntimeConfig } from '@/config/runtime'
+import { blockedGuidance } from '@/config/permissions'
+import { geoFailureMessage } from '@/stores/location.store'
+import { logEvent } from '@/helpers/trackDb'
 
 // Leaflet is a sizeable dependency and only this page needs it, so the map is
 // loaded on demand rather than from the app-shell bundle.
@@ -46,14 +49,22 @@ const listOpen = ref(false)
 // out unauthenticated.
 const configLoaded = ref(false)
 
-// Show the soft prompt only when we could still gain permission and the user
-// hasn't dismissed it before.
+// Show the soft prompt while we could still gain permission — or when it is blocked, in which case the
+// component swaps the dead button for the platform's own settings guidance (task 101). Before task 197
+// a blocked permission simply hid the card, so the map's one route to "here is how to undo it" was
+// unreachable from the map.
 const showPrompt = computed(
   () =>
     location.available &&
     !dismissed.value &&
-    (location.permission === 'unknown' || location.permission === 'prompt'),
+    (location.permission === 'unknown' ||
+      location.permission === 'prompt' ||
+      location.permission === 'denied'),
 )
+
+// Danish, and specific to the cause. "Stedtjenester er slået fra for hele iPad'en" and "vi kunne ikke
+// få fat i en position" need different things from the user, and before task 197 both were silence.
+const locationFailure = computed(() => geoFailureMessage(location.failure))
 
 // Only a genuinely absent key is worth reporting; don't flash the notice while
 // the config request is still in flight. And only when we actually got an answer
@@ -69,7 +80,12 @@ async function accept() {
   if (coords) {
     location.setFollowing(true)
     location.watch()
+    return
   }
+  // Record what the browser actually did, so the next device run can answer the question the iPad run
+  // raised (task 197). Written to the track's diagnostic log because that survives the app being killed,
+  // which a console message on a phone does not.
+  void logEvent('geoerror', `request/${location.failure ?? 'unknown'}: ${location.error}`)
 }
 
 function dismiss() {
@@ -173,6 +189,10 @@ onBeforeUnmount(() => {
         :icon="MapPin"
         :more-to="{ name: 'privacy' }"
         more-label="Hvad gemmer I?"
+        :busy="location.requesting"
+        :failure="locationFailure"
+        :blocked="location.permission === 'denied'"
+        :blocked-guidance="blockedGuidance('location')"
         @accept="accept"
         @dismiss="dismiss"
       />
@@ -190,10 +210,10 @@ onBeforeUnmount(() => {
         Kortbilleder kunne ikke hentes. Din placering virker stadig.
       </p>
       <p
-        v-if="location.error && location.permission !== 'denied'"
+        v-if="location.failure && !showPrompt && location.permission !== 'denied'"
         class="rounded-lg bg-white/95 px-3 py-2 text-xs text-slate-600 shadow-xs ring-1 ring-slate-900/10"
       >
-        Kunne ikke finde din placering.
+        {{ locationFailure }}
       </p>
     </div>
 
