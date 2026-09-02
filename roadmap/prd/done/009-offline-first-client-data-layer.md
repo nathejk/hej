@@ -26,13 +26,17 @@ the priority order (§6) and the race area (derived from checkpoints, fixed duri
 event). Tasks 183–195.
 
 Shipped 2026-09-01. All thirteen tasks are in `roadmap/tasks/done/`, and the maintainer
-confirmed the app works on a real device — which was the outstanding condition, since every
-claim in this document is about behaviour on a phone. Two things it does **not** mean, recorded
-so the `done/` folder is not read as more than it is:
+confirmed the app works on a real device — an **iPhone 14 Pro on current iOS, against the deployed
+public host `https://hej.nathejk.dk`** (not production yet), which is the primary platform on a
+production-shaped build. That was the outstanding condition, since every claim in this document is
+about behaviour on a phone. Two things it does **not** mean, recorded so the `done/` folder is not
+read as more than it is:
 
   - the awkward scenarios in `roadmap/offline-test-protocol.md` — an OS-cleared cache, a full
     origin, a device dormant for three weeks — have not all been exercised. They are what the
-    protocol exists for and a quick check does not reach them.
+    protocol exists for and a quick check does not reach them. The full-origin one in particular
+    **cannot** be reached on that device: iOS 17+ grants 60% of disk, while this budget is planned
+    against the iOS 16.4 floor of ~1 GB (§8).
   - the **post-event purge** cannot be verified before an event has ended. Task 173 stays open on
     PRD 007's board for that, and this PRD's §11.5 is the reasoning behind it.
 
@@ -405,6 +409,11 @@ on their own.
   heuristics like whether the website is opened as a Home Screen Web App", which is exactly
   this app's install-first onboarding, so the request should succeed. Safari's seven-day
   inactivity eviction does not apply to installed PWAs — another thing install-first buys.
+
+  *A consequence for testing, learned at ship (2026-09-01): the device the app was verified on — an
+  iPhone 14 Pro on current iOS — sits on the 60%-of-disk rule, so it cannot reach the quota ceiling
+  this budget is designed around. Confirming the app works there says nothing about eviction. See
+  `roadmap/offline-test-protocol.md` §5.*
 - **The platform cannot tell us the connection type.** `navigator.connection` is unavailable
   in Safari, and `navigator.onLine` only says online or offline. "Sync only on WiFi" is not
   implementable on iOS. This is why §6 requires tiers and a size estimate instead: the engine

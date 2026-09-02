@@ -15,18 +15,23 @@ configuration nobody tests by accident.
 
 ## Two walls to get over before step 1
 
-Both are documented in **task 172**, which is the companion to this file (it covers PRD 007's pane
-specifically; this covers the shared offline layer). Neither is optional, and both have cost real
-confusion already:
+**Wall 1 is down as of 2026-09-01: use `https://hej.nathejk.dk`.** The app is deployed to a public
+server (not production yet), which solves device access outright and better than the tunnel and
+tailnet options task 172 was weighing — it is a real host with a real certificate serving a real
+build, so what a phone sees there is what a phone will see in production. Prefer it over anything
+local for every step below.
 
-1. **A phone cannot reach the dev stack.** `hej.local.nathejk.dk` resolves to `127.0.0.1`, which from
-   a phone is the phone. And `http://<LAN-IP>` is not a fallback — service workers, install and
-   geolocation all need a secure context, and the `localhost` exemption does not extend to another
-   device. Task 172 lists the three ways out (Tailscale, a tunnel, LAN DNS) and asks whoever solves it
-   to record which one they used.
-2. **An installed app keeps its old bundle.** With `registerType: 'prompt'` the device runs yesterday's
-   build until someone accepts the update prompt. So every result below must state *which build the
-   device is actually running*, or the test silently exercised an older one and passed for nothing.
+Wall 2 still stands, and both are documented in **task 172**, the companion to this file (it covers
+PRD 007's pane specifically; this covers the shared offline layer):
+
+1. ~~**A phone cannot reach the dev stack.**~~ Still true of the *dev* stack — `hej.local.nathejk.dk`
+   resolves to `127.0.0.1`, which from a phone is the phone, and `http://<LAN-IP>` gives no secure
+   context so there is no service worker and no install. Use the deployed host instead of solving it.
+2. **An installed app keeps its old bundle.** With `registerType: 'prompt'` the device runs the build
+   it installed until someone accepts the update prompt. So every result below must state *which build
+   the device is actually running*, or the test silently exercised an older one and passed for nothing.
+   This one gets *more* important with a deployed host, not less: a phone that has had the app on its
+   home screen for a week is exactly the device that is quietly a week behind.
 
 ## Before you start
 
@@ -112,6 +117,12 @@ think it is.
 ## 5. The phone is full
 
 Automated as far as it can be (`quota.spec.ts`), but the numbers there are fake and iOS's are not.
+
+**Pick the device for this one deliberately.** The budget is planned against the **iOS 16.4–16.7**
+quota of ~1 GB, because `.rules` puts the baseline there. iOS **17+** gives 60% of total disk instead,
+so on a recent iPhone with free space the origin will not fill and this scenario cannot be reached at
+all — a pass on a 14 Pro says nothing about the constraint the budget was designed for. Either find a
+16.x device, or fill the disk first, and record which.
 
 1. Fill the origin — pan the map across a large area at high zoom until writes start failing.
 2. Watch for: the map keeps working with what it has; tiles stop being *added* rather than the cache

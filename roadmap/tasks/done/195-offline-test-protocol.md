@@ -93,3 +93,14 @@ minutes is worth more than an elaborate harness nobody runs.
   been *used*, not yet *completed* — in particular the deliberately awkward ones (OS-cleared cache,
   full origin, three-weeks-dormant) are the ones a quick check would not reach, and they are the ones
   the protocol exists for. Left to a later pass rather than assumed.
+- 2026-09-01 — **Device run recorded**: iPhone 14 Pro, newest iOS, against the deployed public host
+  `https://hej.nathejk.dk` (not production yet). Reported working. That is the app confirmed on the
+  primary platform, on the current OS, from a real production-shaped build — the largest unknown in
+  PRD 009.
+
+  **What this device cannot show**, and it matters for scenario 5: on iOS **17+** the origin quota is
+  60% of total disk, whereas the whole budget is planned against the **iOS 16.4–16.7** ~1 GB figure
+  because `.rules` puts the baseline there. A 14 Pro with free space will never fill, so the eviction
+  path — the one the priority order exists for — was not exercised and cannot be on that device without
+  filling the disk first. Noted in the protocol next to the step, so the next person picks the device
+  deliberately rather than reaching for the newest phone in the room.
