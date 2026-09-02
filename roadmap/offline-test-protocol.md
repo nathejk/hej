@@ -1,6 +1,6 @@
 # Offline test protocol
 
-PRD 009 §9, task 195.
+PRD 009 §9, task 195. **Device access is task 172's prerequisite — read that first.**
 
 Everything this app promises about working offline is a claim about a specific phone in a specific
 state — installed, full, evicted, or three weeks unopened — and none of those states exist on a
@@ -12,6 +12,21 @@ on a phone that has been installed for three weeks and used for four hours, whic
 configuration nobody tests by accident.
 
 ---
+
+## Two walls to get over before step 1
+
+Both are documented in **task 172**, which is the companion to this file (it covers PRD 007's pane
+specifically; this covers the shared offline layer). Neither is optional, and both have cost real
+confusion already:
+
+1. **A phone cannot reach the dev stack.** `hej.local.nathejk.dk` resolves to `127.0.0.1`, which from
+   a phone is the phone. And `http://<LAN-IP>` is not a fallback — service workers, install and
+   geolocation all need a secure context, and the `localhost` exemption does not extend to another
+   device. Task 172 lists the three ways out (Tailscale, a tunnel, LAN DNS) and asks whoever solves it
+   to record which one they used.
+2. **An installed app keeps its old bundle.** With `registerType: 'prompt'` the device runs yesterday's
+   build until someone accepts the update prompt. So every result below must state *which build the
+   device is actually running*, or the test silently exercised an older one and passed for nothing.
 
 ## Before you start
 
@@ -111,6 +126,17 @@ Not strictly a cache test, but it shares the storage and it is the thing that ca
 1. Aeroplane mode, walk with the app open for 30+ minutes.
 2. Check `Din rute`: points recorded, a pending upload count.
 3. Go online. The backlog ships within a couple of minutes without being prompted.
+
+---
+
+## 7. The patrol lookup still refuses (crew only)
+
+Belongs to task 172 but shares this pass, and it is the one case where working offline would be the
+**bug**: the patrol lookup is deliberately live and stores nothing (PRD 007, task 157), because a
+cached copy would turn it into the browsable index of minors' faces the design exists to avoid.
+
+Offline, it must say it needs a connection and point at the radio — never an empty patrol, never a
+stale one from an earlier lookup.
 
 ---
 

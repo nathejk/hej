@@ -62,7 +62,11 @@ airplane mode toggled mid-session (reconnect triggering a version check, task 16
       `allowedHosts` or cookie-flag changes it needed.
 - [ ] Tested against a **production build**, not the dev server: the service worker only exists
       in `generateSW` output, so install and eviction cannot be observed otherwise.
-- [ ] A written protocol in this file: device, OS version, install method, steps.
+- [ ] A written protocol in this file: device, OS version, install method, steps. *Partly satisfied
+      by reference: **`roadmap/offline-test-protocol.md`** (task 195) now carries the shared steps —
+      radio off, names-without-faces, OS-cleared cache, persistence, full origin — and points back
+      here for the device-access prerequisite and the stale-install trap. What is still owed *here* is
+      the pane-specific half: the patrol lookup refusing offline, and the run's actual results.*
 - [ ] Directory verified fully usable offline on both platforms, installed to home
       screen.
 - [ ] Patrol lookup verified to fail clearly offline on both platforms.
@@ -84,3 +88,9 @@ airplane mode toggled mid-session (reconnect triggering a version check, task 16
   context. Options recorded above; none chosen yet. Also noted that the dev server has no service
   worker at all, so install and eviction must be tested against a production build — otherwise the
   protocol would produce a meaningless pass.
+- 2026-09-01 — PRD 009's task 195 wrote `roadmap/offline-test-protocol.md`, which overlaps this task
+  substantially. Kept both rather than merging, because they are different scopes: that file is the
+  shared offline layer (five datasets, quota, eviction, persistence) and this task is PRD 007's pane,
+  including the one behaviour where working offline would be a *bug* — the patrol lookup must still
+  refuse. Cross-linked in both directions, and the protocol now opens with this task's device-access
+  wall so nobody follows it into 127.0.0.1.

@@ -77,3 +77,10 @@ minutes is worth more than an elaborate harness nobody runs.
 - 2026-09-01 — Done as a deliverable. **The run on real devices is still owed** and belongs to
   whoever tests before the event — this task produced the protocol and the automation, and nothing in
   it can substitute for a phone that has been installed for three weeks.
+- 2026-09-01 — **Reconciled with task 172**, which already existed for PRD 007's pane and had done the
+  harder thinking: a phone *cannot reach the dev stack at all* (`hej.local.nathejk.dk` → 127.0.0.1,
+  and plain HTTP over the LAN gives no secure context, so no worker and no install), and an installed
+  app keeps yesterday's bundle until the update prompt is accepted. Both now open the protocol file,
+  because someone following it without them would spend an evening discovering the first and get a
+  meaningless pass from the second. Kept as two tasks rather than merged — different scopes — and
+  cross-linked both ways.
