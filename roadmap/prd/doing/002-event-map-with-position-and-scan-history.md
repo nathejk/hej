@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed / Claude Opus 5)
 **Created:** 2026-08-24
-**Last updated:** 2026-09-01
+**Last updated:** 2026-09-02
 **Approved:** 2026-08-24
 **Shipped:**
 **Target users:** spejder (patrol members) primarily; bandit, postmandskab, guide, samarit secondarily
@@ -141,10 +141,14 @@ available both as map markers and as a chronological list.
 
 ### Functional
 
-- [ ] `Kort` occupies the full viewport minus the bottom nav: no page header, no
+*Ticked 2026-09-02 against the shipped code, not against task status — see the note at the end of
+this section for the one place those two disagree.*
+
+- [x] `Kort` occupies the full viewport minus the bottom nav: no page header, no
       padding, no scroll container. Map controls float over the map and respect
       `env(safe-area-inset-*)`.
-- [ ] Three mutually exclusive base layers, selectable from an on-map control.
+      *`fullBleed` route meta in `router/index.ts` + `App.vue`; controls offset by `var(--sat)`.*
+- [x] Three mutually exclusive base layers, selectable from an on-map control.
       **All three are Dataforsyningen WMS services, verified against live
       GetCapabilities + GetMap on 2026-08-24:**
 
@@ -156,38 +160,47 @@ available both as map markers and as a chronological list.
 
       Layer names are **not** symmetric between services — `DTK50` returns a
       `ServiceException`, only `dtk_50` works — so do not infer names by analogy.
-- [ ] The selected layer persists across navigation within the session and
+      *`config/map.ts`, `LayerSwitcher.vue`.*
+- [x] The selected layer persists across navigation within the session and
       across reloads (`localStorage`, key namespaced `hej.map.*`).
-- [ ] **Opening view:** centred on the user's own position when available,
+      *`BASE_LAYER_STORAGE_KEY`, read and written in `MapsView.vue`.*
+- [x] **Opening view:** centred on the user's own position when available,
       otherwise framed on **Sjælland**. The event area is deliberately *not* used
       as a default — it is not fully known to participants and the map must not
       reveal it.
-- [ ] **Failed tiles are retried** with exponential backoff and jitter (Leaflet has
+      *`FALLBACK_BOUNDS` / `LOCATE_ZOOM` in `EventMap.vue`.*
+- [x] **Failed tiles are retried** with exponential backoff and jitter (Leaflet has
       no built-in retry; one failed request otherwise leaves a permanently grey
       tile). The failure notice appears only after retries are exhausted, and clears
       itself when tiles load again.
-- [ ] Own position is shown as a distinct marker plus an accuracy circle, updated
+      *`tileerror` handler in `EventMap.vue`, `&_retry=n` with jittered backoff.*
+- [x] Own position is shown as a distinct marker plus an accuracy circle, updated
       continuously while the page is visible and permission is granted.
-- [ ] A locate/recentre button recentres and re-enables follow mode; manual
+- [x] A locate/recentre button recentres and re-enables follow mode; manual
       panning disables follow mode.
-- [ ] A location **repair** affordance is available on the map when permission is
+      *`LocateButton.vue` + `following` state.*
+- [x] A location **repair** affordance is available on the map when permission is
       denied or unavailable, using the shared `PermissionPrompt` (PRD 005 owns that
       component's API; this is a consumer). The initial permission *request* is
       onboarding's, not the map's.
-- [ ] Patrol registrations are fetched from the BFF and consist of two kinds:
+- [x] Patrol registrations are fetched from the BFF and consist of two kinds:
       **checkpoint scan** and **bandit catch**, each with a kind, a label
       (post/bandit name), a timestamp and optional coordinates.
-- [ ] Registrations are rendered as map markers, visually distinguishable by kind
+- [x] Registrations are rendered as map markers, visually distinguishable by kind
       (Lucide icons per repo convention), with a popup showing label + timestamp.
-- [ ] The same registrations are available as a chronological list (newest first)
+      *`scanIcon()` in `EventMap.vue`.*
+- [x] The same registrations are available as a chronological list (newest first)
       in an overlay/bottom sheet, without leaving the map page.
-- [ ] Selecting a list entry pans/zooms the map to that registration and opens
+      *`ScanList.vue`.*
+- [x] Selecting a list entry pans/zooms the map to that registration and opens
       its popup.
-- [ ] The registrations affordance is hidden when the signed-in user has no
+      *`select` event → `focusScan(id)`.*
+- [x] The registrations affordance is hidden when the signed-in user has no
       resolvable patrol.
-- [ ] Registrations are re-fetched when the page is opened and on manual pull /
+      *The BFF returns an empty list for personnel roles rather than a 404.*
+- [x] Registrations are re-fetched when the page is opened and on manual pull /
       refresh action; no aggressive polling.
-- [ ] All map UI copy is Danish, consistent with the rest of the app.
+- [x] All map UI copy is Danish, consistent with the rest of the app.
 
 #### Position track (added 2026-08-26, §11.1)
 
@@ -219,22 +232,42 @@ available both as map markers and as a chronological list.
       applied to one individual later.
       *Tasks 081/084. Verified: purging one person's subject left another's messages.*
 - [ ] A team can see its **own** whole track after the race, and no other team's.
-- [ ] The location consent copy states that the track is recorded and sent to the
+      **Not built, and deliberately left unticked.** Task 086 sits in `done/` — the board has no
+      other folder for a task that is off it — but it was **closed without being implemented**
+      (2026-08-28, maintainer's request) and superseded by **PRD 011, post-race experience**. Its
+      analysis went there rather than being lost. So this requirement has moved PRDs; it has not
+      been met, and ticking it because a task file says `done` is exactly the mistake this pass was
+      run to catch.
+- [x] The location consent copy states that the track is recorded and sent to the
       organizers (see Non-Functional → Privacy).
+      *Task 085: `WelcomeStepLocation.vue` and the `/privatliv` page.*
 
 ### Non-Functional
+
+*Checked against the source 2026-09-02, same pass as §6.*
 
 - **Performance:** first meaningful map paint under 2s on a 4G connection; the
   map library must be lazily loaded so it does not weigh down the app shell
   bundle. The tile cache's *policy* — budget, priority, eviction — is PRD 009's (§11.2);
   its Workbox route is task 087's and lives here.
+  *Lazy loading done: `defineAsyncComponent(() => import('@/components/map/EventMap.vue'))`, and
+  `EventMap` is its own 153 kB chunk in the build output rather than part of the shell. The 2s
+  paint figure has **not** been measured on 4G — it needs the device pass, and the tile service is
+  the variable, not our bundle.*
 - **Battery:** use a single `watchPosition` subscription owned by the store,
   suspended when the document is hidden.
+  *Structurally done — one subscription in `location.store`, suspended on `hidden`. The **cost** is
+  the open half of task 082, and it is the same measurement the recorder needs.*
 - **Accessibility:** controls are ≥44px touch targets with `aria-label`s; the
   registrations list is a real list navigable by screen reader; the map itself is
   acknowledged as not fully accessible, so the list is the accessible equivalent.
+  *`aria-label`s present on the layer switcher, locate button and scan list; the shadcn-vue button
+  sizes were bumped to ≥44px repo-wide for this reason (see `ui/button/index.ts`). Not verified
+  with an actual screen reader — worth adding to the device pass rather than claiming.*
 - **Night use:** avoid pure-white control chrome; markers must be legible on both
   topo and aerial backgrounds.
+  *Marker icons are kind-coloured and were chosen against both backgrounds (task 045). A judgement
+  best confirmed outdoors, in the dark, which is where it matters.*
 - **Privacy:** ~~the user's position is not transmitted by the features this PRD
   ships~~ **— superseded 2026-08-26 (§11.1).** The position *is* now transmitted: recorded
   locally and uploaded every 2 minutes when it has changed, then retained indefinitely on
@@ -513,17 +546,38 @@ These were written as "open" but had in fact shipped as tasks 040, 041, 042, 045
 
 **Position track — created 2026-08-26 from §11.1 (tasks 081-086):**
 
-- [ ] 081 — Declare the telemetry stream on the broker (cross-repo prerequisite)
-- [ ] 082 — Client-side track recording into IndexedDB, survives reload/kill
-- [ ] 083 — Batched upload every 2 minutes when changed, with offline backlog
-- [ ] 084 — BFF `POST /api/track` publishing to the telemetry stream
+- [x] 081 — Declare the telemetry stream on the broker (cross-repo prerequisite)
+- [~] 082 — Client-side track recording into IndexedDB, survives reload/kill. *Built and verified
+      on a device across three cold starts; **still in `doing/`** for one criterion: battery cost
+      over a representative period. The last attempt was ~8 minutes with the screen on, which
+      measures nothing, and iOS has no Battery Status API so the figure has to be read out of
+      Settings → Battery by hand after a couple of hours with the phone in a pocket.*
+- [x] 083 — Batched upload every 2 minutes when changed, with offline backlog
+- [x] 084 — BFF `POST /api/track` publishing to the telemetry stream
 - [x] 085 — Location consent copy updated to cover recording and upload (+ /privatliv page)
-- [ ] 086 — Post-race team track view (`GET /api/team/track` + rendering)
+- [—] 086 — Post-race team track view. **Closed 2026-08-28 without being implemented**, superseded
+      by PRD 011. In `done/` only because the board has no folder for "off the board".
 
 **Tile caching — created 2026-08-26 from §11.2:**
 
 - [x] 088 — Derive the race area from checkpoints and serve it to the client
-- [ ] 087 — Cache map tiles for the race area (z12–16, ~358 MB as published)
+- [~] 087 — Cache map tiles for the race area (z12–16, ~358 MB as published). *Half shipped: tiles
+      are cached unconditionally as the map is browsed (2026-08-26). The **bulk download** of the
+      whole area — user-initiated, resumable, cancellable, with the size shown first — is what
+      remains, and nothing blocks it any more: the area is served by `GET /api/race-area` and PRD
+      009 gave tiles a budget and a rank.*
+
+**Legend:** `[x]` done · `[~]` partly done, see the note · `[—]` closed unbuilt, moved elsewhere.
+
+### What is actually left (2026-09-02)
+
+Two items, both narrow:
+
+1. **A battery measurement** (task 082) — not code.
+2. **The bulk tile download** (task 087) — the last piece of code this PRD owes.
+
+Everything else in §6 and §10 has been verified against the shipped source. One requirement left this
+PRD rather than being met: the post-race team track, now PRD 011's.
 
 ## 11. Open Questions
 

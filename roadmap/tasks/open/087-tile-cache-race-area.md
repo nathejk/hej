@@ -229,3 +229,7 @@ re-fetched.
   order (tiles last, evicted first, highest zoom first) and the race area (derived from
   checkpoints, fixed during an event). No longer blocked on 009 for anything but its readiness
   surface; the bulk download can be built.
+- 2026-09-02 — PRD 002's checkboxes reconciled against the shipped source (not against task status).
+  This task stays the only unbuilt code PRD 002 owes; recorded there as `[~]` with the reason. Nothing
+  blocks it now: the race area is served by `GET /api/race-area` (task 088) and PRD 009 shipped with a
+  budget and a rank for tiles — evicted first, highest zoom first, ~500 MB planned.

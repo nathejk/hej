@@ -326,3 +326,9 @@ so there is no reason to be clever about compaction.
   representative period — ideally a couple of hours with the phone in a pocket, the app
   open, which is the real usage — and iOS has no Battery Status API, so the numbers have to
   come from Settings → Battery by hand.
+- 2026-09-02 — PRD 002's \u00a76 and \u00a710 reconciled against the source. Everything this task built is now
+  ticked there; the battery criterion below is the single reason both this task and PRD 002 are still
+  open, and it is a measurement rather than code. A representative run: a couple of hours, phone in a
+  pocket, app open, before/after read from Settings → Battery by hand (iOS exposes no Battery Status
+  API). Worth pairing with the offline device pass in `roadmap/offline-test-protocol.md` — same phone,
+  same session.
