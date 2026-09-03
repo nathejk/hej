@@ -27,7 +27,7 @@ type trackRequest struct {
 // projection in this repo at all — 086 reads it back off the stream.
 //
 // @Summary      Upload a batch of recorded positions
-// @Description  Publishes the signed-in user's position batch to the telemetry stream. The person is taken from the session; the body cannot name anyone. Invalid points are dropped and counted rather than failing the batch. Writes no SQL.
+// @Description  Publishes the signed-in user's position batch to the telemetry stream. The person and user type are taken from the session; the body cannot name anyone. Invalid points are dropped and counted rather than failing the batch. Writes no SQL.
 // @Tags         track
 // @Accept       json
 // @Produce      json
@@ -92,7 +92,25 @@ func (app *application) createTrackHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	body := track.Reported{PersonID: s.UserID, Year: app.config.eventYear, Points: kept}
+	// Every message on the telemetry stream carries the reporter's user type, stamped from
+	// the session at publish time. Same rule as the person: it comes from the session, never
+	// from the body, so a member cannot report themselves as another population. See
+	// track.Reported.UserType for why the value is written into the message rather than left
+	// for a consumer to look up.
+	if s.Role == "" {
+		// A session issued by this service always carries a role, so this is our bug, not
+		// the caller's — and an unlabelled message on an indefinitely-retained stream is
+		// not something a later migration can repair.
+		app.ServerErrorResponse(w, r, errors.New("session carries no user type"))
+		return
+	}
+
+	body := track.Reported{
+		PersonID: s.UserID,
+		UserType: s.Role,
+		Year:     app.config.eventYear,
+		Points:   kept,
+	}
 	if err := app.commands.Publish(subject, body); err != nil {
 		if errors.Is(err, commands.ErrNoPublisher) {
 			// The one failure mode this endpoint must get right: the batch has NOT been

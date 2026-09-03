@@ -15,6 +15,7 @@ import (
 	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/ratelimit"
 	"nathejk.dk/internal/track"
+	"nathejk.dk/internal/users"
 )
 
 // Ids from the mock directory (internal/users). Spelled out here rather than exported from
@@ -107,8 +108,70 @@ func TestTrackPublishesToPerPersonSubject(t *testing.T) {
 	if body.Year != "2026" {
 		t.Fatalf("body year = %q, want 2026", body.Year)
 	}
+	if body.UserType != string(users.RoleSpejder) {
+		t.Fatalf("body userType = %q, want %q", body.UserType, users.RoleSpejder)
+	}
 	if len(body.Points) != 2 {
 		t.Fatalf("body carries %d points, want 2", len(body.Points))
+	}
+}
+
+// Every telemetry message must carry the reporter's user type, and it must be the session's
+// rather than anything the client can influence: a consumer reading the stream back years
+// later has only the message to go on.
+func TestTrackEmbedsTheSessionsUserTypeInEveryMessage(t *testing.T) {
+	app, pub, srv := trackTestApp(t)
+
+	for _, tc := range []struct {
+		pin, phone string
+		want       users.Role
+	}{
+		{"30000001", "+4530000001", users.RoleSpejder},
+		{"30000002", "+4530000002", users.RoleBandit},
+	} {
+		cookies := authedCookies(t, app, srv, tc.pin, tc.phone)
+		resp := postJSONWithCookies(t, srv.URL+"/api/track", trackBody(onePoint(0)), cookies)
+		status := resp.StatusCode
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if status != http.StatusAccepted {
+			t.Fatalf("%s: status = %d, want 202", tc.want, status)
+		}
+	}
+
+	if len(pub.Messages) != 2 {
+		t.Fatalf("published %d messages, want 2", len(pub.Messages))
+	}
+	for i, want := range []users.Role{users.RoleSpejder, users.RoleBandit} {
+		var body track.Reported
+		if err := pub.Messages[i].Body(&body); err != nil {
+			t.Fatalf("decode body %d: %v", i, err)
+		}
+		if body.UserType != string(want) {
+			t.Fatalf("message %d userType = %q, want %q", i, body.UserType, want)
+		}
+	}
+}
+
+// A body that tries to set the user type is rejected, not silently overridden — same
+// property as naming another person.
+func TestTrackCannotSpoofUserTypeFromTheBody(t *testing.T) {
+	app, pub, srv := trackTestApp(t)
+	cookies := authedCookies(t, app, srv, "30000001", "+4530000001")
+
+	for _, field := range []string{"userType", "user_type", "role"} {
+		body := fmt.Sprintf(`{"%s":"samarit","points":[%s]}`, field, onePoint(0))
+		resp := postJSONWithCookies(t, srv.URL+"/api/track", body, cookies)
+		status := resp.StatusCode
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if status != http.StatusBadRequest {
+			t.Fatalf("body setting %q: status = %d, want 400", field, status)
+		}
+	}
+
+	if len(pub.Messages) != 0 {
+		t.Fatalf("published %d messages for rejected batches, want 0", len(pub.Messages))
 	}
 }
 

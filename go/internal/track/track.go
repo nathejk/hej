@@ -71,9 +71,25 @@ type Point struct {
 // consumer should not have to parse a subject to read a message, and a subject is a
 // routing address rather than a payload.
 type Reported struct {
-	PersonID string  `json:"personId"`
-	Year     string  `json:"year"`
-	Points   []Point `json:"points"`
+	PersonID string `json:"personId"`
+
+	// UserType is the app role the person held when the batch was reported.
+	//
+	// Every message published to the telemetry stream carries one, and it is stamped at
+	// publish time rather than looked up at read time on purpose: the stream is retained
+	// indefinitely, while roles change — a spejder becomes a bandit, crew get reclassified
+	// — so a consumer joining against today's directory would silently reinterpret last
+	// year's history. It is also what lets a reader filter or scope by population without
+	// a lookup back into this service, which for a stream read once per team after a race
+	// is the difference between a query and a fan-out.
+	//
+	// It is not in the subject: the subject is keyed per person because that is the
+	// erasure unit (see Subject), and a mutable attribute in a routing address would break
+	// the per-person purge the moment it changed.
+	UserType string `json:"userType"`
+
+	Year   string  `json:"year"`
+	Points []Point `json:"points"`
 }
 
 // Clean drops points that must not be persisted and returns the rest.
