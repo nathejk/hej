@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 
 import {
   devGeoAccuracy,
@@ -21,6 +22,9 @@ function realStub() {
 let real: ReturnType<typeof realStub>
 
 beforeEach(() => {
+  // Needed because toggling the fake also corrects `location.store`'s permission state — otherwise
+  // a laptop that has denied location would show "location off" while simulated positions arrived.
+  setActivePinia(createPinia())
   vi.useFakeTimers()
   real = realStub()
   Object.defineProperty(globalThis.navigator, 'geolocation', {
@@ -95,6 +99,21 @@ describe('the dev geolocation bridge', () => {
     // Otherwise the interval keeps pushing simulated positions over the real ones and the app
     // looks like it has two devices.
     expect(success.mock.calls.length).toBe(before)
+  })
+})
+
+describe('permission consistency', () => {
+  // PRD 014 forbids the layer from producing a state where the app contradicts itself. A laptop
+  // that has denied location for this origin would otherwise show "location off" while simulated
+  // positions were arriving — and the store may not even call the source in that state.
+  it('claims the permission the fake implies, through the store\u2019s own folding', async () => {
+    const { useLocationStore } = await import('@/stores/location.store')
+    const location = useLocationStore()
+    location.applyPermissionState('denied')
+    expect(location.permission).toBe('denied')
+
+    setDevGeoEnabled(true)
+    expect(location.permission).toBe('granted')
   })
 })
 

@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 
-import type { GeolocationLike } from '@/stores/location.store'
+import { useLocationStore, type GeolocationLike } from '@/stores/location.store'
 
 // A fake position source (PRD 014, task 212).
 //
@@ -63,10 +63,26 @@ export const devGeoCoord = coord
 
 export function setDevGeoEnabled(on: boolean) {
   enabled.value = on
-  // Stopping the fake watches when switching off matters: `location.store` holds one watch id and
-  // would not know to clear ours, so the interval would keep pushing simulated positions over the
-  // real ones — the app would look like it had two devices.
-  if (!on) stopDevWatches()
+
+  // Keep the permission state consistent with the fake, or the app contradicts itself: a laptop
+  // that has *denied* location for this origin would show "location off" while simulated positions
+  // were arriving — and `location.store` may not even call the source in that state. PRD 014 is
+  // explicit that nothing may look like it works when it does not, and this is the same rule in the
+  // other direction.
+  //
+  // `applyPermissionState` is the store's own folding of a Permissions API answer, so this claims
+  // exactly what a real grant claims, by the same code path.
+  const location = useLocationStore()
+  if (on) {
+    location.applyPermissionState('granted')
+  } else {
+    // Stopping the fake watches matters: `location.store` holds one watch id and would not know to
+    // clear ours, so the interval would keep pushing simulated positions over the real ones — the
+    // app would look like it has two devices.
+    stopDevWatches()
+    // Back to whatever the browser actually says.
+    void location.syncPermission()
+  }
 }
 
 export function setDevGeoFailure(mode: DevGeoFailure) {

@@ -4,6 +4,9 @@ import { initDevDevice, readDevDevice } from '@/dev/devDevice'
 import { simulatedEnv } from '@/dev/platformSim'
 import { initForcedOffline } from '@/dev/forcedOffline'
 import { initFakeSafeArea } from '@/dev/fakeSafeArea'
+import { devGeolocationBridge } from '@/dev/devGeolocation'
+import { initPlayback } from '@/dev/devPlayback'
+import { setDevGeolocationProvider } from '@/stores/location.store'
 
 // The single entry point into PRD 014's dev layer.
 //
@@ -37,4 +40,9 @@ export function initDevSimulation() {
   // Registers the provider only; it answers `null` until a preset is chosen, so the real device
   // is measured as before.
   initFakeSafeArea()
+  // The bridge is registered unconditionally and follows the panel's toggle per call, so the fake
+  // position can be switched on after the stores have already resolved their source. It delegates
+  // to the real device while switched off.
+  initPlayback()
+  setDevGeolocationProvider(devGeolocationBridge)
 }

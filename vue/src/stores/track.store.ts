@@ -22,7 +22,7 @@ import {
   TrackStorageFullError,
 } from '@/helpers/trackDb'
 import { fetchWrapper, HttpError, NetworkError } from '@/helpers'
-import { useLocationStore } from '@/stores/location.store'
+import { geolocationSource, useLocationStore } from '@/stores/location.store'
 import { useSessionStore } from '@/stores/session.store'
 import { useAppStore } from '@/stores/app.store'
 
@@ -324,12 +324,17 @@ export const useTrackStore = defineStore('track', {
     // acquire reads a single position. Resolves null on error or timeout — never
     // rejects, because one failed sample must not stop the recorder.
     acquire(): Promise<{ coords: { lat: number; lng: number; accuracy: number }; at: number } | null> {
-      if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
+      // Goes through location.store's resolver rather than reading `navigator.geolocation`
+      // directly. That was an inconsistency worth fixing on its own terms: whatever source the
+      // map is using, the recorder must use the same one, or the two disagree about where the
+      // device is. It is also what lets the dev fake position (PRD 014) feed the track.
+      const geolocation = geolocationSource()
+      if (!geolocation) {
         return Promise.resolve(null)
       }
       const location = useLocationStore()
       return new Promise((resolve) => {
-        navigator.geolocation.getCurrentPosition(
+        geolocation.getCurrentPosition(
           (pos) => {
             const coords = {
               lat: pos.coords.latitude,

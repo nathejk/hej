@@ -18,6 +18,24 @@ import {
   type SafeAreaPreset,
 } from '@/dev/fakeSafeArea'
 import {
+  devGeoAccuracy,
+  devGeoEnabled,
+  devGeoFailure,
+  setDevGeoEnabled,
+  setDevGeoFailure,
+  type DevGeoFailure,
+} from '@/dev/devGeolocation'
+import {
+  ROUTE_METRES,
+  pausePlayback,
+  playbackPlaying,
+  playbackProgress,
+  resetPlayback,
+  startPlayback,
+} from '@/dev/devPlayback'
+
+const FAILURES: DevGeoFailure[] = ['none', 'denied', 'unavailable', 'timeout', 'hang']
+import {
   installPlatform,
   isMobileDevice,
   isStandalone,
@@ -253,6 +271,63 @@ async function run(target: ResetTarget, label: string) {
             >
               {{ name }}
             </button>
+          </div>
+        </div>
+
+        <div>
+          <div class="text-lime-500">position</div>
+          <div class="flex flex-wrap items-center gap-1 pt-0.5">
+            <button
+              type="button"
+              class="border px-1 py-0.5"
+              :class="
+                devGeoEnabled
+                  ? 'border-amber-500 bg-amber-400 text-black'
+                  : 'border-lime-700 hover:bg-lime-400 hover:text-black'
+              "
+              @click="setDevGeoEnabled(!devGeoEnabled)"
+            >
+              {{ devGeoEnabled ? 'FAKE position' : 'fake position' }}
+            </button>
+            <label>acc</label>
+            <input
+              v-model.number="devGeoAccuracy"
+              type="number"
+              min="1"
+              class="w-12 border border-lime-700 bg-black px-1"
+            />
+          </div>
+          <div v-if="devGeoEnabled" class="pt-0.5">
+            <div class="flex flex-wrap gap-1">
+              <button
+                v-for="mode in FAILURES"
+                :key="mode"
+                type="button"
+                class="border border-lime-700 px-1 py-0.5 hover:bg-lime-400 hover:text-black"
+                :class="{ 'bg-lime-400 text-black': devGeoFailure === mode }"
+                @click="setDevGeoFailure(mode)"
+              >
+                {{ mode }}
+              </button>
+            </div>
+            <div class="flex flex-wrap items-center gap-1 pt-0.5">
+              <button
+                type="button"
+                class="border border-lime-700 px-1 py-0.5 hover:bg-lime-400 hover:text-black"
+                @click="playbackPlaying ? pausePlayback() : startPlayback()"
+              >
+                {{ playbackPlaying ? 'pause walk' : 'walk' }}
+              </button>
+              <button
+                type="button"
+                class="border border-lime-700 px-1 py-0.5 hover:bg-lime-400 hover:text-black"
+                @click="resetPlayback()"
+              >
+                reset walk
+              </button>
+              <span>{{ Math.round(playbackProgress) }}/{{ Math.round(ROUTE_METRES) }}m</span>
+            </div>
+            <div class="text-amber-400">position simulated — not this machine's</div>
           </div>
         </div>
 

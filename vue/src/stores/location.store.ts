@@ -147,8 +147,44 @@ export interface GeolocationLike {
 }
 
 function browserGeolocation(): GeolocationLike | null {
+  // The dev fake position (PRD 014, task 214), registered rather than imported — nothing in
+  // `src/dev/` may be imported by product code, or the dev layer lands in the production bundle.
+  // Folded away entirely in a production build.
+  if (import.meta.env.DEV) {
+    const simulated = devGeolocationProvider?.()
+    if (simulated) return simulated
+  }
   if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return null
   return navigator.geolocation
+}
+
+/**
+ * The geolocation source the app should use: the dev fake when one is active, otherwise the
+ * device's own.
+ *
+ * Exported because `track.store` needs the same answer. It previously read
+ * `navigator.geolocation` directly, which was a real inconsistency rather than a stylistic one:
+ * the recorder and the map would have disagreed about where the device was.
+ */
+export function geolocationSource(): GeolocationLike | null {
+  return browserGeolocation()
+}
+
+/** Supplies a fake geolocation, or `null` to use the device. Dev only. */
+type DevGeolocationProvider = () => GeolocationLike | null
+
+let devGeolocationProvider: DevGeolocationProvider | null = null
+
+/**
+ * Registers the dev fake position source (PRD 014). Called from `@/dev/bootstrap`.
+ *
+ * The `DEV` guard is belt-and-braces, as with the other dev seams: the only caller is already
+ * dev-only, but a stray call from product code would otherwise be able to feed a participant a
+ * fabricated position — which, in a safety app, is the worst lie in this codebase.
+ */
+export function setDevGeolocationProvider(provider: DevGeolocationProvider | null) {
+  if (!import.meta.env.DEV) return
+  devGeolocationProvider = provider
 }
 
 /**
