@@ -3,6 +3,7 @@ import { setDevEnvProvider } from '@/helpers/platform'
 import { initDevDevice, readDevDevice } from '@/dev/devDevice'
 import { simulatedEnv } from '@/dev/platformSim'
 import { initForcedOffline } from '@/dev/forcedOffline'
+import { initFakeSafeArea } from '@/dev/fakeSafeArea'
 
 // The single entry point into PRD 014's dev layer.
 //
@@ -33,4 +34,7 @@ export function initDevSimulation() {
   // Registers the predicate only; nothing is forced until the panel asks. Safe to do this early
   // because the flag starts false and is not persisted.
   initForcedOffline()
+  // Registers the provider only; it answers `null` until a preset is chosen, so the real device
+  // is measured as before.
+  initFakeSafeArea()
 }

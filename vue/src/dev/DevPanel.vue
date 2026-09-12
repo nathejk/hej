@@ -12,6 +12,12 @@ import {
 import { resetLocalState, type ResetTarget } from '@/dev/resets'
 import { forcedOffline, setForcedOffline } from '@/dev/forcedOffline'
 import {
+  SAFE_AREA_PRESETS,
+  safeAreaPreset,
+  setSafeAreaPreset,
+  type SafeAreaPreset,
+} from '@/dev/fakeSafeArea'
+import {
   installPlatform,
   isMobileDevice,
   isStandalone,
@@ -247,6 +253,25 @@ async function run(target: ResetTarget, label: string) {
             >
               {{ name }}
             </button>
+          </div>
+        </div>
+
+        <div>
+          <div class="text-lime-500">safe area</div>
+          <div class="flex flex-wrap gap-1 pt-0.5">
+            <button
+              v-for="preset in SAFE_AREA_PRESETS"
+              :key="preset"
+              type="button"
+              class="border border-lime-700 px-1 py-0.5 hover:bg-lime-400 hover:text-black"
+              :class="{ 'bg-lime-400 text-black': safeAreaPreset === preset }"
+              @click="setSafeAreaPreset(preset as SafeAreaPreset)"
+            >
+              {{ preset }}
+            </button>
+          </div>
+          <div v-if="safeAreaPreset !== 'none'" class="text-amber-400">
+            insets simulated — LayoutDebug's `use` row shows the result
           </div>
         </div>
 

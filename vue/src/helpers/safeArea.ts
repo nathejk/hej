@@ -69,6 +69,28 @@ function readInsets(): Record<(typeof EDGES)[number], number> {
 
 export type Insets = Record<(typeof EDGES)[number], number>
 
+/** A simulated reading: the raw insets plus the viewport shortfall that goes with them. */
+export type SimulatedInsets = { insets: Insets; shortfall: number }
+
+/** Supplies a simulated reading, or `null` to measure the real device. Dev only. */
+export type DevInsetProvider = () => SimulatedInsets | null
+
+let devInsetProvider: DevInsetProvider | null = null
+
+/**
+ * Registers the dev inset provider (PRD 014, task 211).
+ *
+ * Registration rather than an import of `@/dev/*`, like the other dev seams: a static import
+ * would put the dev layer in the production bundle. Guarded by `DEV` as belt-and-braces.
+ */
+export function setDevInsetProvider(provider: DevInsetProvider | null) {
+  if (!import.meta.env.DEV) return
+  devInsetProvider = provider
+}
+
+/** The four properties this module writes, exported so the dev layer can un-write them. */
+export const SAFE_AREA_VARS = ['--sat', '--sar', '--sab', '--sal'] as const
+
 /**
  * The custom properties to write for a given inset reading, or `null` to write nothing.
  *
@@ -111,11 +133,21 @@ export function insetVars(inset: Insets, shortfall: number): Record<string, stri
 }
 
 function apply() {
+  // The dev override (PRD 014, task 211) replaces the *reading*, not the result. That is the
+  // difference between simulating a phone and merely painting padding: everything below — the
+  // all-zero discard, the bottom-inset reduction by the viewport shortfall — still runs, so what
+  // the developer sees is what the rule produces on that device rather than what the panel
+  // wished for. It also keeps `apply()` the only writer of these properties; a second writer in
+  // the panel would fight this one on every rotation and keyboard open.
+  const simulated = import.meta.env.DEV ? devInsetProvider?.() : null
+
   // How far the reported viewport stops short of the screen's bottom edge. Clamped because
   // desktop reports a viewport taller than screen.height.
-  const shortfall = Math.max(0, window.screen.height - window.innerHeight)
+  const shortfall = simulated
+    ? simulated.shortfall
+    : Math.max(0, window.screen.height - window.innerHeight)
 
-  const vars = insetVars(readInsets(), shortfall)
+  const vars = insetVars(simulated ? simulated.insets : readInsets(), shortfall)
   if (vars === null) return
 
   const root = document.documentElement.style
@@ -130,6 +162,14 @@ function schedule() {
   // Next frame: on a rotation the new geometry is not readable until it has been laid
   // out, and sampling synchronously yields the previous orientation's numbers.
   frame = requestAnimationFrame(apply)
+}
+
+/**
+ * Re-runs the pass. Exported for the dev panel, which needs the new values immediately after
+ * changing the simulated ones — no resize or orientation change follows a click.
+ */
+export function reapplySafeArea() {
+  apply()
 }
 
 export function initSafeArea() {
