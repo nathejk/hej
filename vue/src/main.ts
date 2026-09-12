@@ -10,6 +10,7 @@ import { useAppStore } from '@/stores/app.store'
 import { initInstallPrompt } from '@/stores/install.store'
 import { loadRuntimeConfig } from '@/config/runtime'
 import { initGateOverride } from '@/config/gates'
+import { initDevDevice } from '@/config/devDevice'
 import { initSafeArea } from '@/helpers/safeArea'
 
 const app = createApp(App)
@@ -25,6 +26,16 @@ initSafeArea()
 // Before the router's first navigation, so `?nogate=1` is already persisted when the very
 // first gate check runs (task 139). Inert in production builds.
 initGateOverride()
+
+// Also before the first navigation, and for the same reason: the gates read the simulated
+// device (task 207) on their very first check, so a profile applied later would show up as a
+// redirect flash on every start.
+//
+// Note what this deliberately is *not*: `initGateOverride` above switches the gates off,
+// while this leaves them on and changes what they see. That is the whole point of PRD 014 —
+// the bypass also disables the onboarding redirect, so it cannot be used to test onboarding.
+// Inert in production builds.
+initDevDevice()
 
 // Before mount, and this position is load-bearing: `beforeinstallprompt` fires once and
 // early, so a listener registered after the app has mounted misses it outright. When that
