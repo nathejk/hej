@@ -126,9 +126,16 @@ start() {
     fi
 
     echo "==> gates: get / test / vet / staticcheck / build / pinned-build"
+    # `-timeout 120s`, not 10s. `cmd/api` takes ~25s on an ARM laptop because a dozen tests each
+    # issue a login PIN and `pin.Store` bcrypts it — deliberately expensive, by the whole point of
+    # bcrypt. With a warm test cache `go test` answers instantly and a 10s budget looked fine; the
+    # first change that invalidated that package's cache turned the gate into a *timeout panic*,
+    # which reads as "build failed" and leaves the API not running, with a goroutine dump instead of
+    # a test failure to explain it. The Dockerfile's own gate already allows 60s (see `RUN go test
+    # -timeout 60s`), so 10s here was also inconsistent with the image build. See task 220.
     # shellcheck disable=SC2086
     if go get -v ./... \
-        && go test -timeout 10s ./... \
+        && go test -timeout 120s ./... \
         && go vet ./... \
         && go tool staticcheck ./... \
         && go build ./... \
