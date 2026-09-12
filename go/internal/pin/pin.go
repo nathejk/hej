@@ -44,6 +44,11 @@ type record struct {
 	expiresAt time.Time
 	sentAt    time.Time
 	attempts  int
+
+	// plaintext is the issued code, kept ONLY when the store was built with
+	// NewDevStoreWithPlaintextRecall. Empty in every other store, including every
+	// production one — see that constructor for why.
+	plaintext string
 }
 
 // Store holds active PINs keyed by normalized phone number.
@@ -51,14 +56,57 @@ type Store struct {
 	mu      sync.Mutex
 	records map[string]*record
 	now     func() time.Time
+
+	// recallPlaintext enables IssuedPlaintextForDev. Set at construction and never
+	// mutated afterwards, so a store cannot become readable at runtime.
+	recallPlaintext bool
 }
 
-// NewStore returns an empty in-memory PIN store.
+// NewStore returns an empty in-memory PIN store. PINs are hashed and cannot be
+// read back.
 func NewStore() *Store {
 	return &Store{
 		records: make(map[string]*record),
 		now:     time.Now,
 	}
+}
+
+// NewDevStoreWithPlaintextRecall returns a store that additionally keeps each
+// issued PIN in plaintext so it can be read back with IssuedPlaintextForDev.
+//
+// This exists for one reason: the development-only GET /api/dev/pin endpoint
+// (PRD 014 §8), which lets a developer log in on a laptop without tailing the
+// API logs. It must never be used outside ENV=development — the whole point of
+// hashing PINs is that a memory dump or an accidental log line cannot yield a
+// usable credential, and this constructor gives that up.
+//
+// A separate constructor rather than a setter, so that whether a store is
+// readable is decided once, at the single call site that knows the environment.
+func NewDevStoreWithPlaintextRecall() *Store {
+	s := NewStore()
+	s.recallPlaintext = true
+	return s
+}
+
+// IssuedPlaintextForDev returns the currently-issued, unexpired PIN for phone.
+//
+// Deliberately narrow: it reports only the code, never the attempt count, expiry
+// or send time, and it reports nothing at all unless the store was built with
+// NewDevStoreWithPlaintextRecall. It does not consume the PIN or count as an
+// attempt, so a developer reading it does not disturb the login it is used for.
+func (s *Store) IssuedPlaintextForDev(phone string) (string, bool) {
+	if !s.recallPlaintext {
+		return "", false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rec, ok := s.records[phone]
+	if !ok || rec.plaintext == "" || s.now().After(rec.expiresAt) {
+		return "", false
+	}
+	return rec.plaintext, true
 }
 
 // Generate returns a fresh cryptographically-random numeric PIN.
@@ -96,11 +144,15 @@ func (s *Store) Issue(phone string) (string, error) {
 		return "", err
 	}
 
-	s.records[phone] = &record{
+	rec := &record{
 		hash:      hash,
 		expiresAt: now.Add(TTL),
 		sentAt:    now,
 	}
+	if s.recallPlaintext {
+		rec.plaintext = code
+	}
+	s.records[phone] = rec
 	return code, nil
 }
 

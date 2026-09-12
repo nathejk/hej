@@ -352,7 +352,7 @@ func run(logger *slog.Logger) error {
 		// a handful of queries per minute.
 		contactsVersions: newVersionCache(5 * time.Second),
 
-		pins: pin.NewStore(),
+		pins: pinStoreFor(cfg),
 		sms:  sms.LogSender{Logger: logger},
 		sessions: session.NewManager(
 			[]byte(cfg.sessionSecret),

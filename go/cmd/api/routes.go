@@ -90,6 +90,12 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodGet, "/api/push/public-key", app.pushPublicKeyHandler)
 	router.HandlerFunc(http.MethodPost, "/api/push/subscription", app.requireAuth(app.createPushSubscriptionHandler))
 
+	// Development-only routes (PRD 014 §8). Registered rather than guarded, so outside
+	// ENV=development they do not exist at all — see dev.go.
+	if devRoutesEnabled(app.config) {
+		router.HandlerFunc(http.MethodGet, "/api/dev/pin", app.devPinHandler)
+	}
+
 	return router
 }
 
