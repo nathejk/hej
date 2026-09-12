@@ -128,5 +128,7 @@ Repo specifics to respect:
 | 010 | Vehicle registration | draft |
 | 011 | Post-race experience | draft |
 | 012 | Switch profile from the app bar | done |
+| 013 | Anonymous website | draft |
+| 014 | Development device simulation | doing |
 
 Keep this table current when a PRD is added or changes folder.
