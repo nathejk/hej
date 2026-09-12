@@ -415,6 +415,24 @@ prefix scan.
 
 ## 9. Success Metrics
 
+### Remaining verification (added 2026-09-12, on completing the tasks)
+
+Every task 206–219 is in `done/`, the suites are green (472 frontend tests, all Go packages) and
+the production bundle is provably free of the layer. **Three things are nonetheless unverified,
+and they all need a human at a browser:**
+
+1. **One pass through the app with `?dev=iphone`** — confirming the gate redirects into onboarding,
+   the install wall renders the right per-platform copy, the panel looks sane, the faked insets move
+   the shell, and the fake position draws on the map. Everything is verified at the decision level
+   (gate return values, computed CSS variables, emitted positions) but nothing has been *looked at*.
+2. **The 10-second onboarding re-run** (§9's headline metric) — a stopwatch measurement.
+3. **The route-coverage claim** — that every route in `router/index.ts` is reachable on the laptop.
+
+Until those are done this PRD should stay in `doing/`. The tasks that carry them have the relevant
+criteria marked `[~]` rather than `[x]`, so nothing here is claimed that has not been shown.
+
+### Metrics
+
 - **Coverage:** every route in `router/index.ts`, and every step of the onboarding
   chain, reachable on the laptop with the gates running. Target: 100% of routes,
   verified once by hand at completion and recorded in the closing task.
