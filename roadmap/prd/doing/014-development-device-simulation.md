@@ -436,20 +436,20 @@ complete but inert.)
 
 **Phase 3 — position**
 
-- [ ] Task: add `helpers/devGeolocation.ts` — fake position provider with accuracy and failure modes
-- [ ] Task: fake track playback over a hard-coded event-area polyline
-- [ ] Task: inject the dev provider into `location.store` and `track.store` at the existing seam
+- [ ] **Task 212:** add `helpers/devGeolocation.ts` — fake position provider with accuracy and failure modes
+- [ ] **Task 213:** fake track playback over a hard-coded event-area polyline
+- [ ] **Task 214:** inject the dev provider into `location.store` and `track.store` at the existing seam
 
 **Phase 4 — login**
 
-- [ ] Task: add dev-only `GET /api/dev/pin` with OpenAPI annotations and an absence test
-- [ ] Task: surface the dev PIN in the dev panel
+- [ ] **Task 215:** add dev-only `GET /api/dev/pin` with OpenAPI annotations and an absence test
+- [ ] **Task 216:** surface the dev PIN in the dev panel
 
 **Phase 5 — guardrails and docs**
 
-- [ ] Task: CI check that the production bundle contains no dev-layer strings
-- [ ] Task: document laptop testing in `README.md`, including the VAPID setup for push
-- [ ] Task: write the mobile-only smoke checklist (§7.4) into `roadmap/`
+- [ ] **Task 217:** CI check that the production bundle contains no dev-layer strings
+- [ ] **Task 218:** document laptop testing in `README.md`, including the VAPID setup for push
+- [ ] **Task 219:** write the mobile-only smoke checklist (§7.4) into `roadmap/`
 
 ## 11. Open Questions
 
@@ -461,10 +461,23 @@ complete but inert.)
    event area is proposed. Deriving it from a real seeded track would be more
    realistic but puts a participant's actual movements into committed source —
    which the `.rules` privacy posture argues against.
+
+   **Answered 2026-09-12 (task 213): hand-picked, committed as source.** Real track
+   data would be a minor's movement history in the repository.
 3. **Does `app.pins` expose a read accessor today, or does one need adding?** If it
    needs adding, is a dev-only accessor on that type acceptable, or should the dev
    route re-derive the PIN some other way? (Needs a look at the `pins`
    implementation in `internal/`.)
+
+   **Answered 2026-09-12 (task 215), and the answer was worse than the question
+   assumed.** PINs are stored **bcrypt-hashed only**, so an issued PIN is genuinely
+   unreadable — no accessor could expose it. What the endpoint needs is plaintext
+   *retention*, which is a real concession rather than a getter. Implemented as a
+   separate constructor, `pin.NewDevStoreWithPlaintextRecall()`, selected once at the
+   single call site that knows `ENV`: `pin.NewStore()` is byte-for-byte unchanged in
+   behaviour, so a production process never holds a plaintext PIN in memory at all.
+   The accessor reports only the code — not attempts, expiry or send time — refuses
+   expired records, and neither consumes the PIN nor counts an attempt.
 4. **Should `?dev=` also be able to simulate a *role*** (spejder / bandit / lead),
    given `roleGate` and PRD 007's role-dependent contacts pane? Attractive, but it
    would mean simulating an identity the BFF does not agree with — the endpoints
