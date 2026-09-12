@@ -331,25 +331,41 @@ To be recorded as a short pre-release smoke checklist rather than pretended away
 
 ### Frontend (Vue 3 / TS)
 
-- **New:** `src/config/devDevice.ts` — the profile: read, write, `?dev=` parse,
-  `PROD` inertness. Plus `devDevice.spec.ts`.
-- **New:** `src/components/DevPanel.vue`.
-- **New:** `src/helpers/devGeolocation.ts` — the fake position provider + playback.
-- **Changed:** `src/helpers/platform.ts` — `defaultEnv()` only. The exported
-  predicates and the `PlatformEnv` seam are untouched, which is what keeps
-  `platform.spec.ts` valid as written and keeps the router guard free of new
-  imports at its own level.
-- **Changed:** `src/config/permissions.ts` — `detectPlatform()` consults the
-  profile. Note this file currently claims to be "the ONLY user-agent sniff"; the
-  comment needs updating to say where the override enters.
-- **Changed:** `src/main.ts` — one call next to `initGateOverride()`, before the
-  first navigation, for the same reason that one is there.
-- **Changed:** `src/App.vue` — render `DevPanel` when `import.meta.env.DEV`.
+**A dev-only module tree, `src/dev/`.** Revised during implementation (task 208) after the
+first cut leaked into production — see the note at the end of this section.
+
+- **New:** `src/dev/devDevice.ts` — the profile: read, write, `?dev=` parse, `PROD`
+  inertness. Plus `devDevice.spec.ts`.
+- **New:** `src/dev/platformSim.ts` — profile → `PlatformEnv`, including the fake
+  user-agent table. Plus `devPlatform.spec.ts`.
+- **New:** `src/dev/bootstrap.ts` — the single entry point; registers the provider.
+- **New:** `src/dev/DevPanel.vue`.
+- **New:** `src/dev/devGeolocation.ts` — the fake position provider + playback.
+- **Changed:** `src/helpers/platform.ts` — `defaultEnv()` consults a **registered**
+  provider (`setDevEnvProvider`), and exports `devNavigator()` for `permissions.ts`.
+  The predicates and the `PlatformEnv` seam are untouched, which is what keeps
+  `platform.spec.ts` valid as written.
+- **Changed:** `src/config/permissions.ts` — `detectPlatform()` sniffs
+  `devNavigator()` when present. Note this file currently claims to be "the ONLY
+  user-agent sniff"; the comment needs updating to say where the override enters.
+- **Changed:** `src/main.ts` — `await import('@/dev/bootstrap')` inside
+  `if (import.meta.env.DEV)`, before the first navigation.
+- **Changed:** `src/App.vue` — the panel as an async component, likewise DEV-gated.
 - **Changed:** `src/stores/location.store.ts`, `src/stores/track.store.ts` — accept
   the dev provider at the existing injection point. No logic change.
 - **Unchanged, deliberately:** `src/router/gates.ts`, `src/router/index.ts`,
   `src/config/gates.ts`. If this PRD ends up editing gate logic, the design has
   drifted.
+
+**Nothing in `src/dev/` may be imported statically from product code**, and this is the
+rule the whole safety argument rests on. It was learned the expensive way: the first
+implementation guarded every *use* with `import.meta.env`, and the production bundle still
+contained the fake user-agent strings and the panel's copy — measured in
+`dist/assets/index-*.js`, not hypothesised. An `import.meta.env` guard hides code; it does not
+remove code something still imports. So the layer is reached only through a dynamic import
+inside a folded-away branch, which is why `platform.ts` takes a *registered* provider instead of
+importing the simulation, and why `App.vue` uses `defineAsyncComponent`. Task 217's bundle scan
+exists to keep this true.
 
 ### BFF (Go)
 

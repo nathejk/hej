@@ -28,12 +28,27 @@ without extending the check is hard to do by accident.
 Add it to the existing GitHub Actions build (`.github/workflows/`), so it runs where
 production images are actually produced.
 
+## This is not belt-and-braces — the regression already happened
+
+Updated 2026-09-12, during task 208. The first implementation of the dev layer guarded every
+*use* with `import.meta.env`, which is what the PRD asked for, and the production bundle still
+contained the simulation's fake user-agent strings and the panel's copy — found by grepping
+`dist/assets/index-*.js`. `import.meta.env` guards make code unreachable; they do not remove
+code that something still statically imports.
+
+That was fixed by moving the layer to `src/dev/` behind a dynamic import, but the fix is a
+*convention* ("nothing in `src/dev/` may be imported statically from product code") and
+conventions decay silently. One careless `import { readDevDevice } from '@/dev/devDevice'` in a
+product module restores the leak with no test failure and no visible symptom. This scan is the
+only thing that would catch it.
+
 ## Acceptance Criteria
 
 - [ ] A script (committed, runnable locally) that builds and scans `vue/dist`
 - [ ] Fails on any dev-layer string; passes on the current tree
 - [ ] Wired into CI alongside the existing build
 - [ ] A deliberate temporary regression makes it fail (verified once, then reverted)
+- [ ] Also asserts that **no chunk** is emitted for `src/dev/`
 - [ ] The Go side's equivalent guarantee is already covered by task 215's
       route-absence test — reference it rather than duplicating it
 

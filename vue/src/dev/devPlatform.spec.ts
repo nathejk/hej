@@ -2,20 +2,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { RouteLocationNormalized } from 'vue-router'
 
-import type { DevDevice } from '@/config/devDevice'
+import type { DevDevice } from '@/dev/devDevice'
+import { simulatedEnv } from '@/dev/platformSim'
+import { detectPlatform } from '@/config/permissions'
+import {
+  installPlatform,
+  isMobileDevice,
+  isStandalone,
+  setDevEnvProvider,
+} from '@/helpers/platform'
 
-// The profile is mocked rather than written to a fake storage, because what is under test here
-// is the *mapping* from a profile to a simulated device — not the persistence, which
-// devDevice.spec.ts already covers.
-vi.mock('@/config/devDevice', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/config/devDevice')>()
-  return { ...actual, readDevDevice: () => profile }
-})
-
+// The provider is registered the same way `@/dev/bootstrap` registers it in the running app,
+// rather than by mocking the profile store. That is the more useful test: it exercises the real
+// wiring — profile → simulated env → registered provider → detection helpers — instead of
+// asserting against a seam that only exists in the test.
 let profile: DevDevice | null = null
 
-import { detectPlatform } from '@/config/permissions'
-import { installPlatform, isMobileDevice, isStandalone } from '@/helpers/platform'
+setDevEnvProvider(() => (profile ? simulatedEnv(profile) : null))
 
 function sim(patch: Partial<DevDevice> = {}) {
   profile = { mobile: true, standalone: true, platform: 'ios', ...patch }

@@ -10,7 +10,6 @@ import { useAppStore } from '@/stores/app.store'
 import { initInstallPrompt } from '@/stores/install.store'
 import { loadRuntimeConfig } from '@/config/runtime'
 import { initGateOverride } from '@/config/gates'
-import { initDevDevice } from '@/config/devDevice'
 import { initSafeArea } from '@/helpers/safeArea'
 
 const app = createApp(App)
@@ -28,14 +27,24 @@ initSafeArea()
 initGateOverride()
 
 // Also before the first navigation, and for the same reason: the gates read the simulated
-// device (task 207) on their very first check, so a profile applied later would show up as a
-// redirect flash on every start.
+// device on their very first check, so a profile applied later would show up as a redirect
+// flash on every start.
 //
-// Note what this deliberately is *not*: `initGateOverride` above switches the gates off,
-// while this leaves them on and changes what they see. That is the whole point of PRD 014 —
-// the bypass also disables the onboarding redirect, so it cannot be used to test onboarding.
-// Inert in production builds.
-initDevDevice()
+// Note what this deliberately is *not*: `initGateOverride` above switches the gates off, while
+// this leaves them on and changes what they *see*. That distinction is the whole reason PRD 014
+// exists — the bypass also disables the onboarding redirect, so it cannot be used to test
+// onboarding.
+//
+// A dynamic import inside the `DEV` branch, not a static one at the top of the file: Rollup
+// folds the condition away in a production build and drops the branch, so the dev layer emits
+// no chunk and contributes no strings to `dist/`. A static import with a guarded call site does
+// not achieve that — it was measured putting the simulation's fake user-agent strings into the
+// production bundle. Top-level await is fine here: the baseline is Safari 16.4+ / Chrome 111+,
+// and in production this code does not exist at all.
+if (import.meta.env.DEV) {
+  const { initDevSimulation } = await import('@/dev/bootstrap')
+  initDevSimulation()
+}
 
 // Before mount, and this position is load-bearing: `beforeinstallprompt` fires once and
 // early, so a listener registered after the app has mounted misses it outright. When that

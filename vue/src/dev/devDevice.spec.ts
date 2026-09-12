@@ -10,7 +10,7 @@ import {
   writeDevDevice,
   type DevEnv,
   type DevStorage,
-} from '@/config/devDevice'
+} from '@/dev/devDevice'
 
 // A Map-backed `Storage`, because vitest runs `environment: 'node'` and there is no
 // `localStorage` here. Enumerable, so the prefix scan can be tested.

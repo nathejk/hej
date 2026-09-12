@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSessionStore } from '@/stores/session.store'
 import { useAppStore } from '@/stores/app.store'
@@ -156,6 +156,13 @@ const fullBleed = computed(() => route.meta.fullBleed === true)
 //
 // Left visible everywhere else, including onboarding, where reloading is harmless.
 const showUpdatePrompt = computed(() => route.name !== 'install')
+
+// Build-time constant, so the whole branch below folds away in a production build. The panel is
+// reached by a **dynamic** import for the same reason the dev bootstrap is (see main.ts): a
+// static import would bundle it and its strings regardless of the `v-if`.
+const DevPanel = import.meta.env.DEV
+  ? defineAsyncComponent(() => import('@/dev/DevPanel.vue'))
+  : null
 </script>
 
 <template>
@@ -163,6 +170,11 @@ const showUpdatePrompt = computed(() => route.name !== 'install')
   <!-- Diagnostic only, and teleported+fixed so it never affects the layout it reports
        on. Rendered outside the shell so it is present on the onboarding routes too. -->
   <LayoutDebug v-if="showLayoutDebug" />
+  <!-- The dev simulation panel (PRD 014). `import.meta.env.DEV` rather than a runtime flag,
+       deliberately: it is the one condition Vite can fold away at build time, so the panel
+       cannot be reached in production by any configuration. Never served to a participant,
+       unlike LayoutDebug above, which is a field diagnostic. -->
+  <component :is="DevPanel" v-if="DevPanel" />
 
   <div v-if="showShell" class="flex h-full flex-col">
     <header
