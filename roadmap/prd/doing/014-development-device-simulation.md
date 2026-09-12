@@ -317,7 +317,8 @@ conditional render next to `LayoutDebug`.
 
 ### 7.4 What remains mobile-only
 
-To be recorded as a short pre-release smoke checklist rather than pretended away:
+Recorded as a checklist rather than pretended away:
+**`roadmap/mobile-only-checklist.md`** (task 219).
 
 - iOS Add to Home Screen, and the resulting splash / status-bar chrome.
 - iOS Web Push (16.4+, home-screen only) — the platform where push matters most.
