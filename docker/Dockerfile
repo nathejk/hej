@@ -86,6 +86,12 @@ COPY vue/package.json vue/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY vue/ ./
 RUN npm run build
+# The dev simulation layer (PRD 014) must not be in a production bundle. Asserted here rather than
+# only in CI because this is where production images are actually produced — and because the leak
+# this catches has happened once already, silently, with every `import.meta.env` guard correct (see
+# the script's header and task 208). The Go side's equivalent guarantee is a unit test:
+# cmd/api/dev_test.go proves /api/dev/pin is not registered outside ENV=development.
+RUN sh scripts/check-no-dev-layer.sh dist
 
 ##########################################################################
 # Production image
