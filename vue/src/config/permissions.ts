@@ -12,6 +12,8 @@
 // Baseline per .rules is iOS/iPadOS Safari 16.4+ and Chrome 111+, so there is no
 // legacy branch here.
 
+import { devNavigator } from '@/helpers/platform'
+
 export type Capability = 'notifications' | 'location' | 'camera'
 
 export type Platform = 'ios' | 'android' | 'other'
@@ -25,11 +27,19 @@ export type Platform = 'ios' | 'android' | 'other'
 //
 // iPadOS reports a desktop-macOS user agent, hence the touch check — without it an
 // iPad user gets the generic text.
+//
+// It remains the only sniff, but it is no longer the only *input*: when a dev device profile
+// is active (PRD 014) it sniffs the simulated navigator from @/helpers/platform instead of the
+// real one, which is what makes the iOS and Android instructions readable on a laptop. The
+// simulated UA is deliberately a real string, so the branch taken here is the same branch the
+// device itself would take — and there is one mapping of "what an iPad looks like", over
+// there, rather than a second copy here. Inert in production builds.
 export function detectPlatform(): Platform {
-  if (typeof navigator === 'undefined') return 'other'
-  const ua = navigator.userAgent
+  const nav = devNavigator() ?? (typeof navigator === 'undefined' ? null : navigator)
+  if (!nav) return 'other'
+  const ua = nav.userAgent
   const iOSLike =
-    /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
+    /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && (nav.maxTouchPoints ?? 0) > 1)
   if (iOSLike) return 'ios'
   if (/Android/.test(ua)) return 'android'
   return 'other'

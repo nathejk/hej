@@ -1,3 +1,5 @@
+import { readDevDevice, type DevDevice, type DevPlatform } from '@/config/devDevice'
+
 // Device and install-state detection — the single place the app decides what kind of
 // device it is running on and whether it is running installed (PRD 005 §8).
 //
@@ -21,6 +23,23 @@
 // Baseline is iOS/iPadOS Safari 16.4+ / Chrome 111+, so absent APIs are guarded
 // (`userAgentData` is Chromium-only, `navigator.standalone` is WebKit-only) but nothing
 // is polyfilled.
+//
+// # The dev device profile (PRD 014, task 207)
+//
+// `defaultEnv()` yields a **synthesised** environment when a dev profile is active, so the
+// app can be walked on a laptop. Two things about how that is done are deliberate:
+//
+// - **It enters through the environment, not through the predicates.** Everything below the
+//   default argument is untouched, so `platform.spec.ts` stays valid as written and the
+//   simulation runs through the real heuristics rather than around them — a simulated iPad
+//   is a `MacIntel` navigator with touch points, and it classifies as mobile because
+//   `isAppleTouchDevice` says so, not because something short-circuited.
+// - **It does not violate constraint 2 above.** `@/config/devDevice` imports nothing, holds
+//   no state and does one synchronous `localStorage` read; the constraint is against awaited
+//   work and Pinia, both of which the guard genuinely cannot afford. The read is uncached
+//   here for the same reason it is uncached there: the dev panel changes it at runtime.
+//
+// All of it is compiled out of a production build (`import.meta.env.PROD` in devDevice).
 
 /** The narrow slice of `navigator` this module reads. Structural on purpose, so a test
  *  can supply three fields instead of a whole `Navigator`. */
@@ -83,6 +102,8 @@ const WEBVIEW_MARKERS = [
 ]
 
 function defaultEnv(): PlatformEnv {
+  const simulated = devEnv()
+  if (simulated) return simulated
   return {
     navigator: globalThis.navigator as unknown as PlatformNavigator,
     matchMedia: (query: string) => globalThis.matchMedia(query),
@@ -181,4 +202,128 @@ export function installPlatform(env: PlatformEnv = defaultEnv()): InstallPlatfor
   // Android Firefox, Samsung Internet on an old build, anything else: it may or may not
   // support installation, so it gets the generic manual instructions.
   return 'other'
+}
+
+// ---------------------------------------------------------------------------
+// Dev device simulation (PRD 014). Everything below is dev-only and compiled out of a
+// production build, because `readDevDevice` is inert under `import.meta.env.PROD`.
+// ---------------------------------------------------------------------------
+
+// One plausible navigator per simulated platform.
+//
+// These are **real user-agent strings**, not tokens invented to satisfy the checks above, and
+// that is the point: the simulation is fed through the same heuristics a real device is, so
+// `?dev=ipad` exercises the `MacIntel` + touch-points path rather than bypassing it. If a
+// heuristic is wrong, simulating it should reproduce the wrongness — a simulation that
+// answers correctly by construction would hide exactly the bug the matrix in task 139 exists
+// to find.
+const SIMULATED: Record<DevPlatform, Omit<PlatformNavigator, 'standalone'>> = {
+  ios: {
+    userAgent:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+    platform: 'iPhone',
+    maxTouchPoints: 5,
+  },
+  // The awkward one, and the reason it is worth simulating at all: iPadOS 13+ requests
+  // desktop sites, so the UA says Macintosh and only the touch points give it away.
+  ipad: {
+    userAgent:
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+    platform: 'MacIntel',
+    maxTouchPoints: 5,
+  },
+  android: {
+    userAgent:
+      'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+    maxTouchPoints: 5,
+    userAgentData: { mobile: true, brands: [{ brand: 'Google Chrome' }, { brand: 'Chromium' }] },
+  },
+  // Deliberately the same device as `android`. `chromium` is what `installPlatform()` returns,
+  // so it is the word a developer reaches for when they want to see that branch; making it an
+  // alias is cheaper than making them remember which vocabulary applies where.
+  chromium: {
+    userAgent:
+      'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+    maxTouchPoints: 5,
+    userAgentData: { mobile: true, brands: [{ brand: 'Google Chrome' }, { brand: 'Chromium' }] },
+  },
+  // Facebook's in-app browser on iOS — the case participants arriving from a Facebook group
+  // actually hit, where installation is impossible and the wall has to say so.
+  webview: {
+    userAgent:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/FBIOS;FBAV/468.0.0.32.107]',
+    platform: 'iPhone',
+    maxTouchPoints: 5,
+  },
+  // A mobile browser that is neither WebKit-on-iOS nor Chromium: Firefox. No `Android` token,
+  // so it also reaches the generic branch of `detectPlatform()` in @/config/permissions — the
+  // one whose copy is otherwise unreachable from any simulated device.
+  other: {
+    userAgent: 'Mozilla/5.0 (Mobile; rv:127.0) Gecko/127.0 Firefox/127.0',
+    maxTouchPoints: 5,
+  },
+}
+
+// A desktop computer, for the (write-only) case of a profile that says `mobile: false`. No
+// preset produces one — `?dev=desktop` clears the profile instead, which is better because it
+// restores *real* detection — but the profile is a stored value and this file does not get to
+// assume which shapes reach it.
+const SIMULATED_DESKTOP: Omit<PlatformNavigator, 'standalone'> = {
+  userAgent:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  platform: 'MacIntel',
+  maxTouchPoints: 0,
+  userAgentData: { mobile: false, brands: [{ brand: 'Google Chrome' }] },
+}
+
+function simulatedNavigator(profile: DevDevice): PlatformNavigator {
+  const base = profile.mobile ? SIMULATED[profile.platform] : SIMULATED_DESKTOP
+  const apple = isAppleTouchDevice(base as PlatformNavigator)
+  return {
+    ...base,
+    // WebKit-only, so it is set only for the Apple devices. Elsewhere the display-mode query
+    // below is what answers, which is also how a real Android device behaves — setting both
+    // would make the simulation pass `isStandalone()` for a reason no real device uses.
+    standalone: apple ? profile.standalone : undefined,
+  }
+}
+
+/**
+ * The simulated `PlatformNavigator` for the active dev profile, or `null` when there is none.
+ *
+ * Exported for `@/config/permissions`, so `detectPlatform()` can sniff the simulated UA
+ * instead of growing its own copy of the platform mapping. That keeps its claim to be the
+ * app's only user-agent sniff true, and keeps one source of truth for what an iPad looks like.
+ */
+export function devNavigator(): PlatformNavigator | null {
+  const profile = readDevDevice()
+  return profile ? simulatedNavigator(profile) : null
+}
+
+// Answers the queries this module asks, and defers everything else to the real engine.
+//
+// Deferring matters: `matchMedia` is also used for `prefers-color-scheme`, `prefers-reduced-
+// motion` and orientation elsewhere in the app, and a stub that answered `false` to all of
+// them would quietly change unrelated behaviour while claiming to simulate a phone.
+function simulatedMatchMedia(profile: DevDevice): (query: string) => { matches: boolean } {
+  return (query: string) => {
+    if (query.includes(`display-mode: ${INSTALLED_DISPLAY_MODE}`)) {
+      return { matches: profile.standalone }
+    }
+    if (query.includes(`display-mode: ${BROWSER_DISPLAY_MODE}`)) {
+      return { matches: !profile.standalone }
+    }
+    if (query.includes('pointer: coarse')) return { matches: profile.mobile }
+    if (typeof globalThis.matchMedia === 'function') return globalThis.matchMedia(query)
+    return { matches: false }
+  }
+}
+
+function devEnv(): PlatformEnv | null {
+  const profile = readDevDevice()
+  if (!profile) return null
+  return {
+    navigator: simulatedNavigator(profile),
+    matchMedia: simulatedMatchMedia(profile),
+  }
 }
