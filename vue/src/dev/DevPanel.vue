@@ -5,9 +5,11 @@ import {
   DEV_KEY_PREFIX,
   DEV_PRESETS,
   applyPreset,
+  clearDevOverrides,
   readDevDevice,
   type DevDevice,
 } from '@/dev/devDevice'
+import { resetLocalState, type ResetTarget } from '@/dev/resets'
 import {
   installPlatform,
   isMobileDevice,
@@ -136,6 +138,32 @@ onMounted(() => {
   }
   refresh()
 })
+
+// --- resets (task 209) ------------------------------------------------------
+//
+// The panel is only the button; the work lives in `@/dev/resets`, which calls the stores' own
+// actions rather than reaching into their storage. See that module for why.
+
+const busy = ref('')
+const done = ref('')
+
+// A confirm step on the destructive ones. They are dev-only, so the blast radius is a dev
+// database — but that database is populated by replaying the event broker, which is not instant,
+// and "clear caches" is one keystroke away from "reset onboarding".
+const NEEDS_CONFIRM: ResetTarget[] = ['caches', 'everything']
+
+async function run(target: ResetTarget, label: string) {
+  if (NEEDS_CONFIRM.includes(target) && !window.confirm(`${label}?`)) return
+  busy.value = target
+  done.value = ''
+  try {
+    const result = await resetLocalState(target)
+    done.value = result
+  } finally {
+    busy.value = ''
+    refresh()
+  }
+}
 </script>
 
 <template>
@@ -219,6 +247,49 @@ onMounted(() => {
               {{ name }}
             </button>
           </div>
+        </div>
+
+        <div>
+          <div class="text-lime-500">reset</div>
+          <div class="flex flex-wrap gap-1 pt-0.5">
+            <button
+              type="button"
+              class="border border-lime-700 px-1 py-0.5 hover:bg-lime-400 hover:text-black"
+              @click="run('onboarding', 'Reset onboarding')"
+            >
+              onboarding
+            </button>
+            <button
+              type="button"
+              class="border border-lime-700 px-1 py-0.5 hover:bg-lime-400 hover:text-black"
+              @click="run('session', 'Log out')"
+            >
+              log out
+            </button>
+            <button
+              type="button"
+              class="border border-lime-700 px-1 py-0.5 hover:bg-lime-400 hover:text-black"
+              @click="run('caches', 'Clear every local cache')"
+            >
+              caches
+            </button>
+            <button
+              type="button"
+              class="border border-lime-700 px-1 py-0.5 hover:bg-lime-400 hover:text-black"
+              @click="clearDevOverrides()"
+            >
+              dev keys
+            </button>
+            <button
+              type="button"
+              class="border border-amber-500 px-1 py-0.5 text-amber-400 hover:bg-amber-400 hover:text-black"
+              @click="run('everything', 'Wipe ALL local state and reload')"
+            >
+              everything
+            </button>
+          </div>
+          <div v-if="busy" class="text-amber-400">working… {{ busy }}</div>
+          <div v-else-if="done" class="text-lime-400">{{ done }}</div>
         </div>
 
         <div class="text-lime-600">build {{ buildId }}</div>
