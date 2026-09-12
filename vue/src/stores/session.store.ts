@@ -48,6 +48,23 @@ interface ChooseRequiredResponse {
   candidates?: ChoiceCandidate[]
 }
 
+// Notified with the number a PIN was just requested for. Dev only (PRD 014, task 216).
+type DevPhoneObserver = (phone: string) => void
+
+let devPhoneObserver: DevPhoneObserver | null = null
+
+/**
+ * Registers the dev panel's interest in login attempts. Called from `@/dev/bootstrap`.
+ *
+ * The `DEV` guard is belt-and-braces, as with the other dev seams. Note what this deliberately
+ * does **not** do: it observes the number the developer typed, and nothing else. No identity, no
+ * member data — the panel is forbidden from displaying any (PRD 014 §6).
+ */
+export function setDevPhoneObserver(observer: DevPhoneObserver | null) {
+  if (!import.meta.env.DEV) return
+  devPhoneObserver = observer
+}
+
 // session.store owns authentication state. It is the single source of truth for
 // "who is signed in", consumed by the router guards and the app shell/nav.
 export const useSessionStore = defineStore('session', {
@@ -164,7 +181,16 @@ export const useSessionStore = defineStore('session', {
     // requestPin asks the BFF to SMS a login PIN. The response is deliberately
     // identical whether or not the number is recognized (anti-enumeration).
     async requestPin(phone: string) {
-      return fetchWrapper.post<{ message: string }>('/api/auth/request-pin', { phone })
+      const result = await fetchWrapper.post<{ message: string }>('/api/auth/request-pin', {
+        phone,
+      })
+      // Dev only (PRD 014, task 216): lets the dev panel fetch the PIN that was just issued, so
+      // logging in on a laptop does not mean reading `docker compose logs api`. Notified *after*
+      // the request, because there is no PIN to read until the BFF has issued one. Registered
+      // rather than imported — nothing in `src/dev/` may be imported by product code — and folded
+      // out of a production build entirely.
+      if (import.meta.env.DEV) devPhoneObserver?.(phone)
+      return result
     },
 
     // verify exchanges a phone + PIN for a session and stores the identity.

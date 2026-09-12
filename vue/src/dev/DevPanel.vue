@@ -33,6 +33,13 @@ import {
   resetPlayback,
   startPlayback,
 } from '@/dev/devPlayback'
+import {
+  copyDevPin,
+  devPinPhone,
+  devPinStatus,
+  devPinValue,
+  fetchDevPin,
+} from '@/dev/devPin'
 
 const FAILURES: DevGeoFailure[] = ['none', 'denied', 'unavailable', 'timeout', 'hang']
 import {
@@ -410,6 +417,34 @@ async function run(target: ResetTarget, label: string) {
           </div>
           <div v-if="busy" class="text-amber-400">working… {{ busy }}</div>
           <div v-else-if="done" class="text-lime-400">{{ done }}</div>
+        </div>
+
+        <div>
+          <div class="text-lime-500">login pin</div>
+          <div class="flex flex-wrap items-center gap-1 pt-0.5">
+            <input
+              v-model="devPinPhone"
+              placeholder="30000001"
+              class="w-24 border border-lime-700 bg-black px-1"
+            />
+            <button
+              type="button"
+              class="border border-lime-700 px-1 py-0.5 hover:bg-lime-400 hover:text-black"
+              @click="fetchDevPin()"
+            >
+              get
+            </button>
+            <b v-if="devPinValue" class="text-base tracking-widest">{{ devPinValue }}</b>
+            <button
+              v-if="devPinValue"
+              type="button"
+              class="border border-lime-700 px-1 py-0.5 hover:bg-lime-400 hover:text-black"
+              @click="copyDevPin()"
+            >
+              copy
+            </button>
+          </div>
+          <div v-if="devPinStatus" class="text-amber-400">{{ devPinStatus }}</div>
         </div>
 
         <div class="text-lime-600">build {{ buildId }}</div>

@@ -6,6 +6,7 @@ import { initForcedOffline } from '@/dev/forcedOffline'
 import { initFakeSafeArea } from '@/dev/fakeSafeArea'
 import { devGeolocationBridge } from '@/dev/devGeolocation'
 import { initPlayback } from '@/dev/devPlayback'
+import { initDevPin } from '@/dev/devPin'
 import { setDevGeolocationProvider } from '@/stores/location.store'
 
 // The single entry point into PRD 014's dev layer.
@@ -45,4 +46,5 @@ export function initDevSimulation() {
   // to the real device while switched off.
   initPlayback()
   setDevGeolocationProvider(devGeolocationBridge)
+  initDevPin()
 }
