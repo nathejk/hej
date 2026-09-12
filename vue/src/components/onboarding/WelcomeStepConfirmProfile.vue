@@ -2,9 +2,16 @@
 import { computed, ref } from 'vue'
 import { ShieldCheck } from '@lucide/vue'
 
+import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  InputGroupText,
+} from '@/components/ui/input-group'
 import { Label } from '@/components/ui/label'
 import { HttpError } from '@/helpers'
 import { formatPhone } from '@/helpers'
@@ -60,6 +67,15 @@ const maskedParent = computed(() => {
   if (!raw) return ''
   const formatted = formatPhone(raw)
   return formatted.replace(/\d{2}$/, '**')
+})
+
+// The same number with the last two digits *removed* rather than masked, so the input can sit
+// where they belong and the member reads one continuous number instead of a number and a puzzle
+// somewhere else on the page.
+const parentPrefix = computed(() => {
+  const raw = details.value?.phoneParent
+  if (!raw) return ''
+  return formatPhone(raw).replace(/\d{2}$/, '').trimEnd()
 })
 
 // Both are required to advance (PRD 005 §6): the input proves the member engaged with the number,
@@ -154,37 +170,76 @@ async function submit() {
           <span class="text-slate-500">Din telefon</span>
           <span class="text-right text-slate-800">{{ formatPhone(details.phone) }}</span>
         </div>
-        <!--
-          Kept visible in correcting mode too, labelled as what we hold. The member is replacing it,
-          so seeing it is useful — "ah, that's my dad's old number" is exactly the recognition this
-          step is trying to provoke, and it may still jog the right answer.
-        -->
-        <div v-if="maskedParent" class="flex justify-between gap-4">
-          <span class="text-slate-500">Forælder/værge</span>
-          <span class="text-right font-medium tracking-wide text-slate-800">{{ maskedParent }}</span>
-        </div>
       </CardContent>
     </Card>
 
-    <form class="flex flex-col gap-4" @submit.prevent="submit">
-      <!-- Default: prove you recognise the number we hold. -->
-      <div v-if="mode === 'confirm'" class="flex flex-col gap-2">
-        <Label for="parent-digits">Skriv de sidste to cifre i nummeret</Label>
+    <!--
+      The guardian number sits *outside* the card of registered facts and slightly lifted, because
+      it is not one more row to skim: it is the thing this step is about. Next to "Navn" and "Din
+      telefon" it reads as data; on its own, highlighted, it reads as a question.
+
+      Kept visible in correcting mode too, labelled as what we hold. The member is replacing it,
+      so seeing it is useful — "ah, that's my dad's old number" is exactly the recognition this
+      step is trying to provoke, and it may still jog the right answer.
+    -->
+    <div
+      v-if="maskedParent"
+      class="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"
+    >
+      <span class="text-xs font-medium tracking-wide text-slate-500 uppercase">
+        Forælder/værge
+      </span>
+      <!--
+        The instruction sits directly above the number it applies to, not below the input: a member
+        who has already started typing does not need it, and one who has not is looking at the
+        number. Same reason the digits are typed in place — read the line, then complete it.
+      -->
+      <p v-if="mode === 'confirm'" class="text-xs leading-relaxed text-slate-500">
+        Udfyld de sidste to cifre. Kender du ikke nummeret udenad, så spørg din forælder.
+      </p>
+      <!--
+        Confirm mode: the two missing digits are typed *in place*, at the end of the number, so
+        the member completes a number rather than answering a quiz about one. That is the whole
+        recognition device — see the masking note above.
+      -->
+      <div v-if="mode === 'confirm'" class="flex items-center justify-center gap-3">
+        <span class="text-xl font-medium tracking-wide text-slate-900 tabular-nums">
+          {{ parentPrefix }}
+        </span>
+        <Label for="parent-digits" class="sr-only">Skriv de sidste to cifre i nummeret</Label>
         <Input
           id="parent-digits"
           v-model="digits"
           inputmode="numeric"
           autocomplete="off"
           maxlength="2"
-          class="w-24 text-center text-2xl tracking-[0.4em]"
+          class="h-11 w-20 bg-white text-center text-xl tracking-[0.3em] tabular-nums"
           placeholder="••"
         />
-        <p class="text-xs leading-relaxed text-slate-500">
-          Kender du ikke nummeret udenad, så spørg din forælder — det er hele pointen med
-          tjekket.
-        </p>
       </div>
+      <span v-else class="text-center text-xl font-medium tracking-wide text-slate-900 tabular-nums">
+        {{ maskedParent }}
+      </span>
 
+      <!--
+        The way out of a failed recognition, kept next to the number it is about (task 148): the
+        member who does not recognise this line should not have to scroll past a form to say so.
+
+        Not worded as a failure, because it is not one — a member not knowing the number is
+        expected: young scouts, a guardian who changed number, two households with different
+        numbers on file. So it names the action, not the problem.
+      -->
+      <button
+        v-if="mode === 'confirm'"
+        type="button"
+        class="self-center text-sm text-slate-500 underline underline-offset-2"
+        @click="startCorrecting"
+      >
+        Skriv andet nummer
+      </button>
+    </div>
+
+    <form class="flex flex-col gap-4" @submit.prevent="submit">
       <!--
         The field opened up (task 148). Empty, not prefilled: see startCorrecting().
 
@@ -192,17 +247,27 @@ async function submit() {
         — the browser's saved value here would be the *member's own* number, which is the one
         number this field must not end up holding.
       -->
-      <div v-else class="flex flex-col gap-2">
+      <div v-if="mode === 'correct'" class="flex flex-col gap-2">
         <Label for="parent-phone">Skriv nummeret på din forælder eller værge</Label>
-        <Input
-          id="parent-phone"
-          v-model="replacement"
-          type="tel"
-          inputmode="tel"
-          autocomplete="off"
-          class="text-lg"
-          placeholder="+45 …"
-        />
+        <!--
+          The +45 is a fixed addon, not something to type: every number this app calls is Danish,
+          and a member typing a prefix into the field is how you get "004512345678" and
+          "+45 12 34 56 78" in the same column. The placeholder shows the shape we want — eight
+          digits, nothing else.
+        -->
+        <InputGroup>
+          <InputGroupInput
+            id="parent-phone"
+            v-model="replacement"
+            type="tel"
+            inputmode="tel"
+            autocomplete="off"
+            placeholder="××××××××"
+          />
+          <InputGroupAddon>
+            <InputGroupText>+45</InputGroupText>
+          </InputGroupAddon>
+        </InputGroup>
         <p class="text-xs leading-relaxed text-slate-500">
           Det skal være et nummer, vi kan ringe til under løbet — ikke dit eget. Spørg gerne
           din forælder, hvis du er i tvivl.
@@ -227,42 +292,27 @@ async function submit() {
       </button>
 
       <!--
-        Cannot confirm? Fix it. This is the primary way out of a failed recognition, and it is a
-        better outcome than any flag: the person standing here is the one most likely to know their
-        own guardian's number (task 148).
-
-        Not worded as a failure, because it is not one — a member not knowing the number is
-        expected: young scouts, a guardian who changed number, two households with different
-        numbers on file.
+        Back out of correcting. The way *into* it now lives in the number box above (task 148),
+        next to the number the member failed to recognise.
       -->
-      <button
-        v-if="mode === 'confirm'"
+      <Button
+        v-if="mode === 'correct'"
         type="button"
-        class="px-2 py-1 text-sm text-slate-500"
-        @click="startCorrecting"
-      >
-        Nummeret er forkert, eller jeg kender det ikke
-      </button>
-      <button
-        v-else
-        type="button"
-        class="px-2 py-1 text-sm text-slate-500"
+        variant="outline"
+        class="text-slate-600"
         @click="mode = 'confirm'"
       >
         Tilbage — jeg prøver de to cifre igen
-      </button>
+      </Button>
 
       <!--
         Last resort: they know no number at all. Skips the step, records nothing, and lets them into
         the app — only login is mandatory (PRD 005 §6). `confirmation_required` stays true
         server-side, so they are asked again next time rather than quietly written off.
       -->
-      <button type="button" class="px-2 py-1 text-xs text-slate-400" @click="emit('skip')">
+      <Button type="button" variant="outline" class="text-slate-500" @click="emit('skip')">
         Jeg kender ikke nummeret — spring over
-      </button>
-      <p class="text-center text-xs leading-relaxed text-slate-400">
-        Springer du over, spørger vi dig igen næste gang. Du kan også sige det til din leder.
-      </p>
+      </Button>
     </form>
   </div>
 </template>

@@ -4,6 +4,12 @@ import { ArrowLeft, Phone, WifiOff } from '@lucide/vue'
 
 import { HttpError, NetworkError } from '@/helpers'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  InputGroupText,
+} from '@/components/ui/input-group'
 import ProfileChooser from '@/components/auth/ProfileChooser.vue'
 import { useSessionStore } from '@/stores/session.store'
 import { useAppStore } from '@/stores/app.store'
@@ -173,16 +179,25 @@ function changeNumber() {
     <!-- Step 1: phone number -->
     <form v-if="step === 'phone'" class="flex flex-col gap-3" @submit.prevent="sendPin">
       <label class="text-sm font-medium" for="phone">Telefonnummer</label>
-      <input
-        id="phone"
-        v-model="phone"
-        type="tel"
-        inputmode="tel"
-        autocomplete="tel"
-        autofocus
-        class="rounded-lg border border-slate-300 px-4 py-3 text-lg"
-        placeholder="+45 …"
-      />
+      <!--
+        +45 as a fixed addon rather than something to type (repo-wide convention for phone
+        fields): every number this app sends an SMS to is Danish, and the eight crosses show the
+        shape we expect instead of inviting a prefix the backend then has to normalise.
+      -->
+      <InputGroup>
+        <InputGroupInput
+          id="phone"
+          v-model="phone"
+          type="tel"
+          inputmode="tel"
+          autocomplete="tel"
+          autofocus
+          placeholder="××××××××"
+        />
+        <InputGroupAddon>
+          <InputGroupText>+45</InputGroupText>
+        </InputGroupAddon>
+      </InputGroup>
       <button
         type="submit"
         :disabled="busy || !phone"
