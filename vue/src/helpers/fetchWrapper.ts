@@ -32,7 +32,34 @@ export class NetworkError extends Error {
   }
 }
 
+/** Decides whether a request should fail as if the network were gone. Dev only. */
+type DevNetworkBlocker = (url: string) => boolean
+
+let devNetworkBlocker: DevNetworkBlocker | null = null
+
+/**
+ * Registers the dev force-offline predicate (PRD 014, task 210).
+ *
+ * The `DEV` guard is belt-and-braces — the only caller is already dev-only — but a stray call
+ * from product code would otherwise be a way to break every request in production.
+ */
+export function setDevNetworkBlocker(blocker: DevNetworkBlocker | null) {
+  if (!import.meta.env.DEV) return
+  devNetworkBlocker = blocker
+}
+
 async function request<T = Json>(method: string, url: string, body?: unknown): Promise<T> {
+  // Dev-only: the force-offline toggle (PRD 014, task 210). Chrome's "Offline" throttling would
+  // do this, but it also kills the Vite dev server's HMR socket, so every offline test cost a
+  // dev-server restart. Registered rather than imported — nothing in `src/dev/` may be imported
+  // by product code, or the dev layer ends up in the production bundle — and folded away in a
+  // production build, where `devNetworkBlocker` is therefore always null.
+  if (import.meta.env.DEV && devNetworkBlocker?.(url)) {
+    // The *same* error the real path produces. Anything else would exercise a code path no real
+    // failure can reach, which would make the test worthless in the direction that matters.
+    throw new NetworkError(url)
+  }
+
   const options: RequestInit = {
     method,
     // Send the session cookie set by the BFF on login.

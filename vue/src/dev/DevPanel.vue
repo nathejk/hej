@@ -10,6 +10,7 @@ import {
   type DevDevice,
 } from '@/dev/devDevice'
 import { resetLocalState, type ResetTarget } from '@/dev/resets'
+import { forcedOffline, setForcedOffline } from '@/dev/forcedOffline'
 import {
   installPlatform,
   isMobileDevice,
@@ -246,6 +247,25 @@ async function run(target: ResetTarget, label: string) {
             >
               {{ name }}
             </button>
+          </div>
+        </div>
+
+        <div>
+          <div class="text-lime-500">network</div>
+          <button
+            type="button"
+            class="border px-1 py-0.5"
+            :class="
+              forcedOffline
+                ? 'border-amber-500 bg-amber-400 text-black'
+                : 'border-lime-700 hover:bg-lime-400 hover:text-black'
+            "
+            @click="setForcedOffline(!forcedOffline)"
+          >
+            {{ forcedOffline ? 'OFFLINE (forced)' : 'force offline' }}
+          </button>
+          <div v-if="forcedOffline" class="text-amber-400">
+            requests fail with NetworkError — cleared by a reload
           </div>
         </div>
 

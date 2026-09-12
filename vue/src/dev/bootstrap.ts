@@ -2,6 +2,7 @@ import { setDevEnvProvider } from '@/helpers/platform'
 
 import { initDevDevice, readDevDevice } from '@/dev/devDevice'
 import { simulatedEnv } from '@/dev/platformSim'
+import { initForcedOffline } from '@/dev/forcedOffline'
 
 // The single entry point into PRD 014's dev layer.
 //
@@ -29,4 +30,7 @@ export function initDevSimulation() {
     const profile = readDevDevice()
     return profile ? simulatedEnv(profile) : null
   })
+  // Registers the predicate only; nothing is forced until the panel asks. Safe to do this early
+  // because the flag starts false and is not persisted.
+  initForcedOffline()
 }

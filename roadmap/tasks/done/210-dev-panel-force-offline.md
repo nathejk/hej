@@ -1,11 +1,11 @@
 # 210 — Dev panel: force-offline toggle
 
-**Status:** open
+**Status:** done
 **Priority:** medium
 **Created:** 2026-09-12
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-09-12
+**Completed:** 2026-09-12
 
 ## Description
 
@@ -56,14 +56,17 @@ survive a reload silently. A forgotten force-offline looks exactly like a broken
 
 ## Acceptance Criteria
 
-- [ ] A toggle in the dev panel calling `app.store.setOnline(false)` / `true`
-- [ ] The offline shell indicator, `OfflineNotice` and the readiness view all respond
-- [ ] HMR keeps working while the toggle is on (the whole point versus DevTools)
-- [ ] Optional level 2: `fetchWrapper` rejects with its existing `NetworkError` while
-      forced offline
-- [ ] The panel shows clearly that the toggle is active
-- [ ] The state does not silently persist across a reload
-- [ ] `offline.store` gains no connectivity flag
+- [x] A toggle in the dev panel calling `app.store.setOnline(false)` / `true`
+- [~] The offline shell indicator, `OfflineNotice` and the readiness view all respond —
+      they consume `app.store.online`, which is driven and unit-tested, but the rendering is
+      unverified in a browser
+- [x] HMR keeps working while the toggle is on (the whole point versus DevTools) — by
+      construction: nothing touches the dev server's socket, only `fetchWrapper`
+- [x] Level 2 implemented, not deferred: `fetchWrapper` rejects with its existing
+      `NetworkError` while forced offline
+- [x] The panel shows clearly that the toggle is active (amber, inverted, with a note)
+- [x] The state does not silently persist across a reload — in memory only
+- [x] `offline.store` gains no connectivity flag
 
 ## Depends on
 
@@ -73,3 +76,22 @@ survive a reload silently. A forgotten force-offline looks exactly like a broken
 ## Progress Log
 
 - 2026-09-12 — Task created from PRD 014, phase 2.
+- 2026-09-12 09:24 — Picked up. Built **both** levels rather than deferring level 2: a flag that
+  says offline while requests still succeed is exactly the half-truth PRD 014 forbids the layer
+  from producing, so shipping level 1 alone would have been shipping the wrong thing.
+- 2026-09-12 09:25 — Level 2 is a registered predicate in `fetchWrapper`
+  (`setDevNetworkBlocker`), same pattern as `setDevEnvProvider`: registration rather than import,
+  so no `src/dev/` module is statically reachable from product code. It throws the **existing**
+  `NetworkError`, so what is exercised is the real failure path — a bespoke error would test a
+  branch no real failure can reach.
+- 2026-09-12 09:26 — Un-forcing restores `online` from `navigator.onLine` rather than assuming
+  `true`. Assuming would be the same lie in the other direction: the laptop may genuinely have no
+  network.
+- 2026-09-12 09:26 — Not persisted, on purpose. A forgotten force-offline is indistinguishable
+  from a broken BFF, and a reload is a cheaper mitigation than a badge.
+- 2026-09-12 09:27 — A test of mine was **wrong and passing for the wrong reason**: "lets
+  requests through again" asserted `rejects.not.toBeInstanceOf(NetworkError)`, but a real fetch in
+  node fails with the *same* NetworkError, so it would have passed with the blocker still on. It
+  actually failed, which is how I noticed. Replaced with a stubbed `fetch` and a positive
+  assertion.
+- 2026-09-12 09:27 — ✅ Suite 454/454 across 37 files, `vue-tsc` clean.
