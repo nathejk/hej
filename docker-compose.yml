@@ -62,6 +62,10 @@ services:
       # Web Push VAPID keys. Generate a pair (e.g. `npx web-push generate-vapid-keys`
       # or any VAPID generator) and put them here for dev; the PRIVATE key is a
       # secret and belongs in docker-compose.override.yml, never committed.
+      #
+      # Worth setting rather than leaving empty: desktop Chrome does real Web Push, so with
+      # these in place the entire notification flow is testable on a laptop (see the
+      # "Testing on this laptop" section of README.md). Only *iOS* push needs a phone.
       VAPID_PUBLIC_KEY: ""
       VAPID_PRIVATE_KEY: ""
       # Dataforsyningen token for the map's WMS base layers (PRD 002). Served to

@@ -97,6 +97,10 @@ dev the SMS sender only logs it:
 docker compose logs api | grep 'kode er'
 ```
 
+Or, faster: the dev panel shows the PIN for the number you just submitted — see
+[Testing on this laptop](#testing-on-this-laptop-dev). It reads a dev-only endpoint
+(`GET /api/dev/pin`) that is not registered outside `ENV=development`.
+
 Pick any phone number that exists in the projection for the current `EVENT_YEAR`:
 
 ```sh
@@ -114,6 +118,63 @@ Two things that surprise people:
   deliberate (anti-enumeration) — an unknown number simply never receives a PIN.
 - Requests are rate limited to 5 per minute per IP. If PINs stop appearing while you are
   testing, wait a minute rather than debugging the directory.
+
+### Testing on this laptop (`?dev=`)
+
+The app is installed-mobile-only by design (PRD 005): a desktop browser is sent straight
+out of the SPA to the anonymous website, and a phone in a browser tab gets the install
+wall. That is the product behaviour, and it makes the dev machine the one device the app
+refuses to run on.
+
+So the dev build can **simulate a device** (PRD 014). Add `?dev=` to the URL:
+
+| `?dev=` | What the app then believes it is |
+|---|---|
+| `iphone` | an iPhone, installed to the home screen |
+| `ipad` | an iPad — which reports a *desktop* macOS UA, so this is the interesting one |
+| `android` / `chromium` | an Android phone running Chrome, installed |
+| `webview` | Facebook's in-app browser, where installing is impossible |
+| `other` | a mobile browser that is neither WebKit-on-iOS nor Chromium (Firefox) |
+| `tab` | the same platform, but **in a browser tab** — i.e. the install wall |
+| `desktop` / `off` | stop simulating |
+
+The first visit is the awkward one: with no simulation the laptop never loads the app at
+all, so type `?dev=iphone` onto the **website placeholder** you land on
+(`/desktop.html?dev=iphone`) and it will boot the app on the next load. After that the
+choice is remembered — it has to be, because the installed `start_url` is `/` and drops
+the query string.
+
+A **dev panel** (bottom-left, deliberately ugly) shows what is being simulated versus what
+is real, and carries the rest of the controls:
+
+- device presets, as above
+- **login PIN** for the number you just typed, so you do not have to read the API log
+- **fake position**, with accuracy, the five failure modes, and a walk that actually moves
+- **simulated safe-area insets** (notch / home indicator), which a laptop otherwise has none of
+- **force offline** — use this rather than DevTools, which kills Vite's HMR socket
+- **resets**: onboarding, session, caches, service worker, or everything
+
+#### `?dev=` is not `?nogate=1`
+
+Worth being clear about, because they look interchangeable and are not:
+
+- **`?nogate=1`** switches the install/device gates **off** — including the onboarding
+  redirect. Use it to check that the `install_gate` kill switch works. It is *not* how to
+  test onboarding, because it is the thing that skips onboarding.
+- **`?dev=iphone`** leaves every gate **on** and changes what they see. Onboarding, the
+  install wall and the role gates all run for real.
+
+#### Web Push works here too
+
+Desktop Chrome does real VAPID Web Push, so the whole notification flow — permission,
+subscribe, `push-sw.js`, notification click — is testable on the laptop once you set
+`VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` in `docker-compose.override.yml` (generate a
+pair with `npx web-push generate-vapid-keys`). The private key is a secret: it belongs in
+the gitignored override file and nowhere else.
+
+**iOS** push is the exception — it needs a home-screen web app on 16.4+, i.e. a real
+phone. See `roadmap/mobile-only-checklist.md` for everything else that cannot be checked
+from here.
 
 ### Seeding specific edge cases
 
