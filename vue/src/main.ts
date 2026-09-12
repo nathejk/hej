@@ -12,6 +12,34 @@ import { loadRuntimeConfig } from '@/config/runtime'
 import { initGateOverride } from '@/config/gates'
 import { initSafeArea } from '@/helpers/safeArea'
 
+// PRD 014's dev simulation, and **this must come before `app.use(router)` below**.
+//
+// It is first in this file for a reason that cost a bug: `app.use(router)` triggers vue-router's
+// initial navigation, which runs the install/device gate, which on a desktop calls
+// `window.location.replace('/desktop.html')` *immediately*. Registering the simulation after that
+// — even "before mount", which is where this started — loses the race: the redirect happens while
+// the dynamic import is still in flight, so `?dev=iphone` never gets persisted and the query string
+// leaves with the URL. The symptom is that `?dev=` appears to do nothing at all on a laptop, over
+// and over, because each attempt is thrown away before it is read.
+//
+// Top-level `await` is what makes the ordering deterministic rather than merely likely: it suspends
+// the rest of this module until registration is done. Fine on the Safari 16.4+ / Chrome 111+
+// baseline, and in production the whole branch does not exist.
+//
+// A dynamic import inside the `DEV` branch, not a static one at the top of the file: Rollup folds
+// the condition away in a production build and drops the branch with it, so the dev layer emits no
+// chunk and contributes no strings to `dist/`. A static import with a guarded call site does not
+// achieve that — it was measured putting the simulation's fake user-agent strings into the
+// production bundle (task 208).
+//
+// Note what this deliberately is *not*: `initGateOverride` below switches the gates off, while this
+// leaves them on and changes what they *see*. That distinction is the whole reason PRD 014 exists
+// — the bypass also disables the onboarding redirect, so it cannot be used to test onboarding.
+if (import.meta.env.DEV) {
+  const { initDevSimulation } = await import('@/dev/bootstrap')
+  initDevSimulation()
+}
+
 const app = createApp(App)
 
 app.use(createPinia())
@@ -24,27 +52,12 @@ initSafeArea()
 
 // Before the router's first navigation, so `?nogate=1` is already persisted when the very
 // first gate check runs (task 139). Inert in production builds.
+//
+// NOTE: this is *already* late by the same argument as the dev block above — `app.use(router)` has
+// run. It survives on a technicality: `?nogate=` only matters on a device the gate does not eject,
+// so there is no synchronous `location.replace` to lose the race to, and the corrected answer
+// arrives before anything is painted. Worth knowing before moving either call.
 initGateOverride()
-
-// Also before the first navigation, and for the same reason: the gates read the simulated
-// device on their very first check, so a profile applied later would show up as a redirect
-// flash on every start.
-//
-// Note what this deliberately is *not*: `initGateOverride` above switches the gates off, while
-// this leaves them on and changes what they *see*. That distinction is the whole reason PRD 014
-// exists — the bypass also disables the onboarding redirect, so it cannot be used to test
-// onboarding.
-//
-// A dynamic import inside the `DEV` branch, not a static one at the top of the file: Rollup
-// folds the condition away in a production build and drops the branch, so the dev layer emits
-// no chunk and contributes no strings to `dist/`. A static import with a guarded call site does
-// not achieve that — it was measured putting the simulation's fake user-agent strings into the
-// production bundle. Top-level await is fine here: the baseline is Safari 16.4+ / Chrome 111+,
-// and in production this code does not exist at all.
-if (import.meta.env.DEV) {
-  const { initDevSimulation } = await import('@/dev/bootstrap')
-  initDevSimulation()
-}
 
 // Before mount, and this position is load-bearing: `beforeinstallprompt` fires once and
 // early, so a listener registered after the app has mounted misses it outright. When that

@@ -418,13 +418,20 @@ prefix scan.
 ### Remaining verification (added 2026-09-12, on completing the tasks)
 
 Every task 206–219 is in `done/`, the suites are green (472 frontend tests, all Go packages) and
-the production bundle is provably free of the layer. **Three things are nonetheless unverified,
-and they all need a human at a browser:**
+the production bundle is provably free of the layer.
 
-1. **One pass through the app with `?dev=iphone`** — confirming the gate redirects into onboarding,
-   the install wall renders the right per-platform copy, the panel looks sane, the faked insets move
-   the shell, and the fake position draws on the map. Everything is verified at the decision level
-   (gate return values, computed CSS variables, emitted positions) but nothing has been *looked at*.
+**Updated 2026-09-12 after task 221.** The first attempt to use this in a browser failed outright —
+`?dev=` was registered after `app.use(router)` and lost the race against the gate's synchronous
+redirect, so the layer appeared to do nothing at all. That is fixed, and the core paths are now
+verified in a real browser (headless Chrome, throwaway profiles): `?dev=iphone` reaches the app,
+`?dev=tab` reaches the install wall, and no-parameter / `?dev=off` still eject to the placeholder.
+
+Worth drawing the lesson, because it applies to the rest of this list: every unit test passed
+throughout, because they call the mechanism directly and are silent about *when* it runs. The
+remaining items are the same shape — things only a browser can answer:
+
+1. **A human looking at it**: the panel's appearance, the faked insets actually moving the shell, and
+   the fake position drawing on the map with its accuracy circle.
 2. **The 10-second onboarding re-run** (§9's headline metric) — a stopwatch measurement.
 3. **The route-coverage claim** — that every route in `router/index.ts` is reachable on the laptop.
 

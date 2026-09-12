@@ -25,9 +25,14 @@ import { setDevGeolocationProvider } from '@/stores/location.store'
 /**
  * Applies `?dev=` and registers the simulated environment.
  *
- * Must run **before the router's first navigation**, or the first gate check reads the real
- * device and the corrected answer arrives as a redirect flash. `main.ts` awaits it before
- * `app.mount()` for that reason.
+ * Must run **before `app.use(router)`**, not merely before mount: installing the router triggers
+ * its first navigation, and the device gate answers a desktop with a synchronous
+ * `window.location.replace('/desktop.html')`. Anything registered after that point loses the race
+ * and the query string leaves with the URL. See the comment at the top of `main.ts`.
+ *
+ * Note the parameter has to be given on an **app** URL — `/?dev=iphone` — because only the SPA
+ * parses it. `/desktop.html?dev=iphone` does nothing at all: that page is a plain static file with
+ * no bundle, so there is no code on it to read the query.
  */
 export function initDevSimulation() {
   initDevDevice()

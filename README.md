@@ -126,7 +126,18 @@ out of the SPA to the anonymous website, and a phone in a browser tab gets the i
 wall. That is the product behaviour, and it makes the dev machine the one device the app
 refuses to run on.
 
-So the dev build can **simulate a device** (PRD 014). Add `?dev=` to the URL:
+So the dev build can **simulate a device** (PRD 014). Open the app root with `?dev=`:
+
+```
+https://hej.local.nathejk.dk/?dev=iphone
+```
+
+The choice is then remembered, so you can drop the parameter afterwards — it has to be
+remembered, because the installed `start_url` is `/` and drops the query string.
+
+**It must be an app URL.** `/desktop.html?dev=iphone` does nothing: that page is a plain
+static file with no bundle, so there is no code on it to read the query. If you are looking
+at the placeholder, edit the address bar back to `/?dev=iphone`.
 
 | `?dev=` | What the app then believes it is |
 |---|---|
@@ -137,12 +148,6 @@ So the dev build can **simulate a device** (PRD 014). Add `?dev=` to the URL:
 | `other` | a mobile browser that is neither WebKit-on-iOS nor Chromium (Firefox) |
 | `tab` | the same platform, but **in a browser tab** — i.e. the install wall |
 | `desktop` / `off` | stop simulating |
-
-The first visit is the awkward one: with no simulation the laptop never loads the app at
-all, so type `?dev=iphone` onto the **website placeholder** you land on
-(`/desktop.html?dev=iphone`) and it will boot the app on the next load. After that the
-choice is remembered — it has to be, because the installed `start_url` is `/` and drops
-the query string.
 
 A **dev panel** (bottom-left, deliberately ugly) shows what is being simulated versus what
 is real, and carries the rest of the controls:

@@ -223,20 +223,21 @@ export function clearDevOverrides(env: DevEnv = defaultEnv()) {
 }
 
 /**
- * Reads `?dev=<preset>` and persists the result. Called once from `main.ts`, **before the
- * router's first navigation**, so the very first gate check already sees the simulated
- * device — otherwise the user watches a redirect flash on every start. Same placement, and
- * the same reason, as `initGateOverride()`.
+ * Reads `?dev=<preset>` and persists the result. Called once from `main.ts`, **before
+ * `app.use(router)`** — installing the router triggers its first navigation, and the device gate
+ * answers a desktop by replacing the location synchronously, so anything later loses the race and
+ * the query string leaves with the URL.
  *
  * Both a query form and a stored form exist, and the query form alone would not do: the
  * manifest's `start_url` is `/`, so an installed launch drops the query string. That
  * constraint is already recorded in `runtime.ts` (for `?debug=`) and `gates.ts` (for
  * `?nogate=`).
  *
- * The entry point matters too. A laptop with no profile is sent out of the SPA entirely, so
- * `?dev=` has to work when typed onto the address bar of `/desktop.html` — a plain static
- * file with no bundle. It does, because what runs is *this* module on the next load, not
- * anything on that page.
+ * **The parameter must be given on an app URL** — `/?dev=iphone`. An earlier version of this
+ * comment claimed `/desktop.html?dev=iphone` would work "because this module runs on the next
+ * load"; that is wrong, and it sent someone in a circle. `desktop.html` is a plain static file
+ * with no bundle, so nothing there parses the query and reloading it just loads it again. The app
+ * root is the only URL that reaches this code.
  *
  * Returns the profile now in effect, or `null`. Inert in production.
  */
