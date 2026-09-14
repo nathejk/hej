@@ -1,11 +1,11 @@
 # PRD 015 — Guardian check outcomes on the stream
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed), with maintainer direction 2026-09-12
 **Created:** 2026-09-12
 **Last updated:** 2026-09-12
 **Approved:** 2026-09-12
-**Shipped:**
+**Shipped:** 2026-09-12
 **Target users:** participant (spejder), organizer / nødtelefon (as consumers of the stream)
 
 ---
@@ -415,7 +415,8 @@ discovery during implementation:
   The second reading is simpler and probably right, but it must be chosen deliberately,
   because the first is what most readers will assume from the field being present in the
   struct.
- delivery time changes on every replay, a zero timestamp is not storable in
+- **`VerifiedAt` stays on the event** (decided 2026-09-12), for the reason its original doc
+  gives: delivery time changes on every replay, a zero timestamp is not storable in
   MariaDB, and the timestamp answers "how many verified before arriving?".
 - **`Year` disappears from the body** but survives as the second subject token, and the
   consumer already receives `year` separately (`handleMemberVerified(msg, year)`), so
@@ -475,33 +476,37 @@ Sequencing is forced by the dependency: the message contract lands upstream firs
 then the BFF, then the client. The collision rule is independent of the contract work
 and can go in parallel.
 
-- [ ] Task: reshape `NathejkMemberVerified` in `shared-go` to `{MemberID, Phone,
-      PhoneContact, VerifiedAt}` and rewrite its doc contract (blocking)
-- [ ] Task: move the publish subject to `NATHEJK.<year>.spejder.<memberId>.verified`,
-      taking the year from the member; confirm the old `.member.` subject is empty first
-- [ ] Task: decide `omitempty` vs. transmitted-empty for `PhoneContact` (§11 Q1) — a
-      one-line change with a two-meaning consequence
-- [ ] Task: publish own-phone-verified on successful PIN login for spejder and bandits,
-      once per verified number (never fails the login)
-- [ ] Task: per-member attempt counter on `/me/profile/confirm`, third failure ends the
-      check
-- [ ] Task: `POST /me/profile/skip` endpoint with OpenAPI annotations
-- [ ] Task: publish skip/exhaustion as a `verified` event with a zero `PhoneContact`
-- [ ] Task: project the new events in `nathejk/table/person` — separate own-phone and
+- [x] Task: reshape `NathejkMemberVerified` in `shared-go` to `{MemberID, Phone,
+      PhoneContact, VerifiedAt}` and rewrite its doc contract (blocking) — **task 222**
+- [x] Task: move the publish subject to `NATHEJK.<year>.spejder.<memberId>.verified`,
+      taking the year from the member; confirm the old `.member.` subject is empty first —
+      **task 223**, and it was empty
+- [x] Task: decide `omitempty` vs. transmitted-empty for `PhoneContact` (§11 Q1) — kept
+      `omitempty`; a skip and a login are the same fact, so being byte-identical costs nothing
+- [x] Task: publish own-phone-verified on successful PIN login for spejder and bandits,
+      once per verified number (never fails the login) — **task 226**
+- [x] Task: per-member attempt counter on `/me/profile/confirm`, third failure ends the
+      check — **task 227**
+- [x] Task: `POST /me/profile/skip` endpoint with OpenAPI annotations — **task 228**
+- [x] Task: publish skip/exhaustion as a `verified` event with a zero `PhoneContact` —
+      **task 228**, with task 227 asserting both paths publish the same fact
+- [x] Task: project the new events in `nathejk/table/person` — separate own-phone and
       contact verification columns, stop rejecting events with no contact number, and
-      re-read `IsVerified` / `confirmationRequired` for "abandoned"
-- [ ] Task: record `Phone` and `PhoneGuardian` from `NathejkTeamStarted` in
-      `handleTeamStarted`, and serve the settled number from there after the start
-- [ ] Task: refuse contact-number changes once `HasStarted()`, and tell the client it is
-      settled
-- [ ] Task: remove `GuardianCorrected` and `verifiedAgainstPhone`, and stop invalidating a
-      verification when the register moves
-- [ ] Task: agree the Danish copy for the attempts hint and the exhaustion message
-- [ ] Task: blank `phone_parent` when it equals the member's own number
-- [ ] Task: PWA — attempt feedback, exhaustion → skip, empty-number mode opens in
-      correction mode
-- [ ] Task: make sure a cached profile cannot serve a blanked-away number (sync version or
-      read-time blanking)
+      re-read `IsVerified` / `confirmationRequired` for "abandoned" — **tasks 224 and 225**
+- [x] Task: record `Phone` and `PhoneGuardian` from `NathejkTeamStarted` in
+      `handleTeamStarted`, and serve the settled number from there after the start — **task 230**
+- [x] Task: refuse contact-number changes once `HasStarted()`, and tell the client it is
+      settled — **task 231**
+- [x] Task: remove `GuardianCorrected` and `verifiedAgainstPhone`, and stop invalidating a
+      verification when the register moves — **task 225**
+- [x] Task: agree the Danish copy for the attempts hint and the exhaustion message — folded
+      into **task 232**, where the agreed strings are recorded
+- [x] Task: blank `phone_parent` when it equals the member's own number — **task 229**
+- [x] Task: PWA — attempt feedback, exhaustion → skip, empty-number mode opens in
+      correction mode — **task 232**
+- [x] Task: make sure a cached profile cannot serve a blanked-away number (sync version or
+      read-time blanking) — **task 233**, which found nothing caches the profile and left a
+      regression guard instead of a fix
 
 ## 11. Open Questions
 
@@ -558,24 +563,36 @@ and can go in parallel.
   phone fields. So the lock signal and the authoritative post-check-in numbers arrive in the
   same message, in a handler that already exists. Folded into §6.
 
-**Still open:**
+**Resolved during implementation:**
 
-1. **Three names for one number.** The register calls it `phoneContact`
-   (`NathejkScoutUpdated`), the start event calls it `phoneGuardian`
-   (`NathejkTeamStarted_Member`), this projection calls it `phoneParent`, and the new
-   verification message will call it `phoneContact`. Nothing breaks, but a reader tracing the
-   number across three events has to know all four spellings. Worth aligning while the
-   contract is being changed anyway — or at least documenting the mapping in one place.
-3. **Does a lost skip get retried?** A skip POST that fails offline leaves no outcome on
-   the stream. Low stakes under the new framing — the member is asked at check-in, which is
-   what happens anyway — so the likely answer is "accept the loss" rather than introducing
-   the offline layer's first queued mutation (PRD 009).
-4. **Does an abandoned check keep asking on the next login?** Proposal: yes, until
-   check-in settles it. Confirm.
-5. **Does the collision rule apply to klan (bandit) records?** They have no
-   `phoneParent` at all (`nil`), so it should be a no-op — worth asserting in a test
-   rather than assuming.
-6. **Should a collision also invalidate an existing contact verification?** Some members
-   have already "verified" their own number under today's rules, and fast-tracking them
-   through check-in is precisely the wrong outcome. Proposal: yes.
-7. **Second-failure behaviour** (offer the correction field early) — in scope or not?
+1. **The four names for one number** (`phoneContact` in the register, `phoneGuardian` on the start
+   event, `phoneParent` in this projection, `startedPhoneContact` for what check-in recorded) —
+   **documented rather than aligned** (task 230). The mapping is written in `table.sql` and at
+   `handleTeamStarted`, where a reader tracing the number will be standing. Renaming across three
+   repos was out of scope.
+2. **`omitempty` on `PhoneContact`** — **kept** (task 222). A skip event and a login event are
+   byte-identical on the wire, which costs nothing because both answer the only question a consumer
+   asks with "not yet". Recorded in the message's doc comment so it is not "fixed", and pinned by a
+   projection test asserting the two produce identical SQL.
+3. **Does a lost skip get retried?** — **no** (tasks 228, 232). `skipContactCheck()` never throws
+   and never queues: the outcome is lost and check-in is the backstop. The offline layer's first
+   queued mutation was not worth introducing for a low-stakes fact.
+4. **Does an abandoned check keep asking on the next login?** — **yes.** The attempt counter is
+   keyed by the session's expiry, so a new login is a fresh three, and giving up leaves
+   `confirmation_required` untouched.
+5. **Does the collision rule apply to klan (bandit) records?** — **no-op, asserted** (task 229):
+   `phoneParent` stays `nil` rather than becoming `""`.
+6. **Should a collision also invalidate an existing contact verification?** — **partly, and this
+   is the one loose end.** A colliding number can no longer be *confirmed* — task 229 blanks it
+   before the digit check, so no new verification can be recorded against one. An acknowledgement
+   recorded *before* this shipped is left alone: rewriting history in the projection is a different
+   kind of change, and after the start check-in's number supersedes it anyway. **Worth a follow-up
+   if any such rows turn out to exist.**
+7. **Second-failure behaviour** (offer the correction field early) — **not done, and not needed.**
+   The hint after each miss ends with "eller skrive et andet nummer" and the button is on screen
+   throughout, which covers it without moving the member somewhere they did not ask to go.
+
+**Left behind deliberately:**
+
+- `verifiedAgainstPhone` still exists as a NULL column on deployed databases. The boot-time drift
+  list is additive by design, so dropping a column needs a real migration (task 225).
