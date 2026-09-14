@@ -112,6 +112,13 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer, opts
 		// register is wrong". NULL on every row written before it existed, which reads
 		// correctly as "we do not know what the register held then" — see IsVerified.
 		{"verifiedAgainstPhone", `verifiedAgainstPhone VARCHAR(99) NULL DEFAULT NULL`},
+		// Arrived with PRD 015 (task 224), which records the member's own number as verified by
+		// the SMS PIN they typed at login — a different fact from the contact number, established
+		// by a different mechanism, so it gets its own pair of columns rather than sharing
+		// verifiedAt. NULL on every existing row, which reads correctly as "nobody has logged in
+		// since this shipped".
+		{"phoneVerifiedAt", `phoneVerifiedAt TIMESTAMP NULL DEFAULT NULL`},
+		{"verifiedPhone", `verifiedPhone VARCHAR(99) NULL DEFAULT NULL`},
 		// Arrived with PRD 007's patrol lookup (task 176), which matches a typed patrol
 		// number. Empty for every klan and section, which is normal rather than missing.
 		{"teamNumber", `teamNumber VARCHAR(32) NOT NULL DEFAULT ""`},

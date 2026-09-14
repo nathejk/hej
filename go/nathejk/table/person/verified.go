@@ -2,6 +2,7 @@ package person
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jrgensen/cqrs"
@@ -93,13 +94,33 @@ func VerifiedSubject(year, personID string) (cqrs.Subject, error) {
 		fmt.Sprintf("NATHEJK.%s.spejder.%s.verified", year, personID)), nil
 }
 
-// handleMemberVerified records the verification on the person's row.
+// handleMemberVerified records on the person's row whichever of the two numbers this event
+// established.
 //
-// Task 222 renamed the field this reads (`PhoneContact`, was `PhoneParentAcknowledged`) and
-// removed the registered number from the event, so `verifiedAgainstPhone` is written as NULL:
-// the event no longer says what the register held, and inventing a value by reading the current
-// `phoneParent` here would be wrong on replay. Task 225 removes the column outright, together
-// with the staleness rule that was its only reader.
+// # An absent field says nothing; it never clears anything
+//
+// The event carries two optional numbers (PRD 015 §6). Logging in publishes `Phone` alone;
+// confirming or supplying a contact number publishes `PhoneContact`. This handler therefore
+// builds its assignment list from what is *present*, and an event with neither is refused.
+//
+// That asymmetry is the sharp edge, and it is worth being explicit about: a login event must
+// never be able to un-verify a contact number. If this handler wrote both columns
+// unconditionally, every login by a member who had already confirmed their contact number
+// would silently wipe that confirmation — and the member would be asked again at check-in with
+// nobody able to explain why. Only the guardian-check endpoints publish `PhoneContact`, and
+// only they can change those two columns.
+//
+// # Two facts, two column pairs
+//
+// `verifiedAt`/`acknowledgedPhone` is the contact number; `phoneVerifiedAt`/`verifiedPhone` is
+// the member's own, proven by the SMS PIN. They are kept apart because a member who skips the
+// contact check still verifies their own number by logging in — so sharing one timestamp would
+// mark everyone who gave up as verified, silence the question next login, and fast-track at
+// check-in exactly the records that still need a number (task 224).
+//
+// `verifiedAgainstPhone` is written as NULL whenever the contact number is touched: the event no
+// longer says what the register held (task 222), and inventing a value by reading the current
+// `phoneParent` here would be wrong on replay. Task 225 removes the column and its reader.
 //
 // Idempotent by construction: a replay writes the same values from the same event.
 // Re-verification arrives as a later event with a later timestamp and simply overwrites.
@@ -116,12 +137,11 @@ func (c consumer) handleMemberVerified(msg cqrs.Message, year string) error {
 	if personID == "" {
 		return fmt.Errorf("member verified with no memberId")
 	}
-	if body.PhoneContact == "" {
-		// No contact number in the event. Still rejected *here*, unchanged from before, so this
-		// task stays a rename: task 224 is where an event carrying only the member's own
-		// `Phone` starts being stored instead of refused, because that needs the second column
-		// to put it in. Until then no publisher sends one.
-		return fmt.Errorf("member verified with no contact phone")
+	if body.Phone == "" && body.PhoneContact == "" {
+		// A verification naming no number at all is a tick against nothing: there is no way to
+		// say later which number it vouched for, so it could never be superseded. Refused rather
+		// than stored as a timestamp with no subject.
+		return fmt.Errorf("member verified with no phone number")
 	}
 
 	verifiedAt := body.VerifiedAt
@@ -131,12 +151,28 @@ func (c consumer) handleMemberVerified(msg cqrs.Message, year string) error {
 		// field must not dead-letter. The row is what matters; the exact minute is not.
 		verifiedAt = time.Now().UTC()
 	}
+	stamp := quote(verifiedAt.UTC().Format("2006-01-02 15:04:05"))
 
+	var sets []string
+	if body.PhoneContact != "" {
+		sets = append(sets,
+			"verifiedAt="+stamp,
+			"acknowledgedPhone="+quote(string(body.PhoneContact)),
+			"verifiedAgainstPhone=NULL",
+		)
+	}
+	if body.Phone != "" {
+		sets = append(sets,
+			"phoneVerifiedAt="+stamp,
+			"verifiedPhone="+quote(string(body.Phone)),
+		)
+	}
+
+	// UPDATE, not an upsert: a verification must not invent a person whose details have not
+	// arrived. A replay applies their details event first and then this one again, in order.
 	return c.w.Consume(fmt.Sprintf(
-		"UPDATE person SET verifiedAt=%s, acknowledgedPhone=%s, verifiedAgainstPhone=NULL "+
-			"WHERE personId=%s AND year=%s",
-		quote(verifiedAt.UTC().Format("2006-01-02 15:04:05")),
-		quote(string(body.PhoneContact)),
+		"UPDATE person SET %s WHERE personId=%s AND year=%s",
+		strings.Join(sets, ", "),
 		quote(personID),
 		quote(year),
 	))

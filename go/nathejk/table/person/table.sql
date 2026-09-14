@@ -65,27 +65,34 @@ CREATE TABLE IF NOT EXISTS person (
     -- is why it is carried here (PRD 007 §4 keeps it as the non-photo fallback).
     armNumber VARCHAR(32) NOT NULL DEFAULT "",
 
-    -- PRD 005's verification. All three are projections of the verification event —
-    -- nothing writes them directly.
+    -- PRD 005's verification, reshaped by PRD 015. All of these are projections of the
+    -- verification event — nothing writes them directly.
     --
-    -- Three columns rather than two, because the member may acknowledge a number that is
-    -- NOT the one on file: if they cannot recognise phoneParent they are asked to supply
-    -- the right number and confirm that instead (task 148).
+    -- Two independent facts, deliberately in separate columns, because they are established
+    -- by different mechanisms at different moments and answer different questions:
     --
-    --   acknowledgedPhone    the number the member says can be reached. AUTHORITATIVE for
-    --                        contacting a guardian during the event.
-    --   verifiedAgainstPhone what phoneParent held at the moment of acknowledgement.
+    --   verifiedAt / acknowledgedPhone     the CONTACT number (a parent or guardian) that the
+    --                                      member confirmed or supplied. AUTHORITATIVE for
+    --                                      reaching an adult during the event, and the pair
+    --                                      check-in reads to decide whether to ask.
+    --   phoneVerifiedAt / verifiedPhone    the member's OWN number, proven by challenge-response:
+    --                                      they received a PIN by SMS on it and typed it back to
+    --                                      log in. Nobody was asked anything.
     --
-    -- The pair keeps two questions apart that call for opposite responses:
+    -- Keeping them apart is load-bearing rather than tidy. A member who skips the contact
+    -- check still verifies their own number by logging in, so folding the two together would
+    -- write a `verifiedAt` for every member who gave up — silencing the question on their next
+    -- login and fast-tracking at check-in precisely the records that still need a number.
     --
-    --   phoneParent != verifiedAgainstPhone   the register changed since → ask again
-    --   acknowledgedPhone != verifiedAgainstPhone   the member corrected us → fix the register
-    --
-    -- With one column those states are indistinguishable, and a member who corrected us
-    -- would be re-asked forever while the register stayed wrong.
+    -- verifiedAgainstPhone is on its way out (task 225). It held what phoneParent contained at
+    -- the moment of acknowledgement, so "the register moved since" stayed distinguishable from
+    -- "the member corrected us"; PRD 015 §4 dropped both questions, since neither changes what
+    -- happens next, which is that check-in either asks or does not.
     verifiedAt TIMESTAMP NULL DEFAULT NULL,
     acknowledgedPhone VARCHAR(99) NULL DEFAULT NULL,
     verifiedAgainstPhone VARCHAR(99) NULL DEFAULT NULL,
+    phoneVerifiedAt TIMESTAMP NULL DEFAULT NULL,
+    verifiedPhone VARCHAR(99) NULL DEFAULT NULL,
 
     -- Content hash of the portrait in the blob store (internal/blob). The bytes
     -- never live in this row: a projection rebuild truncates and refills, and

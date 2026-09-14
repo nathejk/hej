@@ -77,14 +77,85 @@ func TestMemberVerifiedWritesContactAndTimestamp(t *testing.T) {
 	}
 }
 
-// Until task 224 gives the own-phone verification a column of its own, an event with no contact
-// number has nowhere to go, so it is refused rather than stored as a verifiedAt with no subject.
-func TestMemberVerifiedRejectsMissingContactPhone(t *testing.T) {
+// An event with neither number is a tick against nothing: nothing later could say which number
+// it vouched for, so it could never be superseded. Refused rather than stored as a timestamp
+// with no subject.
+func TestMemberVerifiedRejectsEventWithNoNumbers(t *testing.T) {
 	if _, err := handle(t, "NATHEJK.2026.spejder.member-1.verified", messages.NathejkMemberVerified{
 		MemberID:   "member-1",
 		VerifiedAt: time.Now().UTC(),
 	}); err == nil {
-		t.Fatal("want an error for a verification with no contact phone")
+		t.Fatal("want an error for a verification naming no number at all")
+	}
+}
+
+// The login shape: the member's own number, proven by the SMS PIN, and no contact number.
+//
+// The assertions that matter here are the *absences*. A login must not touch the contact
+// columns, because a member who confirmed their contact number last week and logs in today
+// would otherwise have that confirmation silently wiped — and then be asked again at check-in
+// with nobody able to say why.
+func TestMemberVerifiedOwnPhoneOnlyLeavesContactAlone(t *testing.T) {
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.verified",
+		messages.NathejkMemberVerified{
+			MemberID:   "member-1",
+			Phone:      "4530000001",
+			VerifiedAt: time.Date(2026, 8, 30, 19, 5, 0, 0, time.UTC),
+		}))
+
+	if !strings.Contains(stmt, `verifiedPhone="4530000001"`) {
+		t.Errorf("own number missing from %q", stmt)
+	}
+	if !strings.Contains(stmt, `phoneVerifiedAt="2026-08-30 19:05:00"`) {
+		t.Errorf("own-phone timestamp missing or not UTC-formatted in %q", stmt)
+	}
+	if strings.Contains(stmt, "acknowledgedPhone") || strings.Contains(stmt, "verifiedAt=") {
+		t.Errorf("a login must not write the contact columns: %q", stmt)
+	}
+	// Specifically not "verifiedAt=NULL" either: clearing is as wrong as overwriting.
+	if strings.Contains(stmt, "verifiedAgainstPhone") {
+		t.Errorf("a login must not touch verifiedAgainstPhone: %q", stmt)
+	}
+}
+
+// The skip shape is the login shape (PRD 015 §6): own number verified, contact number not. With
+// `omitempty` the two are byte-identical on the wire, which is accepted — both answer "is there a
+// verified contact number yet?" with "not yet". Asserted so that reading is deliberate.
+func TestMemberVerifiedSkipIsIndistinguishableFromLogin(t *testing.T) {
+	at := time.Date(2026, 8, 30, 19, 5, 0, 0, time.UTC)
+	skip := onlyStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.verified",
+		messages.NathejkMemberVerified{
+			MemberID: "member-1", Phone: "4530000001", PhoneContact: "", VerifiedAt: at,
+		}))
+	login := onlyStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.verified",
+		messages.NathejkMemberVerified{
+			MemberID: "member-1", Phone: "4530000001", VerifiedAt: at,
+		}))
+	if skip != login {
+		t.Errorf("skip and login must project identically:\n skip  = %q\n login = %q", skip, login)
+	}
+}
+
+// Both numbers in one event: the member confirmed their contact number in the same session they
+// logged in, and the publisher had both facts to hand.
+func TestMemberVerifiedWritesBothPairsWhenBothPresent(t *testing.T) {
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.verified",
+		messages.NathejkMemberVerified{
+			MemberID:     "member-1",
+			Phone:        "4530000001",
+			PhoneContact: "4512345678",
+			VerifiedAt:   time.Date(2026, 8, 30, 19, 5, 0, 0, time.UTC),
+		}))
+
+	for _, want := range []string{
+		`acknowledgedPhone="4512345678"`,
+		`verifiedAt="2026-08-30 19:05:00"`,
+		`verifiedPhone="4530000001"`,
+		`phoneVerifiedAt="2026-08-30 19:05:00"`,
+	} {
+		if !strings.Contains(stmt, want) {
+			t.Errorf("%s missing from %q", want, stmt)
+		}
 	}
 }
 
