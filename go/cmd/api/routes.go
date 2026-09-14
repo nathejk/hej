@@ -69,6 +69,10 @@ func (app *application) routes() http.Handler {
 	// registrations. Scoped by custodianship rather than by who is driving, so a car lent
 	// out for a pickup stays with the person who answers for it.
 	router.HandlerFunc(http.MethodGet, "/api/me/vehicles", app.requireAuth(app.listOwnVehiclesHandler))
+	// Registering one (PRD 010). The custodian is the session's user, never a body field,
+	// so nobody can file a car under somebody else's name — which is what task 239's
+	// authorisation then rests on. Role-gated server-side: every role except spejder.
+	router.HandlerFunc(http.MethodPost, "/api/me/vehicles", app.requireAuth(app.registerVehicleHandler))
 	// The contacts directory (PRD 007). Cached by the client and worked from offline, so
 	// it carries everything the pane needs and nothing it does not: no guardian numbers, no
 	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach

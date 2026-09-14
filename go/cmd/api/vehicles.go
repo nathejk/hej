@@ -6,6 +6,9 @@ import (
 	"github.com/jrgensen/cqrs"
 	"github.com/nathejk/shared-go/tables/vehicle"
 	"github.com/nathejk/shared-go/types"
+
+	"nathejk.dk/internal/plate"
+	"nathejk.dk/internal/users"
 )
 
 // The vehicle entity's wiring (PRD 010, task 235).
@@ -156,4 +159,143 @@ func (app *application) listOwnVehiclesHandler(w http.ResponseWriter, r *http.Re
 // later without changing the response's type.
 type vehiclesResponse struct {
 	Vehicles []vehicleResponse `json:"vehicles"`
+}
+
+// registerVehicleRequest is the registration form.
+//
+// Note what is absent: any notion of who owns this. The custodian is the caller,
+// taken from the session — a body field would let one member file a car under
+// another's name, and the whole authorisation model downstream (task 239) hangs on
+// custodianship being something the server decided.
+type registerVehicleRequest struct {
+	// LicensePlate is free-form on the way in. Normalised before it is compared or
+	// stored, so "ab 12 345" and "AB12345" cannot become two rows.
+	LicensePlate string `json:"license_plate"`
+
+	Brand string `json:"brand"`
+	Model string `json:"model"`
+	Color string `json:"color"`
+
+	// SeatCount **excludes the driver**, matching shared-go's RegisterFields. An
+	// off-by-one here has a coordinator dispatching a car with one seat too few at
+	// 02:00, which is why the client's label has to say so explicitly (PRD 010 §7)
+	// rather than relying on this comment.
+	SeatCount uint `json:"seat_count"`
+
+	Description string `json:"description"`
+}
+
+// registerVehicleHandler registers a vehicle for the caller. Runs behind requireAuth.
+//
+// The caller becomes the custodian, and shared-go's projector makes the custodian
+// the first driver, so nothing here assigns one.
+//
+// A duplicate plate answers `409` rather than creating a second row. Two people
+// registering one car is the likeliest data problem in a self-registered inventory
+// — a crew member and their passenger both filling in the form — and the response
+// deliberately does **not** say who registered it: a plate maps to a person, and
+// this endpoint is not a lookup surface. "This car is already registered" is all
+// the client needs to write a useful sentence.
+//
+// @Summary      Register a vehicle
+// @Description  Registers a car for the authenticated member, who becomes its custodian and first driver. Every role except spejder may register. The licence plate is normalised server-side, and a plate already registered for the current event year is refused with 409 rather than creating a second row for one car; the conflict response does not disclose who registered it. Seat count excludes the driver.
+// @Tags         vehicles
+// @Accept       json
+// @Produce      json
+// @Param        request  body      registerVehicleRequest  true  "Vehicle details"
+// @Success      201  {object}  vehicleResponse
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      403  {object}  map[string]string
+// @Failure      409  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Failure      503  {object}  map[string]string
+// @Router       /me/vehicles [post]
+func (app *application) registerVehicleHandler(w http.ResponseWriter, r *http.Request) {
+	s, ok := contextGetSession(r)
+	if !ok {
+		app.AuthenticationRequiredResponse(w, r)
+		return
+	}
+	if !users.MayRegisterVehicle(users.Role(s.Role)) {
+		app.ForbiddenResponse(w, r)
+		return
+	}
+
+	var input registerVehicleRequest
+	if err := app.ReadJSON(w, r, &input); err != nil {
+		app.BadRequestResponse(w, r, err)
+		return
+	}
+
+	// Normalised first, before validation, comparison or publishing, so all three
+	// see the same string. This is the single place plates enter the inventory from
+	// this app.
+	normalized, err := plate.Normalize(input.LicensePlate)
+	if err != nil {
+		app.BadRequestMessageResponse(w, r, "nummerpladen kan ikke genkendes")
+		return
+	}
+
+	// A registration is a write, so it needs the broker. Failing here is the point:
+	// PRD 008 §5 — a write that could not be published has not happened, and a car
+	// its owner believes is registered is precisely the car nobody dispatches.
+	if app.vehicles == nil {
+		app.ServiceUnavailableResponse(w, r, "vehicle registration is not available")
+		return
+	}
+
+	year := types.YearSlug(app.config.eventYear)
+
+	// Duplicate check before publishing. Skipped rather than fatal when the read
+	// model is unavailable: refusing an otherwise valid registration because we
+	// cannot check for a duplicate would keep a real car out of the inventory to
+	// avoid a duplicate row, which is the worse of the two outcomes.
+	if app.models.Vehicles != nil {
+		existing, err := app.models.Vehicles.GetAll(r.Context(), vehicle.Filter{
+			YearSlug:     year,
+			LicensePlate: normalized,
+		})
+		if err != nil {
+			app.ServerErrorResponse(w, r, err)
+			return
+		}
+		if len(existing) > 0 {
+			// No identity in the message, deliberately — see the doc comment.
+			app.ConflictResponse(w, r, "køretøjet er allerede registreret")
+			return
+		}
+	}
+
+	id, err := app.vehicles.Register(r.Context(), year, vehicle.RegisterFields{
+		LicensePlate:    normalized,
+		CustodianUserID: types.UserID(s.UserID),
+		Brand:           input.Brand,
+		Model:           input.Model,
+		Color:           input.Color,
+		SeatCount:       input.SeatCount,
+		Description:     input.Description,
+	})
+	if err != nil {
+		// Includes a publish failure, which must fail the request rather than
+		// report a success nothing recorded.
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+
+	// The normalised plate is echoed back, so the client shows the canonical form
+	// rather than what was typed — the same string the inventory will compare next
+	// time.
+	out := vehicleResponse{
+		ID:           string(id),
+		LicensePlate: normalized,
+		Brand:        input.Brand,
+		Model:        input.Model,
+		Color:        input.Color,
+		SeatCount:    input.SeatCount,
+		Description:  input.Description,
+	}
+	if err := app.WriteJSON(w, http.StatusCreated, out, nil); err != nil {
+		app.ServerErrorResponse(w, r, err)
+	}
 }
