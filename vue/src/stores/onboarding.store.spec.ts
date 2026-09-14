@@ -6,15 +6,17 @@ import { useNotificationsStore } from '@/stores/notifications.store'
 import { useOnboardingStore } from '@/stores/onboarding.store'
 import { useProfileStore } from '@/stores/profile.store'
 import { useSessionStore } from '@/stores/session.store'
+import { useVehiclesStore } from '@/stores/vehicles.store'
 
 // The step machine is derived state, so these tests set up the *world* (session,
 // permissions, profile) and assert which step falls out — never a step index, because
 // there isn't one.
 function world(overrides: {
   authenticated?: boolean
-  role?: 'spejder' | 'bandit'
+  role?: 'spejder' | 'bandit' | 'crew' | 'samarit'
   confirmationRequired?: boolean
   hasPhoto?: boolean
+  hasVehicle?: boolean
   location?: 'unknown' | 'granted' | 'denied'
   notifications?: 'unknown' | 'granted' | 'denied'
   subscribed?: boolean
@@ -23,6 +25,7 @@ function world(overrides: {
   const profile = useProfileStore()
   const location = useLocationStore()
   const notifications = useNotificationsStore()
+  const vehicles = useVehiclesStore()
 
   session.user =
     overrides.authenticated === false
@@ -35,6 +38,21 @@ function world(overrides: {
   // Defaults to true so the existing cases keep meaning "notifications are done"; the tests
   // below that care about the distinction set it explicitly.
   notifications.subscribed = overrides.subscribed ?? true
+  // Defaults to "already has one" for the same reason: it keeps every pre-existing case
+  // meaning "nothing left to do". The vehicle cases below set it explicitly.
+  vehicles.vehicles = overrides.hasVehicle ?? true ? [vehicleFixture()] : []
+}
+
+function vehicleFixture() {
+  return {
+    id: 'v1',
+    licensePlate: 'DK+AB12345',
+    brand: '',
+    model: '',
+    color: '',
+    seatCount: 0,
+    description: '',
+  }
 }
 
 describe('onboarding.store', () => {
@@ -146,16 +164,91 @@ describe('onboarding.store', () => {
     expect(useOnboardingStore().currentStep).toBe('portrait')
   })
 
-  // The slots are absent until their PRDs are approved. If either arrives without this
-  // test being updated, that is the signal to re-read PRD 005 §6.
-  it('does not contain the PRD 009 / PRD 010 slots yet', () => {
-    world({ hasPhoto: false, confirmationRequired: true, location: 'unknown', notifications: 'unknown' })
+  // PRD 009's slot is still absent. PRD 010's `vehicle` step landed in task 241 and now sits
+  // between `portrait` and `location` — if the offline-sync slot ever arrives without this test
+  // being updated, that is the signal to re-read PRD 005 §6.
+  it('has the full sequence for a member with everything outstanding', () => {
+    world({
+      role: 'bandit',
+      hasPhoto: false,
+      hasVehicle: false,
+      location: 'unknown',
+      notifications: 'unknown',
+    })
     expect(useOnboardingStore().steps.map((s) => s.id)).toEqual([
       'login',
-      'confirm-profile',
       'portrait',
+      'vehicle',
       'location',
       'notifications',
     ])
+  })
+
+  it('does not contain the PRD 009 offline-sync slot yet', () => {
+    world({ hasPhoto: false, confirmationRequired: true, location: 'unknown', notifications: 'unknown' })
+    expect(useOnboardingStore().steps.map((s) => s.id)).not.toContain('offline-sync')
+  })
+
+  // —— The vehicle step (PRD 010, task 241) ——
+
+  it('asks a bandit with no vehicle about one, after the portrait', () => {
+    world({ role: 'bandit', hasVehicle: false, hasPhoto: false })
+    const onboarding = useOnboardingStore()
+
+    // Order matters: it is an "about you" question, so it comes after the portrait and before
+    // the device prompts.
+    expect(onboarding.currentStep).toBe('portrait')
+    onboarding.skip('portrait')
+    expect(onboarding.currentStep).toBe('vehicle')
+  })
+
+  // The one hard rule of this step. A spejder is a minor who does not drive to the event, so
+  // there is nothing to ask — and the step must be *absent*, not empty.
+  it('never shows the vehicle step to a spejder', () => {
+    world({ role: 'spejder', hasVehicle: false })
+    const onboarding = useOnboardingStore()
+    expect(onboarding.currentStep).toBe(null)
+    expect(onboarding.steps.map((s) => s.id)).not.toContain('vehicle')
+  })
+
+  // Written as an exclusion rather than an allow-list, so a role nobody thought about when this
+  // was built still gets asked. These two are crew roles that no `bandit | gøgler | crew` list
+  // would have named.
+  it('shows the vehicle step to every other role, not a named few', () => {
+    for (const role of ['crew', 'samarit'] as const) {
+      setActivePinia(createPinia())
+      world({ role, hasVehicle: false })
+      expect(useOnboardingStore().steps.map((s) => s.id)).toContain('vehicle')
+    }
+  })
+
+  it('does not ask again once a vehicle is on file', () => {
+    world({ role: 'bandit', hasVehicle: true })
+    const onboarding = useOnboardingStore()
+    expect(onboarding.currentStep).toBe(null)
+    expect(onboarding.steps.map((s) => s.id)).not.toContain('vehicle')
+  })
+
+  // "No, I am not bringing a vehicle" is a skip, not a stored fact: it steps aside for this
+  // flow and is asked again on a later launch, exactly like the portrait. Persisting it would
+  // turn "not now" into "never" for a member who ends up borrowing a car.
+  it('lets a declined vehicle question return on a later launch', () => {
+    world({ role: 'bandit', hasVehicle: false })
+    const onboarding = useOnboardingStore()
+    expect(onboarding.currentStep).toBe('vehicle')
+
+    onboarding.skip('vehicle')
+    expect(onboarding.currentStep).toBe(null)
+
+    setActivePinia(createPinia())
+    world({ role: 'bandit', hasVehicle: false })
+    expect(useOnboardingStore().currentStep).toBe('vehicle')
+  })
+
+  // Only login blocks. A member who will not talk about their car must still get into a safety
+  // app.
+  it('never blocks the flow on the vehicle step', () => {
+    world({ role: 'bandit', hasVehicle: false })
+    expect(useOnboardingStore().blocked).toBe(false)
   })
 })

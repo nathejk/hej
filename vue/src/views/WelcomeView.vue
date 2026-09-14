@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import WelcomeStepLogin from '@/components/onboarding/WelcomeStepLogin.vue'
 import WelcomeStepConfirmProfile from '@/components/onboarding/WelcomeStepConfirmProfile.vue'
 import WelcomeStepPortrait from '@/components/onboarding/WelcomeStepPortrait.vue'
+import WelcomeStepVehicle from '@/components/onboarding/WelcomeStepVehicle.vue'
 import WelcomeStepLocation from '@/components/onboarding/WelcomeStepLocation.vue'
 import WelcomeStepNotifications from '@/components/onboarding/WelcomeStepNotifications.vue'
 import { Progress } from '@/components/ui/progress'
@@ -12,6 +13,7 @@ import { APP_NAME } from '@/config/brand'
 import { useOnboardingStore, type OnboardingStepId } from '@/stores/onboarding.store'
 import { useProfileStore } from '@/stores/profile.store'
 import { useSessionStore } from '@/stores/session.store'
+import { useVehiclesStore } from '@/stores/vehicles.store'
 
 // The onboarding shell (PRD 005 §7): it asks the store which step is current, renders that
 // step, and shows how far through the flow the user is.
@@ -22,9 +24,9 @@ import { useSessionStore } from '@/stores/session.store'
 // permission state, that rule is broken and a user who kills the app mid-flow resumes in the
 // wrong place.
 //
-// The step *order* is likewise the store's: PRD 010's `vehicle` slot and PRD 009's
-// `offline-sync` slot are absent until those PRDs are approved, and adding them is a data
-// change there, not a template change here.
+// The step *order* is likewise the store's: PRD 009's `offline-sync` slot is absent until that
+// PRD is approved, and adding it is a data change there, not a template change here. PRD 010's
+// `vehicle` step arrived exactly that way (task 241).
 //
 // `fullBleed` is deliberately NOT set on this route. It is tempting — the map uses it to lose
 // the header — but it only suppresses the header *inside* `showShell`, and `showShell` is
@@ -34,6 +36,7 @@ import { useSessionStore } from '@/stores/session.store'
 const onboarding = useOnboardingStore()
 const profile = useProfileStore()
 const session = useSessionStore()
+const vehicles = useVehiclesStore()
 const router = useRouter()
 
 // The step components, keyed by the store's ids. A map rather than a chain of v-ifs so the
@@ -42,6 +45,7 @@ const stepComponents = {
   login: WelcomeStepLogin,
   'confirm-profile': WelcomeStepConfirmProfile,
   portrait: WelcomeStepPortrait,
+  vehicle: WelcomeStepVehicle,
   location: WelcomeStepLocation,
   notifications: WelcomeStepNotifications,
 } as const
@@ -92,8 +96,21 @@ const percent = computed(() => {
 // The profile is what `confirmation_required` and `hasPhoto` come from, so the flow cannot
 // decide anything past login without it. Fetched once here rather than in the steps: two steps
 // reading the same endpoint on mount would issue two requests for one answer.
+//
+// The vehicles list is loaded for the same reason and with the same care (PRD 010, task 241):
+// the vehicle step applies only to a member with no vehicle on file, so deciding against an
+// unloaded store would re-ask somebody who registered their car on an earlier visit. Skipped
+// for spejdere, who may not register one — the same role gate the contacts prefetch uses, and
+// for the same reason: a few hundred phones asking for something the server will always refuse
+// is not a request worth making.
+//
+// Neither call blocks the flow. Both stores swallow their failures, and the step machine reads
+// whatever state exists — a member with no signal is asked about a vehicle they may already have
+// registered, which is a far better failure than being kept out of the app.
 async function loadProfile() {
-  if (session.isAuthenticated) await profile.ensureLoaded()
+  if (!session.isAuthenticated) return
+  await profile.ensureLoaded()
+  if (session.role !== null && session.role !== 'spejder') await vehicles.ensureLoaded()
 }
 
 onMounted(loadProfile)

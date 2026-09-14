@@ -4,6 +4,7 @@ import { useLocationStore } from '@/stores/location.store'
 import { useNotificationsStore } from '@/stores/notifications.store'
 import { useProfileStore } from '@/stores/profile.store'
 import { useSessionStore } from '@/stores/session.store'
+import { useVehiclesStore } from '@/stores/vehicles.store'
 
 // The step machine behind /welcome, plus the per-device "onboarding complete" flag the
 // router gate reads (PRD 005 §8).
@@ -20,6 +21,7 @@ export type OnboardingStepId =
   | 'login'
   | 'confirm-profile'
   | 'portrait'
+  | 'vehicle'
   | 'location'
   | 'notifications'
 
@@ -30,6 +32,16 @@ interface StepContext {
   confirmationRequired: boolean
   isSpejder: boolean
   hasPhoto: boolean
+  /**
+   * Whether this role may register a vehicle at all — everyone except a spejder.
+   *
+   * Derived from the role as an *exclusion*, not an allow-list, so a role added to
+   * `ALL_ROLES` later is included rather than silently denied a step for the car they are
+   * driving to the event anyway (see `allRolesExcept` in `@/config/roles`).
+   */
+  mayRegisterVehicle: boolean
+  /** Whether the member already has a vehicle on file. */
+  hasVehicle: boolean
   locationSettled: boolean
   notificationsSettled: boolean
   skipped: OnboardingStepId[]
@@ -50,15 +62,15 @@ interface StepDescriptor {
 // The canonical sequence, as data.
 //
 // Deliberately a declarative array rather than if/else control flow, for two reasons:
-// PRD 009's offline-sync step and PRD 010's vehicle step are *slots* that must be absent
-// until those PRDs are approved and addable without touching this machine's logic; and the
-// step count has already drifted once between PRD 005 §5 and §6, which is what happens
-// when a sequence is implied by code instead of written down in one place.
+// PRD 009's offline-sync step is a *slot* that must be absent until that PRD is approved and
+// addable without touching this machine's logic; and the step count has already drifted once
+// between PRD 005 §5 and §6, which is what happens when a sequence is implied by code instead
+// of written down in one place.
+//
+// PRD 010's `vehicle` step arrived exactly that way (task 241): one entry below, no change to
+// any of the logic around it.
 //
 // Slots deliberately NOT present yet:
-//   - `vehicle` — bandit/gøgler/crew only, owned by **PRD 010** (unapproved). Sits after
-//     `portrait` and before `location`: it is another "about you" question rather than a
-//     device prompt.
 //   - `offline-sync` — first sync, owned by **PRD 009** (unapproved). Sits last.
 const STEPS: StepDescriptor[] = [
   {
@@ -90,6 +102,26 @@ const STEPS: StepDescriptor[] = [
     // (PRD 005 §11, 2026-08-30).
     applies: (ctx) => !ctx.hasPhoto,
     settled: (ctx) => ctx.hasPhoto,
+  },
+  {
+    id: 'vehicle',
+    label: 'Køretøj',
+    // Every role except spejder (PRD 010 §6). Sits here — after the portrait, before
+    // `location` — because it is another "about you" question rather than a device prompt,
+    // and the device prompts are best asked last, once the member has some reason to trust
+    // the app.
+    //
+    // `!ctx.hasVehicle` rather than an unconditional true: a member who registered a car on
+    // a previous visit must not be asked again. That makes the step's applicability depend on
+    // a *loaded* vehicles store, which is why `WelcomeView` pre-loads it alongside the
+    // profile — deciding against an unloaded store would re-ask everyone.
+    applies: (ctx) => ctx.mayRegisterVehicle && !ctx.hasVehicle,
+    // Settled by having registered something. A "no, I am not bringing a vehicle" answer is
+    // NOT settlement — there is nothing to record and nothing to read back — so it is a
+    // session skip, like every other "not now" in this flow. Persisting it would turn it into
+    // "never", which PRD 005 §11 rejected for the portrait for the same reason: plans change,
+    // and the profile page is where a member who ends up borrowing a car registers it.
+    settled: (ctx) => ctx.hasVehicle,
   },
   {
     id: 'location',
@@ -159,12 +191,19 @@ export const useOnboardingStore = defineStore('onboarding', {
       const profile = useProfileStore()
       const location = useLocationStore()
       const notifications = useNotificationsStore()
+      const vehicles = useVehiclesStore()
 
       return {
         authenticated: session.isAuthenticated,
         confirmationRequired: profile.confirmationRequired,
         isSpejder: session.role === 'spejder',
         hasPhoto: profile.hasPhoto,
+        // Stated as "not a spejder" rather than a list of the roles that may. A `null` role
+        // (nobody signed in, or one this build does not know) answers false: the step is
+        // pointless before login anyway, and guessing would show a form to somebody whose
+        // registration the BFF will refuse.
+        mayRegisterVehicle: session.role !== null && session.role !== 'spejder',
+        hasVehicle: vehicles.hasAny,
         // `location.store`'s resolved value, deliberately not a fresh
         // `navigator.permissions` query: WebKit answers `prompt` for a *granted*
         // geolocation permission (see that store's comment), so re-querying here would
