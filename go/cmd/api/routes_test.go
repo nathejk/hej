@@ -55,6 +55,11 @@ func newTestApp(t *testing.T) *application {
 		// that DO test a limit build their own.
 		photoLimiter: ratelimit.New(100, time.Minute),
 		pushStore:    push.NewMemoryStore(),
+		// Same TTL as production. Present in every test app rather than only where it is
+		// exercised: the handlers that reach for it do so before touching anything else, so a nil
+		// here fails as a panic inside a request — which surfaces as a hung client rather than as
+		// a readable test failure.
+		contactChecks: newContactCheck(6 * time.Hour),
 	}
 }
 

@@ -52,6 +52,11 @@ func (app *application) routes() http.Handler {
 	// The member supplying a guardian number themselves, when they cannot recognise ours
 	// (task 148). Publishes the same event as /confirm, with the two numbers differing.
 	router.HandlerFunc(http.MethodPost, "/api/me/profile/guardian", app.requireAuth(app.setGuardianHandler))
+	// Giving up on the check (PRD 015, task 228). Publishes the same event as the two above, with
+	// no contact number — which is what tells check-in to ask this member. An endpoint rather than
+	// a client-side skip, because "nobody recorded anything" is indistinguishable from "never
+	// opened the app", and those want different things from the counter.
+	router.HandlerFunc(http.MethodPost, "/api/me/profile/skip", app.requireAuth(app.skipProfileCheckHandler))
 	// The caller's own portrait (PRD 003). Both are session-scoped: no user id in the
 	// path, so neither can be pointed at somebody else's face. Cross-person viewing is
 	// PRD 007, with its own access matrix and audit — it must not arrive as a parameter

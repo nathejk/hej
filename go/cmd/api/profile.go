@@ -241,6 +241,85 @@ func (app *application) confirmProfileHandler(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// skipProfileCheckHandler records that the member gave up on the contact-number check (PRD 015,
+// task 228).
+//
+// # Why a give-up needs an endpoint at all
+//
+// Until now "spring over" happened only in the client, so the stream could not tell a member who
+// looked at the number and could not place it from a member who never opened the app. Both walk up
+// to the counter and get asked — but only one of them was worth knowing about in advance, and the
+// counter had no way to see it.
+//
+// # 204 for every outcome the member can cause
+//
+// A double submit, a retry after a dropped connection, a member who already gave up in this
+// session: all 204. The client's next move is the same in each case (let them into the app), and
+// there is no failure here for a member to correct. Only a broken publish is reported, as 503.
+//
+// # It does not gate on confirmationRequired
+//
+// A member with nothing to confirm has nothing to give up on, but answering 409 for that would
+// hand the client a distinction it cannot act on — and would tempt a caller into inferring which
+// population somebody belongs to from a status code. The publish is skipped for them instead.
+//
+// @Summary      Give up on the contact-number check
+// @Description  Records that the member could not confirm their emergency contact number and is carrying on without it — either by choosing to skip, or by running out of recall attempts. Publishes that the member's OWN number is verified (the SMS PIN proved it) with an empty contact number, which is what tells check-in to ask this member. No reason is recorded: a member who could not recall the number and one who tapped past the screen lead to the same action at the counter. Idempotent per login session, so a double submit records one outcome. Always 204 unless the event could not be published; the client lets the member into the app regardless, since login is the only mandatory step.
+// @Tags         me
+// @Produce      json
+// @Success      204
+// @Failure      401  {object}  map[string]string
+// @Failure      429  {object}  map[string]string
+// @Failure      503  {object}  map[string]string
+// @Router       /me/profile/skip [post]
+func (app *application) skipProfileCheckHandler(w http.ResponseWriter, r *http.Request) {
+	s, ok := contextGetSession(r)
+	if !ok {
+		app.AuthenticationRequiredResponse(w, r)
+		return
+	}
+
+	// Shares the confirm limiter: this is the same screen and the same conversation.
+	if !app.confirmLimiter.Allow(clientIP(r)) {
+		app.RateLimitResponse(w, r)
+		return
+	}
+
+	// Already over for this login session — a second tap, or the client retrying after a timeout
+	// it could not distinguish from a failure. One outcome per check, so nothing is published.
+	key := contactCheckKey(s.UserID, s.ExpiresAt)
+	if app.contactChecks.Close(key) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	p, found := app.person(s.UserID)
+	if !found {
+		// Nothing to publish against. Retryable rather than a 404: the client cannot act on it,
+		// and the member is getting into the app either way.
+		app.ServiceUnavailableResponse(w, r, "kan ikke gemmes lige nu")
+		return
+	}
+	// A population with no contact number (bandit, crew, gøgler) never sees this step, so a skip
+	// from one is a client bug rather than a fact about the member. Accepted quietly — there is
+	// nothing for them to give up on, and nothing worth telling the counter.
+	if p.PhoneParent == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if err := app.recordContactCheckGivenUp(r.Context(), p); err != nil {
+		if errors.Is(err, commands.ErrNoPublisher) {
+			app.ServiceUnavailableResponse(w, r, "kan ikke gemmes lige nu")
+			return
+		}
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // lastTwoDigitsMatch reports whether `typed` is the last two digits of `number`.
 //
 // Digits are compared, not strings: the stored number is normalized (`4512345678`) while

@@ -169,6 +169,62 @@ func (app *application) recordOwnPhoneVerified(personID, provenPhone string) {
 	}
 }
 
+// recordContactCheckGivenUp publishes the outcome of a member giving up on the contact-number
+// check — by tapping "spring over", or by running out of attempts (PRD 015, tasks 227/228).
+//
+// # It is a verification, not a failure record
+//
+// The event is the same shape as the login publish: the member's own `Phone`, no `PhoneContact`.
+// That is a true statement rather than a workaround for a missing message type — their own number
+// *is* verified, because the PIN proved it, and the contact number is not. A consumer asks "do we
+// have a verified contact number for this member?" and gets "not yet", which is exactly what
+// check-in needs to know: ask this one.
+//
+// Nothing records *why* they gave up. Deliberate (PRD 015 §4): a member who could not recall the
+// number and a member who tapped past the screen lead to the same action at the counter.
+//
+// # Unlike the login publish, this always fires
+//
+// No once-per-number suppression. That optimisation exists to keep daily logins off the stream;
+// applying it here would mean a member whose own number was already recorded produces *nothing*
+// when they give up — which is the silence this whole PRD exists to remove, for precisely the
+// members it is about.
+//
+// Idempotency is handled by the caller through `contactCheck.Close`, which reports whether the
+// check was already over. A double submit therefore publishes once.
+//
+// # A failed publish fails the request
+//
+// Opposite of recordOwnPhoneVerified, and for the reason given on storeVerification: here the
+// publish *is* the act being recorded. The client is expected to let the member into the app
+// anyway — login is the only mandatory step — so a 503 here costs the outcome, not the member's
+// evening, and check-in remains the backstop.
+func (app *application) recordContactCheckGivenUp(ctx context.Context, p person.Person) error {
+	_ = ctx
+
+	if p.PersonID == "" {
+		return fmt.Errorf("record given up: no person")
+	}
+
+	subject, err := person.VerifiedSubject(p.Year, p.PersonID)
+	if err != nil {
+		return fmt.Errorf("record given up: %w", err)
+	}
+
+	body := messages.NathejkMemberVerified{
+		MemberID: types.MemberID(p.PersonID),
+		// The member's own number, from the register. The PIN they typed to get here proved it, so
+		// this event is entitled to say so — and saying it here means the give-up outcome is not
+		// silently *less* informative than the login that preceded it.
+		Phone:      types.PhoneNumber(p.Phone),
+		VerifiedAt: time.Now().UTC(),
+	}
+	if err := app.commands.Publish(subject, body); err != nil {
+		return fmt.Errorf("publish given up: %w", err)
+	}
+	return nil
+}
+
 // confirmationRequired reports whether this member still has to confirm their guardian
 // number.
 //

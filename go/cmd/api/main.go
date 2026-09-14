@@ -73,6 +73,15 @@ type application struct {
 	// confirms once, so there is no legitimate per-user burst to accommodate, and the thing
 	// worth blunting is one client looping — not one member retrying twice.
 	confirmLimiter *ratelimit.Limiter
+	// contactChecks counts failed recall attempts per login session, so a member who cannot
+	// remember their contact number is let out of the check after three tries instead of being
+	// stuck in it (PRD 015, task 227). Also the idempotency guard for the give-up outcome.
+	//
+	// Distinct from confirmLimiter and must stay that way: that one blunts a hammering client
+	// by IP, this one is a product rule about one member's attempts. A whole patrol shares one
+	// campsite wifi, so tightening the IP limiter to enforce a per-member rule would lock out
+	// the members who did nothing wrong.
+	contactChecks *contactCheck
 	// choices issues the short-lived token that carries a user from "PIN verified" to
 	// "which of you is this?" when a phone number is shared (task 079).
 	choices *choice.Manager
@@ -380,6 +389,11 @@ func run(logger *slog.Logger) error {
 		// wrong — while leaving room for a shared network: a patrol on one hotspot all
 		// confirming during the same briefing must not throttle each other.
 		confirmLimiter: ratelimit.New(20, time.Hour),
+		// Long enough that a member who leaves the check open, locks their phone and comes back
+		// still has the same budget, short enough that the map does not accumulate one entry per
+		// login for the life of the process. Forgetting is the generous direction: it hands back
+		// attempts rather than taking them away.
+		contactChecks: newContactCheck(6 * time.Hour),
 
 		pushStore: push.NewMemoryStore(),
 	}
