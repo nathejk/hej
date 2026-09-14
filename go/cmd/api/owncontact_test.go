@@ -196,6 +196,61 @@ func TestShowProfile_KeepsAGenuineContactNumber(t *testing.T) {
 	}
 }
 
+// After the start, the app shows the number **check-in** recorded, not the register's. A member
+// reading a stale register value off their own screen would believe we will call a phone nobody at
+// the counter ever wrote down (PRD 015, task 230).
+func TestShowProfile_PrefersTheNumberCheckInRecorded(t *testing.T) {
+	register := "+4520000001"
+	checkIn := "+4544556677"
+
+	app := profileAppFor(t, users.User{
+		ID:          "mock-spejder-1",
+		Role:        users.RoleSpejder,
+		Name:        "Sofie Spejder",
+		Phone:       "+4530000001",
+		PhoneParent: &register,
+	})
+	// The projection is the only place the check-in number lives, so it has to answer here.
+	app.models = data.NewModels(
+		stubDirectory{u: users.User{
+			ID: "mock-spejder-1", Role: users.RoleSpejder, Name: "Sofie Spejder",
+			Phone: "+4530000001", PhoneParent: &register,
+		}},
+		scans.NewMockSource(),
+		nil,
+		&stubPeople{found: true, p: person.Person{
+			PersonID:            "mock-spejder-1",
+			Year:                "2026",
+			AppRole:             person.RoleSpejder,
+			Phone:               "+4530000001",
+			PhoneParent:         &register,
+			StartedPhoneContact: &checkIn,
+			MemberStatus:        person.MemberStatusRacing,
+		}},
+	)
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	cookies := authedCookies(t, app, srv, "30000001", "+4530000001")
+	resp := getWithCookies(t, srv.URL+"/api/me/profile", cookies)
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	var out struct {
+		PhoneParent *string `json:"phone_parent"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.PhoneParent == nil || *out.PhoneParent != checkIn {
+		t.Errorf("phone_parent = %v, want the number check-in recorded (%q)", out.PhoneParent, checkIn)
+	}
+	if strings.Contains(string(body), register) {
+		t.Errorf("the register's superseded number must not be shown: %s", body)
+	}
+}
+
 // A blanked number cannot be confirmed. Without this, a member could recall the two digits of their
 // own number — which they know perfectly — and be fast-tracked through check-in on a record that
 // cannot serve its purpose.

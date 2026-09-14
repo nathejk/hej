@@ -93,6 +93,23 @@ CREATE TABLE IF NOT EXISTS person (
     phoneVerifiedAt TIMESTAMP NULL DEFAULT NULL,
     verifiedPhone VARCHAR(99) NULL DEFAULT NULL,
 
+    -- What check-in recorded when this member started (PRD 015, task 230), from the members
+    -- carried on `patrulje.*.started`. After the start these are what staff actually hold, so
+    -- they are what the app shows — showing the register's value while the counter holds another
+    -- one is worse than showing nothing.
+    --
+    -- The same number is spelled four ways across the stream, which is worth writing down once:
+    --
+    --   phoneContact   the register's own name for it (NathejkScoutUpdated)
+    --   phoneGuardian  the start event's name for it (NathejkTeamStarted_Member)
+    --   phoneParent    this projection's column, holding the register's value
+    --   startedPhoneContact  this column, holding what check-in recorded
+    --
+    -- Empty is never written over a value: a start event that omits a number says nothing about
+    -- it, and "" here would read as "check-in recorded no contact number".
+    startedPhone VARCHAR(99) NULL DEFAULT NULL,
+    startedPhoneContact VARCHAR(99) NULL DEFAULT NULL,
+
     -- Content hash of the portrait in the blob store (internal/blob). The bytes
     -- never live in this row: a projection rebuild truncates and refills, and
     -- portraits are the one thing that cannot be rebuilt from the log.

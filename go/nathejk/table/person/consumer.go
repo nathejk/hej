@@ -2,6 +2,7 @@ package person
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/jrgensen/cqrs"
 	"github.com/nathejk/shared-go/messages"
@@ -948,6 +949,25 @@ func (c consumer) handlePatrolNumberAssigned(msg cqrs.Message, year string) erro
 // `memberStatus` therefore now holds any valid `types.MemberStatus`, not just `racing`.
 // This handler remains because `patrulje.*.started` is where `racing` comes from and it is
 // not one of the member events.
+//
+// # It also records the numbers check-in holds (PRD 015, task 230)
+//
+// The event carries `Phone` and `PhoneGuardian` per member — what the counter established when it
+// started them — and this handler discarded both for two years. They are recorded now because after
+// the start those are the numbers staff actually have, and showing the member the register's value
+// instead would put a number on their screen that nobody at the counter would dial.
+//
+// The same number is spelled four ways along its journey, which is worth stating where the mapping
+// happens rather than leaving to whoever next traces it:
+//
+//	phoneContact         the register's own name (NathejkScoutUpdated)
+//	phoneGuardian        the start event's name (NathejkTeamStarted_Member)
+//	phoneParent          this projection's column for the register's value
+//	startedPhoneContact  this projection's column for what check-in recorded
+//
+// An omitted number writes nothing. A start event that does not carry a number says nothing about
+// it, and writing "" would turn silence into the claim "check-in recorded no contact number" —
+// which is the value the app would then show in place of one we do hold.
 func (c consumer) handleTeamStarted(msg cqrs.Message, year string) error {
 	var body messages.NathejkTeamStarted
 	if err := msg.Body(&body); err != nil {
@@ -962,12 +982,24 @@ func (c consumer) handleTeamStarted(msg cqrs.Message, year string) error {
 		if m.MemberID == "" {
 			continue
 		}
+
+		sets := []string{"memberStatus=" + quote(MemberStatusRacing)}
+		// Normalized with the same implementation as every other number in this projection, or
+		// the profile read would compare a raw "20 00 00 01" against a canonical one and treat a
+		// member's own number as somebody else's (task 229's rule reads these).
+		if p := c.normalizePhone(string(m.MemberID), "startedPhone", string(m.Phone)); p != "" {
+			sets = append(sets, "startedPhone="+quote(p))
+		}
+		if p := c.normalizePhone(string(m.MemberID), "startedPhoneContact", string(m.PhoneGuardian)); p != "" {
+			sets = append(sets, "startedPhoneContact="+quote(p))
+		}
+
 		// UPDATE, not upsert: a start event must not invent a person whose details
 		// have not arrived. If the member is not here yet, the replay will apply their
 		// details event and then this one again in order.
 		stmt := fmt.Sprintf(
-			"UPDATE person SET memberStatus=%s WHERE personId=%s AND year=%s",
-			quote(MemberStatusRacing), quote(string(m.MemberID)), quote(year),
+			"UPDATE person SET %s WHERE personId=%s AND year=%s",
+			strings.Join(sets, ", "), quote(string(m.MemberID)), quote(year),
 		)
 		if err := c.w.Consume(stmt); err != nil {
 			return err

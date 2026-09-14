@@ -66,6 +66,15 @@ type Person struct {
 	PhoneVerifiedAt *time.Time
 	VerifiedPhone   *string
 
+	// StartedPhone and StartedPhoneContact are what check-in recorded when this member started,
+	// carried on the start event and projected since task 230 (PRD 015).
+	//
+	// After the start these are the numbers staff actually hold, which is why `ContactNumber()`
+	// prefers them: showing the register's value while the counter holds a different one would put
+	// a number on the member's screen that nobody would dial.
+	StartedPhone        *string
+	StartedPhoneContact *string
+
 	PortraitRef string
 	// PortraitThumbRef is the default (smallest) thumbnail's content hash, or empty when
 	// the portrait predates thumbnails (task 104). Readers fall back to PortraitRef.
@@ -128,6 +137,29 @@ func (p Person) IsVerified() bool {
 	// No number on file at all: whatever was verified, it is not something we can point at now,
 	// so this is not a state in which a tick may be shown.
 	return p.PhoneParent != nil
+}
+
+// ContactNumber returns the contact number that is actually in force for this member, and whether
+// there is one at all.
+//
+// Two sources, in order (PRD 015, tasks 230/231):
+//
+//  1. What **check-in recorded** when the member started. From that moment it is what staff hold,
+//     and the app must not show a different number — a member reading the register's stale value
+//     off their own screen would believe we will call a phone nobody at the counter wrote down.
+//  2. Otherwise `PhoneParent`, the register's value.
+//
+// The second return distinguishes "no contact number for this population" (bandit, crew, gøgler)
+// from "one is expected", which the profile page renders differently and `confirmationRequired`
+// reads — so it must not be collapsed into an empty string by a caller.
+func (p Person) ContactNumber() (string, bool) {
+	if p.StartedPhoneContact != nil && *p.StartedPhoneContact != "" {
+		return *p.StartedPhoneContact, true
+	}
+	if p.PhoneParent == nil {
+		return "", false
+	}
+	return *p.PhoneParent, true
 }
 
 // PhoneVerifiedIs reports whether the member's own number is already recorded as verified, and as
@@ -258,6 +290,7 @@ const personColumns = `
 	memberStatus, armNumber,
 	verifiedAt, acknowledgedPhone,
 	phoneVerifiedAt, verifiedPhone,
+	startedPhone, startedPhoneContact,
 	portraitRef, portraitThumbRef, portraitThumbs,
 	portraitOriginalRef, portraitOrientation, portraitCapturedAt`
 
@@ -471,6 +504,7 @@ func scanPerson(s scanner) (Person, error) {
 		&p.MemberStatus, &p.ArmNumber,
 		&p.VerifiedAt, &p.AcknowledgedPhone,
 		&p.PhoneVerifiedAt, &p.VerifiedPhone,
+		&p.StartedPhone, &p.StartedPhoneContact,
 		&p.PortraitRef, &p.PortraitThumbRef, &thumbs,
 		&p.PortraitOriginalRef, &p.PortraitOrientation,
 		&p.PortraitCapturedAt,

@@ -8,6 +8,7 @@ import (
 
 	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/phone"
+	"nathejk.dk/internal/users"
 	"nathejk.dk/nathejk/table/person"
 )
 
@@ -110,7 +111,7 @@ func (app *application) showProfileHandler(w http.ResponseWriter, r *http.Reques
 		// Blanked when it is really the member's own number (task 229): such a record cannot serve
 		// its purpose, and letting it verify would fast-track past check-in the one member whose
 		// record needs fixing. Projected out here rather than left to the client — `.rules`.
-		PhoneParent:          contactNumberForOwner(user.PhoneParent, user.Phone),
+		PhoneParent:          contactNumberForOwner(app.contactNumber(s.UserID, user), user.Phone),
 		HasPhoto:             app.hasPortrait(s.UserID),
 		ConfirmationRequired: app.confirmationRequired(s.UserID),
 		VerifiedAt:           app.verifiedAt(s.UserID),
@@ -119,6 +120,33 @@ func (app *application) showProfileHandler(w http.ResponseWriter, r *http.Reques
 	if err := app.WriteJSON(w, http.StatusOK, out, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
 	}
+}
+
+// contactNumber resolves which contact number to show this member: the one check-in recorded once
+// they have started, otherwise the register's (PRD 015, task 230).
+//
+// # Why it reads the projection and not just the directory
+//
+// The profile is assembled from `users.User`, which carries the register's `PhoneParent` and knows
+// nothing about check-in. The number the counter wrote down arrives on the start event and lives on
+// the person row, so the two have to be combined here. `person.Person.ContactNumber` owns the
+// precedence, so the rule is stated once for every caller.
+//
+// Falls back to the directory's value whenever the projection cannot answer — an outage must degrade
+// to "the register's number", not to "no contact number", which the client would render as though
+// the member had none on file.
+func (app *application) contactNumber(personID string, user users.User) *string {
+	p, found := app.person(personID)
+	if !found {
+		return user.PhoneParent
+	}
+	number, has := p.ContactNumber()
+	if !has {
+		// The projection says this population has no contact number at all. Trust the directory
+		// only if it disagrees by having one, since nil-vs-"" is the distinction both sides guard.
+		return user.PhoneParent
+	}
+	return &number
 }
 
 // contactNumberForOwner returns the contact number to show the member it belongs to, blanking one

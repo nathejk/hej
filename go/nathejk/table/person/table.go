@@ -118,6 +118,10 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer, opts
 		// since this shipped".
 		{"phoneVerifiedAt", `phoneVerifiedAt TIMESTAMP NULL DEFAULT NULL`},
 		{"verifiedPhone", `verifiedPhone VARCHAR(99) NULL DEFAULT NULL`},
+		// Arrived with PRD 015 (task 230): what check-in recorded for this member, which the start
+		// event has always carried and this projection always discarded.
+		{"startedPhone", `startedPhone VARCHAR(99) NULL DEFAULT NULL`},
+		{"startedPhoneContact", `startedPhoneContact VARCHAR(99) NULL DEFAULT NULL`},
 		// Arrived with PRD 007's patrol lookup (task 176), which matches a typed patrol
 		// number. Empty for every klan and section, which is normal rather than missing.
 		{"teamNumber", `teamNumber VARCHAR(32) NOT NULL DEFAULT ""`},

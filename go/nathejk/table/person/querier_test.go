@@ -222,6 +222,7 @@ func personColumnNames() []string {
 		"memberStatus", "armNumber",
 		"verifiedAt", "acknowledgedPhone",
 		"phoneVerifiedAt", "verifiedPhone",
+		"startedPhone", "startedPhoneContact",
 		"portraitRef", "portraitThumbRef", "portraitThumbs",
 		"portraitOriginalRef", "portraitOrientation", "portraitCapturedAt",
 	}
@@ -248,6 +249,7 @@ func addPersonRow(rows *sqlmock.Rows, personID, name, phone string) {
 		"phoneParent": true, "birthday": true,
 		"verifiedAt": true, "acknowledgedPhone": true,
 		"phoneVerifiedAt": true, "verifiedPhone": true,
+		"startedPhone": true, "startedPhoneContact": true,
 		"portraitCapturedAt": true,
 		"portraitThumbs":     true,
 	}

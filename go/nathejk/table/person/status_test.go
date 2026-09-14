@@ -69,6 +69,64 @@ func TestTeamStartedIsIdempotent(t *testing.T) {
 	}
 }
 
+// The start event has always carried the numbers check-in recorded, and this projection discarded
+// them until task 230. After the start they are what staff actually hold.
+func TestTeamStartedRecordsTheNumbersCheckInHolds(t *testing.T) {
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK:2026.patrulje.team-9.started",
+		messages.NathejkTeamStarted{
+			TeamID: "team-9",
+			Members: []messages.NathejkTeamStarted_Member{
+				{MemberID: "member-1", Phone: "30 11 22 33", PhoneGuardian: "40 55 66 77"},
+			},
+		}))
+
+	// Normalized, like every other number in this projection: the profile read compares these
+	// against a canonical own number, so a raw value would read as a different number.
+	if !strings.Contains(stmt, `startedPhone="+4530112233"`) {
+		t.Errorf("own number missing or unnormalized: %s", stmt)
+	}
+	if !strings.Contains(stmt, `startedPhoneContact="+4540556677"`) {
+		t.Errorf("contact number missing or unnormalized: %s", stmt)
+	}
+	if !strings.Contains(stmt, `memberStatus="racing"`) {
+		t.Errorf("the status must still be written: %s", stmt)
+	}
+}
+
+// An omitted number says nothing about it. Writing "" would turn that silence into the claim
+// "check-in recorded no contact number" — and that claim is what the app would then show the member
+// in place of a number we do hold.
+func TestTeamStartedDoesNotBlankNumbersItWasNotGiven(t *testing.T) {
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK:2026.patrulje.team-9.started",
+		messages.NathejkTeamStarted{
+			TeamID:  "team-9",
+			Members: []messages.NathejkTeamStarted_Member{{MemberID: "member-1"}},
+		}))
+
+	if strings.Contains(stmt, "startedPhone") || strings.Contains(stmt, "startedPhoneContact") {
+		t.Errorf("an event with no numbers must not write the columns at all: %s", stmt)
+	}
+}
+
+// A member whose contact number is unusable is still started — the status is what the race runs on,
+// and a bad phone number must not dead-letter it (the same rule handleSpejderUpdated follows).
+func TestTeamStartedSurvivesAnUnusableNumber(t *testing.T) {
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK:2026.patrulje.team-9.started",
+		messages.NathejkTeamStarted{
+			TeamID: "team-9",
+			Members: []messages.NathejkTeamStarted_Member{
+				{MemberID: "member-1", PhoneGuardian: "123"},
+			},
+		}))
+
+	if !strings.Contains(stmt, `memberStatus="racing"`) {
+		t.Errorf("the member must still be marked racing: %s", stmt)
+	}
+	if strings.Contains(stmt, "startedPhoneContact") {
+		t.Errorf("an unusable number must not be stored: %s", stmt)
+	}
+}
+
 // The `.started` subject has the same shape as `.updated`, so a careless switch would
 // route it to the team-name handler and never set a status at all.
 func TestStartedIsNotMistakenForUpdated(t *testing.T) {
