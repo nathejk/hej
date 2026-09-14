@@ -1,22 +1,26 @@
 # PRD 010 — Vehicle registration (cars and trailers, self-registered)
 
-**Status:** draft
+**Status:** doing
 **Author:** agent session (Zed)
 **Created:** 2026-08-25
-**Last updated:** 2026-08-25
-**Approved:**
+**Last updated:** 2026-09-14
+**Approved:** 2026-09-14
 **Shipped:**
-**Target users:** bandit, gøgler and crew (every role that may bring a vehicle). Explicitly **not** spejder.
+**Target users:** **every role except spejder** — i.e. `allRolesExcept('spejder')`: bandit, postmandskab, guide, samarit, gøgler, crew. Stated as an exclusion rather than an allow-list, deliberately (§6).
 
 ---
 
 ## 1. Summary
 
 Let the people who bring vehicles to Nathejk register them from the app: a car,
-and a trailer if they have one. Registration appears as a step in onboarding
-(PRD 005) and remains editable on the profile page (PRD 003), so the organisers have
-a complete inventory of every vehicle associated with the race without collecting it
-by hand.
+and a trailer if they have one. Registration appears as **its own step** in onboarding
+(PRD 005) for everyone except spejdere, and remains editable on the profile page
+(PRD 003), so the organisers have a complete inventory of every vehicle associated with
+the race without collecting it by hand.
+
+**A trailer counts as a second vehicle** (decided 2026-09-14): it gets its own
+registration and its own row, distinguished by `kind`, not a flag or a description on the
+car. See §8.
 
 ## 2. Problem & Motivation
 
@@ -60,7 +64,8 @@ by hand.
 - **Section assignment.** `AssignSection` exists and is organiser-facing; a
   self-registering crew member's section is already known from PRD 006.
 - **Spejder registering vehicles.** They are minors and do not drive to the event as
-  drivers. The step must not appear for them.
+  drivers. The step must not appear for them. They are the *only* excluded population —
+  no other role has to argue its way in.
 - **Parking allocation, permits, or access control.** Downstream uses of the
   inventory, not this PRD.
 - **Vehicle tracking / position.** Out of scope, and deliberately so \u2014 see §11.
@@ -83,6 +88,8 @@ by hand.
 3. If yes: registration plate (required), plus brand, model, colour, and **seats
    excluding the driver**.
 4. Optionally "…and a trailer", which asks for the trailer's plate and a description.
+   This registers a **second vehicle** (`kind = trailer`), not an attribute of the car:
+   one `vehicle.registered` per vehicle, two rows in the inventory.
 5. Submitting publishes `vehicle.registered`, and the vehicle appears on the profile
    page from then on, editable and removable.
 
@@ -109,13 +116,22 @@ by hand.
 
 ### Functional
 
-- [ ] A vehicle step in onboarding for **bandit, gøgler and crew**; absent for
+- [ ] A **separate** vehicle step in onboarding — its own step in PRD 005's machine, not
+      a field folded into another — for **every role except spejder**; absent for
       spejder.
+- [ ] The role gate is written as an exclusion (`allRolesExcept('spejder')` on the
+      client, its BFF mirror on the server), so a role added later is included by
+      default rather than silently locked out. This follows the existing comment on
+      `allRolesExcept` in `vue/src/config/roles.ts`, which exists because an allow-list
+      got this wrong once.
+- [ ] A trailer is a **second vehicle**: its own row, its own plate, its own
+      edit/remove — never a boolean or a description on the towing car.
 - [ ] Skipping is a single tap and carries no penalty.
 - [ ] Registration captures: plate (required), brand, model, colour, seat count
       excluding the driver, free-text description.
 - [ ] A **trailer** can be registered, optionally alongside a car, distinguished by
-      the vehicle's `kind` rather than by a convention (§8).
+      the vehicle's `kind` rather than by a convention (§8). Registering "a car and a
+      trailer" yields two vehicles in the inventory.
 - [ ] A trailer is never offered as a pickup vehicle: the pool is
       `kind = car AND seatCount > 0`.
 - [ ] Plates are normalised in one place, shared by registration and duplicate
@@ -142,14 +158,17 @@ by hand.
 
 ## 7. UX / UI Notes
 
-- **Onboarding step** (PRD 005): a yes/no gate first, so the majority who bring
-  nothing answer in one tap and never see a form.
+- **Onboarding step** (PRD 005): a step of its own, sitting after `portrait` and before
+  `location` — it is another "about you" question, not a device prompt. A yes/no gate
+  comes first, so the majority who bring nothing answer in one tap and never see a form.
 - **The form** is short and ordered by what people know without looking: plate,
   then brand/model/colour, then seats. Seat count needs a label that makes
   "excluding the driver" unmissable \u2014 an off-by-one here means a coordinator
   dispatches a car with one seat too few at the worst moment.
 - **Trailer** is an explicit "tilføj anhænger" affordance after the car, not a
-  separate flow, since the two are registered together in practice.
+  separate flow, since the two are registered together in practice — but it produces a
+  second vehicle, and the confirmation and the profile list must both show two entries so
+  the user's mental model matches the inventory's.
 - **Profile page** (PRD 003): a "Mine køretøjer" section listing each vehicle with
   plate and a summary line, plus edit/remove and an "add" action for anyone who
   skipped.
@@ -221,6 +240,24 @@ pushed and version-bumped in both consumers before a `GOWORK=off` build sees the
   `kind = car AND seatCount > 0`, so a trailer cannot be dispatched even if a seat count
   is somehow set.
 
+### Reading a caller's own vehicles: `Filter` needs a custodian (found 2026-09-14)
+
+`vehicle.Filter` in shared-go narrows by year, section, unassigned-ness and
+**driver** — not by custodian. `GET /api/me/vehicles` is custodian-scoped by
+definition, so there is no filter that expresses it today.
+
+Filtering by `DriverUserIDs` is not a substitute: the driver changes as the keys are
+handed on (that is the whole point of `AssignDriver`), so a crew member who lent their
+car out for one pickup would watch it disappear from "my vehicles" — and someone else
+would see it appear under theirs, with edit and delete rights the authorisation rule
+does not grant them.
+
+So the car half needs **one additive shared-go change** after all:
+`CustodianUserIDs []types.UserID` on `Filter`, mirroring `DriverUserIDs` exactly
+(empty slice does not filter). This corrects §10's earlier claim that the car half has
+no cross-repo dependency — it has one, it is small, and it is a prerequisite for the
+read endpoint rather than for the whole feature.
+
 ### Where the code goes
 
 - **Reuse, do not reimplement.** `hej` imports `shared-go/tables/vehicle`, registers
@@ -254,12 +291,14 @@ call each other's APIs).
 ### Dependencies & risks
 
 - **The trailer half depends on a shared-go change** (§8) landing and being
-  version-bumped in both `hej` and `hq`. The car half needs none of it and ships first.
+  version-bumped in both `hej` and `hq`. The car half needs one small additive shared-go
+  change of its own — `CustodianUserIDs` on `vehicle.Filter`, see above — and nothing
+  more.
 - **`hq` must filter dispatch to `kind = car` before trailer registration is enabled.**
   Shipping in the other order would put trailers in the coordinator's pickup list — a
   regression in someone else's surface, caused by this feature.
-- **Depends on PRD 006** for roles: the step must appear for bandit/gøgler/crew and not
-  spejder, which requires the real directory.
+- **Depends on PRD 006** for roles: the step must appear for every role except spejder,
+  which requires the real directory.
 - **Risk: the replay defaults.** Every historical `vehicle.registered` event predates
   `kind`, and projections rebuild from the log on every boot. If the default lives only
   in the column and not in the projector, a rebuild produces blank kinds and every
@@ -282,38 +321,56 @@ call each other's APIs).
 
 ## 10. Rollout / Task Breakdown
 
-Sequence the car half first — it needs no shared-go change and delivers the
-operational value. The trailer half follows, and its ordering across repos is not
+Sequence the car half first — it needs only one additive shared-go change and delivers
+the operational value. The trailer half follows, and its ordering across repos is not
 negotiable: **shared-go, then `hq`'s dispatch filter, then trailer registration here.**
 Enabling registration before `hq` filters would put trailers in the coordinator's
 pickup list.
 
-Proposed tasks for `roadmap/tasks/open/`:
+Tasks created in `roadmap/tasks/open/` on approval (2026-09-14):
 
-**Car half (no cross-repo dependency):**
+**Car half:**
 
-- [ ] Task: register shared-go's `vehicle` projection in `hej` (mux + models)
-- [ ] Task: plate normalisation helper + tests (one implementation, shared)
-- [ ] Task: BFF — `GET /api/me/vehicles` behind `requireAuth`, custodian-scoped
-- [ ] Task: BFF — `POST /api/me/vehicles` via `vehicle.Commands.Register`, incl. duplicate-plate detection
-- [ ] Task: BFF — `PATCH` / `DELETE` with custodian authorisation
-- [ ] Task: onboarding vehicle step (yes/no gate, then form), role-gated
-- [ ] Task: profile page "Mine køretøjer" section (list, edit, remove, add)
+- [ ] 234 — shared-go: `CustodianUserIDs` on `vehicle.Filter` (prerequisite for the read
+      endpoint; see §8)
+- [ ] 235 — wire shared-go's `vehicle` entity into `hej` (mux consumer, `data.Models`,
+      command facade)
+- [ ] 236 — plate normalisation helper + tests (one implementation, shared by
+      registration and duplicate detection)
+- [ ] 237 — BFF `GET /api/me/vehicles`, custodian-scoped
+- [ ] 238 — BFF `POST /api/me/vehicles` incl. duplicate-plate `409`
+- [ ] 239 — BFF `PATCH` / `DELETE /api/me/vehicles/{id}` with custodian authorisation
+- [ ] 240 — frontend: vehicles Pinia store + API client
+- [ ] 241 — onboarding `vehicle` step (role gate, yes/no gate, form)
+- [ ] 242 — profile page "Mine køretøjer" section (list, edit, remove, add)
 
 **Trailer half, in this order:**
 
-- [ ] Task: shared-go — `types.VehicleKind` (`car`/`trailer`) with `Valid()`, a `kind`
+- [ ] 243 — shared-go: `types.VehicleKind` (`car`/`trailer`) with `Valid()`, a `kind`
       column `NOT NULL DEFAULT "car"`, `Kind` on `RegisterFields` and on
       `NathejkVehicleRegistered`, **and a projector default so a replay of pre-`kind`
       events yields `car`**
-- [ ] Task: bump shared-go in `hej` and verify `GOWORK=off`
-- [ ] Task: `hq` — filter dispatch/pickup views to `kind = car`, and bump shared-go
-      there (separate repo; **prerequisite** for the next task, not a follow-up)
-- [ ] Task: trailer registration in onboarding and on the profile page
+- [ ] 244 — bump shared-go in `hej` and verify `GOWORK=off`
+- [ ] 245 — `hq`: filter dispatch/pickup views to `kind = car`, and bump shared-go there
+      (separate repo; **prerequisite** for the next task, not a follow-up)
+- [ ] 246 — trailer registration in onboarding and on the profile page
 
 ## 11. Decisions
 
 Answered questions are recorded here rather than deleted, so the reasoning survives.
+
+- **2026-09-14 — Eligibility is "everyone except spejder", and the step is its own step.**
+  Earlier drafts named bandit, gøgler and crew, which happens to be the same population
+  today but is an allow-list: a role added to `ALL_ROLES` later would be silently denied a
+  vehicle it is bringing anyway. `vue/src/config/roles.ts` already carries this lesson in
+  the comment on `allRolesExcept`, and PRD 007's contacts gate is written the same way.
+
+- **2026-09-14 — A trailer counts as a second vehicle.** One registration, one row, one
+  `vehicle.registered` per physical unit, with `kind` telling them apart. This is what
+  makes the inventory countable ("how many units are on site") and keeps the pickup pool
+  query honest (`kind = car AND seatCount > 0`). The UI still gathers car and trailer in
+  one pass, because that is how people bring them — but that is a form affordance, not the
+  data model.
 
 - **2026-08-25 — Trailers are modelled by a `kind`/type property on shared-go's
   vehicle entity.** Full reasoning, the field's shape, and the replay-default trap are
@@ -331,10 +388,11 @@ Answered questions are recorded here rather than deleted, so the reasoning survi
 
 ## 12. Open Questions
 
-1. **Who else may bring a vehicle?** The request names bandit, gøgler and crew. Are
-   there adults in other roles — patrol leaders, guardians dropping off — whose
-   vehicles are also "associated with the race" and therefore in scope for parking or
-   insurance? They are not app users today, which may be the real answer.
+1. **Who else may bring a vehicle?** *Partly answered 2026-09-14:* every app role except
+   spejder. What remains is the non-user case — guardians dropping off, and other adults
+   whose vehicles are on site for parking or insurance purposes but who have no account
+   here. They are not app users today, which may be the real answer; if they need to be in
+   the inventory it is an organiser tool's job, not this app's.
 2. **Is a plate the right required field?** It is the only reliable field-level
    identifier, but someone borrowing a car may not know it in advance. Allow a
    provisional registration without one, or hold the line?
