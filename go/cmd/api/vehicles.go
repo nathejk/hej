@@ -1,9 +1,12 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/jrgensen/cqrs"
+	"github.com/julienschmidt/httprouter"
+	"github.com/nathejk/shared-go/tables"
 	"github.com/nathejk/shared-go/tables/vehicle"
 	"github.com/nathejk/shared-go/types"
 
@@ -247,24 +250,17 @@ func (app *application) registerVehicleHandler(w http.ResponseWriter, r *http.Re
 
 	year := types.YearSlug(app.config.eventYear)
 
-	// Duplicate check before publishing. Skipped rather than fatal when the read
-	// model is unavailable: refusing an otherwise valid registration because we
-	// cannot check for a duplicate would keep a real car out of the inventory to
-	// avoid a duplicate row, which is the worse of the two outcomes.
-	if app.models.Vehicles != nil {
-		existing, err := app.models.Vehicles.GetAll(r.Context(), vehicle.Filter{
-			YearSlug:     year,
-			LicensePlate: normalized,
-		})
-		if err != nil {
-			app.ServerErrorResponse(w, r, err)
-			return
-		}
-		if len(existing) > 0 {
-			// No identity in the message, deliberately — see the doc comment.
-			app.ConflictResponse(w, r, "køretøjet er allerede registreret")
-			return
-		}
+	// Duplicate check before publishing. See plateTaken for why an unavailable read
+	// model does not block the registration.
+	taken, err := app.plateTaken(r, year, normalized)
+	if err != nil {
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+	if taken {
+		// No identity in the message, deliberately — see the doc comment.
+		app.ConflictResponse(w, r, "køretøjet er allerede registreret")
+		return
 	}
 
 	id, err := app.vehicles.Register(r.Context(), year, vehicle.RegisterFields{
@@ -298,4 +294,206 @@ func (app *application) registerVehicleHandler(w http.ResponseWriter, r *http.Re
 	if err := app.WriteJSON(w, http.StatusCreated, out, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
 	}
+}
+
+// updateVehicleRequest is the editable slice of a vehicle, as a delta.
+//
+// Every field is a pointer, matching shared-go's UpdateFields and
+// NathejkVehicleUpdated: absent leaves the value alone, present-but-zero clears
+// it. Value types would collapse those two into one request, and "clear the
+// description" would become indistinguishable from "do not touch the
+// description" — which, on a form that submits every field, means the user could
+// never clear anything.
+//
+// The custodian is deliberately not here. Handing a vehicle to somebody else is
+// not an edit to its details, and allowing it on this endpoint would let a caller
+// give away a car and lose their own access in one request.
+type updateVehicleRequest struct {
+	LicensePlate *string `json:"license_plate"`
+	Brand        *string `json:"brand"`
+	Model        *string `json:"model"`
+	Color        *string `json:"color"`
+	SeatCount    *uint   `json:"seat_count"`
+	Description  *string `json:"description"`
+}
+
+// ownVehicle resolves a path id to a vehicle the caller is the custodian of.
+//
+// Returns ok=false for a vehicle that does not exist, one that belongs to someone
+// else, and one that has been deleted — all three answer `404`, and the caller
+// must not be able to tell them apart. A `403` would confirm that a plate exists
+// and is registered by somebody, turning these endpoints into a lookup for the
+// inventory; the patrol routes refuse the same way for the same reason.
+//
+// Custodian, never driver: a car lent out for a pickup has a different driver, and
+// the borrower must not be able to edit or withdraw somebody else's registration.
+func (app *application) ownVehicle(w http.ResponseWriter, r *http.Request, id string) (*vehicle.Vehicle, bool) {
+	s, ok := contextGetSession(r)
+	if !ok {
+		app.AuthenticationRequiredResponse(w, r)
+		return nil, false
+	}
+	if app.models.Vehicles == nil {
+		app.ServiceUnavailableResponse(w, r, "vehicle data is not available")
+		return nil, false
+	}
+
+	v, err := app.models.Vehicles.GetByID(r.Context(), types.VehicleID(id))
+	if err != nil {
+		if errors.Is(err, tables.ErrRecordNotFound) {
+			app.NotFoundResponse(w, r)
+			return nil, false
+		}
+		app.ServerErrorResponse(w, r, err)
+		return nil, false
+	}
+	if v.CustodianUserID != types.UserID(s.UserID) {
+		app.NotFoundResponse(w, r)
+		return nil, false
+	}
+	return v, true
+}
+
+// updateVehicleHandler edits a vehicle the caller registered. Runs behind requireAuth.
+//
+// Plans change, and a registration nobody can correct becomes a registration
+// nobody trusts. The delta is passed to shared-go's Update, which prunes it to
+// what actually differs — so re-saving an unchanged form publishes nothing and the
+// stream stays useful for answering when a plate really changed. That pruning is
+// not repeated here.
+//
+// @Summary      Edit one of the caller's vehicles
+// @Description  Partial update of a vehicle the authenticated member is the custodian of. Delta semantics: a field absent from the body is left alone, and a field present with a zero value is cleared. A vehicle that does not exist, belongs to another member, or has been deleted all answer 404 alike, so the endpoint cannot be used to discover which registrations exist. Changing the plate is duplicate-checked like registration.
+// @Tags         vehicles
+// @Accept       json
+// @Produce      json
+// @Param        id       path      string                 true  "Vehicle id"
+// @Param        request  body      updateVehicleRequest   true  "Fields to change"
+// @Success      204
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      409  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Failure      503  {object}  map[string]string
+// @Router       /me/vehicles/{id} [patch]
+func (app *application) updateVehicleHandler(w http.ResponseWriter, r *http.Request) {
+	id := httprouter.ParamsFromContext(r.Context()).ByName("id")
+
+	v, ok := app.ownVehicle(w, r, id)
+	if !ok {
+		return
+	}
+	if app.vehicles == nil {
+		app.ServiceUnavailableResponse(w, r, "vehicle registration is not available")
+		return
+	}
+
+	var input updateVehicleRequest
+	if err := app.ReadJSON(w, r, &input); err != nil {
+		app.BadRequestResponse(w, r, err)
+		return
+	}
+
+	year := types.YearSlug(app.config.eventYear)
+	fields := vehicle.UpdateFields{
+		Brand:       input.Brand,
+		Model:       input.Model,
+		Color:       input.Color,
+		SeatCount:   input.SeatCount,
+		Description: input.Description,
+	}
+
+	// A plate change re-opens the duplicate question, so it runs the same check
+	// registration does rather than a second implementation of it.
+	if input.LicensePlate != nil {
+		normalized, err := plate.Normalize(*input.LicensePlate)
+		if err != nil {
+			app.BadRequestMessageResponse(w, r, "nummerpladen kan ikke genkendes")
+			return
+		}
+		// Only when it actually changes: re-submitting the same plate must not
+		// report the vehicle as a duplicate of itself.
+		if normalized != v.LicensePlate {
+			taken, err := app.plateTaken(r, year, normalized)
+			if err != nil {
+				app.ServerErrorResponse(w, r, err)
+				return
+			}
+			if taken {
+				app.ConflictResponse(w, r, "køretøjet er allerede registreret")
+				return
+			}
+		}
+		fields.LicensePlate = &normalized
+	}
+
+	if err := app.vehicles.Update(r.Context(), year, v.VehicleID, fields); err != nil {
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// deleteVehicleHandler withdraws a vehicle the caller registered. Runs behind requireAuth.
+//
+// A soft delete in the read model: the car drops out of every list, while the
+// events that recorded its runs stay on the stream.
+//
+// Note what "idempotent" can and cannot mean here. A second delete answers `404`,
+// because a deleted row is invisible to the read API and is therefore
+// indistinguishable from a vehicle that never existed or belongs to someone else —
+// and telling those apart is exactly what must not be possible (see ownVehicle).
+// So it is idempotent in effect — no error state, no second event, the car stays
+// gone — rather than in status code.
+//
+// @Summary      Withdraw one of the caller's vehicles
+// @Description  Soft-deletes a vehicle the authenticated member is the custodian of; it drops out of the inventory while its history stays on the event stream. A vehicle that does not exist, belongs to another member, or is already deleted all answer 404 alike, so a repeat call is a 404 rather than a second deletion.
+// @Tags         vehicles
+// @Produce      json
+// @Param        id  path  string  true  "Vehicle id"
+// @Success      204
+// @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Failure      503  {object}  map[string]string
+// @Router       /me/vehicles/{id} [delete]
+func (app *application) deleteVehicleHandler(w http.ResponseWriter, r *http.Request) {
+	id := httprouter.ParamsFromContext(r.Context()).ByName("id")
+
+	v, ok := app.ownVehicle(w, r, id)
+	if !ok {
+		return
+	}
+	if app.vehicles == nil {
+		app.ServiceUnavailableResponse(w, r, "vehicle registration is not available")
+		return
+	}
+
+	if err := app.vehicles.Delete(r.Context(), types.YearSlug(app.config.eventYear), v.VehicleID); err != nil {
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// plateTaken reports whether a plate is already registered this year.
+//
+// One implementation, shared by registration and by a plate change, because two
+// would drift and the one that drifts is the one that stops catching duplicates.
+// An unavailable read model answers "not taken": see the reasoning at the
+// registration call site — keeping a real car out of the inventory to avoid a
+// duplicate row is the worse outcome.
+func (app *application) plateTaken(r *http.Request, year types.YearSlug, normalized string) (bool, error) {
+	if app.models.Vehicles == nil {
+		return false, nil
+	}
+	existing, err := app.models.Vehicles.GetAll(r.Context(), vehicle.Filter{
+		YearSlug:     year,
+		LicensePlate: normalized,
+	})
+	if err != nil {
+		return false, err
+	}
+	return len(existing) > 0, nil
 }

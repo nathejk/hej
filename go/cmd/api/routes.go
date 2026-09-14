@@ -73,6 +73,12 @@ func (app *application) routes() http.Handler {
 	// so nobody can file a car under somebody else's name — which is what task 239's
 	// authorisation then rests on. Role-gated server-side: every role except spejder.
 	router.HandlerFunc(http.MethodPost, "/api/me/vehicles", app.requireAuth(app.registerVehicleHandler))
+	// Editing and withdrawing one (PRD 010). These are the first vehicle routes carrying an
+	// id, so they are the first that *can* be pointed at another member's row: both are
+	// custodian-only, and a vehicle belonging to somebody else answers 404 rather than 403 so
+	// the endpoints cannot be used to discover which registrations exist.
+	router.HandlerFunc(http.MethodPatch, "/api/me/vehicles/:id", app.requireAuth(app.updateVehicleHandler))
+	router.HandlerFunc(http.MethodDelete, "/api/me/vehicles/:id", app.requireAuth(app.deleteVehicleHandler))
 	// The contacts directory (PRD 007). Cached by the client and worked from offline, so
 	// it carries everything the pane needs and nothing it does not: no guardian numbers, no
 	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach

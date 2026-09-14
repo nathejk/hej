@@ -45,7 +45,37 @@ func (f fakeVehicles) GetAll(_ context.Context, filter vehicle.Filter) ([]vehicl
 	if f.filters != nil {
 		*f.filters = append(*f.filters, filter)
 	}
-	return f.all, f.err
+	if f.err != nil {
+		return nil, f.err
+	}
+
+	// The filter is honoured rather than ignored, deliberately. A fake that returns
+	// everything makes a duplicate-detection test pass whether or not the handler
+	// actually narrowed by plate — the same "passes for the wrong reason" failure
+	// that the whereOf helper in shared-go's tests had.
+	out := []vehicle.Vehicle{}
+	for _, v := range f.all {
+		if filter.LicensePlate != "" && v.LicensePlate != filter.LicensePlate {
+			continue
+		}
+		if len(filter.CustodianUserIDs) > 0 && !containsUserID(filter.CustodianUserIDs, v.CustodianUserID) {
+			continue
+		}
+		if len(filter.DriverUserIDs) > 0 && !containsUserID(filter.DriverUserIDs, v.DriverUserID) {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+func containsUserID(ids []types.UserID, want types.UserID) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
 }
 
 var _ vehicle.Queries = fakeVehicles{}
@@ -53,6 +83,8 @@ var _ vehicle.Queries = fakeVehicles{}
 // fakeVehicleCommands records what the write side was asked to publish.
 type fakeVehicleCommands struct {
 	registered *[]vehicle.RegisterFields
+	updated    *[]vehicle.UpdateFields
+	deleted    *[]types.VehicleID
 	id         types.VehicleID
 	err        error
 }
@@ -71,8 +103,11 @@ func (f fakeVehicleCommands) Register(_ context.Context, _ types.YearSlug, field
 	return id, nil
 }
 
-func (f fakeVehicleCommands) Update(context.Context, types.YearSlug, types.VehicleID, vehicle.UpdateFields) error {
-	return nil
+func (f fakeVehicleCommands) Update(_ context.Context, _ types.YearSlug, _ types.VehicleID, fields vehicle.UpdateFields) error {
+	if f.updated != nil {
+		*f.updated = append(*f.updated, fields)
+	}
+	return f.err
 }
 
 func (f fakeVehicleCommands) AssignDriver(context.Context, types.YearSlug, types.VehicleID, types.UserID) error {
@@ -83,8 +118,11 @@ func (f fakeVehicleCommands) AssignSection(context.Context, types.YearSlug, type
 	return nil
 }
 
-func (f fakeVehicleCommands) Delete(context.Context, types.YearSlug, types.VehicleID) error {
-	return nil
+func (f fakeVehicleCommands) Delete(_ context.Context, _ types.YearSlug, id types.VehicleID) error {
+	if f.deleted != nil {
+		*f.deleted = append(*f.deleted, id)
+	}
+	return f.err
 }
 
 var _ vehicle.Commands = fakeVehicleCommands{}
@@ -172,14 +210,14 @@ func TestOwnVehiclesAsksByCustodianNotByDriver(t *testing.T) {
 	}
 }
 
-// A car whose current driver is somebody else still belongs to its custodian. The
-// endpoint returns whatever the custodian filter matched, so this is really an
-// assertion that the handler does no second-guessing of its own on the way out.
+// A car whose current driver is somebody else still belongs to its custodian. With
+// the fake honouring the custodian filter, this exercises the real path: the
+// fixture is returned *because* the handler asked by custodianship.
 func TestOwnVehiclesIncludesACarLentToSomebodyElse(t *testing.T) {
 	lent := vehicle.Vehicle{
 		VehicleID:       "v1",
 		LicensePlate:    "DK+AB12345",
-		CustodianUserID: "30000001",
+		CustodianUserID: "mock-spejder-1",
 		DriverUserID:    "39999999",
 		SeatCount:       4,
 	}
@@ -206,7 +244,7 @@ func TestOwnVehiclesOmitsDispatchFields(t *testing.T) {
 	v := vehicle.Vehicle{
 		VehicleID:       "v1",
 		LicensePlate:    "DK+AB12345",
-		CustodianUserID: "30000001",
+		CustodianUserID: "mock-spejder-1",
 		DriverUserID:    "39999999",
 		SectionSlug:     "post-nord",
 	}
@@ -465,5 +503,270 @@ func TestRegisterVehicleProceedsWithoutADuplicateCheck(t *testing.T) {
 	}
 	if len(registered) != 1 {
 		t.Errorf("expected the registration to go through, got %+v", registered)
+	}
+}
+
+// --- PATCH / DELETE /api/me/vehicles/{id} (task 239) ---
+
+// The bandit's own car, as the projection would return it. "mock-bandit-1" is the
+// id the mock directory resolves +4530000002 to, so a session for that phone is
+// this vehicle's custodian.
+func ownedCar() vehicle.Vehicle {
+	return vehicle.Vehicle{
+		VehicleID:       "v-mine",
+		YearSlug:        "2026",
+		LicensePlate:    "DK+AB12345",
+		CustodianUserID: "mock-bandit-1",
+		DriverUserID:    "mock-bandit-1",
+		SeatCount:       4,
+	}
+}
+
+func requestWithCookies(t *testing.T, method, url, body string, cookies []*http.Cookie) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(method, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, url, err)
+	}
+	return resp
+}
+
+// mutateVehicle sends a PATCH or DELETE as the given member.
+func mutateVehicle(t *testing.T, app *application, method, localPhone, id, body string) (*http.Response, string) {
+	t.Helper()
+	srv := httptest.NewServer(app.routes())
+	t.Cleanup(srv.Close)
+
+	cookies := authedCookies(t, app, srv, localPhone, "+45"+localPhone)
+	resp := requestWithCookies(t, method, srv.URL+"/api/me/vehicles/"+id, body, cookies)
+	defer resp.Body.Close()
+	out, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	return resp, string(out)
+}
+
+func mutateApp(t *testing.T, existing []vehicle.Vehicle, cmds *fakeVehicleCommands) *application {
+	t.Helper()
+	app := vehicleApp(t, fakeVehicles{all: existing})
+	app.config.eventYear = "2026"
+	app.vehicles = *cmds
+	return app
+}
+
+// The delta's whole reason for being pointers: absent leaves a field alone, so a
+// one-field edit publishes one field.
+func TestUpdateVehiclePublishesOnlyTheFieldsSent(t *testing.T) {
+	var updated []vehicle.UpdateFields
+	app := mutateApp(t, []vehicle.Vehicle{ownedCar()}, &fakeVehicleCommands{updated: &updated})
+
+	resp, body := mutateVehicle(t, app, http.MethodPatch, banditPhone, "v-mine", `{"color":"blå"}`)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 (%s)", resp.StatusCode, body)
+	}
+	if len(updated) != 1 {
+		t.Fatalf("expected one update, got %d", len(updated))
+	}
+	got := updated[0]
+	if got.Color == nil || *got.Color != "blå" {
+		t.Errorf("colour should be set, got %v", got.Color)
+	}
+	for name, field := range map[string]any{
+		"brand": got.Brand, "model": got.Model, "description": got.Description,
+		"licensePlate": got.LicensePlate, "seatCount": got.SeatCount,
+	} {
+		if !isNilPointer(field) {
+			t.Errorf("%s was absent from the request and must stay nil, got %v", name, field)
+		}
+	}
+}
+
+func isNilPointer(v any) bool {
+	switch p := v.(type) {
+	case *string:
+		return p == nil
+	case *uint:
+		return p == nil
+	default:
+		return false
+	}
+}
+
+// The other half of the pointer decision: present-but-empty clears. Without this,
+// a user could never remove a description they no longer want.
+func TestUpdateVehicleClearsAFieldSentEmpty(t *testing.T) {
+	var updated []vehicle.UpdateFields
+	app := mutateApp(t, []vehicle.Vehicle{ownedCar()}, &fakeVehicleCommands{updated: &updated})
+
+	resp, body := mutateVehicle(t, app, http.MethodPatch, banditPhone, "v-mine", `{"description":""}`)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 (%s)", resp.StatusCode, body)
+	}
+	if updated[0].Description == nil {
+		t.Fatal("an empty description must be sent as a pointer to \"\", not dropped")
+	}
+	if *updated[0].Description != "" {
+		t.Errorf("description = %q, want empty", *updated[0].Description)
+	}
+}
+
+// Somebody else's car must be indistinguishable from one that does not exist. A
+// 403 would confirm the id names a real registration, turning this into a lookup.
+func TestUpdateVehicleAnswers404ForAnotherMembersCar(t *testing.T) {
+	someoneElses := ownedCar()
+	someoneElses.CustodianUserID = "mock-crew-1"
+
+	var updated []vehicle.UpdateFields
+	app := mutateApp(t, []vehicle.Vehicle{someoneElses}, &fakeVehicleCommands{updated: &updated})
+
+	resp, body := mutateVehicle(t, app, http.MethodPatch, banditPhone, "v-mine", `{"color":"blå"}`)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (%s)", resp.StatusCode, body)
+	}
+	if len(updated) != 0 {
+		t.Errorf("nothing should be published, got %+v", updated)
+	}
+}
+
+// The same answer for an id that names nothing, so the two cannot be told apart.
+func TestUpdateVehicleAnswers404ForAnUnknownID(t *testing.T) {
+	app := mutateApp(t, nil, &fakeVehicleCommands{})
+	resp, _ := mutateVehicle(t, app, http.MethodPatch, banditPhone, "v-nope", `{"color":"blå"}`)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+// A borrower must not be able to edit the car they were lent, even while driving it.
+func TestUpdateVehicleRefusesTheDriverWhoIsNotCustodian(t *testing.T) {
+	lent := ownedCar()
+	lent.CustodianUserID = "mock-crew-1"
+	lent.DriverUserID = "mock-bandit-1"
+
+	app := mutateApp(t, []vehicle.Vehicle{lent}, &fakeVehicleCommands{})
+	resp, _ := mutateVehicle(t, app, http.MethodPatch, banditPhone, "v-mine", `{"color":"blå"}`)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 — driving a car is not custodianship", resp.StatusCode)
+	}
+}
+
+// A plate change is duplicate-checked with the same helper registration uses.
+func TestUpdateVehicleRefusesAPlateAlreadyRegistered(t *testing.T) {
+	other := vehicle.Vehicle{VehicleID: "v-other", LicensePlate: "DK+XY98765", CustodianUserID: "mock-crew-1"}
+	app := mutateApp(t, []vehicle.Vehicle{ownedCar(), other}, &fakeVehicleCommands{})
+
+	resp, body := mutateVehicle(t, app, http.MethodPatch, banditPhone, "v-mine", `{"license_plate":"xy 98 765"}`)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (%s)", resp.StatusCode, body)
+	}
+	if strings.Contains(body, "mock-crew-1") {
+		t.Errorf("the conflict must not disclose the other registrant:\n%s", body)
+	}
+}
+
+// Re-submitting a form with the plate unchanged must not report the vehicle as a
+// duplicate of itself — the check runs only when the value actually differs.
+func TestUpdateVehicleAcceptsItsOwnPlateUnchanged(t *testing.T) {
+	var updated []vehicle.UpdateFields
+	app := mutateApp(t, []vehicle.Vehicle{ownedCar()}, &fakeVehicleCommands{updated: &updated})
+
+	resp, body := mutateVehicle(t, app, http.MethodPatch, banditPhone, "v-mine", `{"license_plate":"ab 12 345"}`)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 (%s)", resp.StatusCode, body)
+	}
+	if updated[0].LicensePlate == nil || *updated[0].LicensePlate != "DK+AB12345" {
+		t.Errorf("the normalised plate should be published, got %v", updated[0].LicensePlate)
+	}
+}
+
+func TestUpdateVehicleRejectsAnUnusablePlate(t *testing.T) {
+	app := mutateApp(t, []vehicle.Vehicle{ownedCar()}, &fakeVehicleCommands{})
+	resp, _ := mutateVehicle(t, app, http.MethodPatch, banditPhone, "v-mine", `{"license_plate":"!"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestDeleteVehicleWithdrawsOwnCar(t *testing.T) {
+	var deleted []types.VehicleID
+	app := mutateApp(t, []vehicle.Vehicle{ownedCar()}, &fakeVehicleCommands{deleted: &deleted})
+
+	resp, body := mutateVehicle(t, app, http.MethodDelete, banditPhone, "v-mine", "")
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 (%s)", resp.StatusCode, body)
+	}
+	if len(deleted) != 1 || deleted[0] != "v-mine" {
+		t.Errorf("expected v-mine to be withdrawn, got %v", deleted)
+	}
+}
+
+// The borrower cannot delete the car they were lent. This is the criterion worth
+// the most in this task: an accidental or malicious deletion takes a car out of the
+// dispatch pool, and its custodian has no way to know why.
+func TestDeleteVehicleRefusesAnotherMembersCar(t *testing.T) {
+	someoneElses := ownedCar()
+	someoneElses.CustodianUserID = "mock-crew-1"
+	someoneElses.DriverUserID = "mock-bandit-1"
+
+	var deleted []types.VehicleID
+	app := mutateApp(t, []vehicle.Vehicle{someoneElses}, &fakeVehicleCommands{deleted: &deleted})
+
+	resp, _ := mutateVehicle(t, app, http.MethodDelete, banditPhone, "v-mine", "")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", resp.StatusCode)
+	}
+	if len(deleted) != 0 {
+		t.Errorf("nothing should be withdrawn, got %v", deleted)
+	}
+}
+
+// A second delete answers 404, because a deleted row is invisible to the read API
+// and therefore indistinguishable from a car that never existed or belongs to
+// somebody else — telling those apart is exactly what must not be possible. So the
+// endpoint is idempotent in effect (no second event, the car stays gone) rather
+// than in status code.
+func TestDeleteVehicleRepeatedIsNotASecondEvent(t *testing.T) {
+	var deleted []types.VehicleID
+	// The projection no longer returns it, which is what a soft-deleted row looks
+	// like to this handler.
+	app := mutateApp(t, nil, &fakeVehicleCommands{deleted: &deleted})
+
+	resp, _ := mutateVehicle(t, app, http.MethodDelete, banditPhone, "v-mine", "")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", resp.StatusCode)
+	}
+	if len(deleted) != 0 {
+		t.Errorf("a repeat must not publish a second deletion, got %v", deleted)
+	}
+}
+
+func TestDeleteVehicleFailsWhenThePublishFails(t *testing.T) {
+	app := mutateApp(t, []vehicle.Vehicle{ownedCar()}, &fakeVehicleCommands{err: errors.New("broker down")})
+	resp, _ := mutateVehicle(t, app, http.MethodDelete, banditPhone, "v-mine", "")
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", resp.StatusCode)
+	}
+}
+
+func TestMutateVehicleRequiresASession(t *testing.T) {
+	app := mutateApp(t, []vehicle.Vehicle{ownedCar()}, &fakeVehicleCommands{})
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	for _, method := range []string{http.MethodPatch, http.MethodDelete} {
+		resp := requestWithCookies(t, method, srv.URL+"/api/me/vehicles/v-mine", `{"color":"blå"}`, nil)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("%s status = %d, want 401", method, resp.StatusCode)
+		}
 	}
 }
