@@ -33,27 +33,25 @@ func TestConfirmationRequiredDerivation(t *testing.T) {
 		{
 			name: "already verified for the number on file: do not ask",
 			p: person.Person{
-				PersonID:             "member-1",
-				PhoneParent:          &guardian,
-				AcknowledgedPhone:    &guardian,
-				VerifiedAgainstPhone: &guardian,
-				VerifiedAt:           &verified,
+				PersonID:          "member-1",
+				PhoneParent:       &guardian,
+				AcknowledgedPhone: &guardian,
+				VerifiedAt:        &verified,
 			},
 			want: false,
 		},
 		{
 			// The correction case (task 148): the member supplied a different number and
-			// acknowledged that one. The register has not moved since, so this is settled — and
-			// re-asking them would be the bug the old single-comparison rule produced.
+			// acknowledged that one. Settled — and re-asking them would be the bug the old
+			// single-comparison rule produced.
 			name: "verified against a number they corrected: do not ask",
 			p: func() person.Person {
 				corrected := "4522334455"
 				return person.Person{
-					PersonID:             "member-1",
-					PhoneParent:          &guardian,
-					AcknowledgedPhone:    &corrected,
-					VerifiedAgainstPhone: &guardian,
-					VerifiedAt:           &verified,
+					PersonID:          "member-1",
+					PhoneParent:       &guardian,
+					AcknowledgedPhone: &corrected,
+					VerifiedAt:        &verified,
 				}
 			}(),
 			want: false,
@@ -92,21 +90,21 @@ func TestConfirmationRequiredDerivation(t *testing.T) {
 			want: true,
 		},
 		{
-			// Verified, but the guardian number has since changed. IsVerified() refuses
-			// this, so the member is asked again — the earlier acknowledgement was about a
-			// number nobody would be phoning now.
-			name: "verified for a number that has since changed: ask again",
+			// Verified, and the register's number has since changed. **No longer re-asked**
+			// (PRD 015, task 225): the member told us a number they could reach, which is what
+			// check-in wanted to know, and spejder details are re-published on any edit — so the
+			// old rule sent members back through the check whenever an organizer fixed a typo.
+			name: "verified for a number that has since changed: do not ask again",
 			p: func() person.Person {
 				old := "4599999999"
 				return person.Person{
-					PersonID:             "member-4",
-					PhoneParent:          &guardian,
-					AcknowledgedPhone:    &old,
-					VerifiedAgainstPhone: &old,
-					VerifiedAt:           &verified,
+					PersonID:          "member-4",
+					PhoneParent:       &guardian,
+					AcknowledgedPhone: &old,
+					VerifiedAt:        &verified,
 				}
 			}(),
-			want: true,
+			want: false,
 		},
 	}
 
@@ -138,10 +136,34 @@ func TestConfirmationRequiredWithoutProjection(t *testing.T) {
 	}
 }
 
-// verifiedAt reads through IsVerified rather than the raw column, so a superseded
-// acknowledgement reports as "never verified" instead of showing a date that implies the
-// current number was confirmed.
-func TestVerifiedAtIgnoresSupersededAcknowledgement(t *testing.T) {
+// verifiedAt reads through IsVerified rather than the raw column. Since task 225 the only thing
+// that makes a verification unreportable is the contact number being gone from the record
+// altogether — a *changed* number no longer supersedes it (PRD 015).
+//
+// The nil case is still worth a test: with no number on file there is nothing for a date to be
+// about, and showing one would tell the member we hold a confirmed contact we do not have.
+func TestVerifiedAtIgnoresVerificationWithNoNumberOnFile(t *testing.T) {
+	old := "4599999999"
+	at := time.Date(2026, 8, 30, 19, 0, 0, 0, time.UTC)
+
+	app := newTestApp(t)
+	app.models = data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil, &stubPeople{
+		found: true,
+		p: person.Person{
+			PersonID:          "member-1",
+			PhoneParent:       nil,
+			AcknowledgedPhone: &old,
+			VerifiedAt:        &at,
+		},
+	})
+	if got := app.verifiedAt("member-1"); got != nil {
+		t.Errorf("verifiedAt = %v, want nil when no contact number is on file", got)
+	}
+}
+
+// ...and the counterpart, which is the behaviour change itself: the register moved, and the
+// member's answer still stands.
+func TestVerifiedAtSurvivesARegisterChange(t *testing.T) {
 	guardian := "4512345678"
 	old := "4599999999"
 	at := time.Date(2026, 8, 30, 19, 0, 0, 0, time.UTC)
@@ -150,14 +172,13 @@ func TestVerifiedAtIgnoresSupersededAcknowledgement(t *testing.T) {
 	app.models = data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil, &stubPeople{
 		found: true,
 		p: person.Person{
-			PersonID:             "member-1",
-			PhoneParent:          &guardian,
-			AcknowledgedPhone:    &old,
-			VerifiedAgainstPhone: &old,
-			VerifiedAt:           &at,
+			PersonID:          "member-1",
+			PhoneParent:       &guardian,
+			AcknowledgedPhone: &old,
+			VerifiedAt:        &at,
 		},
 	})
-	if got := app.verifiedAt("member-1"); got != nil {
-		t.Errorf("verifiedAt = %v, want nil for a stale acknowledgement", got)
+	if got := app.verifiedAt("member-1"); got == nil {
+		t.Error("want the verification to survive a later change to the register (task 225)")
 	}
 }

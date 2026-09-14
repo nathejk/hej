@@ -67,10 +67,10 @@ func TestMemberVerifiedWritesContactAndTimestamp(t *testing.T) {
 	if !strings.Contains(stmt, `verifiedAt="2026-08-30 19:05:00"`) {
 		t.Errorf("timestamp missing or not UTC-formatted in %q", stmt)
 	}
-	// The event no longer carries what the register held (task 222), so the column that used to
-	// hold it must be NULL rather than a value invented here from the current row.
-	if !strings.Contains(stmt, "verifiedAgainstPhone=NULL") {
-		t.Errorf("want verifiedAgainstPhone=NULL now the event does not carry it: %q", stmt)
+	// The column that held what the register contained at acknowledgement time is gone (task
+	// 225), together with the staleness rule that was its only reader.
+	if strings.Contains(stmt, "verifiedAgainstPhone") {
+		t.Errorf("verifiedAgainstPhone is removed; nothing may still write it: %q", stmt)
 	}
 	if !strings.Contains(stmt, `WHERE personId="member-1" AND year="2026"`) {
 		t.Errorf("wrong row targeted: %q", stmt)

@@ -111,7 +111,6 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer, opts
 		// register changed since the member acknowledged" from "the member told us the
 		// register is wrong". NULL on every row written before it existed, which reads
 		// correctly as "we do not know what the register held then" — see IsVerified.
-		{"verifiedAgainstPhone", `verifiedAgainstPhone VARCHAR(99) NULL DEFAULT NULL`},
 		// Arrived with PRD 015 (task 224), which records the member's own number as verified by
 		// the SMS PIN they typed at login — a different fact from the contact number, established
 		// by a different mechanism, so it gets its own pair of columns rather than sharing
@@ -127,6 +126,11 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer, opts
 			return nil, fmt.Errorf("person: ensure column %s: %w", col.name, err)
 		}
 	}
+	// `verifiedAgainstPhone` is deliberately NOT dropped here, though nothing reads it any more
+	// (task 225). This list is additive by design — the comment above says so — and a DROP COLUMN
+	// on every boot is exactly the kind of destructive statement that pattern exists to keep out.
+	// An existing deployment keeps a NULL column until someone runs a real migration; a fresh
+	// database never has it, because table.sql no longer mentions it.
 	if err := cqrs.EnsureIndex(r, w, "person", "year_section",
 		"ALTER TABLE person ADD INDEX year_section (year, sectionSlug)"); err != nil {
 		return nil, fmt.Errorf("person: ensure index year_section: %w", err)

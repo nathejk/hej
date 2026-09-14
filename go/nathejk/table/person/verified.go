@@ -118,9 +118,9 @@ func VerifiedSubject(year, personID string) (cqrs.Subject, error) {
 // mark everyone who gave up as verified, silence the question next login, and fast-track at
 // check-in exactly the records that still need a number (task 224).
 //
-// `verifiedAgainstPhone` is written as NULL whenever the contact number is touched: the event no
-// longer says what the register held (task 222), and inventing a value by reading the current
-// `phoneParent` here would be wrong on replay. Task 225 removes the column and its reader.
+// `verifiedAgainstPhone` is gone (task 225), along with the staleness rule that read it: a
+// verification now survives a later change to the register. See Person.IsVerified for why that
+// follows from what the tick is for.
 //
 // Idempotent by construction: a replay writes the same values from the same event.
 // Re-verification arrives as a later event with a later timestamp and simply overwrites.
@@ -158,7 +158,6 @@ func (c consumer) handleMemberVerified(msg cqrs.Message, year string) error {
 		sets = append(sets,
 			"verifiedAt="+stamp,
 			"acknowledgedPhone="+quote(string(body.PhoneContact)),
-			"verifiedAgainstPhone=NULL",
 		)
 	}
 	if body.Phone != "" {

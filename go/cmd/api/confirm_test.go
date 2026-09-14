@@ -183,10 +183,7 @@ func TestConfirmProfile_AlreadyVerifiedIs409(t *testing.T) {
 		Year:              "2026",
 		PhoneParent:       &guardian,
 		AcknowledgedPhone: &guardian,
-		// What the register held at acknowledgement. Required for IsVerified to vouch for the
-		// row (task 148) — without it this is a verification we have no context for.
-		VerifiedAgainstPhone: &guardian,
-		VerifiedAt:           &at,
+		VerifiedAt:        &at,
 	})
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
@@ -368,12 +365,11 @@ func TestSetGuardian_WorksForAnAlreadyVerifiedMember(t *testing.T) {
 	at := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
 	pub := &cqrstest.Publisher{}
 	app := confirmTestApp(t, pub, person.Person{
-		PersonID:             "mock-spejder-1",
-		Year:                 "2026",
-		PhoneParent:          &guardian,
-		AcknowledgedPhone:    &guardian,
-		VerifiedAgainstPhone: &guardian,
-		VerifiedAt:           &at,
+		PersonID:          "mock-spejder-1",
+		Year:              "2026",
+		PhoneParent:       &guardian,
+		AcknowledgedPhone: &guardian,
+		VerifiedAt:        &at,
 	})
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()

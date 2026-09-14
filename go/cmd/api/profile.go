@@ -297,11 +297,13 @@ type setGuardianRequest struct {
 // `phoneParent` is projected from upstream and stays that way; pretending otherwise would mean the
 // next upstream publish silently reimposes the old number with nobody able to tell which value was
 // believed when. What this records is the *acknowledgement*: the number the member says can be
-// reached, plus what the register held at that moment.
+// reached.
 //
-// The pair is what keeps two states apart that call for opposite responses — the register moving
-// afterwards (stale → ask again) versus the member correcting us (→ fix the register). See
-// person.IsVerified and person.GuardianCorrected.
+// What the register held at that moment is deliberately not recorded (PRD 015 §4, task 225). It
+// used to be, so that "the register moved since" stayed distinguishable from "the member corrected
+// us" — two states that called for opposite responses. Neither question survives the reframing:
+// what follows from a verification is only that check-in need not ask this member, and neither
+// answer changes that.
 //
 // A separate endpoint from /confirm deliberately: agreeing with what we hold and replacing it are
 // different acts, with different validation and different meaning in the log. One body carrying two
@@ -345,7 +347,7 @@ func (app *application) setGuardianHandler(w http.ResponseWriter, r *http.Reques
 
 	// Normalized before publishing, because every comparison downstream is a string compare
 	// against a normalized value — and the login lookup is too. An unnormalized number here would
-	// read as a different number to `IsVerified`, to `GuardianCorrected` and to the projector.
+	// read as a different number to `IsVerified` and to the projector.
 	normalized, err := phone.Normalize(input.Phone)
 	if err != nil {
 		// Plain-language, and not an accusation: a member mistyping their parent's number is the

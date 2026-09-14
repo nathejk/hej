@@ -84,13 +84,12 @@ CREATE TABLE IF NOT EXISTS person (
     -- write a `verifiedAt` for every member who gave up — silencing the question on their next
     -- login and fast-tracking at check-in precisely the records that still need a number.
     --
-    -- verifiedAgainstPhone is on its way out (task 225). It held what phoneParent contained at
-    -- the moment of acknowledgement, so "the register moved since" stayed distinguishable from
-    -- "the member corrected us"; PRD 015 §4 dropped both questions, since neither changes what
-    -- happens next, which is that check-in either asks or does not.
+    -- Neither pair expires when the register changes. A verification says the member vouched
+    -- for a reachable number, which is what check-in wanted to know; re-asking them because an
+    -- organizer fixed a typo elsewhere on the record costs more than it protects (PRD 015,
+    -- task 225 — which is also why there is no longer a verifiedAgainstPhone column here).
     verifiedAt TIMESTAMP NULL DEFAULT NULL,
     acknowledgedPhone VARCHAR(99) NULL DEFAULT NULL,
-    verifiedAgainstPhone VARCHAR(99) NULL DEFAULT NULL,
     phoneVerifiedAt TIMESTAMP NULL DEFAULT NULL,
     verifiedPhone VARCHAR(99) NULL DEFAULT NULL,
 
