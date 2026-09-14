@@ -1,8 +1,11 @@
 package main
 
 import (
+	"net/http"
+
 	"github.com/jrgensen/cqrs"
 	"github.com/nathejk/shared-go/tables/vehicle"
+	"github.com/nathejk/shared-go/types"
 )
 
 // The vehicle entity's wiring (PRD 010, task 235).
@@ -53,4 +56,104 @@ func vehicleCommandsOrNil(t vehicleTable) vehicle.Commands {
 		return nil
 	}
 	return t
+}
+
+// vehicleResponse is one of the caller's own vehicles.
+//
+// A projection of `vehicle.Vehicle` rather than the row itself, and the fields
+// left out are the point: `custodianUserId`, `driverUserId` and `sectionSlug` are
+// the coordinator's half of this entity — who was dispatched, which crew group
+// owns the car — and none of them is something an owner needs to see their own
+// registration. Projecting here rather than trusting the client not to render
+// them is the same rule `.rules` states for guardian numbers, applied to a
+// smaller case: a response that does not carry a field cannot leak it.
+type vehicleResponse struct {
+	ID string `json:"id"`
+	// LicensePlate carries its country prefix, e.g. "DK+AB12345" — the canonical
+	// form from internal/plate, so what the client shows is what the inventory
+	// compares.
+	LicensePlate string `json:"license_plate"`
+
+	Brand string `json:"brand"`
+	Model string `json:"model"`
+	Color string `json:"color"`
+
+	// SeatCount excludes the driver, as it does everywhere else in this feature.
+	// The client's label has to say so (PRD 010 §7); the name alone does not.
+	SeatCount uint `json:"seat_count"`
+
+	Description string `json:"description"`
+}
+
+// listOwnVehiclesHandler serves the caller's own vehicles. Runs behind requireAuth.
+//
+// Session-scoped by construction, like /api/me/profile and /api/me/photo: there is
+// no user id in the path, so no caller can ask for somebody else's. The filter is
+// the caller's **custodianship**, never their driving — a car lent out for one
+// pickup has a different driver and must still be listed for the person who
+// answers for it (see vehicle.Filter.CustodianUserIDs in shared-go).
+//
+// An empty list is a `200`. "You have registered nothing" is a successful answer and
+// the profile page renders an empty state from it — whereas an unavailable read model
+// is a `503`, because reporting "you have none" when the truth is "we cannot tell"
+// invites a member to register a second row for a car that is already in the
+// inventory, which is exactly the duplicate PRD 010 §5 is trying to avoid.
+//
+// @Summary      The caller's own vehicles
+// @Description  Vehicles the authenticated member is the custodian of, for the current event year. Scoped to the session: there is no user id in the path, so no caller can read another member's registrations. Filtered by custodianship rather than by who is currently driving, so a car lent out for a pickup still belongs to the person who answers for it. An empty list is a normal 200.
+// @Tags         vehicles
+// @Produce      json
+// @Success      200  {object}  vehiclesResponse
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Failure      503  {object}  map[string]string
+// @Router       /me/vehicles [get]
+func (app *application) listOwnVehiclesHandler(w http.ResponseWriter, r *http.Request) {
+	s, ok := contextGetSession(r)
+	if !ok {
+		app.AuthenticationRequiredResponse(w, r)
+		return
+	}
+
+	// Nil when there is no database or the entity failed to build. Deliberately not
+	// an empty list — see the doc comment.
+	if app.models.Vehicles == nil {
+		app.ServiceUnavailableResponse(w, r, "vehicle data is not available")
+		return
+	}
+
+	vehicles, err := app.models.Vehicles.GetAll(r.Context(), vehicle.Filter{
+		YearSlug:         types.YearSlug(app.config.eventYear),
+		CustodianUserIDs: []types.UserID{types.UserID(s.UserID)},
+	})
+	if err != nil {
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+
+	// Non-nil so the JSON is `[]` rather than `null`: the client iterates it, and a
+	// null would make "no vehicles" a special case on every surface that reads this.
+	out := make([]vehicleResponse, 0, len(vehicles))
+	for _, v := range vehicles {
+		out = append(out, vehicleResponse{
+			ID:           string(v.VehicleID),
+			LicensePlate: v.LicensePlate,
+			Brand:        v.Brand,
+			Model:        v.Model,
+			Color:        v.Color,
+			SeatCount:    v.SeatCount,
+			Description:  v.Description,
+		})
+	}
+
+	if err := app.WriteJSON(w, http.StatusOK, vehiclesResponse{Vehicles: out}, nil); err != nil {
+		app.ServerErrorResponse(w, r, err)
+	}
+}
+
+// vehiclesResponse wraps the list in an object rather than returning a bare JSON
+// array, matching the rest of this API and leaving room to add a sibling field
+// later without changing the response's type.
+type vehiclesResponse struct {
+	Vehicles []vehicleResponse `json:"vehicles"`
 }

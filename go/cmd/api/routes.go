@@ -64,6 +64,11 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodPut, "/api/me/photo", app.requireAuth(app.updatePhotoHandler))
 	router.HandlerFunc(http.MethodGet, "/api/me/photo", app.requireAuth(app.showPhotoHandler))
 	router.HandlerFunc(http.MethodGet, "/api/patrol/scans", app.requireAuth(app.listPatrolScansHandler))
+	// The caller's own vehicles (PRD 010). Session-scoped like the profile and portrait
+	// routes above: no user id in the path, so nobody can read another member's
+	// registrations. Scoped by custodianship rather than by who is driving, so a car lent
+	// out for a pickup stays with the person who answers for it.
+	router.HandlerFunc(http.MethodGet, "/api/me/vehicles", app.requireAuth(app.listOwnVehiclesHandler))
 	// The contacts directory (PRD 007). Cached by the client and worked from offline, so
 	// it carries everything the pane needs and nothing it does not: no guardian numbers, no
 	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach
