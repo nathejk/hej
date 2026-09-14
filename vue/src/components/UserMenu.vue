@@ -21,6 +21,7 @@ import { useRouter } from 'vue-router'
 import { CircleUser, LogOut, User, Users } from '@lucide/vue'
 import { useSessionStore } from '@/stores/session.store'
 import { useProfileStore } from '@/stores/profile.store'
+import { useVehiclesStore } from '@/stores/vehicles.store'
 import { ROLE_LABELS } from '@/config/roles'
 import { NetworkError } from '@/helpers'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -43,6 +44,7 @@ import {
 const router = useRouter()
 const session = useSessionStore()
 const profile = useProfileStore()
+const vehicles = useVehiclesStore()
 
 // The name comes from the profile endpoint, not from the session: the signed-in
 // identity is only `{userId, role}` (deliberately — it is what the router guard
@@ -56,8 +58,10 @@ onMounted(() => void profile.ensureLoaded())
 async function signOut() {
   await session.logout()
   // Drop the cached details, or the next person to sign in on a shared handset sees
-  // the previous user's name in this menu until the first request comes back.
+  // the previous user's name in this menu until the first request comes back. Same for
+  // their vehicles (PRD 010): a licence plate is theirs, not the handset's.
   profile.clear()
+  vehicles.clear()
   await router.replace({ name: 'welcome' })
 }
 

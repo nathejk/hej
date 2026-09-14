@@ -118,6 +118,14 @@ export const fetchWrapper = {
   post: <T = Json>(url: string, body?: unknown) => request<T>('POST', url, body),
   put: <T = Json>(url: string, body?: unknown) => request<T>('PUT', url, body),
   /**
+   * PATCH a JSON body — a partial update (the vehicle edit, PRD 010).
+   *
+   * Distinct from `put` because the BFF's PATCH endpoints are deltas: a field absent from the
+   * body is left alone, and one sent as a zero value is cleared. Callers therefore have to be
+   * able to send *some* fields, which is exactly what a PUT of a whole resource cannot express.
+   */
+  patch: <T = Json>(url: string, body?: unknown) => request<T>('PATCH', url, body),
+  /**
    * PUT a multipart body — the portrait upload (PRD 003).
    *
    * A separate entry point rather than callers passing FormData to `put`, so it is
