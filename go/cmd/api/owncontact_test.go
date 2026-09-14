@@ -49,7 +49,7 @@ func profileAppFor(t *testing.T, u users.User) *application {
 	t.Helper()
 	app := newTestApp(t)
 	app.config.eventYear = "2026"
-	app.models = data.NewModels(stubDirectory{u: u}, scans.NewMockSource(), nil, &stubPeople{})
+	app.models = data.NewModels(stubDirectory{u: u}, scans.NewMockSource(), nil, &stubPeople{}, nil)
 	return app
 }
 
@@ -227,6 +227,7 @@ func TestShowProfile_PrefersTheNumberCheckInRecorded(t *testing.T) {
 			StartedPhoneContact: &checkIn,
 			MemberStatus:        person.MemberStatusRacing,
 		}},
+		nil,
 	)
 
 	srv := httptest.NewServer(app.routes())

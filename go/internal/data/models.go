@@ -4,6 +4,8 @@
 package data
 
 import (
+	"github.com/nathejk/shared-go/tables/vehicle"
+
 	"nathejk.dk/internal/scans"
 	"nathejk.dk/internal/users"
 	"nathejk.dk/nathejk/table/checkpoint"
@@ -45,17 +47,38 @@ type Models struct {
 	// **May be nil**, like RaceAreas and for the same reason: it needs a database, and
 	// running without one is a supported mode (PRD 008 §5). Handlers must check.
 	People person.Queries
+
+	// Vehicles is shared-go's vehicle projection (PRD 010): the cars and trailers
+	// associated with the race.
+	//
+	// **May be nil**, like RaceAreas and People, and the distinction matters more here
+	// than for either of them. A nil means "we cannot tell what is registered", which a
+	// handler must not report as "you have nothing registered" — that answer invites a
+	// member to register a second row for a car that is already in the inventory, which is
+	// the exact duplicate the coordinator then has to reconcile by hand (PRD 010 §5).
+	//
+	// Read-only here by construction: the write side is the entity's own `Commands`,
+	// held separately on the application, so nothing reachable through this facade can
+	// publish a vehicle event.
+	Vehicles vehicle.Queries
 }
 
 // NewModels constructs the read-side facade with the given read sources.
 // Additional read models will be wired in here as aggregates are added.
 //
-// raceAreas and people may be nil; see the fields' docs.
+// raceAreas, people and vehicles may be nil; see the fields' docs.
 func NewModels(
 	usersDir users.Directory,
 	scanSource scans.Source,
 	raceAreas checkpoint.Queries,
 	people person.Queries,
+	vehicles vehicle.Queries,
 ) Models {
-	return Models{Users: usersDir, Scans: scanSource, RaceAreas: raceAreas, People: people}
+	return Models{
+		Users:     usersDir,
+		Scans:     scanSource,
+		RaceAreas: raceAreas,
+		People:    people,
+		Vehicles:  vehicles,
+	}
 }

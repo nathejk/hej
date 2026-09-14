@@ -116,6 +116,7 @@ func TestConfirmationRequiredDerivation(t *testing.T) {
 				scans.NewMockSource(),
 				nil,
 				&stubPeople{p: tc.p, found: true},
+				nil,
 			)
 			if got := app.confirmationRequired(tc.p.PersonID); got != tc.want {
 				t.Errorf("confirmationRequired = %v, want %v", got, tc.want)
@@ -155,7 +156,7 @@ func TestVerifiedAtIgnoresVerificationWithNoNumberOnFile(t *testing.T) {
 			AcknowledgedPhone: &old,
 			VerifiedAt:        &at,
 		},
-	})
+	}, nil)
 	if got := app.verifiedAt("member-1"); got != nil {
 		t.Errorf("verifiedAt = %v, want nil when no contact number is on file", got)
 	}
@@ -177,7 +178,7 @@ func TestVerifiedAtSurvivesARegisterChange(t *testing.T) {
 			AcknowledgedPhone: &old,
 			VerifiedAt:        &at,
 		},
-	})
+	}, nil)
 	if got := app.verifiedAt("member-1"); got == nil {
 		t.Error("want the verification to survive a later change to the register (task 225)")
 	}

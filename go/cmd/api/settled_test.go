@@ -129,6 +129,7 @@ func TestShowProfile_ContactSettledFollowsTheStart(t *testing.T) {
 				PersonID: "mock-spejder-1", Year: "2026", AppRole: person.RoleSpejder,
 				Phone: "+4530000001", PhoneParent: &contact, MemberStatus: tc.status,
 			}},
+			nil,
 		)
 
 		srv := httptest.NewServer(app.routes())

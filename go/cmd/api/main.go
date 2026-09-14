@@ -16,6 +16,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/jrgensen/cqrs"
+	"github.com/nathejk/shared-go/tables/vehicle"
 
 	bff "nathejk.dk/cmd/api/app"
 	"nathejk.dk/internal/blob"
@@ -42,6 +43,16 @@ type application struct {
 	config   config
 	models   data.Models
 	commands commands.Commands
+
+	// vehicles is the vehicle entity's command side (PRD 010), or nil when there is
+	// no database or no broker.
+	//
+	// Separate from `commands` above rather than folded into it, which is what
+	// go-bff-layout describes as the mature shape: the entity owns its subject
+	// vocabulary and its delta pruning (`UpdateFields.diff`), so a handler reaching
+	// for the generic publisher would end up re-implementing both — and would be able
+	// to publish a vehicle event this entity would never emit.
+	vehicles vehicle.Commands
 
 	// Auth infrastructure.
 	pins              *pin.Store
@@ -275,6 +286,22 @@ func run(logger *slog.Logger) error {
 		}
 	}
 
+	// The vehicle entity (PRD 010), imported whole from shared-go.
+	//
+	// Same construction condition as the two projections above, for the same reason: a
+	// member must be able to *see* the car they registered during a broker outage, since
+	// that read needs only the database. Registering a new one does need the broker, and
+	// fails at the command side rather than being prevented here.
+	//
+	// Note the shape difference from `person.New`/`checkpoint.New`: `vehicle.New` returns
+	// no error — it logs a schema failure internally and hands back a usable value — so
+	// there is no error branch to write. That also means a failed CREATE TABLE surfaces
+	// only in shared-go's log line here, not as a signal this process can act on.
+	var vehicles vehicleTable
+	if ev != nil && (err == nil || noBroker) {
+		vehicles = vehicle.New(ev.publisherOrNil(), ev.writer, ev.reader)
+	}
+
 	// One process-scoped context for the background workers: the broker connector and
 	// projections below, and the portrait purge further down. Hoisted out of the eventing
 	// block so both share a single cancellation point rather than one of them running with
@@ -301,6 +328,9 @@ func run(logger *slog.Logger) error {
 			}
 			if checkpoints != nil {
 				projections = append(projections, checkpoints)
+			}
+			if vehicles != nil {
+				projections = append(projections, vehicles)
 			}
 
 			ev.registerProjections(logger, projections...)
@@ -349,8 +379,9 @@ func run(logger *slog.Logger) error {
 	app := &application{
 		JsonApi:  bff.JsonApi{Logger: logger},
 		config:   cfg,
-		models:   data.NewModels(directory, scans.NewMockSource(), raceAreasOrNil(checkpoints), peopleOrNil(persons)),
+		models:   data.NewModels(directory, scans.NewMockSource(), raceAreasOrNil(checkpoints), peopleOrNil(persons), vehiclesOrNil(vehicles)),
 		commands: commands.New(publisherFor(ev)),
+		vehicles: vehicleCommandsOrNil(vehicles),
 		db:       db,
 		eventing: ev,
 		blobs:    blobs,

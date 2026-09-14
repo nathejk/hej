@@ -39,6 +39,7 @@ func confirmTestApp(t *testing.T, pub *cqrstest.Publisher, p person.Person) *app
 		scans.NewMockSource(),
 		nil,
 		&stubPeople{p: p, found: true},
+		nil,
 	)
 	return app
 }

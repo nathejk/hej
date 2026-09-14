@@ -160,7 +160,7 @@ func putWithCookies(t *testing.T, url, contentType string, body io.Reader, cooki
 func photoTestApp(t *testing.T, pub *cqrstest.Publisher, people person.Queries) *application {
 	t.Helper()
 	app := portraitTestApp(t, pub)
-	app.models = data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil, people)
+	app.models = data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil, people, nil)
 	return app
 }
 

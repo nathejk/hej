@@ -38,6 +38,7 @@ func loginTestApp(t *testing.T, pub *cqrstest.Publisher, p person.Person) *appli
 		scans.NewMockSource(),
 		nil,
 		&stubPeople{p: p, found: true},
+		nil,
 	)
 	return app
 }
@@ -228,6 +229,7 @@ func TestLogin_SucceedsWithoutAPersonRow(t *testing.T) {
 		scans.NewMockSource(),
 		nil,
 		&stubPeople{found: false},
+		nil,
 	)
 	if cookies := login(t, app, confirmPhone, confirmNormalized); len(cookies) == 0 {
 		t.Error("want a session cookie for a member with no projection row")

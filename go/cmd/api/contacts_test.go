@@ -30,7 +30,7 @@ func newTestAppWithPeople(t *testing.T, stub *stubPeople) *application {
 	t.Helper()
 	app := newTestApp(t)
 	app.config.eventYear = "2026"
-	app.models = data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil, stub)
+	app.models = data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil, stub, nil)
 	// Same TTL as production (main.go). Tests that care about propagation rather than
 	// caching replace this with newVersionCache(0).
 	app.contactsVersions = newVersionCache(5 * time.Second)
