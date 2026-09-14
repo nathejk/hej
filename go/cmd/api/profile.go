@@ -8,6 +8,7 @@ import (
 
 	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/phone"
+	"nathejk.dk/nathejk/table/person"
 )
 
 // profileResponse is what the profile page (PRD 003) reads back to its owner.
@@ -154,13 +155,13 @@ type confirmProfileRequest struct {
 // projection of the published event — no SQL is written here.
 //
 // @Summary      Confirm the guardian contact number
-// @Description  Records that the member has looked at the parent/guardian emergency number on file and acknowledged that it can be reached during the event. The two digits are the ones the client masked; they are verified server-side so the acknowledgement is recorded against a real answer. This is a RECOGNITION check, not an authentication factor — /me/profile returns the full number to its owner by design, so the digits are not a secret. Returns 409 when nothing is required (already confirmed, already started the event, or no guardian number on file). Publishes a domain event; no SQL is written.
+// @Description  Records that the member has looked at the parent/guardian emergency number on file and acknowledged that it can be reached during the event. The two digits are the ones the client masked; they are verified server-side so the acknowledgement is recorded against a real answer. This is a RECOGNITION check, not an authentication factor — /me/profile returns the full number to its owner by design, so the digits are not a secret. A wrong answer returns 400 with `attempts_remaining` and `check_closed`: after three failures in one login session the check ENDS, `check_closed` is true, the same outcome a skip records is published, and the client should let the member into the app rather than showing an error. Further attempts in that session return 409, as does every other reason there is nothing to confirm (already confirmed, already started the event, no guardian number on file). A new login resets the attempts. Publishes a domain event; no SQL is written.
 // @Tags         me
 // @Accept       json
 // @Produce      json
 // @Param        request  body  confirmProfileRequest  true  "The two masked digits and the acknowledgement"
 // @Success      204
-// @Failure      400  {object}  map[string]string
+// @Failure      400  {object}  confirmAttemptFailedResponse  "Wrong digits; carries attempts_remaining and check_closed"
 // @Failure      401  {object}  map[string]string
 // @Failure      409  {object}  map[string]string
 // @Failure      429  {object}  map[string]string
@@ -211,16 +212,22 @@ func (app *application) confirmProfileHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// The check is over for this login session: three wrong answers already, or an explicit
+	// "spring over". Same 409 as above, deliberately — the client's move is identical (carry on
+	// into the app), and the member is not being told off for a request their client should not
+	// have sent.
+	checkKey := contactCheckKey(s.UserID, s.ExpiresAt)
+	if app.contactChecks.Closed(checkKey) {
+		app.ConflictResponse(w, r, "ingen bekræftelse er nødvendig")
+		return
+	}
+
 	guardian := ""
 	if p.PhoneParent != nil {
 		guardian = *p.PhoneParent
 	}
 	if !lastTwoDigitsMatch(guardian, input.Digits) {
-		// A wrong answer is not an accusation — it most likely means the number on file is
-		// not one this member knows, which is what the "nummeret er forkert" / "jeg kender
-		// ikke nummeret" paths exist for (task 128). The message says what happened and
-		// nothing more.
-		app.BadRequestMessageResponse(w, r, "de to cifre passer ikke")
+		app.rejectConfirmAttempt(w, r, checkKey, p)
 		return
 	}
 
@@ -239,6 +246,73 @@ func (app *application) confirmProfileHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// confirmAttemptFailedResponse is the body of a rejected recall attempt.
+//
+// A superset of the plain error shape every other endpoint here returns, so a client that only
+// reads `error` keeps working. The two extra fields exist because the PWA has to say something
+// different on the second miss than on the third, and deriving "that was the last one" from a
+// counter the client keeps would put the rule in two places — with the client's copy being the one
+// a reload resets.
+type confirmAttemptFailedResponse struct {
+	Error string `json:"error"`
+	// AttemptsRemaining is how many tries are left in this login session. Zero when the check has
+	// just been closed.
+	AttemptsRemaining int `json:"attempts_remaining"`
+	// CheckClosed says the step is over and the member should be let into the app. The outcome has
+	// been recorded server-side; the client must not ask again in this session.
+	CheckClosed bool `json:"check_closed"`
+}
+
+// rejectConfirmAttempt answers a wrong pair of digits, and ends the check on the third miss
+// (PRD 015, task 227).
+//
+// # Not an accusation, and not an authentication failure
+//
+// A wrong answer most likely means the number on file is not one this member knows — which is the
+// discovery the step exists to make. So the body says what happened, how many tries are left, and
+// nothing else. In particular it never echoes any part of the registered number: the member is
+// being asked to recall it, and a hint would turn the check into a copying exercise (PRD 015 §6,
+// no enumeration).
+//
+// # Why exhaustion is reported as 400 rather than something friendlier
+//
+// The attempt did fail, and pretending otherwise would make "wrong digits" and "wrong digits, and
+// that was your last go" the same response with different prose. `check_closed` is what the client
+// branches on.
+//
+// # A failed publish does not reopen the check
+//
+// The member is out of tries whether or not the broker is reachable, and that decision cannot be
+// un-made — so a 503 here would leave the client stuck on a screen the server considers finished.
+// The outcome is logged and lost instead, which PRD 015 already accepts for a skip that cannot
+// reach the BFF: check-in is the backstop, and it asks any member with no verified contact number.
+func (app *application) rejectConfirmAttempt(
+	w http.ResponseWriter,
+	r *http.Request,
+	checkKey string,
+	p person.Person,
+) {
+	remaining, closed := app.contactChecks.Failed(checkKey)
+
+	message := "de to cifre passer ikke"
+	if closed {
+		message = "vi spurgte tre gange — du kan komme videre uden at bekræfte nummeret"
+		if err := app.recordContactCheckGivenUp(r.Context(), p); err != nil {
+			app.Logger.Warn("contact check exhausted but the outcome could not be published",
+				"personId", p.PersonID, "error", err)
+		}
+	}
+
+	out := confirmAttemptFailedResponse{
+		Error:             message,
+		AttemptsRemaining: remaining,
+		CheckClosed:       closed,
+	}
+	if err := app.WriteJSON(w, http.StatusBadRequest, out, nil); err != nil {
+		app.ServerErrorResponse(w, r, err)
+	}
 }
 
 // skipProfileCheckHandler records that the member gave up on the contact-number check (PRD 015,
