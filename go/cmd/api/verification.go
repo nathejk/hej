@@ -40,6 +40,11 @@ import (
 // Contrast the portrait path, where bytes are stored *before* the event so a failure leaves
 // only an unreferenced object. There is nothing to store here, so the ordering question
 // does not arise: the event is the whole write.
+//
+// `registeredPhone` is still a parameter and is deliberately unused since task 222: the event no
+// longer carries what the register held, because PRD 015 §4 dropped both questions that field
+// answered. It is kept on the signature until the callers are reworked, so that removing it is one
+// reviewable change rather than noise inside this one.
 func (app *application) storeVerification(
 	ctx context.Context,
 	personID string,
@@ -49,6 +54,7 @@ func (app *application) storeVerification(
 	// ctx is accepted for symmetry with storePortrait and so this can carry a deadline
 	// when the publisher grows one; the publish itself is currently synchronous.
 	_ = ctx
+	_ = registeredPhone
 
 	if personID == "" {
 		return fmt.Errorf("store verification: no person")
@@ -72,17 +78,11 @@ func (app *application) storeVerification(
 
 	body := messages.NathejkMemberVerified{
 		MemberID: types.MemberID(personID),
-		Year:     types.YearSlug(app.config.eventYear),
-		// What the member says can be reached. Today always the registered number; once the
-		// correction flow lands (task 148) it may be one they typed instead, which is the whole
-		// reason the event carries both.
-		PhoneParentAcknowledged: types.PhoneNumber(acknowledgedPhone),
-		// What the register held at this moment. Populated now, even though nothing reads it yet:
-		// this is an append-only log, so a field left empty today can never be filled in for these
-		// events afterwards. It is what keeps "the register changed since" distinguishable from
-		// "the member corrected us" — see task 148.
-		PhoneParentRegistered: types.PhoneNumber(registeredPhone),
-		VerifiedAt:            time.Now().UTC(),
+		// The contact number the member acknowledged — the registered one when they recognised it,
+		// one they typed when they did not. Which of the two it was is not recorded, on purpose
+		// (PRD 015 §4): what decides whether check-in asks is only whether a verified number exists.
+		PhoneContact: types.PhoneNumber(acknowledgedPhone),
+		VerifiedAt:   time.Now().UTC(),
 	}
 	if err := app.commands.Publish(subject, body); err != nil {
 		return fmt.Errorf("publish verification: %w", err)

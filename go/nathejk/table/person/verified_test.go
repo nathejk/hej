@@ -42,44 +42,44 @@ func TestVerifiedSubjectRejectsBadTokens(t *testing.T) {
 	}
 }
 
-func TestMemberVerifiedWritesBothColumns(t *testing.T) {
+func TestMemberVerifiedWritesContactAndTimestamp(t *testing.T) {
 	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.member.member-1.verified",
 		messages.NathejkMemberVerified{
-			MemberID:                "member-1",
-			Year:                    "2026",
-			PhoneParentAcknowledged: "4512345678",
-			PhoneParentRegistered:   "4512345678",
-			VerifiedAt:              time.Date(2026, 8, 30, 19, 5, 0, 0, time.UTC),
+			MemberID:     "member-1",
+			PhoneContact: "4512345678",
+			VerifiedAt:   time.Date(2026, 8, 30, 19, 5, 0, 0, time.UTC),
 		}))
 
 	// An UPDATE, not an upsert: a verification must not invent a person.
 	if !strings.HasPrefix(stmt, "UPDATE person SET verifiedAt=") {
 		t.Fatalf("statement = %q", stmt)
 	}
-	// Both columns together, always. verifiedAt alone is a verification whose subject is
-	// unknown — which IsVerified correctly refuses to trust, so the row would read as
-	// verified to a human and unverified to the code.
+	// The number and the timestamp together, always. A verifiedAt with no number beside it is a
+	// verification of nothing, which reads as verified to a human scanning the table.
 	if !strings.Contains(stmt, `acknowledgedPhone="4512345678"`) {
-		t.Errorf("acknowledged number missing from %q", stmt)
+		t.Errorf("contact number missing from %q", stmt)
 	}
 	if !strings.Contains(stmt, `verifiedAt="2026-08-30 19:05:00"`) {
 		t.Errorf("timestamp missing or not UTC-formatted in %q", stmt)
+	}
+	// The event no longer carries what the register held (task 222), so the column that used to
+	// hold it must be NULL rather than a value invented here from the current row.
+	if !strings.Contains(stmt, "verifiedAgainstPhone=NULL") {
+		t.Errorf("want verifiedAgainstPhone=NULL now the event does not carry it: %q", stmt)
 	}
 	if !strings.Contains(stmt, `WHERE personId="member-1" AND year="2026"`) {
 		t.Errorf("wrong row targeted: %q", stmt)
 	}
 }
 
-// A verification naming no number cannot be checked for staleness later, so it would be a
-// permanent tick that no guardian-number change could clear. Better to dead-letter it than
-// to store a half-fact about who may be phoned in an emergency.
-func TestMemberVerifiedRejectsMissingAcknowledgedPhone(t *testing.T) {
+// Until task 224 gives the own-phone verification a column of its own, an event with no contact
+// number has nowhere to go, so it is refused rather than stored as a verifiedAt with no subject.
+func TestMemberVerifiedRejectsMissingContactPhone(t *testing.T) {
 	if _, err := handle(t, "NATHEJK.2026.member.member-1.verified", messages.NathejkMemberVerified{
 		MemberID:   "member-1",
-		Year:       "2026",
 		VerifiedAt: time.Now().UTC(),
 	}); err == nil {
-		t.Fatal("want an error for a verification with no acknowledged phone")
+		t.Fatal("want an error for a verification with no contact phone")
 	}
 }
 
@@ -88,9 +88,8 @@ func TestMemberVerifiedRejectsMissingAcknowledgedPhone(t *testing.T) {
 func TestMemberVerifiedFallsBackToSubjectID(t *testing.T) {
 	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.member.member-9.verified",
 		messages.NathejkMemberVerified{
-			Year:                    "2026",
-			PhoneParentAcknowledged: "4512345678",
-			VerifiedAt:              time.Now().UTC(),
+			PhoneContact: "4512345678",
+			VerifiedAt:   time.Now().UTC(),
 		}))
 	if !strings.Contains(stmt, `personId="member-9"`) {
 		t.Errorf("subject id not used: %q", stmt)
@@ -103,9 +102,8 @@ func TestMemberVerifiedFallsBackToSubjectID(t *testing.T) {
 func TestMemberVerifiedToleratesZeroTimestamp(t *testing.T) {
 	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.member.member-1.verified",
 		messages.NathejkMemberVerified{
-			MemberID:                "member-1",
-			Year:                    "2026",
-			PhoneParentAcknowledged: "4512345678",
+			MemberID:     "member-1",
+			PhoneContact: "4512345678",
 		}))
 	if strings.Contains(stmt, "0000-00-00") || strings.Contains(stmt, `verifiedAt=""`) {
 		t.Errorf("zero timestamp reached the statement: %q", stmt)

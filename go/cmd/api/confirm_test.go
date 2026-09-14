@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,16 +90,10 @@ func TestConfirmProfile_PublishesVerification(t *testing.T) {
 	if body.MemberID != "mock-spejder-1" {
 		t.Errorf("memberId = %q, want the session's user", body.MemberID)
 	}
-	// The acknowledged number is the substance of the event: without it, a later guardian
-	// number change could not invalidate this verification.
-	if body.PhoneParentAcknowledged != "+4520000001" {
-		t.Errorf("phoneParentAcknowledged = %q, want the guardian number on file", body.PhoneParentAcknowledged)
-	}
-	// Populated even though nothing reads it yet — the log is append-only, so a field left empty
-	// today cannot be filled in for these events later (task 148 is what will read it). On this
-	// path the two are equal: the member confirmed the number we hold.
-	if body.PhoneParentRegistered != "+4520000001" {
-		t.Errorf("phoneParentRegistered = %q, want the register's value", body.PhoneParentRegistered)
+	// The contact number is the substance of the event: it is what tells check-in there is a
+	// verified number for this member and the counter need not ask.
+	if body.PhoneContact != "+4520000001" {
+		t.Errorf("phoneContact = %q, want the contact number on file", body.PhoneContact)
 	}
 	if body.VerifiedAt.IsZero() {
 		t.Error("verifiedAt must be set by the publisher, not left for delivery time")
@@ -293,17 +288,18 @@ func TestSetGuardian_PublishesBothNumbers(t *testing.T) {
 	}
 	// Normalized, not as typed: every comparison downstream is a string compare against a
 	// normalized value, and so is the login lookup.
-	if body.PhoneParentAcknowledged != "+4522334455" {
-		t.Errorf("phoneParentAcknowledged = %q, want the normalized number the member typed",
-			body.PhoneParentAcknowledged)
+	if body.PhoneContact != "+4522334455" {
+		t.Errorf("phoneContact = %q, want the normalized number the member typed",
+			body.PhoneContact)
 	}
-	// The register's value, which is what makes this a *correction* rather than a mystery: without
-	// it nobody could tell that the member disagreed with us.
-	if body.PhoneParentRegistered != "+4520000001" {
-		t.Errorf("phoneParentRegistered = %q, want the register's value", body.PhoneParentRegistered)
-	}
-	if body.PhoneParentAcknowledged == body.PhoneParentRegistered {
-		t.Error("a correction must record two different numbers, or it is not a correction")
+	// What the register held is deliberately NOT on the event (task 222, PRD 015 §4). A member
+	// supplying their own number and a member agreeing with ours produce the same shape, because
+	// the only thing that follows from either is that check-in need not ask. Asserted against the
+	// encoded body, so reintroducing the field is a decision and not a reflex.
+	if raw, ok := pub.Messages[0].RawBody().([]byte); ok {
+		if strings.Contains(string(raw), "phoneParentRegistered") {
+			t.Errorf("the register's value must not be on the event: %s", raw)
+		}
 	}
 }
 

@@ -37,17 +37,27 @@ import (
 // consuming this event (PRD 008 §8). That is what makes the projection rebuildable, and
 // it is why the confirm endpoint publishes rather than updating a row.
 
-// The message itself now lives in **shared-go** as `messages.NathejkMemberVerified` (task 147).
+// The message itself lives in **shared-go** as `messages.NathejkMemberVerified` (task 147),
+// reshaped by task 222 for PRD 015.
 //
 // It was declared here first, following the portrait precedent, because nothing outside `hej`
 // consumed it; the maintainer has since lifted it, which is the right home for a member fact once
-// a second party may read it. What stays here is what is genuinely ours: the subject this service
-// publishes on, and the projection that folds the event into our read model.
+// a second party may read it. That second party now exists — the check-in side reads these events
+// to skip asking a member who already answered — so the lift has earned itself. What stays here is
+// what is genuinely ours: the subject this service publishes on, and the projection that folds the
+// event into our read model.
 //
-// Field names to be careful with, because they changed in the lift and the old ones read fine:
+// Field names to be careful with, because the shape has changed twice and every old name reads
+// fine:
 //
-//	PhoneParentAcknowledged — the number the member says can be reached (was AcknowledgedPhone)
-//	PhoneParentRegistered   — what the register held at that moment (was RegisteredPhone)
+//	Phone        — the member's own number, proven by the SMS PIN at login
+//	PhoneContact — the emergency contact number the member acknowledged
+//	               (was PhoneParentAcknowledged, and AcknowledgedPhone before that)
+//
+// `PhoneParentRegistered` is gone. It existed so "the register moved since" stayed distinguishable
+// from "the member corrected us", and PRD 015 §4 dropped both questions: the only thing worth
+// knowing is whether a verified contact number exists yet, because that is what decides whether
+// the counter asks. `Year` is gone too — it is the second subject token.
 //
 // VerifiedSubject builds the subject a verification is published on:
 //
@@ -77,17 +87,14 @@ func VerifiedSubject(year, personID string) (cqrs.Subject, error) {
 
 // handleMemberVerified records the verification on the person's row.
 //
-// All three columns are written together, always. A `verifiedAt` without the numbers beside it is
-// a verification whose subject is unknown, which `Person.IsVerified` correctly refuses to trust —
-// so writing one without the others produces a row that looks verified to a human reading the
-// table and unverified to the code.
+// Task 222 renamed the field this reads (`PhoneContact`, was `PhoneParentAcknowledged`) and
+// removed the registered number from the event, so `verifiedAgainstPhone` is written as NULL:
+// the event no longer says what the register held, and inventing a value by reading the current
+// `phoneParent` here would be wrong on replay. Task 225 removes the column outright, together
+// with the staleness rule that was its only reader.
 //
-// `verifiedAgainstPhone` may legitimately differ from `acknowledgedPhone`: that is a member
-// telling us the register is wrong (task 148), and `Person.GuardianCorrected` is what reads it.
-//
-// Idempotent by construction: a replay writes the same two values from the same event.
-// Re-confirmation (a member who verifies again after their guardian number changed)
-// arrives as a later event with a later timestamp and simply overwrites.
+// Idempotent by construction: a replay writes the same values from the same event.
+// Re-verification arrives as a later event with a later timestamp and simply overwrites.
 func (c consumer) handleMemberVerified(msg cqrs.Message, year string) error {
 	var body messages.NathejkMemberVerified
 	if err := msg.Body(&body); err != nil {
@@ -101,11 +108,12 @@ func (c consumer) handleMemberVerified(msg cqrs.Message, year string) error {
 	if personID == "" {
 		return fmt.Errorf("member verified with no memberId")
 	}
-	if body.PhoneParentAcknowledged == "" {
-		// A verification that names no number cannot be checked for staleness later, so
-		// it would be a permanent tick that no guardian-number change could ever clear.
-		// Rejected rather than stored as a half-fact.
-		return fmt.Errorf("member verified with no acknowledged phone")
+	if body.PhoneContact == "" {
+		// No contact number in the event. Still rejected *here*, unchanged from before, so this
+		// task stays a rename: task 224 is where an event carrying only the member's own
+		// `Phone` starts being stored instead of refused, because that needs the second column
+		// to put it in. Until then no publisher sends one.
+		return fmt.Errorf("member verified with no contact phone")
 	}
 
 	verifiedAt := body.VerifiedAt
@@ -117,14 +125,10 @@ func (c consumer) handleMemberVerified(msg cqrs.Message, year string) error {
 	}
 
 	return c.w.Consume(fmt.Sprintf(
-		"UPDATE person SET verifiedAt=%s, acknowledgedPhone=%s, verifiedAgainstPhone=%s "+
+		"UPDATE person SET verifiedAt=%s, acknowledgedPhone=%s, verifiedAgainstPhone=NULL "+
 			"WHERE personId=%s AND year=%s",
 		quote(verifiedAt.UTC().Format("2006-01-02 15:04:05")),
-		quote(string(body.PhoneParentAcknowledged)),
-		// nullableQuote, not quote: an empty registered number is meaningful — the register held
-		// nothing and the member supplied one — and storing "" would make it compare unequal to a
-		// NULL phoneParent, i.e. read as a correction when nothing was corrected.
-		nullableQuote(string(body.PhoneParentRegistered)),
+		quote(string(body.PhoneContact)),
 		quote(personID),
 		quote(year),
 	))
