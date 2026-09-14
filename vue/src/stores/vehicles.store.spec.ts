@@ -264,3 +264,17 @@ describe('ensureLoaded', () => {
     expect(calls).toBe(1)
   })
 })
+
+// A 503 means the BFF could not publish, so nothing was recorded and the form is fine.
+// Distinct from a generic failure because the advice differs: wait a moment, rather than
+// re-submitting a form that will keep failing (task 247).
+describe('unavailable', () => {
+  it('reports a 503 distinguishably from a generic failure', async () => {
+    postMock = () => Promise.reject(new HttpError(503, 'vehicle registration is not available'))
+    const store = useVehiclesStore()
+    await store.register({ licensePlate: 'ab12345' })
+
+    expect(store.writeError?.kind).toBe('unavailable')
+    expect(store.vehicles).toEqual([])
+  })
+})

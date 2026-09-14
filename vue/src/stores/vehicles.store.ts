@@ -70,6 +70,7 @@ export type VehicleWriteError =
   | { kind: 'duplicate'; message: string }
   | { kind: 'offline'; message: string }
   | { kind: 'invalid'; message: string }
+  | { kind: 'unavailable'; message: string }
   | { kind: 'failed'; message: string }
 
 function toVehicle(p: VehiclePayload): Vehicle {
@@ -108,6 +109,16 @@ function classify(err: unknown): VehicleWriteError {
     }
     if (err.status === 400) {
       return { kind: 'invalid', message: err.message || 'Oplysningerne kunne ikke bruges.' }
+    }
+    // 503 is the BFF saying the event stream is not reachable, so the registration was
+    // not recorded and nothing is wrong with what the member typed. Worth its own
+    // sentence: "try again in a moment" is actionable, where the generic failure text
+    // invites them to keep re-submitting a form that will keep failing.
+    if (err.status === 503) {
+      return {
+        kind: 'unavailable',
+        message: 'Kan ikke gemme lige nu. Prøv igen om et øjeblik.',
+      }
     }
   }
   return { kind: 'failed', message: 'Kunne ikke gemme køretøjet. Prøv igen.' }

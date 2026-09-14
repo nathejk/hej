@@ -10,6 +10,7 @@ import (
 	"github.com/nathejk/shared-go/tables/vehicle"
 	"github.com/nathejk/shared-go/types"
 
+	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/plate"
 	"nathejk.dk/internal/users"
 )
@@ -273,9 +274,7 @@ func (app *application) registerVehicleHandler(w http.ResponseWriter, r *http.Re
 		Description:     input.Description,
 	})
 	if err != nil {
-		// Includes a publish failure, which must fail the request rather than
-		// report a success nothing recorded.
-		app.ServerErrorResponse(w, r, err)
+		app.vehicleWriteError(w, r, err)
 		return
 	}
 
@@ -429,7 +428,7 @@ func (app *application) updateVehicleHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := app.vehicles.Update(r.Context(), year, v.VehicleID, fields); err != nil {
-		app.ServerErrorResponse(w, r, err)
+		app.vehicleWriteError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -471,10 +470,29 @@ func (app *application) deleteVehicleHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := app.vehicles.Delete(r.Context(), types.YearSlug(app.config.eventYear), v.VehicleID); err != nil {
-		app.ServerErrorResponse(w, r, err)
+		app.vehicleWriteError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// vehicleWriteError answers a failed vehicle command.
+//
+// A write that could not be published has not happened (PRD 008 §5), so every case
+// here fails the request — the only question is which failure the client is told.
+// `ErrNoPublisher` is a `503`: the broker has not arrived or has gone away, nothing
+// is wrong with the request, and retrying later is exactly the right advice.
+// Anything else is a `500`.
+//
+// Worth distinguishing rather than collapsing to a 500, because the two mean
+// different things to the person holding the phone: "try again in a moment" versus
+// "this will not work until somebody fixes it".
+func (app *application) vehicleWriteError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, commands.ErrNoPublisher) {
+		app.ServiceUnavailableResponse(w, r, "vehicle registration is not available")
+		return
+	}
+	app.ServerErrorResponse(w, r, err)
 }
 
 // plateTaken reports whether a plate is already registered this year.

@@ -293,13 +293,19 @@ func run(logger *slog.Logger) error {
 	// that read needs only the database. Registering a new one does need the broker, and
 	// fails at the command side rather than being prevented here.
 	//
-	// Note the shape difference from `person.New`/`checkpoint.New`: `vehicle.New` returns
+	// Note two shape differences from `person.New`/`checkpoint.New`. `vehicle.New` returns
 	// no error — it logs a schema failure internally and hands back a usable value — so
-	// there is no error branch to write. That also means a failed CREATE TABLE surfaces
-	// only in shared-go's log line here, not as a signal this process can act on.
+	// there is no error branch to write, and a failed CREATE TABLE surfaces only in
+	// shared-go's log line here.
+	//
+	// And it is given a **lazyPublisher, not `ev.publisherOrNil()`**. This is the only
+	// entity here that publishes, and the broker connects in the background, so the value
+	// `publisherOrNil()` returns at this point is nil — permanently, since it is captured
+	// once and kept. That panicked on the first registration and could never have
+	// recovered (task 247). See lazypublisher.go.
 	var vehicles vehicleTable
 	if ev != nil && (err == nil || noBroker) {
-		vehicles = vehicle.New(ev.publisherOrNil(), ev.writer, ev.reader)
+		vehicles = vehicle.New(lazyPublisher{holder: publisherFor(ev)}, ev.writer, ev.reader)
 	}
 
 	// One process-scoped context for the background workers: the broker connector and

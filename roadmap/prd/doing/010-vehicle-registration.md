@@ -405,10 +405,16 @@ Answered questions are recorded here rather than deleted, so the reasoning survi
 5. **Will anyone ever need to know which car tows which trailer?** Left out per §11.
    Cheap to add later as a nullable reference; expensive to keep accurate if nothing
    depends on it.
-6. **`kind` or `type`?** §8 chose `kind` to avoid the Go-keyword friction; `type` would
+7. **`kind` or `type`?** §8 chose `kind` to avoid the Go-keyword friction; `type` would
    match `types.TeamType`'s precedent. Trivially reversible before the shared-go change
-   ships, awkward afterwards.
-7. **Vehicle position.** Explicitly out of scope here, but `hq`'s transit flow knows a
+   ships, awkward afterwards. *Settled by shipping: `kind`, as of task 243.*
+8. **Where does plate normalisation belong?** Raised 2026-09-14 by task 248: `hej`
+   normalises (`internal/plate`), `hq` stores what the organiser typed, so the inventory
+   holds one car as both `EC16795` and `DK+EC16795` and the duplicate check cannot see
+   across them. Most likely answer is shared-go's write path, so no producer can get it
+   wrong — but it needs a decision and a migration that survives a projection rebuild.
+
+9. **Vehicle position.** Explicitly out of scope here, but `hq`'s transit flow knows a
    member is "in one of our cars" without knowing where that car is. If that is a real
    gap it deserves its own PRD, with the same care PRD 002 is applying to member
    position — not a field bolted onto this one.
