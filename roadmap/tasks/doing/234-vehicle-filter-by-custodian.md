@@ -1,10 +1,10 @@
 # 234 — shared-go: filter vehicles by custodian
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-09-14
-**Picked up by:**
-**Started:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-09-14
 **Completed:**
 
 ## Description
@@ -45,3 +45,6 @@ PRD 010 §8, "Reading a caller's own vehicles".
 <!-- Append entries here — never edit or delete existing entries -->
 
 - 2026-09-14 — Task created from PRD 010 (approved today).
+- 2026-09-14 — Picked up. Plan: mirror `DriverUserIDs` exactly in `filter.go` and
+  `querier.GetAll`, then a test asserting the driver-differs-from-custodian case, which is
+  the whole reason the field exists.
