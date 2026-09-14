@@ -49,20 +49,17 @@ import (
 // verification for a year the row does not belong to, and the projection's UPDATE, which keys on
 // both, would silently match nothing.
 //
-// `registeredPhone` is still a parameter and is deliberately unused since task 222: the event no
-// longer carries what the register held, because PRD 015 §4 dropped both questions that field
-// answered. It is kept on the signature until the callers are reworked, so that removing it is one
-// reviewable change rather than noise inside this one.
+// `registeredPhone` is gone as of task 231: the event stopped carrying the register's value in task
+// 222 (PRD 015 §4 dropped both questions it answered), and the parameter was kept only so removing
+// it would be one reviewable change rather than noise inside that one.
 func (app *application) storeVerification(
 	ctx context.Context,
 	p person.Person,
 	acknowledgedPhone string,
-	registeredPhone string,
 ) error {
 	// ctx is accepted for symmetry with storePortrait and so this can carry a deadline
 	// when the publisher grows one; the publish itself is currently synchronous.
 	_ = ctx
-	_ = registeredPhone
 
 	if p.PersonID == "" {
 		return fmt.Errorf("store verification: no person")
@@ -280,6 +277,25 @@ func (app *application) verifiedAt(personID string) *time.Time {
 		return nil
 	}
 	return p.VerifiedAt
+}
+
+// contactSettled reports whether the contact number is fixed and the app must stop offering to
+// change it (PRD 015, task 231).
+//
+// `Person.HasStarted()` is the signal, i.e. `MemberStatusRacing` onwards. Starting means the member
+// came past the counter, where check-in establishes the number for everyone who did not verify in
+// the app — so from that point staff hold a number, and a member quietly replacing it afterwards
+// would leave them holding one nobody validated.
+//
+// With no projection it answers **false**: an outage should not lock a member out of correcting
+// their record, and the endpoint re-checks the same condition anyway. Same degradation choice as
+// confirmationRequired, for the same reason — the app stays useful and nothing irreversible happens.
+func (app *application) contactSettled(personID string) bool {
+	p, ok := app.person(personID)
+	if !ok {
+		return false
+	}
+	return p.HasStarted()
 }
 
 // person loads a row from the projection, or reports that it is unavailable.

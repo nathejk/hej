@@ -65,6 +65,15 @@ type profileResponse struct {
 	// acknowledgement: reporting the earlier timestamp would tell the member the current
 	// number was confirmed, which is the one thing this field must never imply.
 	VerifiedAt *time.Time `json:"verified_at"`
+
+	// ContactSettled says the contact number can no longer be changed from the app (PRD 015,
+	// task 231). True once the member has started: check-in established the number at the
+	// counter, and `phone_parent` is then what staff hold rather than what the register says.
+	//
+	// The client needs this to render the number read-only. Without it the only way to discover
+	// the rule is to offer an edit and have it refused, which is a worse way to learn it than
+	// being told — especially for a field the member was actively asked about an hour earlier.
+	ContactSettled bool `json:"contact_settled"`
 }
 
 // showProfileHandler returns the signed-in user's own details. Runs behind
@@ -79,7 +88,7 @@ type profileResponse struct {
 // nothing on file for you" from "your record is gone".
 //
 // @Summary      Own profile
-// @Description  Returns the signed-in user's own details: name, role, team/section, postal address, own phone and guardian phone, plus whether a portrait is on file. phone_parent is null when the user's population has no guardian number, and an empty string when one is expected but not registered. confirmation_required is derived server-side (PRD 005): true only while the member has a guardian number, has not verified it, and has not started the event. verified_at is null once the guardian number changes, even if an earlier confirmation exists.
+// @Description  Returns the signed-in user's own details: name, role, team/section, postal address, own phone and contact phone, plus whether a portrait is on file. phone_parent is null when the user's population has no contact number, and an empty string when one is expected but not registered — including when the registered number is really the member's OWN number, which is blanked because it cannot serve as an emergency contact (PRD 015). Once the member has started, phone_parent is the number CHECK-IN recorded rather than the register's, and contact_settled is true, meaning the app can no longer change it. confirmation_required is derived server-side (PRD 005): true only while the member has a contact number, has not verified it, and has not started the event. verified_at is null once the contact number changes, even if an earlier confirmation exists.
 // @Tags         me
 // @Produce      json
 // @Success      200  {object}  profileResponse
@@ -115,6 +124,7 @@ func (app *application) showProfileHandler(w http.ResponseWriter, r *http.Reques
 		HasPhoto:             app.hasPortrait(s.UserID),
 		ConfirmationRequired: app.confirmationRequired(s.UserID),
 		VerifiedAt:           app.verifiedAt(s.UserID),
+		ContactSettled:       app.contactSettled(s.UserID),
 	}
 
 	if err := app.WriteJSON(w, http.StatusOK, out, nil); err != nil {
@@ -325,9 +335,8 @@ func (app *application) confirmProfileHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Both numbers are the same on this path: the member confirmed the number we hold. They differ
-	// only on the correction path (task 148), which is what the second field is for.
-	if err := app.storeVerification(r.Context(), p, guardian, guardian); err != nil {
+	// Both numbers are the same on this path: the member confirmed the number we hold.
+	if err := app.storeVerification(r.Context(), p, guardian); err != nil {
 		if errors.Is(err, commands.ErrNoPublisher) {
 			// The broker is down. Retryable, and reported as such rather than as a
 			// success: a confirmation the log never saw did not happen, and telling the
@@ -557,7 +566,7 @@ type setGuardianRequest struct {
 // mutually exclusive fields is the shape that produces "which did the client mean?" bugs.
 //
 // @Summary      Supply and confirm a guardian contact number
-// @Description  Records a parent/guardian emergency number the member typed themselves, together with their acknowledgement that it can be reached during the event. For the member who cannot recognise the number on file — the person standing there is the one most likely to know the right one. The number is normalized server-side. This does NOT overwrite the registered number: the register keeps its own value, and the event records both, so "the register changed since" stays distinguishable from "the member corrected us". Publishes a domain event; no SQL is written.
+// @Description  Records a parent/guardian emergency number the member typed themselves, together with their acknowledgement that it can be reached during the event. For the member who cannot recognise the number on file — the person standing there is the one most likely to know the right one. The number is normalized server-side. This does NOT overwrite the registered number: the register keeps its own value, and the event records what the member acknowledged. Available right up until the member starts; after that the number was established at check-in and this returns 409, because a member replacing it from their phone would leave staff holding a number nobody validated (PRD 015). Publishes a domain event; no SQL is written.
 // @Tags         me
 // @Accept       json
 // @Produce      json
@@ -565,6 +574,7 @@ type setGuardianRequest struct {
 // @Success      204
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
+// @Failure      409  {object}  map[string]string  "The member has started; the contact number is settled"
 // @Failure      429  {object}  map[string]string
 // @Failure      503  {object}  map[string]string
 // @Router       /me/profile/guardian [post]
@@ -611,15 +621,27 @@ func (app *application) setGuardianHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Deliberately NOT gated on confirmationRequired, unlike /confirm. A member whose number was
-	// verified last week may discover today that it is wrong, and refusing them would leave the
-	// only correction path closed to exactly the people who found the problem.
-	registered := ""
-	if p.PhoneParent != nil {
-		registered = *p.PhoneParent
+	// Still NOT gated on confirmationRequired, unlike /confirm: a member whose number was verified
+	// last week may discover today that it is wrong, and refusing them would close the only
+	// correction path to exactly the people who found the problem.
+	//
+	// But it IS gated on having started, and that **reverses part of task 148** — which deliberately
+	// left this endpoint open to everyone. Task 148 was written when the app was the only place a
+	// contact number could be fixed, so keeping it open was strictly better than a flag. PRD 015
+	// gives it a backstop: check-in establishes a number at the counter for everyone who did not
+	// verify, so after the start staff hold a validated number, and a member replacing it from their
+	// phone would leave them holding one nobody checked. The correction path stays open right up to
+	// the start and closes there.
+	//
+	// 409 rather than 403: nothing about the caller is wrong — the resource is simply in a state
+	// where this act no longer applies, which is the same reading /confirm's 409 has.
+	if p.HasStarted() {
+		app.ConflictResponse(w, r,
+			"nummeret er bekræftet ved check-in og kan ikke ændres her — sig det til din leder")
+		return
 	}
 
-	if err := app.storeVerification(r.Context(), p, normalized, registered); err != nil {
+	if err := app.storeVerification(r.Context(), p, normalized); err != nil {
 		if errors.Is(err, commands.ErrNoPublisher) {
 			app.ServiceUnavailableResponse(w, r, "kan ikke gemmes lige nu")
 			return
