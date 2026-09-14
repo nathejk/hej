@@ -15,7 +15,7 @@ import {
 import { Label } from '@/components/ui/label'
 import { HttpError } from '@/helpers'
 import { formatPhone } from '@/helpers'
-import { useProfileStore } from '@/stores/profile.store'
+import { contactCheckFailure, useProfileStore } from '@/stores/profile.store'
 
 // First-login step: the member looks at what Nathejk has on file and acknowledges that the
 // parent/guardian emergency number can actually be reached (PRD 005 §5 step 2, §6, §7).
@@ -50,13 +50,26 @@ const emit = defineEmits<{ done: []; skip: [] }>()
 // One component rather than two, because the acknowledgement, the copy explaining *why* the number
 // matters, and the error handling are the same in both; only the input differs. Splitting them
 // would duplicate the part that took the most care to word.
-const mode = ref<'confirm' | 'correct'>('confirm')
+//
+// The step **opens in `correct`** when there is no number to recall — an unregistered contact
+// number, or one the BFF blanked because it was really the member's own (PRD 015, task 229). There
+// are no digits to remember in that state, and rendering the recall UI would show an empty number
+// followed by two crosses, which reads as a bug.
+const mode = ref<'confirm' | 'correct'>(profile.details?.phoneParent ? 'confirm' : 'correct')
 
 const digits = ref('')
 const replacement = ref('')
 const acknowledged = ref(false)
 const busy = ref(false)
 const error = ref('')
+
+// How many recall attempts are left, as the *server* last reported them (PRD 015, task 227). Null
+// until the first miss.
+//
+// Not counted here. A client-side counter is reset by a reload, so the limit would not exist — and
+// two counters would disagree about which attempt this is, with the client's being the one a member
+// can clear.
+const attemptsLeft = ref<number | null>(null)
 
 const details = computed(() => profile.details)
 
@@ -115,6 +128,25 @@ async function submit() {
     }
     emit('done')
   } catch (err) {
+    // A wrong pair of digits, with the server's own count of what is left (PRD 015, task 227).
+    const failed = mode.value === 'confirm' ? contactCheckFailure(err) : null
+    if (failed) {
+      attemptsLeft.value = failed.attemptsRemaining
+      if (failed.checkClosed) {
+        // Three misses: the step is over and the server has already recorded the outcome, so this
+        // does not call skip() — that would publish a second event for one give-up.
+        //
+        // Emitted as a skip rather than shown as an error, because that is what happened: nobody
+        // did anything wrong, and the member goes into the app. WelcomeView's copy for the skip
+        // path already says we will ask again next time.
+        emit('skip')
+        return
+      }
+      error.value = failed.message
+      digits.value = ''
+      return
+    }
+
     if (err instanceof HttpError && err.status === 400) {
       // Not a scolding in either mode. Wrong digits most likely means the number on file is not one
       // this member knows — which is what the correcting mode is for, and it is one tap away.
@@ -123,7 +155,10 @@ async function submit() {
           ? 'Det ser ikke ud som et telefonnummer. Tjek det, og prøv igen.'
           : 'De to cifre passer ikke til nummeret, vi har.'
     } else if (err instanceof HttpError && err.status === 409) {
-      // Already confirmed — from another device, or a double submit. Nothing is wrong.
+      // Nothing left to do: already confirmed on another device, a double submit, the check closed
+      // earlier in this session, or — in `correct` mode — the member has started and the number is
+      // settled at check-in (PRD 015, task 231). None of those is a failure the member can act on,
+      // so they go through.
       emit('done')
     } else if (err instanceof HttpError && err.status === 429) {
       error.value = 'For mange forsøg. Prøv igen om lidt.'
@@ -132,6 +167,19 @@ async function submit() {
     }
   } finally {
     busy.value = false
+  }
+}
+
+// Giving up, from the "spring over" button. Records the outcome so the check-in counter can see
+// that this member was asked and could not answer (PRD 015, task 228) — then lets them through
+// regardless of whether that recording succeeded.
+async function giveUp() {
+  busy.value = true
+  try {
+    await profile.skipContactCheck()
+  } finally {
+    busy.value = false
+    emit('skip')
   }
 }
 </script>
@@ -217,8 +265,21 @@ async function submit() {
           placeholder="••"
         />
       </div>
-      <span v-else class="text-center text-xl font-medium tracking-wide text-slate-900 tabular-nums">
+      <span
+        v-else-if="maskedParent"
+        class="text-center text-xl font-medium tracking-wide text-slate-900 tabular-nums"
+      >
         {{ maskedParent }}
+      </span>
+      <!--
+        Nothing to show: the register holds no contact number, or the BFF blanked one that was
+        really the member's own (PRD 015, task 229). The step opened straight into correction mode,
+        so this says what is missing rather than rendering an empty number with two crosses after
+        it. It deliberately does not hint at what the number should be — and never suggests the
+        member's own.
+      -->
+      <span v-else class="text-center text-sm text-slate-500">
+        Vi har ikke noget nummer på en voksen for dig.
       </span>
 
       <!--
@@ -281,7 +342,24 @@ async function submit() {
         </Label>
       </div>
 
-      <p v-if="error" class="text-sm text-red-600" role="alert">{{ error }}</p>
+      <!--
+        The error, and — while the member still has tries left — how many. The count comes from the
+        server's response, never from a tally kept here: a client-side counter is cleared by a
+        reload, so the limit it enforces would not exist.
+
+        `role="alert"` on the wrapper so both lines are announced together; a screen reader user
+        hearing "det passer ikke" without "du kan prøve to gange mere" gets the worse half.
+      -->
+      <div v-if="error" class="flex flex-col gap-1" role="alert">
+        <p class="text-sm text-red-600">{{ error }}</p>
+        <p v-if="attemptsLeft !== null && attemptsLeft > 0" class="text-xs leading-relaxed text-slate-500">
+          {{
+            attemptsLeft === 1
+              ? 'Du kan prøve én gang mere — eller skrive et andet nummer.'
+              : 'Du kan prøve to gange mere — eller skrive et andet nummer.'
+          }}
+        </p>
+      </div>
 
       <button
         type="submit"
@@ -293,10 +371,11 @@ async function submit() {
 
       <!--
         Back out of correcting. The way *into* it now lives in the number box above (task 148),
-        next to the number the member failed to recognise.
+        next to the number the member failed to recognise. Hidden when there is nothing to go back
+        to: with no number on file the recall mode has no digits to offer.
       -->
       <Button
-        v-if="mode === 'correct'"
+        v-if="mode === 'correct' && details?.phoneParent"
         type="button"
         variant="outline"
         class="text-slate-600"
@@ -306,11 +385,15 @@ async function submit() {
       </Button>
 
       <!--
-        Last resort: they know no number at all. Skips the step, records nothing, and lets them into
-        the app — only login is mandatory (PRD 005 §6). `confirmation_required` stays true
-        server-side, so they are asked again next time rather than quietly written off.
+        Last resort: they know no number at all. Lets them into the app — only login is mandatory
+        (PRD 005 §6) — and now *records* that they were asked and could not answer, so the check-in
+        counter can see it (PRD 015, task 228). `confirmation_required` stays true server-side, so
+        they are asked again next time rather than quietly written off.
+
+        The recording is best-effort: `skipContactCheck` never throws, because no signal in a forest
+        must not turn giving up into a dead end.
       -->
-      <Button type="button" variant="outline" class="text-slate-500" @click="emit('skip')">
+      <Button type="button" variant="outline" class="text-slate-500" :disabled="busy" @click="giveUp">
         Jeg kender ikke nummeret — spring over
       </Button>
     </form>

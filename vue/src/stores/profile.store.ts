@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { fetchWrapper } from '@/helpers'
+import { fetchWrapper, HttpError } from '@/helpers'
 import type { Role } from '@/config/roles'
 
 // The caller's own details, as returned by GET /api/me/profile (task 094).
@@ -24,8 +24,22 @@ export interface ProfileDetails {
    * The profile page hides the row for the first and shows "Ikke registreret" for
    * the second. Do not normalise these to one value; the BFF goes out of its way
    * to keep them apart (see go/cmd/api/profile.go).
+   *
+   * Note the BFF also sends `''` when the registered number is really the member's **own**
+   * number (PRD 015, task 229): such a record cannot serve as an emergency contact, so it is
+   * projected out rather than shown. The client therefore never needs to compare the two, and
+   * must not start — the rule lives server-side, where it cannot be bypassed.
    */
   phoneParent: string | null
+  /**
+   * Whether the contact number is settled and can no longer be changed from the app: true once
+   * the member has started, because check-in established the number at the counter (PRD 015,
+   * task 231).
+   *
+   * Server-derived, like `confirmationRequired`. The client must render the number read-only
+   * rather than offering an edit the BFF will refuse.
+   */
+  contactSettled: boolean
 }
 
 interface ProfileResponse {
@@ -45,6 +59,43 @@ interface ProfileResponse {
   // user in front of a step whose endpoint does not exist yet.
   confirmation_required?: boolean
   verified_at?: string | null
+  // Added by PRD 015 (task 231). Optional for the same reason as confirmation_required: an
+  // absent field must mean "not settled", so a frontend deployed ahead of the BFF offers the
+  // correction path rather than hiding it.
+  contact_settled?: boolean
+}
+
+/**
+ * What the BFF returns when a recall attempt is wrong (PRD 015, task 227).
+ *
+ * `attemptsRemaining` counts down 2, 1, 0. `checkClosed` is true on the third failure: the step is
+ * over, the outcome has been recorded server-side, and the member should be let into the app.
+ */
+export interface ContactCheckFailure {
+  message: string
+  attemptsRemaining: number
+  checkClosed: boolean
+}
+
+/**
+ * Reads the structured failure off a 400 from /me/profile/confirm.
+ *
+ * Returns null for anything else — a 429, a 503, an older BFF that answers with prose only — so a
+ * caller can fall back to a plain message instead of inventing an attempt count. Deliberately
+ * tolerant: the *count* is the server's to know, and guessing it here would recreate the
+ * client-side counter this design exists to avoid.
+ */
+export function contactCheckFailure(err: unknown): ContactCheckFailure | null {
+  if (!(err instanceof HttpError) || err.status !== 400) return null
+  const body = err.body
+  if (!body || typeof body !== 'object') return null
+  const record = body as Record<string, unknown>
+  if (typeof record.check_closed !== 'boolean') return null
+  return {
+    message: typeof record.error === 'string' ? record.error : err.message,
+    attemptsRemaining: typeof record.attempts_remaining === 'number' ? record.attempts_remaining : 0,
+    checkClosed: record.check_closed,
+  }
 }
 
 // Shared in-flight fetch, so concurrent `ensureLoaded()` callers await one request and all of
@@ -125,6 +176,7 @@ export const useProfileStore = defineStore('profile', {
           city: data.city,
           phone: data.phone,
           phoneParent: data.phone_parent,
+          contactSettled: data.contact_settled ?? false,
         }
         this.hasPhoto = data.has_photo
         this.confirmationRequired = data.confirmation_required ?? false
@@ -199,8 +251,11 @@ export const useProfileStore = defineStore('profile', {
     //
     // For the member who cannot recognise the number we hold. It does **not** overwrite the
     // registered number — `phoneParent` keeps coming from upstream — it records what the member
-    // says can be reached, together with what the register held at that moment, so "the register
-    // changed since" stays distinguishable from "the member corrected us".
+    // says can be reached.
+    //
+    // Refused with 409 once the member has started, because check-in established the number at the
+    // counter (PRD 015, task 231). The step renders the number read-only in that state rather than
+    // relying on this call to fail.
     //
     // Throws, like confirm(): the step shows what went wrong rather than pretending it landed.
     async setGuardian(phone: string) {
@@ -211,6 +266,27 @@ export const useProfileStore = defineStore('profile', {
       // Nathejk holds. Refetched so the page reflects whatever the server now derives.
       this.loaded = false
       await this.fetch()
+    },
+
+    // skipContactCheck records that the member gave up on the check (PRD 015, task 228).
+    //
+    // Called for the explicit "spring over", and after the third wrong answer — where the server
+    // has already recorded the same outcome, so this is skipped (see the component).
+    //
+    // **Never throws.** Login is the only mandatory step (PRD 005 §6), so nothing here may stand
+    // between the member and the app: no signal in a forest, or a broker outage, must not turn
+    // giving up into a dead end. The outcome is then lost, which PRD 015 accepts because check-in
+    // asks every member with no verified contact number anyway.
+    //
+    // 409 is a success: it means the check was already over for this session.
+    async skipContactCheck() {
+      try {
+        await fetchWrapper.post('/api/me/profile/skip', {})
+      } catch (err) {
+        if (err instanceof HttpError && err.status === 409) return
+        // Deliberately swallowed rather than surfaced. Nothing the member could do about it, and
+        // nothing they need to know: they are being let through either way.
+      }
     },
 
     // markPhotoState records whether a portrait exists. Exposed so a component that

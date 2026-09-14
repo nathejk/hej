@@ -11,10 +11,24 @@ type Json = Record<string, unknown> | unknown[] | null
 export class HttpError extends Error {
   readonly status: number
 
-  constructor(status: number, message: string) {
+  /**
+   * The decoded response body, when the server sent one.
+   *
+   * Carried because some endpoints answer a failure with *data* rather than only prose: the
+   * contact-number check returns how many attempts are left and whether the step is over (PRD
+   * 015, task 227), and a caller that only had `message` would have to parse Danish text or
+   * count failures itself — a client-side copy of a server-side rule, reset by every reload.
+   *
+   * `unknown` on purpose. Each caller knows the shape its own endpoint returns; a shared union
+   * of every error body in the app would be a type nobody could keep true.
+   */
+  readonly body: unknown
+
+  constructor(status: number, message: string, body?: unknown) {
     super(message)
     this.name = 'HttpError'
     this.status = status
+    this.body = body
   }
 }
 
@@ -93,7 +107,7 @@ async function request<T = Json>(method: string, url: string, body?: unknown): P
       data && typeof data === 'object' && 'error' in data
         ? String((data as Record<string, unknown>).error)
         : response.statusText
-    throw new HttpError(response.status, message)
+    throw new HttpError(response.status, message, data)
   }
 
   return data as T
