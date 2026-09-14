@@ -99,15 +99,18 @@ func (app *application) showProfileHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	out := profileResponse{
-		Name:                 user.Name,
-		Role:                 string(user.Role),
-		Team:                 user.PatrolName,
-		Section:              user.Section,
-		Address:              user.Address,
-		PostalCode:           user.PostalCode,
-		City:                 user.City,
-		Phone:                user.Phone,
-		PhoneParent:          user.PhoneParent,
+		Name:       user.Name,
+		Role:       string(user.Role),
+		Team:       user.PatrolName,
+		Section:    user.Section,
+		Address:    user.Address,
+		PostalCode: user.PostalCode,
+		City:       user.City,
+		Phone:      user.Phone,
+		// Blanked when it is really the member's own number (task 229): such a record cannot serve
+		// its purpose, and letting it verify would fast-track past check-in the one member whose
+		// record needs fixing. Projected out here rather than left to the client — `.rules`.
+		PhoneParent:          contactNumberForOwner(user.PhoneParent, user.Phone),
 		HasPhoto:             app.hasPortrait(s.UserID),
 		ConfirmationRequired: app.confirmationRequired(s.UserID),
 		VerifiedAt:           app.verifiedAt(s.UserID),
@@ -116,6 +119,65 @@ func (app *application) showProfileHandler(w http.ResponseWriter, r *http.Reques
 	if err := app.WriteJSON(w, http.StatusOK, out, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
 	}
+}
+
+// contactNumberForOwner returns the contact number to show the member it belongs to, blanking one
+// that is really their own number (PRD 015, task 229).
+//
+// Takes the two values rather than a record, because the same rule has to hold on two shapes: the
+// profile read has a `users.User`, the confirm and skip endpoints have a `person.Person`, and a
+// version of this rule per struct is how one of them ends up not applying it.
+//
+// # Why a member's own number is worse than no number
+//
+// Some records were registered with the member's own phone as their emergency contact. Such a row
+// passes every check we have: it is a well-formed Danish number, the member recognises the last two
+// digits instantly, and it verifies perfectly — while being worthless in the situation it exists
+// for. An injured or withdrawing 13-year-old's phone is the phone we are trying not to depend on.
+//
+// Left alone, it would be actively harmful under PRD 015: the member would breeze through the check
+// and check-in would skip the one record that most needs fixing. So this returns "expected but not
+// registered", which puts the member in front of the field asking for a number — and, if they do
+// not supply one, tells the counter to ask.
+//
+// # "" and nil are different answers and both are load-bearing
+//
+// nil means "this population has no contact number at all" (bandit, crew, gøgler) and the client
+// hides the row. "" means "one is expected and missing", which is what a collision now reads as.
+// Returning nil here would tell a spejder they are not supposed to have a contact number — and
+// would switch off `confirmation_required` for exactly the member who needs the question.
+//
+// # Compared after normalization
+//
+// "20 00 00 01", "+4520000001" and "004520000001" are one number, and the register contains all
+// three styles. Both sides are normalized with the same function the login lookup uses; a value
+// that will not normalize is compared raw, since an unparseable number is not something to guess
+// about.
+func contactNumberForOwner(contact *string, ownPhone string) *string {
+	if contact == nil || *contact == "" {
+		return contact
+	}
+	if !samePhoneNumber(*contact, ownPhone) {
+		return contact
+	}
+	blank := ""
+	return &blank
+}
+
+// samePhoneNumber reports whether two numbers are the same number, ignoring formatting.
+func samePhoneNumber(a, b string) bool {
+	if strings.TrimSpace(a) == "" || strings.TrimSpace(b) == "" {
+		// Not "equal because both are blank": an empty own number must never blank a real contact
+		// number, which is what a plain string compare on two empties would do for a member whose
+		// own phone is missing from the register.
+		return false
+	}
+	na, errA := phone.Normalize(a)
+	nb, errB := phone.Normalize(b)
+	if errA != nil || errB != nil {
+		return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
+	}
+	return na == nb
 }
 
 // confirmProfileRequest is the body of POST /api/me/profile/confirm.
@@ -223,8 +285,12 @@ func (app *application) confirmProfileHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	guardian := ""
-	if p.PhoneParent != nil {
-		guardian = *p.PhoneParent
+	if contact := contactNumberForOwner(p.PhoneParent, p.Phone); contact != nil {
+		// The blanked value, not the raw column: a member must not be able to "confirm" their own
+		// number as their emergency contact (task 229). With "" no pair of digits can match, which
+		// is the correct answer to a request the client should not have made — the member is shown
+		// the supply-a-number field instead.
+		guardian = *contact
 	}
 	if !lastTwoDigitsMatch(guardian, input.Digits) {
 		app.rejectConfirmAttempt(w, r, checkKey, p)

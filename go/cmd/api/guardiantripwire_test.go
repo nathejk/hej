@@ -66,6 +66,38 @@ var forbiddenKeys = []string{
 	"address", "postalcode", "postal_code",
 }
 
+// TestOwnProfileNeverCarriesTheirOwnNumberAsContact belongs in the tripwire rather than beside the
+// other task 229 tests, because it guards the same invariant from the other side.
+//
+// `.rules` allows exactly one surface to carry a contact number: the member's own profile, so they
+// can confirm it. That exception is what makes the profile the one place a bad value can hide — and
+// a contact number equal to the member's own phone is the specific bad value PRD 015 refuses to
+// show, because a member who "confirms" it is fast-tracked past the counter on a record that cannot
+// serve its purpose.
+//
+// Asserted against the projection helper rather than over HTTP, so it also covers the confirm and
+// skip paths that read the same rule.
+func TestOwnProfileNeverCarriesTheirOwnNumberAsContact(t *testing.T) {
+	own := "+4530000001"
+	for _, registered := range []string{own, "30 00 00 01", "004530000001"} {
+		contact := registered
+		got := contactNumberForOwner(&contact, own)
+		if got == nil {
+			t.Fatalf("%q: got nil, which would hide the row instead of asking for a number", registered)
+		}
+		if *got != "" {
+			t.Errorf("%q: got %q, want it blanked — a member's own phone is not an emergency contact",
+				registered, *got)
+		}
+	}
+
+	// ...and the tripwire must not have become vacuous by blanking everything.
+	genuine := guardianNumber
+	if got := contactNumberForOwner(&genuine, own); got == nil || *got != guardianNumber {
+		t.Errorf("a genuine contact number must survive, got %v", got)
+	}
+}
+
 // TestContactsSurfacesNeverCarryAGuardianNumber scans the marshalled body of every JSON
 // contacts surface.
 //
