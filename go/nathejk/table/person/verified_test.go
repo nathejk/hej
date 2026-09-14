@@ -13,13 +13,18 @@ func TestVerifiedSubjectShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifiedSubject: %v", err)
 	}
-	if got := s.Subject(); got != "NATHEJK.2026.member.member-1.verified" {
+	if got := s.Subject(); got != "NATHEJK.2026.spejder.member-1.verified" {
 		t.Errorf("subject = %q", got)
 	}
 	// The publish side and the consume side are two strings in two files, and a subject
 	// that does not match is completely silent — the projection simply never writes.
-	if !s.Match("nathejk.*.member.*.verified") {
+	if !s.Match("nathejk.*.spejder.*.verified") {
 		t.Errorf("published subject %q does not match the consumed pattern", s.Subject())
+	}
+	// Four parts, so it must not be caught by the five-part lifecycle patterns that share the
+	// prefix and resolve to a member status. A verification is not a status.
+	if s.Match("nathejk.*.spejder.*.status.overridden") {
+		t.Errorf("subject %q collides with the lifecycle patterns", s.Subject())
 	}
 }
 
@@ -43,7 +48,7 @@ func TestVerifiedSubjectRejectsBadTokens(t *testing.T) {
 }
 
 func TestMemberVerifiedWritesContactAndTimestamp(t *testing.T) {
-	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.member.member-1.verified",
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.verified",
 		messages.NathejkMemberVerified{
 			MemberID:     "member-1",
 			PhoneContact: "4512345678",
@@ -75,7 +80,7 @@ func TestMemberVerifiedWritesContactAndTimestamp(t *testing.T) {
 // Until task 224 gives the own-phone verification a column of its own, an event with no contact
 // number has nowhere to go, so it is refused rather than stored as a verifiedAt with no subject.
 func TestMemberVerifiedRejectsMissingContactPhone(t *testing.T) {
-	if _, err := handle(t, "NATHEJK.2026.member.member-1.verified", messages.NathejkMemberVerified{
+	if _, err := handle(t, "NATHEJK.2026.spejder.member-1.verified", messages.NathejkMemberVerified{
 		MemberID:   "member-1",
 		VerifiedAt: time.Now().UTC(),
 	}); err == nil {
@@ -86,7 +91,7 @@ func TestMemberVerifiedRejectsMissingContactPhone(t *testing.T) {
 // The member id may be taken from the subject when the body omits it, like every other handler
 // here — the subject is the authoritative key.
 func TestMemberVerifiedFallsBackToSubjectID(t *testing.T) {
-	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.member.member-9.verified",
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-9.verified",
 		messages.NathejkMemberVerified{
 			PhoneContact: "4512345678",
 			VerifiedAt:   time.Now().UTC(),
@@ -100,7 +105,7 @@ func TestMemberVerifiedFallsBackToSubjectID(t *testing.T) {
 // the field must not dead-letter the row: the verification is what matters, the exact
 // minute is not.
 func TestMemberVerifiedToleratesZeroTimestamp(t *testing.T) {
-	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.member.member-1.verified",
+	stmt := onlyStatement(t, mustHandle(t, "NATHEJK.2026.spejder.member-1.verified",
 		messages.NathejkMemberVerified{
 			MemberID:     "member-1",
 			PhoneContact: "4512345678",

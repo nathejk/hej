@@ -43,11 +43,15 @@ func confirmTestApp(t *testing.T, pub *cqrstest.Publisher, p person.Person) *app
 	return app
 }
 
-// unverifiedSpejder is the state the confirmation step exists for: a guardian number on
+// unverifiedSpejder is the state the confirmation step exists for: a contact number on
 // file, not verified, not started.
+//
+// `Year` is set because the publish takes the subject's year from the member's own row
+// (task 223), so a fixture without one publishes to a malformed subject and the endpoint
+// answers 500 — an unhelpful way to discover that the field is now load-bearing.
 func unverifiedSpejder() person.Person {
 	guardian := "+4520000001"
-	return person.Person{PersonID: "mock-spejder-1", PhoneParent: &guardian}
+	return person.Person{PersonID: "mock-spejder-1", Year: "2026", PhoneParent: &guardian}
 }
 
 func TestConfirmProfile_RequiresAuth(t *testing.T) {
@@ -80,6 +84,18 @@ func TestConfirmProfile_PublishesVerification(t *testing.T) {
 
 	if len(pub.Messages) != 1 {
 		t.Fatalf("published %d events, want 1", len(pub.Messages))
+	}
+	// The subject the endpoint publishes on, asserted here as well as in the person package's
+	// unit test, because these are two strings in two files and a mismatch is *silent*: the
+	// projection simply never writes, and nothing anywhere raises an error (task 223).
+	//
+	// The year is the member's own (`Person.Year`), not the configured event year — which is why
+	// the fixture sets it.
+	if got := pub.Subjects()[0]; got != "NATHEJK.2026.spejder.mock-spejder-1.verified" {
+		t.Errorf("subject = %q", got)
+	}
+	if !pub.Messages[0].Subject().Match("nathejk.*.spejder.*.verified") {
+		t.Errorf("subject %q is not one the projection subscribes to", pub.Subjects()[0])
 	}
 	// Decoded rather than inspected as a struct, so the assertions run through the same
 	// JSON round-trip a real consumer does and can catch a wrong field tag.
@@ -164,6 +180,7 @@ func TestConfirmProfile_AlreadyVerifiedIs409(t *testing.T) {
 	at := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
 	app := confirmTestApp(t, &cqrstest.Publisher{}, person.Person{
 		PersonID:          "mock-spejder-1",
+		Year:              "2026",
 		PhoneParent:       &guardian,
 		AcknowledgedPhone: &guardian,
 		// What the register held at acknowledgement. Required for IsVerified to vouch for the
@@ -352,6 +369,7 @@ func TestSetGuardian_WorksForAnAlreadyVerifiedMember(t *testing.T) {
 	pub := &cqrstest.Publisher{}
 	app := confirmTestApp(t, pub, person.Person{
 		PersonID:             "mock-spejder-1",
+		Year:                 "2026",
 		PhoneParent:          &guardian,
 		AcknowledgedPhone:    &guardian,
 		VerifiedAgainstPhone: &guardian,

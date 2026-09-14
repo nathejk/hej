@@ -144,10 +144,10 @@ func (c consumer) Consumes() []cqrs.Subject {
 		// See portrait.go for why it lives on NATHEJK rather than a sibling stream.
 		cqrs.SubjectFromStr("NATHEJK.*.portrait.*.captured"),
 		cqrs.SubjectFromStr("NATHEJK.*.portrait.*.purged"),
-		// Also published by this app (task 133): PRD 005's guardian-number verification.
-		// See verified.go, including why the message is declared here rather than in
-		// shared-go.
-		cqrs.SubjectFromStr("NATHEJK.*.member.*.verified"),
+		// Also published by this app (task 133): PRD 005's contact-number verification, on the
+		// spejder prefix since task 223. See verified.go, including why the token names a
+		// prefix rather than a population.
+		cqrs.SubjectFromStr("NATHEJK.*.spejder.*.verified"),
 	}
 }
 
@@ -227,7 +227,10 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 		return c.handlePortraitCaptured(msg, year)
 	case subject.Match("nathejk.*.portrait.*.purged"):
 		return c.handlePortraitPurged(msg, year)
-	case subject.Match("nathejk.*.member.*.verified"):
+	// Four parts, like `spejder.*.updated`, so it must be matched before that — and it must stay
+	// out of the five-part lifecycle group above, which resolves to a member status. A
+	// verification is not a status.
+	case subject.Match("nathejk.*.spejder.*.verified"):
 		return c.handleMemberVerified(msg, year)
 	case subject.Match("nathejk.*.spejder.*.updated"):
 		return c.handleSpejderUpdated(msg, year)

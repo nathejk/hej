@@ -41,13 +41,21 @@ import (
 // only an unreferenced object. There is nothing to store here, so the ordering question
 // does not arise: the event is the whole write.
 //
+// # The year comes from the member, not from config
+//
+// `p.Year` rather than `app.config.eventYear` (task 223). They hold the same value today — the
+// row was loaded by that year in the first place — and reading config here is exactly how they
+// would stop holding the same value without anyone noticing: the subject would then claim a
+// verification for a year the row does not belong to, and the projection's UPDATE, which keys on
+// both, would silently match nothing.
+//
 // `registeredPhone` is still a parameter and is deliberately unused since task 222: the event no
 // longer carries what the register held, because PRD 015 §4 dropped both questions that field
 // answered. It is kept on the signature until the callers are reworked, so that removing it is one
 // reviewable change rather than noise inside this one.
 func (app *application) storeVerification(
 	ctx context.Context,
-	personID string,
+	p person.Person,
 	acknowledgedPhone string,
 	registeredPhone string,
 ) error {
@@ -56,28 +64,26 @@ func (app *application) storeVerification(
 	_ = ctx
 	_ = registeredPhone
 
-	if personID == "" {
+	if p.PersonID == "" {
 		return fmt.Errorf("store verification: no person")
 	}
 	if acknowledgedPhone == "" {
 		// Refused here as well as in the projection handler. A verification that names no
-		// number cannot be invalidated when the guardian number later changes, so it
-		// would become a permanent tick for a phone nobody agreed to — see
-		// person.MemberVerified.
+		// number is a tick against nothing — see person.handleMemberVerified.
 		return fmt.Errorf("store verification: no acknowledged phone")
 	}
 
-	subject, err := person.VerifiedSubject(app.config.eventYear, personID)
+	subject, err := person.VerifiedSubject(p.Year, p.PersonID)
 	if err != nil {
 		// A year or person id that cannot be a subject token is our problem, not the
 		// member's — and publishing it anyway would put this person's verification on a
 		// subject the per-person purge cannot reach, which matters because the event
-		// carries a parent's phone number.
+		// carries a contact number.
 		return fmt.Errorf("store verification: %w", err)
 	}
 
 	body := messages.NathejkMemberVerified{
-		MemberID: types.MemberID(personID),
+		MemberID: types.MemberID(p.PersonID),
 		// The contact number the member acknowledged — the registered one when they recognised it,
 		// one they typed when they did not. Which of the two it was is not recorded, on purpose
 		// (PRD 015 §4): what decides whether check-in asks is only whether a verified number exists.

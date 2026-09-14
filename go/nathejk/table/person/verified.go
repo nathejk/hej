@@ -61,19 +61,27 @@ import (
 //
 // VerifiedSubject builds the subject a verification is published on:
 //
-//	NATHEJK.<year>.member.<personId>.verified
+//	NATHEJK.<year>.spejder.<memberId>.verified
 //
 // Per person, like the portrait subject, so `nats stream purge --subject` can erase one
-// individual's history and nothing else — this event carries a parent's phone number, so
-// that matters here as much as it does for a photograph.
+// individual's history and nothing else — this event carries a contact number, so that
+// matters here as much as it does for a photograph.
 //
 // On `NATHEJK` because it is a small, low-frequency domain fact about a member, and
 // `NATHEJK.>` already claims the subject, so no broker topology change is needed
 // (contrast task 081, where the position track's volume forced a sibling stream).
 //
-// `member.` rather than `person.`: "person" is this projection's local word for a row
-// assembled from several populations, while the fact being recorded is about a *member* of
-// the event — which is the vocabulary shared-go, hq and PRD 005 all use.
+// # `spejder` is a token, not a population
+//
+// The subject used to read `member.` (task 133). It moved to `spejder.` in task 222/223 to sit
+// alongside the member-lifecycle events, which are already published on
+// `NATHEJK.{year}.spejder.{memberId}.{event}` for members who are not only spejder. **A
+// consumer must not infer a role from this token.** Bandits publish their own-phone
+// verification here too (PRD 015 §6), and the body carries no role field to correct the
+// impression — so the temptation to read one out of the subject is real.
+//
+// Nothing was ever published on the old `.member.` subject, which is why there is no dual
+// subscription and no migration.
 func VerifiedSubject(year, personID string) (cqrs.Subject, error) {
 	if err := validSubjectToken(year, "year"); err != nil {
 		return nil, err
@@ -82,7 +90,7 @@ func VerifiedSubject(year, personID string) (cqrs.Subject, error) {
 		return nil, err
 	}
 	return cqrs.SubjectFromStr(
-		fmt.Sprintf("NATHEJK.%s.member.%s.verified", year, personID)), nil
+		fmt.Sprintf("NATHEJK.%s.spejder.%s.verified", year, personID)), nil
 }
 
 // handleMemberVerified records the verification on the person's row.

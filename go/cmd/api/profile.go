@@ -226,7 +226,7 @@ func (app *application) confirmProfileHandler(w http.ResponseWriter, r *http.Req
 
 	// Both numbers are the same on this path: the member confirmed the number we hold. They differ
 	// only on the correction path (task 148), which is what the second field is for.
-	if err := app.storeVerification(r.Context(), s.UserID, guardian, guardian); err != nil {
+	if err := app.storeVerification(r.Context(), p, guardian, guardian); err != nil {
 		if errors.Is(err, commands.ErrNoPublisher) {
 			// The broker is down. Retryable, and reported as such rather than as a
 			// success: a confirmation the log never saw did not happen, and telling the
@@ -370,7 +370,7 @@ func (app *application) setGuardianHandler(w http.ResponseWriter, r *http.Reques
 		registered = *p.PhoneParent
 	}
 
-	if err := app.storeVerification(r.Context(), s.UserID, normalized, registered); err != nil {
+	if err := app.storeVerification(r.Context(), p, normalized, registered); err != nil {
 		if errors.Is(err, commands.ErrNoPublisher) {
 			app.ServiceUnavailableResponse(w, r, "kan ikke gemmes lige nu")
 			return
