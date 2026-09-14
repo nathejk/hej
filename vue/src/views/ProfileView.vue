@@ -17,6 +17,7 @@ import { formatPhone } from '@/helpers'
 import { blockedGuidance } from '@/config/permissions'
 import PreferenceRow from '@/components/profile/PreferenceRow.vue'
 import ProfilePhoto from '@/components/profile/ProfilePhoto.vue'
+import MyVehicles from '@/components/profile/MyVehicles.vue'
 import OfflineReadiness from '@/components/profile/OfflineReadiness.vue'
 
 const profile = useProfileStore()
@@ -280,6 +281,11 @@ onUnmounted(() => {
         forkert, sig det til din leder eller til Nathejk i startområdet.
       </p>
     </section>
+
+    <!-- PRD 010's vehicles. Between the read-only registration details above and the
+         device-level settings below, because it is the one thing on this page a member can
+         actually add to about themselves. Draws nothing for a spejder. -->
+    <MyVehicles />
 
     <section>
       <h2 class="font-nathejk text-lg text-slate-900">På denne enhed</h2>
