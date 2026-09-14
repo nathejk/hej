@@ -129,6 +129,8 @@ github.com/nathejk/shared-go v0.0.0-20260914180220-e126b80fd5fa h1:cTSsHsdAq4Yif
 github.com/nathejk/shared-go v0.0.0-20260914180220-e126b80fd5fa/go.mod h1:SLheoU07VnVQFyCWsQgodb5BwBe/GRSMNiag+emy4aE=
 github.com/nathejk/shared-go v0.0.0-20260914181805-fc58644640c3 h1:/luOBwF8ad++mbWtqWWLrU8f9u3gHjnnCjnJVTGMHkg=
 github.com/nathejk/shared-go v0.0.0-20260914181805-fc58644640c3/go.mod h1:SLheoU07VnVQFyCWsQgodb5BwBe/GRSMNiag+emy4aE=
+github.com/nathejk/shared-go v0.0.0-20260914184535-5514e4cc51ea h1:5/vutQT9a3A8ZxOj/NWndLGqsIXOJ+jYSOVXwPZyO/4=
+github.com/nathejk/shared-go v0.0.0-20260914184535-5514e4cc51ea/go.mod h1:SLheoU07VnVQFyCWsQgodb5BwBe/GRSMNiag+emy4aE=
 github.com/nats-io/nats.go v1.52.0 h1:n3avV4VBsCgsdwh71TppsTwtv+QdPs7ntSKM8qJLGsc=
 github.com/nats-io/nats.go v1.52.0/go.mod h1:26HypzazeOkyO3/mqd1zZd53STJN0EjCYF9Uy2ZOBno=
 github.com/nats-io/nkeys v0.4.15 h1:JACV5jRVO9V856KOapQ7x+EY8Jo3qw1vJt/9Jpwzkk4=
