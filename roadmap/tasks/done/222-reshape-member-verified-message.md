@@ -1,11 +1,11 @@
 # 222 — Reshape `NathejkMemberVerified` to carry two optional phone numbers
 
-**Status:** doing
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-12
 **Picked up by:** agent session (Zed)
 **Started:** 2026-09-12
-**Completed:**
+**Completed:** 2026-09-12
 
 ## Description
 
@@ -61,8 +61,8 @@ other consumers read, and the new rationale (fast track, PIN-proven `Phone`, ack
 - [x] The doc comment records that `omitempty` on `PhoneContact` is deliberate and why a
       skip event being byte-identical to a login event is acceptable
 - [x] `shared-go` builds and its own tests pass after the reshape
-- [ ] `hej/go` builds with `GOWORK=off` against a bumped `go.mod` version, not only with the
-      workspace active — **blocked on pushing `shared-go` 51bff56**, see log
+- [x] `hej/go` builds with `GOWORK=off` against a bumped `go.mod` version, not only with the
+      workspace active
 - [x] No remaining reference to the dropped fields anywhere in `shared-go` or `hej/go`
 
 ## Progress Log
@@ -98,3 +98,7 @@ other consumers read, and the new rationale (fast track, PIN-proven `Phone`, ack
   the `go.mod` line bumped — pushing another repo is not mine to do unasked, so it is left
   open and flagged rather than quietly ticked. Everything else in PRD 015 builds and tests
   against the workspace in the meantime.
+- 2026-09-12 — Maintainer approved the push. shared-go 51bff56 is on origin/main, and
+  `go.mod` is bumped to `v0.0.0-20260914140247-51bff56c3504`. `GOWORK=off go build ./...`
+  passes, so the dev loop's `pinned_build` gate is satisfied and the api can boot again.
+  ✅ Last criterion. Task done.
