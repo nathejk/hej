@@ -580,8 +580,18 @@ func TestShowPhoto_ServesTheOwnersPortrait(t *testing.T) {
 
 	// The lookup is keyed by the configured year and the *session's* user, never by
 	// anything from the request.
-	if len(people.asked) != 1 || !strings.HasPrefix(people.asked[0], "2026/") {
-		t.Errorf("looked up %v", people.asked)
+	//
+	// Every lookup is checked rather than a count, because logging in now looks the member up
+	// too — to record that the PIN proved their own number (PRD 015, task 226). Asserting "exactly
+	// one" would make this test fail whenever an unrelated part of the request path grew a
+	// legitimate read, which says nothing about the property being defended here.
+	if len(people.asked) == 0 {
+		t.Error("want at least the photo handler's own lookup")
+	}
+	for _, asked := range people.asked {
+		if asked != "2026/mock-spejder-1" {
+			t.Errorf("looked up %q, want the configured year and the session's user", asked)
+		}
 	}
 }
 

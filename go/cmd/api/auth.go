@@ -226,6 +226,9 @@ func (app *application) verifyPinHandler(w http.ResponseWriter, r *http.Request)
 	case 1:
 		user := matches[0]
 		app.sessions.Issue(w, user.ID, string(user.Role))
+		// The PIN just proved this number reaches this member, so record it (PRD 015). After the
+		// session is issued and deliberately unable to fail the login — see recordOwnPhoneVerified.
+		app.recordOwnPhoneVerified(user.ID, normalized)
 		if err := app.WriteJSON(w, http.StatusOK, identityResponse{UserID: user.ID, Role: string(user.Role)}, nil); err != nil {
 			app.ServerErrorResponse(w, r, err)
 		}
@@ -303,6 +306,10 @@ func (app *application) chooseHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		app.sessions.Issue(w, u.ID, string(u.Role))
+		// Same as the single-match path: the PIN proved the number, and this is the point at which
+		// we learn *which* of its owners is holding it — so the fact belongs to this member (PRD
+		// 015). A shared number legitimately records the same number as verified for two people.
+		app.recordOwnPhoneVerified(u.ID, normalized)
 		if err := app.WriteJSON(w, http.StatusOK, identityResponse{UserID: u.ID, Role: string(u.Role)}, nil); err != nil {
 			app.ServerErrorResponse(w, r, err)
 		}

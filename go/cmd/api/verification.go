@@ -96,6 +96,79 @@ func (app *application) storeVerification(
 	return nil
 }
 
+// recordOwnPhoneVerified publishes that the member's own number is verified, because they just
+// proved it: a PIN was sent to that number by SMS and they typed it back (PRD 015, task 226).
+//
+// # Why this is free, and why it is worth having
+//
+// Nobody is asked anything. The fact falls out of logging in, and it is one more question the
+// check-in counter does not have to put to a queue of tired teenagers.
+//
+// # It must never fail the login
+//
+// Every error here is swallowed after logging — the deliberate exception to the rule stated on
+// storeVerification that a failed publish fails the request. There the publish *is* the act the
+// member performed; here it is a by-product, and a broker outage must not stand between a member
+// and the app they are trying to get into. The event is not lost forever either: the next login
+// republishes, because nothing was recorded to suppress it.
+//
+// # Once per verified number, not once per login
+//
+// A member logging in every morning restates nothing: the publish is suppressed while the number
+// already recorded is the one the PIN just proved (`Person.PhoneVerifiedIs`). If their number
+// changes, the new one publishes and supersedes — last verification wins (PRD 015 §6).
+//
+// The read-then-publish is racy under two simultaneous logins, and that is accepted rather than
+// locked: both events would say the same thing about the same member, and the projection takes the
+// latest.
+//
+// # Spejder and bandit only
+//
+// Crew and gøglere have their own numbers verified through another route, so an event here would
+// restate a known fact for the population that generates the most logins. Note the subject still
+// reads `spejder` for a bandit — it is a prefix, not a population; see person.VerifiedSubject.
+func (app *application) recordOwnPhoneVerified(personID, provenPhone string) {
+	if personID == "" || provenPhone == "" {
+		return
+	}
+
+	p, found := app.person(personID)
+	if !found {
+		// No projection, or no row yet. Not worth a log line at error level: the member is
+		// logging in against the user directory, which can answer when the projection cannot.
+		return
+	}
+	switch p.AppRole {
+	case person.RoleSpejder, person.RoleBandit:
+	default:
+		return
+	}
+	if p.PhoneVerifiedIs(provenPhone) {
+		return
+	}
+
+	subject, err := person.VerifiedSubject(p.Year, p.PersonID)
+	if err != nil {
+		app.Logger.Warn("own phone verified: cannot build subject",
+			"personId", p.PersonID, "error", err)
+		return
+	}
+
+	// `PhoneContact` is deliberately absent, not empty-and-meaningless: this event establishes
+	// nothing about the contact number, and the projection must not touch those columns. A login
+	// that could clear a confirmation the member made last week would be a silent data loss with
+	// no plausible cause for whoever investigated it (see person.handleMemberVerified).
+	body := messages.NathejkMemberVerified{
+		MemberID:   types.MemberID(p.PersonID),
+		Phone:      types.PhoneNumber(provenPhone),
+		VerifiedAt: time.Now().UTC(),
+	}
+	if err := app.commands.Publish(subject, body); err != nil {
+		app.Logger.Warn("own phone verified: publish failed, carrying on",
+			"personId", p.PersonID, "error", err)
+	}
+}
+
 // confirmationRequired reports whether this member still has to confirm their guardian
 // number.
 //

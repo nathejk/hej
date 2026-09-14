@@ -53,7 +53,20 @@ type Person struct {
 	// contacting a guardian during the event, because it may be a number the member supplied
 	// when they could not recognise the registered one (task 148).
 	AcknowledgedPhone *string
-	PortraitRef       string
+
+	// PhoneVerifiedAt and VerifiedPhone are the member's OWN number, proven by challenge-response:
+	// they received a PIN by SMS on it and typed it back to log in (PRD 015, task 226). A
+	// different fact from the contact number above, by a different mechanism — see the schema
+	// comment on why the two never share a column.
+	//
+	// Read here for exactly one purpose: suppressing a re-publish when the number already recorded
+	// is the one the PIN just proved. They are deliberately NOT part of IsVerified — a member who
+	// logged in and skipped the contact check has not verified a contact number, and treating this
+	// as though they had would fast-track at check-in the records that still need one.
+	PhoneVerifiedAt *time.Time
+	VerifiedPhone   *string
+
+	PortraitRef string
 	// PortraitThumbRef is the default (smallest) thumbnail's content hash, or empty when
 	// the portrait predates thumbnails (task 104). Readers fall back to PortraitRef.
 	PortraitThumbRef string
@@ -115,6 +128,27 @@ func (p Person) IsVerified() bool {
 	// No number on file at all: whatever was verified, it is not something we can point at now,
 	// so this is not a state in which a tick may be shown.
 	return p.PhoneParent != nil
+}
+
+// PhoneVerifiedIs reports whether the member's own number is already recorded as verified, and as
+// this exact number.
+//
+// The suppression rule for the login publish (PRD 015, task 226), as a predicate here rather than
+// a comparison at the call site — which is how "once per member per year" and "last verification
+// wins" would drift into two different rules.
+//
+// Both halves matter. `PhoneVerifiedAt` alone would re-publish on every login forever; ignoring
+// the number would mean a member whose phone changed never gets the new one recorded, because the
+// old verification suppresses it. So: publish unless what we hold is already this number.
+//
+// The caller normalizes before comparing. Storing an unnormalized number here would make this
+// return false for a number we already hold, and the cost is a duplicate event per login — quiet,
+// and exactly the kind of quiet that survives a release.
+func (p Person) PhoneVerifiedIs(normalized string) bool {
+	if p.PhoneVerifiedAt == nil || p.VerifiedPhone == nil {
+		return false
+	}
+	return *p.VerifiedPhone == normalized
 }
 
 // HasStarted reports whether the member has begun the event.
@@ -223,6 +257,7 @@ const personColumns = `
 	sectionSlug, sectionName,
 	memberStatus, armNumber,
 	verifiedAt, acknowledgedPhone,
+	phoneVerifiedAt, verifiedPhone,
 	portraitRef, portraitThumbRef, portraitThumbs,
 	portraitOriginalRef, portraitOrientation, portraitCapturedAt`
 
@@ -435,6 +470,7 @@ func scanPerson(s scanner) (Person, error) {
 		&p.SectionSlug, &p.SectionName,
 		&p.MemberStatus, &p.ArmNumber,
 		&p.VerifiedAt, &p.AcknowledgedPhone,
+		&p.PhoneVerifiedAt, &p.VerifiedPhone,
 		&p.PortraitRef, &p.PortraitThumbRef, &thumbs,
 		&p.PortraitOriginalRef, &p.PortraitOrientation,
 		&p.PortraitCapturedAt,
