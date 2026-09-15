@@ -1,8 +1,10 @@
 # 257 — Synthesise `skitse` handouts from `handoutCheckgroupId`
 
-**Status:** open
+**Status:** doing
 **Priority:** medium
 **Created:** 2026-09-15
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-15
 
 ## Description
 
@@ -36,3 +38,7 @@ a post follows the same rule and would otherwise be missing too.
 ## Progress Log
 
 - 2026-09-15 — Task created from PRD 016 phase 2.
+- 2026-09-15 — Picked up. Plan: put the handout list beside the reveal rule in `internal/reveal`, since
+  both answer "what has this patrol been given" from the same four inputs and the synthesis rule is the
+  same predicate the reveal rule already evaluates. Keeping them apart would mean two implementations of
+  one rule, which is how a list and a map start disagreeing.
