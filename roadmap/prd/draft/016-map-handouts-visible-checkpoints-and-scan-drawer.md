@@ -49,18 +49,19 @@ Nothing else.
     `openDuration` on the checkpoint) is already on the stream.
 
 - **Why now?** The upstream work landed. HQ's **PRD 010** shipped `kort` and
-  `kortsaet` projections and — crucially — a written contract for *this repo*:
-  `hq/roadmap/api/kort-events.md`, addressed "**For:** the hej-app team". HQ also
-  already keeps a `maphandout` projection built from `qr.registered`, which is
-  the exact shape hej needs. The event map, offline data layer (PRD 009) and
-  checkpoint projection are all in place here. What remains is consuming events
-  that already flow.
+  `kortsaet` projections and — crucially — a written contract for *this repo*,
+  addressed "**For:** the hej-app team", now copied here as
+  `roadmap/api/kort-events.md`. HQ also already keeps a `maphandout` projection
+  built from `qr.registered`, which is the shape a handout list needs. The event
+  map, offline data layer (PRD 009) and checkpoint projection are all in place
+  here. What remains is consuming events that already flow.
 
 - **Evidence.**
-  - `hq/roadmap/api/kort-events.md` — the contract, including §1/§1.1, the two
-    reveal rules, which is the policy this PRD implements.
-  - `hq/go/nathejk/table/maphandout/table.sql` — "which maps has *this* team ever
-    been given?" is stated there as a question the current model must answer.
+  - `roadmap/api/kort-events.md` (in this repo, copied from hq 2026-09-15) — the
+    contract, including §1/§1.1, the two reveal rules, which is the policy this
+    PRD implements.
+  - HQ's `maphandout` schema states "which maps has *this* team ever been given?"
+    as a question the model must answer — which is this feature's handout list.
   - PRD 002 §11 deferred "which checkpoints may participants see?" rather than
     settling it. This PRD settles it.
 
@@ -83,12 +84,14 @@ Nothing else.
 - **Not** turn-by-turn routing or route lines. Arrows are straight-line bearing
   and great-circle distance.
 - **Not** an organizer tool. Handouts are recorded in skan; sheets are defined in
-  HQ. This repo only reads.
+  HQ. This repo only reads the stream.
+- **Not** sharing code with hq. Its projections are prior art to copy, not a
+  dependency to import (§8).
 - **Not** rendering the sheet's `extents` rectangles on the map (a plausible
   later addition — see §11).
 - **Not** showing other teams' handouts, or who currently holds a sheet a patrol
-  no longer has. HQ's `maphandout.ByTeam` returns current-holder fields for an
-  organizer view; **this repo must project them out** (§6, non-functional).
+  no longer has. HQ's read model surfaces the successor team for an organizer
+  view; **our copy must not select those columns at all** (§6, non-functional).
 - **Not** scoring or standings. "On time" is informational for the patrol, not an
   authoritative result.
 - **Not** changing the offline tile cache scope (still the race area).
@@ -210,10 +213,11 @@ drawer.
   handed to handlers must take the patrol id and return only revealed
   checkpoints. A handler must have no way to ask for all of them. A test must
   assert that an un-revealed checkpoint never appears in any response.
-- **Other teams are projected out.** The handout payload must not carry the
-  successor team's id, number or name, even though the upstream read model has
-  them. Project out at the BFF, not in the client — same discipline as the
-  guardian-phone rule.
+- **Other teams never enter the read model.** The handout payload must not carry
+  the successor team's id, number or name. Stronger than projecting it out at the
+  handler: because the projection is ours (§8), the query does not select those
+  columns in the first place, so there is nothing to forget to remove — the same
+  discipline as the guardian-phone rule, applied one layer earlier.
 - **No guardian data.** Nothing here touches `phoneParent`; no contact data
   enters map or drawer payloads (repo rule).
 - **Offline-first.** All surfaces read from the cached client store and degrade
@@ -268,25 +272,56 @@ stated in the contract for exactly the reason that matters here: a read model we
 own keeps answering on a race night while HQ is restarting or unreachable,
 whereas polling would make every reveal depend on HQ being up at that moment.
 
+**HQ's projections are copied into this repo, never referenced.** There is no Go
+import of hq, no shared module, no build-time path to another checkout, and no
+HTTP call to HQ. The `kort`, `kortsaet` and `maphandout` projections are written
+here as our own code — informed by HQ's, and initially close to it — and from
+that moment they are ours to change. The only cross-repo dependency is the
+**event shapes on the stream**, and those are pinned in
+`roadmap/api/kort-events.md`, a vendored copy of HQ's contract taken
+2026-09-15.
+
+That is a deliberate trade. Sharing a projection would look like reuse and behave
+like coupling: HQ's read models answer an organizer's questions, ours answer a
+patrol's, and the two diverge immediately — HQ's `maphandout.ByTeam` returns the
+successor team that now holds a sheet, which is *precisely* a field we are
+forbidden to expose (§4, §6). A copy makes that divergence a normal edit instead
+of a negotiation, and it means an HQ refactor cannot break an app running during
+an event. The cost — the same bug potentially fixed twice — is small at this size
+and is the cheaper of the two.
+
+So:
+
+- The projections are ours. Where we knowingly mirror HQ's reasoning, the comment
+  says so and names the upstream file, as prior art rather than as a dependency.
+- Where a patrol's needs differ from an organizer's, we simplify rather than
+  carry a field we must then project out.
+- Copy the *reasoning*, not just the SQL. HQ's schema comments record hazards
+  learned the hard way — the `checkpointIds` JSON array, `mapId` never
+  overwritten with `""`, a sheet materialising before its set — and a copy that
+  drops them re-learns them during an event.
+
 **The `kort` / `kortsaet` message types are not in `shared-go` and are not being
 lifted yet** — they have not stabilised enough, and lifting a shape with one
 consumer gets it lifted wrong. So this repo decodes the JSON itself against local
 mirror types, exactly as the contract anticipates ("another service can consume
 these events today by decoding the JSON itself — the shapes are documented for
-that purpose"). Consequences to accept deliberately:
+that purpose"). The vendored copy's own "Prerequisite" note says you cannot
+decode until the lift lands; that is out of date, and the copy is what we build
+against. Consequences to accept deliberately:
 
 - The mirror types live in `go/nathejk/table/kort/messages.go` here, with a
-  comment naming `hq/roadmap/api/kort-events.md` as the source of truth and HQ's
-  task 138 as the eventual replacement.
+  comment naming `roadmap/api/kort-events.md` (the copy in *this* repo) as the
+  shape's source of truth, and HQ's task 138 as the eventual replacement.
 - We are the **second consumer**, which is what tells HQ which parts of the shape
-  are real. Anything we find awkward is raised against HQ's PRD 010, and the
-  contract changes there first.
+  are real. Anything we find awkward is raised against HQ's PRD 010, the contract
+  changes there first, and we then refresh our copy.
 - Unknown JSON fields are ignored, not rejected, so an additive upstream field
   cannot break a consumer mid-event.
 
 ### BFF (Go)
 
-New and widened projections in `go/nathejk/table/`:
+New projections in `go/nathejk/table/`, written here and owned here:
 
 - **`kort` + `kortsaet`** (new). Subjects: `NATHEJK.*.kort.*.{created,updated,deleted}`,
   `NATHEJK.*.kort.sorted`, `NATHEJK.*.kortsaet.*.{created,updated,deleted}`,
@@ -304,9 +339,11 @@ New and widened projections in `go/nathejk/table/`:
   `(year, qrId, teamId)` so a re-bind is history rather than an overwrite. The
   sheet id arrives as an **additive `mapId` field that skan adds to the shared
   body**, so it is not on `messages.NathejkQrRegistered` and must be read through
-  a struct embedding it. `mapId` is never overwritten with `""`. Current holder
-  is derived on read as the newest binding of a code — but here we only need
-  "does this patrol still hold it", never who else does.
+  a struct embedding it. `mapId` is never overwritten with `""` — that means
+  *unknown sheet*, not *no sheet*. Ours is **narrower than HQ's on purpose**: we
+  need "does this patrol still hold this sheet", never who else holds it, so the
+  successor-team derivation collapses to a boolean and the fields we must not
+  expose are never selected in the first place.
 - **`checkpoint`** (widen). Add `checkgroupId` (from `…checkpoint.*.created`,
   which this repo currently does not consume at all), `sortOrder` (from
   `NathejkCheckpointsSorted`), and the window (`FixedTimeRange` /
@@ -367,9 +404,14 @@ All behind `requireAuth`, all needing **OpenAPI annotations** (repo rule):
   puts un-revealed positions one struct field from a response. Mitigated by a
   patrol-scoped query returning a publishable-only type, plus an explicit test.
 - **Contract drift.** The `kort` shapes are unstable by their owner's own
-  assessment. Mirror types, tolerant decoding, and a documented pointer to
-  kort-events.md are the mitigation; a shape change is an HQ PRD 010 change
-  first.
+  assessment. Mirror types, tolerant decoding, and the vendored
+  `roadmap/api/kort-events.md` are the mitigation; a shape change is an HQ
+  PRD 010 change first, then a refresh of our copy. The copy carries the date it
+  was taken so drift is at least visible.
+- **Copy divergence.** Copying rather than sharing means an upstream bug fix does
+  not reach us. Accepted (see §8, integration shape); the mitigation is that our
+  projections are small, tested here, and rebuilt by replay, so a fix is an edit
+  and a restart rather than a migration.
 - **Reveal correctness depends on two things HQ cannot fix for us**: resolving
   `checkpointIds` against our own checkpoints, and treating a dangling
   `handoutCheckgroupId` as the QR rule. Both are fixes that do not travel over
@@ -396,12 +438,12 @@ Sequenced so the reveal rule is built and tested before anything renders it, and
 so the projections land in dependency order.
 
 **Phase 1 — consume the upstream facts**
-- [ ] Task: mirror the `kort`/`kortsaet` message shapes locally, documented
-      against `hq/roadmap/api/kort-events.md`
+- [ ] Task: vendor `roadmap/api/kort-events.md` from hq and mirror the
+      `kort`/`kortsaet` message shapes locally (no import of hq)
 - [ ] Task: `kort` + `kortsaet` projection (patch vs whole-record semantics,
       sorted events, sheet-before-set tolerance)
 - [ ] Task: `maphandout` projection from `qr.registered`, incl. the additive
-      `mapId` field
+      `mapId` field, narrowed to "does this patrol still hold it"
 - [ ] Task: widen `checkpoint` with `checkgroupId`, sort order and window
 - [ ] Task: `checkgroup` projection
 - [ ] Task: `checkpersonnel` + `scan` projections; retire the `internal/scans`
@@ -450,11 +492,11 @@ its own soft launch. Phases 1–2 are invisible to users by construction.
    the handout checkgroup, or list only QR-bound sheets and accept that skitser
    reveal checkpoints without appearing in the list. This is the one modelling
    gap in the handout list.
-3. **Is `showOnMap` (on the checkgroup) relevant here at all?** It exists and
-   sounds like it answers "may participants see this", but it plausibly means
-   "show on HQ's own planning map". If it is a participant-facing flag it becomes
-   a fourth reveal input — or a gate over all three. Needs an answer from HQ
-   before phase 2.
+3. **Is `showOnMap` (on the checkgroup) relevant here at all?** It exists on
+   `NathejkCheckgroupUpdated` and sounds like it answers "may participants see
+   this", but it plausibly means "show on HQ's own planning map". If it is a
+   participant-facing flag it becomes a fourth reveal input — or a gate over all
+   three. Needs an answer from HQ before phase 2.
 4. **Should a sheet the patrol no longer holds keep its checkpoints revealed?**
    This PRD says no (reveal follows current holdings) but keeps the sheet in the
    history. The opposite — once seen, always visible — is arguably kinder and is
@@ -479,3 +521,7 @@ its own soft launch. Phases 1–2 are invisible to users by construction.
 10. **Was the drawer ever removed?** `ScanList.vue` is still wired into
     `MapsView.vue` on `main`, so "reintroduce" is read here as "upgrade the
     existing drawer". Confirm, so phase 4 is scoped correctly.
+11. **Who refreshes the vendored contract, and when?** A copy with a date on it
+    is honest but passive. Options: refresh at the start of each season, or ask hq
+    to note in its own file which repos hold copies. Worth deciding once rather
+    than discovering a stale copy mid-event.
