@@ -620,3 +620,39 @@ func TestResolvableHandoutCheckgroupStillUsesRule2(t *testing.T) {
 		t.Fatalf("want cp-3 revealed by reaching cg-1, got %v", ids(got))
 	}
 }
+
+// Route order is (checkgroup order, checkpoint order), and both halves are only available on the server.
+// Sorted here so the client can trust the response \u2014 a frontend redoing this sort would need the group order
+// shipped to it as well, and one that forgot would point arrows at the wrong "next" post while looking
+// entirely correct.
+func TestRouteOrderSpansCheckgroups(t *testing.T) {
+	cps := &fakeCheckpoints{all: []checkpoint.Checkpoint{
+		// cp-late is early *within its group* but its group comes second along the route.
+		{ID: "cp-late", Checkgroup: "cg-2", SortOrder: 0, Lat: 56.3, Lng: 9.5},
+		{ID: "cp-early", Checkgroup: "cg-1", SortOrder: 5, Lat: 56.1, Lng: 9.5},
+	}}
+	r := New(
+		fakeSheets{sheets: []kort.Sheet{{
+			ID:            "kort-1",
+			CheckpointIDs: []types.CheckpointID{"cp-late", "cp-early"},
+		}}},
+		fakeHandouts{handouts: []maphandout.Handout{{QrID: "qr-1", MapID: "kort-1"}}},
+		fakeScans{},
+		cps,
+		fakeCheckgroups{groups: []checkgroup.Checkgroup{
+			{ID: "cg-1", SortOrder: 0},
+			{ID: "cg-2", SortOrder: 1},
+		}},
+	)
+
+	got, err := r.Revealed("2026", "team-9")
+	if err != nil {
+		t.Fatalf("Revealed: %v", err)
+	}
+	want := []string{"cp-early", "cp-late"}
+	for i, id := range ids(got) {
+		if id != want[i] {
+			t.Fatalf("want %v (group order first), got %v", want, ids(got))
+		}
+	}
+}

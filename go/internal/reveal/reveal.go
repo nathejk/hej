@@ -181,7 +181,18 @@ func (r *Rule) Revealed(year string, patrolID string) ([]checkpoint.Checkpoint, 
 		return nil, err
 	}
 
-	return merge(fromSheets, fromGroups), nil
+	return merge(fromSheets, fromGroups, groupOrder(groups)), nil
+}
+
+// groupOrder maps each checkgroup to its position along the route.
+//
+// Read from the same query that established which groups exist, so it costs nothing extra.
+func groupOrder(groups []checkgroup.Checkgroup) map[types.CheckgroupID]int {
+	order := make(map[types.CheckgroupID]int, len(groups))
+	for _, g := range groups {
+		order[g.ID] = g.SortOrder
+	}
+	return order
 }
 
 // revealsFor reports whether a sheet has been revealed to this patrol.
@@ -288,12 +299,21 @@ func dedupeIDs(ids []types.CheckpointID) []types.CheckpointID {
 
 // merge combines the two reads into one list in route order, without duplicates.
 //
-// Route order is (checkgroup order, checkpoint order), but this package sees only the checkpoint's own
-// sortOrder \u2014 the group's belongs to the checkgroup projection. Sorting by what we have keeps the list
-// stable and grouped; the caller that needs true route order joins the group's order itself (task 263).
-// Sorting *something* deterministic matters more than which: two consecutive map loads disagreeing about
-// order would look like a bug in the app.
-func merge(a, b []checkpoint.Checkpoint) []checkpoint.Checkpoint {
+// # Route order is sorted here, not on the client
+//
+// Route order is **(checkgroup order, checkpoint order)**, and only the server has both halves: a
+// checkpoint carries its position within its group, while the group's own position lives in the checkgroup
+// projection. An earlier draft sorted on the checkpoint's half alone and left the rest to the caller —
+// which would have meant shipping the group order to the client as well, so that the frontend could redo a
+// sort the server was already half-doing. Worse, a client that forgot would draw arrows towards the wrong
+// "next" post while looking entirely correct.
+//
+// So the response is fully ordered and the client trusts it. A group with no recorded order sorts first,
+// which is what a zero means and is stable rather than arbitrary.
+//
+// Sorting *something* deterministic matters as much as the order itself: two consecutive map loads
+// disagreeing would look like a bug in the app.
+func merge(a, b []checkpoint.Checkpoint, groupOrder map[types.CheckgroupID]int) []checkpoint.Checkpoint {
 	out := make([]checkpoint.Checkpoint, 0, len(a)+len(b))
 	seen := make(map[types.CheckpointID]bool, len(a)+len(b))
 
@@ -308,6 +328,10 @@ func merge(a, b []checkpoint.Checkpoint) []checkpoint.Checkpoint {
 	}
 
 	sort.SliceStable(out, func(i, j int) bool {
+		gi, gj := groupOrder[out[i].Checkgroup], groupOrder[out[j].Checkgroup]
+		if gi != gj {
+			return gi < gj
+		}
 		if out[i].SortOrder != out[j].SortOrder {
 			return out[i].SortOrder < out[j].SortOrder
 		}
