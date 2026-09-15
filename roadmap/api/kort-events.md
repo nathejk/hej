@@ -10,7 +10,9 @@
 > this file to describe what hej does — that belongs in PRD 016.
 >
 > Refresh by copying the file again and noting the date above. The text below is
-> verbatim, including its own header, which is written from hq's point of view.
+> verbatim, including its own header, which is written from hq's point of view —
+> with one exception: a clearly marked editor's note under "What is *not*
+> published yet", where the prose has been overtaken by hq's own code.
 
 ---
 
@@ -272,6 +274,13 @@ have no meaning this year. A new year starts empty.
 ---
 
 ## What is *not* published yet
+
+> **Editor's note (hej, 2026-09-15): the first bullet below is out of date.**
+> Skan now publishes the sheet id as an additive `mapId` field on
+> `qr.registered`, and hq's own `maphandout` projection and patrol page are built
+> on it — so a QR binding *does* name a specific sheet, and a per-team handout
+> list is possible. See PRD 016 §8 and §11.11. Left in place rather than
+> corrected, because this is a copy and hq owns the wording.
 
 - **Which QR code sits on which sheet.** Every printed sheet carries a unique QR,
   and scanning an unknown one prompts HQ to link it to a patrulje. Linking it to a

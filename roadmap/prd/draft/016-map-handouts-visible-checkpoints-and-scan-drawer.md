@@ -159,16 +159,21 @@ drawer.
 **Map handouts**
 
 - [ ] The BFF exposes the map sheets handed out to the signed-in user's patrol,
-      newest last (handout order), each with: sheet name, format, when it was
-      handed over, and whether the patrol still holds it.
+      in handout order, each with: the **QR sticker number**, the sheet name, its
+      format, when it was handed over, and whether the patrol still holds it.
 - [ ] Handouts are scoped to sheets in the **patrol map set(s)** — matched on the
       set's `teamType` being `patrulje` (**not** `spejder`, which HQ refuses to
       store; §11.1), **never on the set's name** (kort-events.md §2). Collect *all*
       matching sets; there is no "the" patrol set.
 - [ ] A `skitse` — no QR code, so never in a QR binding — is listed as a handout
-      when the patrol reaches its `handoutCheckgroupId` (§11.2).
-- [ ] A handout whose sheet is unknown (`mapId == ""`) is still listed.
-- [ ] The frontend lists them; empty is a normal, silent state.
+      when the patrol reaches the checkgroup named by its `handoutCheckgroupId`
+      (§11.2).
+- [ ] A handout whose sheet is unknown (`mapId == ""`) is still listed, labelled
+      **"Ukendt kort"** — the same wording HQ's patrol page uses, because a patrol
+      and an organizer discussing the same sheet over the phone should be reading
+      the same words.
+- [ ] The frontend lists them; empty is a normal, silent state ("Ingen kort
+      udleveret").
 - [ ] Handouts are part of the offline cached payload (PRD 009).
 
 **Visible checkpoints**
@@ -273,7 +278,13 @@ drawer.
   ("på tid" green; "for sent" amber with the delta). Bandit catches keep their
   current red skull styling.
 - A sheet the patrol no longer holds is shown de-emphasised — "afleveret" —
-  without naming who has it.
+  without naming who has it. HQ's organizer view says "Flyttet til …" and names
+  the successor; ours must not, and the difference is the whole reason our
+  projection is a copy rather than a shared one (§8).
+- The QR sticker number is shown alongside the sheet name. It is printed on the
+  physical sheet, so it is the one identifier a patrol can read aloud down a phone
+  when nothing else matches — which is the original problem this feature exists to
+  solve.
 - Title-level headings use `font-nathejk`; row text stays on the system sans
   stack. Icons from Lucide only (`Flag`, `Skull`, `MapPinOff` already in use;
   add e.g. `Map`, `Check`, `Clock`, `ChevronUp`).
@@ -354,14 +365,31 @@ New projections in `go/nathejk/table/`, written here and owned here:
     a sheet may precede its set on replay, so an unknown `kortsaetId` is
     tolerated rather than dropped.
 - **`maphandout`** (new). Subject `NATHEJK.*.qr.*.registered`, keyed
-  `(year, qrId, teamId)` so a re-bind is history rather than an overwrite. The
-  sheet id arrives as an **additive `mapId` field that skan adds to the shared
+  `(year, qrId, teamId)` so a re-bind is history rather than an overwrite.
+
+  **`registered` is the handout; `scanned` is a post visit.** The two `qr`
+  subjects look interchangeable and are not: `qr.registered` binds a printed code
+  (and its sheet) to a team — that *is* the handover — while `qr.scanned` is a
+  scan of the team's code at a post. This projection consumes the former; the
+  `scan` projection below consumes the latter. Getting them the wrong way round
+  would produce a handout list that grows at every checkpoint.
+
+  The sheet id arrives as an **additive `mapId` field that skan adds to the shared
   body**, so it is not on `messages.NathejkQrRegistered` and must be read through
   a struct embedding it. `mapId` is never overwritten with `""` — that means
-  *unknown sheet*, not *no sheet*. Ours is **narrower than HQ's on purpose**: we
-  need "does this patrol still hold this sheet", never who else holds it, so the
-  successor-team derivation collapses to a boolean and the fields we must not
-  expose are never selected in the first place.
+  *unknown sheet*, not *no sheet*. Times are **unix seconds** (`firstUts` /
+  `lastUts`), not milliseconds; HQ's own view scales them on render and so must
+  we.
+
+  Ours is **narrower than HQ's on purpose**: we need "does this patrol still hold
+  this sheet", never who else holds it, so the successor-team derivation collapses
+  to a boolean and the fields we must not expose are never selected in the first
+  place.
+
+  **Prior art:** `PatruljeView.vue` in hq renders exactly this list for an
+  organizer — QR, sheet name (or "Ukendt kort"), handed-out time, and a status of
+  "Hos patruljen" / "Flyttet til …". We copy all of it except the last, where the
+  successor team's name is precisely what a participant may not see.
 - **`checkpoint`** (widen). Add `checkgroupId` (from `…checkpoint.*.created`,
   which this repo currently does not consume at all), `sortOrder` (from
   `NathejkCheckpointsSorted`), and the window — `FixedTimeRange` as
@@ -537,7 +565,7 @@ by reading the upstream code and the answer is worth more than the decision — 
 next person to wonder should not have to go and look again.
 
 1. **The patrol set is `teamType: "patrulje"`, never `"spejder"`.** *Settled by
-   code.* HQ **refuses** `"spejder"` on write (`ErrInvalidTeamType`), with the
+   code, confirmed by the product owner 2026-09-15.* HQ **refuses** `"spejder"` on write (`ErrInvalidTeamType`), with the
    reasoning that spejder is the domain's word for a *person*, not a team type,
    and `shared-go` has no such value — the valid set is `patrulje`, `klan`,
    `crew`, `gøgler`. "The spejder set" is what the set is *called* in
@@ -548,7 +576,7 @@ next person to wonder should not have to go and look again.
    if the year has no matching set.
 
 2. **A `skitse` is synthesised into the handout list when its handout checkgroup
-   is reached.** *Decided.* It has no QR code, so no `qr.registered` event can
+   is reached.** *Decided, confirmed by the product owner 2026-09-15.* It has no QR code, so no `qr.registered` event can
    ever name it and it cannot come from the handout projection — but it *is*
    physically handed over, and it does reveal checkpoints through
    `handoutCheckgroupId`. Listing it only when the patrol reaches that checkgroup
@@ -635,6 +663,16 @@ next person to wonder should not have to go and look again.
     shape is a signal the copy is stale, and the mirror types log rather than
     silently ignore a body they cannot make sense of. We do not ask hq to track
     who holds copies — that makes our dependency their bookkeeping.
+
+    **It is already stale, and usefully so.** The copy's "What is *not* published
+    yet" section says "which QR code sits on which sheet" is not built and that
+    these events therefore give only the *candidate* sheets for a team type. That
+    is no longer true: skan now publishes `mapId` on `qr.registered`, and HQ's
+    `maphandout` projection and patrol page are built on it. Had we designed
+    against the prose alone we would have concluded a handout list was impossible
+    and shipped a worse feature. The lesson is recorded here rather than fixed in
+    the copy: **the code is the contract; the document is a guide to it.** Verify
+    against the projections before concluding something cannot be done.
 
 ### Consequences worth carrying forward
 
