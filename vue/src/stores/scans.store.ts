@@ -7,6 +7,14 @@ export interface Scan {
   id: string
   kind: ScanKind
   label: string
+  /**
+   * The post this scan happened at, or '' when the personnel rota could not place it.
+   *
+   * Empty is a normal outcome, not an error: a scan carries no checkpoint of its own and is attributed by
+   * asking which post its scanner was on shift at. The map uses this to show a post as visited, so an
+   * unattributed scan leaves that post looking unvisited — an under-statement rather than a wrong claim.
+   */
+  checkpointId: string
   /** null when the registration carries no position — listed, but not plotted. */
   lat: number | null
   lng: number | null
@@ -17,6 +25,7 @@ interface ScanResponse {
   id: string
   kind: ScanKind
   label: string
+  checkpoint_id?: string
   lat: number | null
   lng: number | null
   scanned_at: string
@@ -49,6 +58,8 @@ export const useScansStore = defineStore('scans', {
           id: s.id,
           kind: s.kind,
           label: s.label,
+          // Optional in the response type so a client running against an older BFF keeps working.
+          checkpointId: s.checkpoint_id ?? '',
           lat: s.lat,
           lng: s.lng,
           scannedAt: new Date(s.scanned_at),

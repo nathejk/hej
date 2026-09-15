@@ -18,6 +18,11 @@ import {
 import { dataforsyningenToken } from '@/config/runtime'
 import type { Coords } from '@/stores/location.store'
 import type { Scan } from '@/stores/scans.store'
+import type { Checkpoint } from '@/stores/checkpoints.store'
+import {
+  checkpointMarkerStyle,
+  checkpointPopupHtml,
+} from '@/components/map/checkpointPresentation'
 
 // Leaflet owns its DOM and mutates it imperatively, so the map is deliberately
 // kept outside Vue's reactivity: props are watched and translated into Leaflet
@@ -27,6 +32,15 @@ const props = defineProps<{
   position: Coords | null
   following: boolean
   scans: Scan[]
+  /**
+   * The checkpoints this patrol has earned sight of (PRD 016).
+   *
+   * Already patrol-scoped by the BFF, so there is nothing to filter here — everything in this list may
+   * be drawn. Positions of posts the patrol has not been shown never reach the client at all.
+   */
+  checkpoints: Checkpoint[]
+  /** Ids of checkpoints the patrol has already scanned, so the map doubles as a progress view. */
+  scannedCheckpointIds: string[]
 }>()
 
 const emit = defineEmits<{
@@ -46,6 +60,8 @@ let positionMarker: L.CircleMarker | null = null
 let accuracyCircle: L.Circle | null = null
 let scanLayer: L.LayerGroup | null = null
 const scanMarkers = new Map<string, L.Marker>()
+let checkpointLayer: L.LayerGroup | null = null
+const checkpointMarkers = new Map<string, L.Marker>()
 
 // Set while we move the map ourselves, so our own setView() calls are not
 // mistaken for the user panning away (which would cancel follow mode).
@@ -154,6 +170,59 @@ const timeFormat = new Intl.DateTimeFormat('da-DK', {
   minute: '2-digit',
 })
 
+// The window a post is open, for the marker popup. Date-less on purpose: a patrol reading this at 02:00
+// knows what night it is, and "fre 22:40–23:40" is quicker to read than a full timestamp.
+
+// Checkpoint markers, distinct from scan markers on purpose.
+//
+// The map shows both at once, and "a post we must reach" versus "something we registered" must not read as
+// the same object — so the shape differs (a pin with a point, rather than the scans' round badge) as well as
+// the colour. Shape matters more than colour here: this is used at night, one-handed, by people whose
+// screen brightness is turned down, and some of whom will not distinguish orange from red.
+//
+// What the marker *says* — the colours, the glyphs, the popup text — lives in `checkpointPresentation.ts`,
+// so those decisions can be tested in node. This function is only the Leaflet call.
+function checkpointIcon(visited: boolean): L.DivIcon {
+  const style = checkpointMarkerStyle(visited)
+  return L.divIcon({
+    className: '',
+    html:
+      `<span style="display:flex;align-items:center;justify-content:center;` +
+      `width:30px;height:30px;background:${style.background};color:#fff;` +
+      `border:2px solid #fff;box-shadow:0 1px 4px rgb(0 0 0 / .45);font-size:16px;` +
+      // A rounded square with one pointed corner: a pin, without an image asset.
+      `line-height:1;border-radius:9999px 9999px 2px 9999px;transform:rotate(45deg)">` +
+      `<span style="transform:rotate(-45deg)">${style.glyph}</span></span>`,
+    iconSize: [30, 30],
+    // Anchored at the point, not the centre, so the pin sits *on* the post.
+    iconAnchor: [15, 28],
+    popupAnchor: [0, -28],
+  })
+}
+
+function renderCheckpoints() {
+  if (!map || !checkpointLayer) {
+    return
+  }
+  checkpointLayer.clearLayers()
+  checkpointMarkers.clear()
+
+  const scanned = new Set(props.scannedCheckpointIds)
+
+  for (const cp of props.checkpoints) {
+    const visited = scanned.has(cp.id)
+    const marker = L.marker([cp.lat, cp.lng], {
+      icon: checkpointIcon(visited),
+      title: cp.name,
+      // Below the scan markers: where a patrol has scanned the post it is standing at, the registration
+      // is the newer fact and should be the one on top.
+      zIndexOffset: -100,
+    }).bindPopup(checkpointPopupHtml(cp, visited))
+    marker.addTo(checkpointLayer)
+    checkpointMarkers.set(cp.id, marker)
+  }
+}
+
 function renderScans() {
   if (!map || !scanLayer) {
     return
@@ -224,6 +293,16 @@ function focusScan(id: string) {
   marker.openPopup()
 }
 
+/** Pan to a checkpoint and open its popup — called from the arrow overlay and the drawer. */
+function focusCheckpoint(id: string) {
+  const marker = checkpointMarkers.get(id)
+  if (!marker || !map) {
+    return
+  }
+  moveTo(marker.getLatLng(), Math.max(map.getZoom(), LOCATE_ZOOM))
+  marker.openPopup()
+}
+
 /** Recentre on the current position (locate button). */
 function recenter() {
   if (props.position && map) {
@@ -231,7 +310,7 @@ function recenter() {
   }
 }
 
-defineExpose({ focusScan, recenter })
+defineExpose({ focusScan, focusCheckpoint, recenter })
 
 onMounted(() => {
   if (!container.value) {
@@ -257,8 +336,12 @@ onMounted(() => {
   }
 
   currentBase = buildBaseLayer(props.baseLayer).addTo(map)
+  // Checkpoints below scans: where a patrol has scanned the post it is standing at, the registration is the
+  // newer fact and should be the one on top.
+  checkpointLayer = L.layerGroup().addTo(map)
   scanLayer = L.layerGroup().addTo(map)
 
+  renderCheckpoints()
   renderScans()
   renderPosition()
 
@@ -284,6 +367,8 @@ onBeforeUnmount(() => {
   accuracyCircle = null
   scanLayer = null
   scanMarkers.clear()
+  checkpointLayer = null
+  checkpointMarkers.clear()
 })
 
 watch(
@@ -305,6 +390,10 @@ watch(
 
 watch(() => props.position, renderPosition, { deep: true })
 watch(() => props.scans, renderScans, { deep: true })
+// Both the list and the scanned set change what a marker looks like, so both are watched. A new scan at a
+// post turns its pin from a flag into a tick without the checkpoint list itself changing at all.
+watch(() => props.checkpoints, renderCheckpoints, { deep: true })
+watch(() => props.scannedCheckpointIds, renderCheckpoints, { deep: true })
 watch(
   () => props.following,
   (following) => {

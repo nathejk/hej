@@ -88,12 +88,13 @@ func (s projectionSource) ByPatrol(patrolID string) []Scan {
 		out = append(out, Scan{
 			// The event carries no scan id, so the projection's key becomes ours. Stable across
 			// replays, which matters because the client uses it as a list key.
-			ID:        r.QrID + "-" + time.Unix(r.Uts, 0).UTC().Format("20060102150405"),
-			Kind:      KindCheckpoint,
-			Label:     label(r),
-			Lat:       r.Lat,
-			Lng:       r.Lng,
-			ScannedAt: time.Unix(r.Uts, 0).UTC(),
+			ID:           r.QrID + "-" + time.Unix(r.Uts, 0).UTC().Format("20060102150405"),
+			Kind:         KindCheckpoint,
+			Label:        label(r),
+			CheckpointID: r.CheckpointID,
+			Lat:          r.Lat,
+			Lng:          r.Lng,
+			ScannedAt:    time.Unix(r.Uts, 0).UTC(),
 		})
 	}
 	return out

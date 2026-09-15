@@ -7,6 +7,7 @@ import LocateButton from '@/components/map/LocateButton.vue'
 import ScanList from '@/components/map/ScanList.vue'
 import { useLocationStore } from '@/stores/location.store'
 import { useScansStore } from '@/stores/scans.store'
+import { useCheckpointsStore } from '@/stores/checkpoints.store'
 import { useAppStore } from '@/stores/app.store'
 import {
   BASE_LAYER_STORAGE_KEY,
@@ -25,9 +26,14 @@ const EventMap = defineAsyncComponent(() => import('@/components/map/EventMap.vu
 
 const location = useLocationStore()
 const scans = useScansStore()
+const checkpoints = useCheckpointsStore()
 const app = useAppStore()
 
-const mapRef = ref<{ focusScan: (id: string) => void; recenter: () => void } | null>(null)
+const mapRef = ref<{
+  focusScan: (id: string) => void
+  focusCheckpoint: (id: string) => void
+  recenter: () => void
+} | null>(null)
 
 // Base layer choice survives navigation and reloads.
 const stored = localStorage.getItem(BASE_LAYER_STORAGE_KEY)
@@ -73,6 +79,14 @@ const locationFailure = computed(() => geoFailureMessage(location.failure))
 // situation — is worse than saying nothing (task 090).
 const missingToken = computed(
   () => configLoaded.value && dataforsyningenToken.value === '' && app.online,
+)
+
+// The checkpoints a patrol has already reached, so the map can show those posts as visited.
+//
+// Derived from the scans rather than stored: a scan knows which post it happened at, so the two lists
+// cannot disagree, and there is no third piece of state to keep in step.
+const scannedCheckpointIds = computed(() =>
+  scans.scans.map((s) => s.checkpointId).filter((id): id is string => Boolean(id)),
 )
 
 async function accept() {
@@ -143,6 +157,10 @@ onMounted(async () => {
   }
   document.addEventListener('visibilitychange', onVisibilityChange)
   void scans.fetch()
+  // The cached copy first, so posts are on the map before the network answers — offline, or on a slow link
+  // at 02:00, that is the difference between a usable map and an empty one.
+  checkpoints.hydrate()
+  void checkpoints.fetch()
 })
 
 onBeforeUnmount(() => {
@@ -162,6 +180,8 @@ onBeforeUnmount(() => {
       :position="location.position"
       :following="location.following"
       :scans="scans.scans"
+      :checkpoints="checkpoints.checkpoints"
+      :scanned-checkpoint-ids="scannedCheckpointIds"
       @user-interacted="location.setFollowing(false)"
       @tile-error="tileError = true"
       @tiles-ok="tileError = false"

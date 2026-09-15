@@ -9,6 +9,11 @@ type scanResponse struct {
 	ID    string `json:"id"`
 	Kind  string `json:"kind"`
 	Label string `json:"label"`
+	// The post this scan happened at, or "" when the personnel rota could not place it.
+	//
+	// Additive (PRD 016). The client uses it to show a post the patrol has reached as visited, so an
+	// unattributed scan leaves that post looking unvisited — an under-statement rather than a wrong one.
+	CheckpointID string `json:"checkpoint_id"`
 	// Nullable: a manually registered scan has no position, so the client can
 	// list it but not plot it.
 	Lat       *float64  `json:"lat"`
@@ -29,7 +34,7 @@ type scansResponse struct {
 // registrations UI on an empty list.
 //
 // @Summary      Patrol registrations
-// @Description  Returns the signed-in user's patrol's checkpoint scans and bandit catches, newest first. Users without a patrol get an empty list. lat/lng are null when the registration has no position.
+// @Description  Returns the signed-in user's patrol's checkpoint scans and bandit catches, newest first. Users without a patrol get an empty list. lat/lng are null when the registration has no position. checkpoint_id names the post the scan happened at, or is empty when the personnel rota could not place it.
 // @Tags         patrol
 // @Produce      json
 // @Success      200  {object}  scansResponse
@@ -53,12 +58,13 @@ func (app *application) listPatrolScansHandler(w http.ResponseWriter, r *http.Re
 	out := make([]scanResponse, 0, len(found))
 	for _, scan := range found {
 		out = append(out, scanResponse{
-			ID:        scan.ID,
-			Kind:      string(scan.Kind),
-			Label:     scan.Label,
-			Lat:       scan.Lat,
-			Lng:       scan.Lng,
-			ScannedAt: scan.ScannedAt.UTC(),
+			ID:           scan.ID,
+			Kind:         string(scan.Kind),
+			Label:        scan.Label,
+			CheckpointID: scan.CheckpointID,
+			Lat:          scan.Lat,
+			Lng:          scan.Lng,
+			ScannedAt:    scan.ScannedAt.UTC(),
 		})
 	}
 

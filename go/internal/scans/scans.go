@@ -23,6 +23,14 @@ type Scan struct {
 	Kind  Kind
 	Label string
 
+	// CheckpointID is the post this scan happened at, or "" when the personnel rota could not place it.
+	//
+	// Empty is a normal outcome rather than an error — a scan carries no checkpoint of its own, and it is
+	// attributed by asking which post its scanner was on shift at. The client uses it to show a post it has
+	// reached as visited, so an unattributed scan simply leaves that post looking unvisited: an
+	// under-statement, which is the safe direction.
+	CheckpointID string
+
 	// Lat/Lng are nil when the registration carries no position — a post can
 	// register a patrol manually, and such a scan is listable but not plottable.
 	Lat *float64
