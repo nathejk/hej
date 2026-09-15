@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import { ARROW_RADIUS, computeArrows, type ArrowInput } from '@/components/map/arrowPlacement'
-import { ARROW_KEEP_OUT } from '@/config/map'
+import { arrowKeepOut } from '@/config/map'
+
+// A notched phone's reading, which is the case a desktop-tuned constant would get wrong.
+const KEEP_OUT = arrowKeepOut({ top: 59, bottom: 34 })
 import type { Checkpoint } from '@/stores/checkpoints.store'
 
 const W = 400
@@ -146,15 +149,15 @@ describe('computeArrows', () => {
   it('keeps arrows out of the bands the floating controls occupy', () => {
     const got = computeArrows(
       input({
-        insets: ARROW_KEEP_OUT,
+        insets: KEEP_OUT,
         targets: [cp('n', 57, 9), cp('s', 55, 9), cp('e', 56, 10), cp('w', 56, 8)],
       }),
     )
 
     expect(got).toHaveLength(4)
     for (const arrow of got) {
-      expect(arrow.y).toBeGreaterThanOrEqual(ARROW_KEEP_OUT.top + ARROW_RADIUS)
-      expect(arrow.y).toBeLessThanOrEqual(H - ARROW_KEEP_OUT.bottom - ARROW_RADIUS)
+      expect(arrow.y).toBeGreaterThanOrEqual(KEEP_OUT.top + ARROW_RADIUS)
+      expect(arrow.y).toBeLessThanOrEqual(H - KEEP_OUT.bottom - ARROW_RADIUS)
     }
   })
 
@@ -163,7 +166,7 @@ describe('computeArrows', () => {
   it('clamps an arrow into the band rather than discarding it', () => {
     const withoutInsets = computeArrows(input({ targets: [cp('n', 57, 9)] }))
     const withInsets = computeArrows(
-      input({ insets: ARROW_KEEP_OUT, targets: [cp('n', 57, 9)] }),
+      input({ insets: KEEP_OUT, targets: [cp('n', 57, 9)] }),
     )
 
     expect(withoutInsets).toHaveLength(1)
@@ -181,7 +184,7 @@ describe('computeArrows', () => {
 
     const got = computeArrows(
       input({
-        insets: ARROW_KEEP_OUT,
+        insets: KEEP_OUT,
         viewportSize: () => shortSize,
         project: projectionAround(here, shortSize),
         targets: [cp('n', 57, 9)],

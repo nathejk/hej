@@ -147,20 +147,58 @@ export const TILE_RETRY_BASE_DELAY_MS = 400
 
 // Where an edge arrow may not go (PRD 016, task 264).
 //
-// `MapsView` floats three things over the map: the layer/locate control stack top-right, the notices
-// top-left, and the registrations handle bottom-centre — all in the same overlay layer the arrows use. An
-// arrow that lands under the locate button is worse than no arrow at all, because it is invisible *and* it
-// steals the tap.
+// `MapsView` floats three things over the map: the layer/locate control stack top-right, the notices top-left,
+// and the registrations handle bottom-centre — all in the same overlay layer the arrows use. An arrow that
+// lands under the locate button is worse than no arrow at all, because it is invisible *and* it steals the
+// tap.
 //
-// So arrows are confined to the **vertical middle band** of each edge. The numbers are the height of what
-// sits above and below, plus a margin:
+// So arrows are confined to the **vertical middle band** of each edge. The extents below are what the controls
+// themselves occupy, in CSS pixels, *excluding* the safe-area inset — which is added at call time from the
+// same `--sat`/`--sab` custom properties the controls are positioned with (`arrowKeepOut`). Deriving it rather
+// than hardcoding one number matters on a notched phone: `--sat` is 59 px on the maintainer's iPhone, so a
+// fixed keep-out tuned on a desktop browser would put arrows under the layer switcher on every real device.
+export const CONTROL_EXTENT = {
+  /** The control stack (two ≥ 44 px targets plus spacing) and the notices that sit level with it. */
+  top: 112,
+  /** The registrations handle plus the bottom nav. */
+  bottom: 96,
+  /** Nothing floats at the sides — just enough to clear the screen edge. */
+  sides: 8,
+} as const
+
+/** Margins an arrow must stay out of. */
+export interface ArrowInsets {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
+
+/**
+ * The keep-out margins for a given safe-area reading.
+ *
+ * Pure, so the composition can be tested without a browser — the reading needs a device, the arithmetic does
+ * not. Same split as `safeArea.insetVars`.
+ *
+ * A negative or non-finite reading is treated as zero rather than trusted: the safe-area properties can read
+ * as anything before the first paint (see `safeArea.ts`, which discards an all-zero read for the same class of
+ * reason), and either value here would place an arrow off screen.
+ */
+export function arrowKeepOut(safe: { top: number; bottom: number }): ArrowInsets {
+  return {
+    top: CONTROL_EXTENT.top + usableInset(safe.top),
+    bottom: CONTROL_EXTENT.bottom + usableInset(safe.bottom),
+    right: CONTROL_EXTENT.sides,
+    left: CONTROL_EXTENT.sides,
+  }
+}
+
+// A safe-area reading we can add to a pixel extent.
 //
-//   - top: the safe-area inset is handled by the browser, but the control stack and the notices below it
-//     occupy roughly two stacked 44 px targets plus spacing.
-//   - bottom: the registrations handle (44 px) plus the bottom nav, plus the safe-area inset.
-//   - sides: nothing floats there, so only enough to clear the screen edge.
-//
-// Deliberately a constant rather than measured from the DOM. Measuring would track a control that moves, but
-// it would also mean the arrows' position depended on layout timing — and a wrong measurement mid-pan is a
-// harder bug than a number that is 10 px too generous. Revisit if the controls change materially.
-export const ARROW_KEEP_OUT = { top: 120, right: 8, bottom: 140, left: 8 }
+// `Math.max(0, NaN)` is `NaN`, which would propagate into a CSS `top` and place the arrow nowhere — so the
+// non-finite case is checked explicitly rather than assumed away by the clamp. Not hypothetical:
+// `parseFloat('')` on an unset custom property is exactly `NaN`, and this function is public.
+function usableInset(value: number): number {
+  if (!Number.isFinite(value) || value < 0) return 0
+  return value
+}

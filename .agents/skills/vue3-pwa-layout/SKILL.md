@@ -249,18 +249,33 @@ CSS (`@property`, `color-mix()`, cascade layers, `:has()`) is fair game.
 
 | Tool     | Scope       | Command              |
 |----------|-------------|----------------------|
+| Vitest   | unit tests  | `npm test`           |
 | vue-tsc  | type-check  | `npm run type-check` |
 | Vite     | prod build  | `npm run build`      |
 
-There is no unit or e2e suite in this repo yet, so **verification is manual**:
-after any change to the shell, styling or a shared component, build and click
-through every route on a phone viewport. If you add a test runner, add it to this
-table.
-
 ```sh
+docker compose exec -T ui npx vitest run
 docker compose run --rm ui npm run type-check
 docker compose run --rm ui npm run build
 ```
+
+**There is a real unit suite — write tests.** Vitest runs in **`node`, with no DOM**, and that shapes what is
+testable: the modules under test take their browser environment as an argument rather than reading globals (see
+the storage seam in `contacts.store.ts`, and `safeArea.insetVars`). There is no `@vue/test-utils`, so components
+are not mounted.
+
+That is a constraint worth designing *for* rather than around. When a component holds a decision worth
+checking, extract the decision into a plain module and leave the component as markup — the map overlay does
+this in `arrowGeometry.ts`, `arrowPlacement.ts` and `checkpointPresentation.ts`, none of which needs a map to
+verify. Otherwise the alternative to extracting is not testing.
+
+Where a property is genuinely structural, assert it against the **source file**: `layout.spec.ts` and
+`offlineIndicator.spec.ts` set the precedent — assert the cause rather than the symptom, because the symptom
+only appears on a phone in a forest.
+
+Some things still need hardware and should be said plainly rather than claimed: rendering on both map base
+layers, safe areas on a notched device, and whether a gesture stutters. After any change to the shell, styling
+or a shared component, build and click through the routes on a phone viewport.
 
 ---
 

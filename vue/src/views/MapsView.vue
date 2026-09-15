@@ -7,7 +7,7 @@ import LocateButton from '@/components/map/LocateButton.vue'
 import ScanList from '@/components/map/ScanList.vue'
 import EdgeArrows from '@/components/map/EdgeArrows.vue'
 import { nextCheckpoints } from '@/components/map/nextCheckpoints'
-import { ARROW_KEEP_OUT } from '@/config/map'
+import { arrowKeepOut } from '@/config/map'
 import { useLocationStore } from '@/stores/location.store'
 import { useScansStore } from '@/stores/scans.store'
 import { useCheckpointsStore } from '@/stores/checkpoints.store'
@@ -111,6 +111,28 @@ function onSelectCheckpoint(id: string) {
   // Tapping an arrow means the user wants to look elsewhere — same reasoning as picking from the list.
   location.setFollowing(false)
   mapRef.value?.focusCheckpoint(id)
+}
+
+// Where arrows may not go: the bands the floating controls occupy, plus the device's safe-area insets.
+//
+// Read from the same `--sat`/`--sab` custom properties the controls are positioned with, rather than
+// hardcoded: they are 59 px and 34 px on a notched iPhone and zero on a desktop browser, so a fixed number
+// would either waste half the screen or put arrows under the layer switcher.
+//
+// Recomputed on every viewport change, which includes `resize` — that is when the insets actually move (an
+// orientation change, or the browser chrome appearing as the page scrolls).
+const arrowInsets = computed(() => {
+  void mapRevision.value
+  return arrowKeepOut(readSafeAreaInsets())
+})
+
+function readSafeAreaInsets(): { top: number; bottom: number } {
+  if (typeof document === 'undefined') return { top: 0, bottom: 0 }
+  const style = getComputedStyle(document.documentElement)
+  return {
+    top: parseFloat(style.getPropertyValue('--sat')) || 0,
+    bottom: parseFloat(style.getPropertyValue('--sab')) || 0,
+  }
 }
 
 async function accept() {
@@ -221,7 +243,7 @@ onBeforeUnmount(() => {
       :revision="mapRevision"
       :project="(lat: number, lng: number) => mapRef?.project(lat, lng) ?? null"
       :viewport-size="() => mapRef?.viewportSize() ?? null"
-      :insets="ARROW_KEEP_OUT"
+      :insets="arrowInsets"
       @select="onSelectCheckpoint"
     />
 
