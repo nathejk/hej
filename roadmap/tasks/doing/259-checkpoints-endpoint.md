@@ -1,8 +1,10 @@
 # 259 — `GET /api/checkpoints`
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-09-15
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-15
 
 ## Description
 
@@ -35,3 +37,9 @@ PRD 016 phase 2. Serve the caller's patrol's revealed checkpoints (task 255).
 ## Progress Log
 
 - 2026-09-15 — Task created from PRD 016 phase 2.
+- 2026-09-15 — Picked up **before task 258**, deliberately reordering phase 2: 258 is the regression test
+  that no un-revealed checkpoint leaves the BFF, and it asserts against response bodies — so the endpoints
+  have to exist first. Doing 258 first would mean writing it against nothing, then rewriting it.
+- 2026-09-15 — Plan: `revealOrNil` following `raceAreasOrNil`'s nil-interface discipline, the rule wired
+  into `data.Models`, and a handler that resolves the caller's patrol from the session exactly as
+  `listPatrolScansHandler` does.
