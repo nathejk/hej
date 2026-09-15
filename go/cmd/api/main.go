@@ -26,13 +26,16 @@ import (
 	"nathejk.dk/internal/pin"
 	"nathejk.dk/internal/push"
 	"nathejk.dk/internal/ratelimit"
-	"nathejk.dk/internal/scans"
 	"nathejk.dk/internal/session"
 	"nathejk.dk/internal/sms"
 	"nathejk.dk/internal/users"
 	"nathejk.dk/internal/vcs"
+	"nathejk.dk/nathejk/table/checkgroup"
 	"nathejk.dk/nathejk/table/checkpoint"
+	"nathejk.dk/nathejk/table/kort"
+	"nathejk.dk/nathejk/table/maphandout"
 	"nathejk.dk/nathejk/table/person"
+	"nathejk.dk/nathejk/table/scan"
 )
 
 // application is the root dependency container for the API binary. It embeds
@@ -286,6 +289,53 @@ func run(logger *slog.Logger) error {
 		}
 	}
 
+	// The map projections (PRD 016): the printed sheets and sets, the handout history, the checkgroups,
+	// and the scans with the personnel shifts that place them.
+	//
+	// Same construction condition as the two projections above, for the same reason: every read here
+	// needs only a database, so tying them to the broker's arrival would leave a patrol unable to see
+	// its own map page during a broker outage — which is exactly when it would be reaching for it.
+	//
+	// Each failure is logged and non-fatal, and each degrades to a specific absence rather than a broken
+	// page: no sheets means no handout list, no scans means no registrations.
+	var sheets *kort.Table
+	var handouts *maphandout.Table
+	var checkgroups *checkgroup.Table
+	var scanProjection *scan.Table
+	if ev != nil && (err == nil || noBroker) {
+		if t, cerr := kort.New(ev.publisherOrNil(), ev.writer, ev.reader,
+			// A body we cannot decode is the one signal that our mirrored copy of hq's event shapes
+			// has drifted from the contract (PRD 016 §11.11). Logged rather than swallowed, because
+			// the alternative is a sheet quietly missing from a patrol's map.
+			kort.ReportUnknownBody(func(subject string, derr error) {
+				logger.Warn("kort event could not be decoded; the vendored contract may be stale",
+					"subject", subject, "err", derr)
+			}),
+		); cerr != nil {
+			logger.Error("kort projection unavailable", "err", cerr)
+		} else {
+			sheets = t
+		}
+
+		if t, cerr := maphandout.New(ev.publisherOrNil(), ev.writer, ev.reader); cerr != nil {
+			logger.Error("maphandout projection unavailable", "err", cerr)
+		} else {
+			handouts = t
+		}
+
+		if t, cerr := checkgroup.New(ev.publisherOrNil(), ev.writer, ev.reader); cerr != nil {
+			logger.Error("checkgroup projection unavailable", "err", cerr)
+		} else {
+			checkgroups = t
+		}
+
+		if t, cerr := scan.New(ev.publisherOrNil(), ev.writer, ev.reader); cerr != nil {
+			logger.Error("scan projection unavailable", "err", cerr)
+		} else {
+			scanProjection = t
+		}
+	}
+
 	// The vehicle entity (PRD 010), imported whole from shared-go.
 	//
 	// Same construction condition as the two projections above, for the same reason: a
@@ -334,6 +384,18 @@ func run(logger *slog.Logger) error {
 			}
 			if checkpoints != nil {
 				projections = append(projections, checkpoints)
+			}
+			if sheets != nil {
+				projections = append(projections, sheets)
+			}
+			if handouts != nil {
+				projections = append(projections, handouts)
+			}
+			if checkgroups != nil {
+				projections = append(projections, checkgroups)
+			}
+			if scanProjection != nil {
+				projections = append(projections, scanProjection)
 			}
 			if vehicles != nil {
 				projections = append(projections, vehicles)
@@ -385,7 +447,7 @@ func run(logger *slog.Logger) error {
 	app := &application{
 		JsonApi:  bff.JsonApi{Logger: logger},
 		config:   cfg,
-		models:   data.NewModels(directory, scans.NewMockSource(), raceAreasOrNil(checkpoints), peopleOrNil(persons), vehiclesOrNil(vehicles)),
+		models:   data.NewModels(directory, scanSourceFor(scanProjection, cfg.eventYear, logger), raceAreasOrNil(checkpoints), peopleOrNil(persons), vehiclesOrNil(vehicles)),
 		commands: commands.New(publisherFor(ev)),
 		vehicles: vehicleCommandsOrNil(vehicles),
 		db:       db,
