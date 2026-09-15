@@ -50,8 +50,12 @@ export interface Arrow {
 }
 
 export interface ArrowInput {
-  /** The next posts, already in route order and already capped. */
-  targets: Checkpoint[]
+  /**
+   * The next legs, in route order and already capped — each entry is one checkgroup's posts.
+   *
+   * A group's posts are alternatives, so exactly one arrow is drawn per group (see `pickReachable`).
+   */
+  groups: Checkpoint[][]
   /** The patrol's own position, or null. */
   position: Coords | null
   /** Projects a ground position into container pixels; null before the map exists. */
@@ -74,6 +78,8 @@ export interface ArrowInput {
  *     noise. Checked with a margin so an arrow does not flicker as a marker grazes the edge.
  *   - **The origin is outside the viewport.** The patrol has panned away from themselves, and there is no
  *     honest edge crossing to compute.
+ *
+ * One arrow per leg: a checkgroup's posts are alternatives, so only the reachable one is drawn.
  */
 export function computeArrows(input: ArrowInput): Arrow[] {
   const here = input.position
@@ -88,7 +94,10 @@ export function computeArrows(input: ArrowInput): Arrow[] {
   const insets = input.insets ?? NO_INSETS
   const out: Arrow[] = []
 
-  for (const cp of input.targets) {
+  for (const group of input.groups) {
+    const cp = pickReachable(group, here)
+    if (!cp) continue
+
     const target = input.project(cp.lat, cp.lng)
     if (!target) continue
     if (isInside(target, size.width, size.height, ARROW_RADIUS)) continue
@@ -115,6 +124,30 @@ export function computeArrows(input: ArrowInput): Arrow[] {
     })
   }
   return out
+}
+
+/**
+ * Which post in a leg to point at.
+ *
+ * The **nearest**, because a checkgroup's posts are alternatives — the patrol needs one of them, so the useful
+ * answer is the one they can actually walk to. Pointing at the group's first post in route order would be
+ * deterministic and sometimes send them past the closer option for no reason.
+ *
+ * Straight-line distance, like everything else here: it does not know about the stream they would have to
+ * cross, and it does not pretend to (PRD 016 §4).
+ */
+function pickReachable(group: Checkpoint[], from: Coords): Checkpoint | null {
+  let best: Checkpoint | null = null
+  let bestMetres = Number.POSITIVE_INFINITY
+
+  for (const cp of group) {
+    const metres = distanceMetres(from, cp)
+    if (metres < bestMetres) {
+      best = cp
+      bestMetres = metres
+    }
+  }
+  return best
 }
 
 /**

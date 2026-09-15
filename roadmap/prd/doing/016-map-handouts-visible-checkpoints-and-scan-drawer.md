@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed / Claude)
 **Created:** 2026-09-15
-**Last updated:** 2026-09-15 (approved; §8 amended in implementation — the reveal rule lives in `internal/reveal`)
+**Last updated:** 2026-09-15 (approved; §6/§8 amended in implementation — see §11.12)
 **Approved:** 2026-09-15
 **Shipped:**
 **Target users:** participant (patrol member)
@@ -200,10 +200,15 @@ drawer.
 - [ ] When a revealed checkpoint that is *next* for the patrol lies outside the
       viewport, an arrow is drawn at the viewport edge in its direction, with
       distance.
-- [ ] "Next" = the earliest not-yet-scanned revealed checkpoints in route order,
-      which is `(checkgroup.sortOrder, checkpoint.sortOrder)` — one sequence for
-      every patrol (§11.9); at most **3** arrows at once, to keep the viewport
-      readable.
+- [ ] "Next" is measured in **checkgroups, not checkpoints** (§11.12): a checkgroup is one
+      leg and its posts are alternatives, so a leg with any scanned post is finished and
+      produces no arrow. The next legs are the earliest unfinished ones in route order,
+      which is `(checkgroup.sortOrder, checkpoint.sortOrder)` — one sequence for every
+      patrol (§11.9).
+- [ ] **One arrow per leg**, pointing at the nearest of that leg's posts, since the patrol
+      needs only one of them.
+- [ ] At most **3** arrows — i.e. three *legs* — so one multi-post leg cannot hide the legs
+      behind it.
 - [ ] Arrows update on pan, zoom and position change; an arrow disappears when
       its checkpoint enters the viewport.
 - [ ] Tapping an arrow pans the map to that checkpoint.
@@ -684,6 +689,27 @@ next person to wonder should not have to go and look again.
     and shipped a worse feature. The lesson is recorded here rather than fixed in
     the copy: **the code is the contract; the document is a guide to it.** Verify
     against the projections before concluding something cannot be done.
+
+12. **Arrows are per checkgroup, not per checkpoint.** *Corrected by the product owner
+    2026-09-15, during phase 3 (task 273).* The first implementation skipped a checkpoint the
+    patrol had scanned and pointed at the next unvisited *post*. Wrong unit.
+
+    A checkgroup is one **leg** of the route and its posts are **alternatives** — hq's own model
+    records "a started team's standing at one checkgroup" (on time / late / missing) per *group*,
+    and reveal rule 3 only makes sense on the same reading: scanning any post reveals the whole
+    group because the group is the thing you either reached or did not.
+
+    So a patrol scanned at Post 4A has finished that leg, and an arrow to Post 4B — the
+    alternative post beside it — sends them somewhere they have no reason to go *and* spends one
+    of three arrow slots that should be showing the legs ahead. Two consequences:
+
+    - a leg with any scanned post produces no arrow;
+    - a leg produces exactly **one** arrow, pointing at its **nearest** post, because the patrol
+      needs only one of them and the useful answer is the one they can walk to.
+
+    **Markers are unaffected**: they still show every revealed post, ticked where scanned. The map
+    should show the ground truth; only the arrows are an instruction, and only an instruction has
+    to be about the leg.
 
 ### Consequences worth carrying forward
 

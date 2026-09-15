@@ -49,7 +49,7 @@ function projectionAround(
 function input(over: Partial<ArrowInput> = {}): ArrowInput {
   const here = { lat: 56, lng: 9, accuracy: 10 }
   return {
-    targets: [],
+    groups: [],
     position: here,
     project: projectionAround(here),
     viewportSize: () => ({ width: W, height: H }),
@@ -61,7 +61,7 @@ describe('computeArrows', () => {
   // A post beyond the top of the screen: the patrol is walking towards something they cannot see, which is the
   // entire reason this feature exists.
   it('draws an arrow for a post off the top of the screen', () => {
-    const got = computeArrows(input({ targets: [cp('a', 56.5, 9)] }))
+    const got = computeArrows(input({ groups: [[cp('a', 56.5, 9)]] }))
 
     expect(got).toHaveLength(1)
     expect(got[0].id).toBe('a')
@@ -72,7 +72,7 @@ describe('computeArrows', () => {
 
   // A post already on screen has a marker right there. An arrow pointing at something visible is noise.
   it('draws no arrow for a post already on screen', () => {
-    const got = computeArrows(input({ targets: [cp('a', 56.01, 9.01)] }))
+    const got = computeArrows(input({ groups: [[cp('a', 56.01, 9.01)]] }))
 
     expect(got).toEqual([])
   })
@@ -80,7 +80,7 @@ describe('computeArrows', () => {
   // A bearing needs an origin. The permission card already on screen is the explanation, and an arrow drawn
   // from a guessed position would be worse than none.
   it('draws nothing without a position', () => {
-    const got = computeArrows(input({ position: null, targets: [cp('a', 56.5, 9)] }))
+    const got = computeArrows(input({ position: null, groups: [[cp('a', 56.5, 9)]] }))
 
     expect(got).toEqual([])
   })
@@ -88,7 +88,7 @@ describe('computeArrows', () => {
   // The overlay can mount before Leaflet has a container.
   it('draws nothing before the map exists', () => {
     const got = computeArrows(
-      input({ viewportSize: () => null, targets: [cp('a', 56.5, 9)] }),
+      input({ viewportSize: () => null, groups: [[cp('a', 56.5, 9)]] }),
     )
 
     expect(got).toEqual([])
@@ -106,16 +106,18 @@ describe('computeArrows', () => {
           x: -500 + (lng - here.lng) * 2000,
           y: H / 2 - (lat - here.lat) * 2000,
         }),
-        targets: [cp('a', 56.5, 9)],
+        groups: [[cp('a', 56.5, 9)]],
       }),
     )
 
     expect(got).toEqual([])
   })
 
-  it('draws one arrow per off-screen target', () => {
+  it('draws one arrow per off-screen leg', () => {
     const got = computeArrows(
-      input({ targets: [cp('a', 56.5, 9), cp('b', 55.5, 9), cp('c', 56, 9.5)] }),
+      input({
+        groups: [[cp('a', 56.5, 9)], [cp('b', 55.5, 9)], [cp('c', 56, 9.5)]],
+      }),
     )
 
     expect(got.map((a) => a.id)).toEqual(['a', 'b', 'c'])
@@ -125,12 +127,12 @@ describe('computeArrows', () => {
   it('keeps every arrow inside the viewport', () => {
     const got = computeArrows(
       input({
-        targets: [
-          cp('n', 57, 9),
-          cp('s', 55, 9),
-          cp('e', 56, 10),
-          cp('w', 56, 8),
-          cp('ne', 57, 10),
+        groups: [
+          [cp('n', 57, 9)],
+          [cp('s', 55, 9)],
+          [cp('e', 56, 10)],
+          [cp('w', 56, 8)],
+          [cp('ne', 57, 10)],
         ],
       }),
     )
@@ -150,7 +152,7 @@ describe('computeArrows', () => {
     const got = computeArrows(
       input({
         insets: KEEP_OUT,
-        targets: [cp('n', 57, 9), cp('s', 55, 9), cp('e', 56, 10), cp('w', 56, 8)],
+        groups: [[cp('n', 57, 9)], [cp('s', 55, 9)], [cp('e', 56, 10)], [cp('w', 56, 8)]],
       }),
     )
 
@@ -164,9 +166,9 @@ describe('computeArrows', () => {
   // Clamped rather than dropped: direction is approximate at the edge anyway, so a few pixels of slide costs
   // almost nothing, while losing the arrow loses the only thing telling the patrol which way to walk.
   it('clamps an arrow into the band rather than discarding it', () => {
-    const withoutInsets = computeArrows(input({ targets: [cp('n', 57, 9)] }))
+    const withoutInsets = computeArrows(input({ groups: [[cp('n', 57, 9)]] }))
     const withInsets = computeArrows(
-      input({ insets: KEEP_OUT, targets: [cp('n', 57, 9)] }),
+      input({ insets: KEEP_OUT, groups: [[cp('n', 57, 9)]] }),
     )
 
     expect(withoutInsets).toHaveLength(1)
@@ -187,7 +189,7 @@ describe('computeArrows', () => {
         insets: KEEP_OUT,
         viewportSize: () => shortSize,
         project: projectionAround(here, shortSize),
-        targets: [cp('n', 57, 9)],
+        groups: [[cp('n', 57, 9)]],
       }),
     )
 
@@ -200,7 +202,7 @@ describe('computeArrows', () => {
   // The non-visual route to the same information: the drawer carries the full list, and this is what a screen
   // reader gets from the map itself. Danish, with a compass point rather than a bearing in degrees.
   it('labels each arrow in Danish with distance and compass point', () => {
-    const got = computeArrows(input({ targets: [cp('a', 56.5, 9)] }))
+    const got = computeArrows(input({ groups: [[cp('a', 56.5, 9)]] }))
 
     expect(got[0].label).toContain('Post a')
     expect(got[0].label).toContain('mod nord')
@@ -214,10 +216,10 @@ describe('computeArrows', () => {
     const near = computeArrows(
       input({
         project: projectionAround(here, { width: W, height: H }, 200_000),
-        targets: [cp('a', 56.004, 9)],
+        groups: [[cp('a', 56.004, 9)]],
       }),
     )
-    const far = computeArrows(input({ targets: [cp('b', 56.5, 9)] }))
+    const far = computeArrows(input({ groups: [[cp('b', 56.5, 9)]] }))
 
     expect(near).toHaveLength(1)
     expect(near[0].distance).toMatch(/^\d+0 m$/)
@@ -232,15 +234,74 @@ describe('computeArrows', () => {
 
     const wide = computeArrows(
       input({
-        targets: [cp('a', 56.5, 9)],
+        groups: [[cp('a', 56.5, 9)]],
         viewportSize: () => wideSize,
         project: projectionAround(here, wideSize),
       }),
     )
-    const tall = computeArrows(input({ targets: [cp('a', 56.5, 9)] }))
+    const tall = computeArrows(input({ groups: [[cp('a', 56.5, 9)]] }))
 
     expect(wide).toHaveLength(1)
     expect(tall).toHaveLength(1)
     expect(wide[0].bearing).toBeCloseTo(tall[0].bearing, 6)
+  })
+})
+
+// --- One arrow per leg (task 273) ---------------------------------------------------------------------
+//
+// A checkgroup is one leg and its posts are alternatives, so a leg gets one arrow. Which post it points at is
+// the question this section pins.
+
+describe('computeArrows, per leg', () => {
+  it('draws one arrow for a leg with several alternative posts', () => {
+    const got = computeArrows(
+      input({
+        groups: [[cp('4a', 56.5, 9), cp('4b', 56.6, 9)]],
+      }),
+    )
+
+    expect(got).toHaveLength(1)
+  })
+
+  // The nearest, because the posts are alternatives: the patrol needs one of them, so the useful answer is the
+  // one they can actually walk to. Pointing at the group's first post in route order would be deterministic and
+  // would sometimes send them past the closer option for no reason.
+  it('points at the post the patrol can actually reach', () => {
+    const near = cp('4b', 56.3, 9)
+    const far = cp('4a', 56.9, 9)
+
+    // Listed far-first, so an implementation that just took the first entry would fail.
+    const got = computeArrows(input({ groups: [[far, near]] }))
+
+    expect(got).toHaveLength(1)
+    expect(got[0].id).toBe('4b')
+  })
+
+  // ...and the distance shown must be to that post, not to whichever the list happened to start with.
+  it('reports the distance to the post it points at', () => {
+    const got = computeArrows(
+      input({ groups: [[cp('4a', 56.9, 9), cp('4b', 56.3, 9)]] }),
+    )
+    const alone = computeArrows(input({ groups: [[cp('4b', 56.3, 9)]] }))
+
+    expect(got[0].distance).toBe(alone[0].distance)
+  })
+
+  it('ignores an empty leg rather than drawing a blank arrow', () => {
+    const got = computeArrows(input({ groups: [[], [cp('a', 56.5, 9)]] }))
+
+    expect(got.map((a) => a.id)).toEqual(['a'])
+  })
+
+  // A leg whose reachable post is already on screen needs no arrow — but a *different* leg still does. Worth
+  // asserting together, because skipping the wrong one is silent.
+  it('skips only the leg that is already on screen', () => {
+    const got = computeArrows(
+      input({
+        groups: [[cp('near', 56.01, 9.01)], [cp('far', 56.5, 9)]],
+      }),
+    )
+
+    expect(got.map((a) => a.id)).toEqual(['far'])
   })
 })

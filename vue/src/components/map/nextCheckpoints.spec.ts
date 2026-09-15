@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { MAX_ARROWS, nextCheckpoints } from '@/components/map/nextCheckpoints'
+import { MAX_ARROW_GROUPS, nextCheckpointGroups } from '@/components/map/nextCheckpoints'
 import type { Checkpoint } from '@/stores/checkpoints.store'
 
-function cp(id: string, over: Partial<Checkpoint> = {}): Checkpoint {
+function cp(id: string, checkgroup = 'cg-1', over: Partial<Checkpoint> = {}): Checkpoint {
   return {
     id,
     name: id,
-    checkgroup: 'cg-1',
+    checkgroup,
     sortOrder: 0,
     lat: 56.1,
     lng: 9.5,
@@ -18,65 +18,109 @@ function cp(id: string, over: Partial<Checkpoint> = {}): Checkpoint {
   }
 }
 
-describe('nextCheckpoints', () => {
-  it('takes the earliest unvisited posts in the order given', () => {
-    const got = nextCheckpoints([cp('a'), cp('b'), cp('c'), cp('d')], [])
+const ids = (groups: Checkpoint[][]) => groups.map((g) => g.map((c) => c.id))
 
-    expect(got.map((c) => c.id)).toEqual(['a', 'b', 'c'])
+describe('nextCheckpointGroups', () => {
+  it('groups the posts by checkgroup, in the order given', () => {
+    const got = nextCheckpointGroups(
+      [cp('a', 'cg-1'), cp('b', 'cg-1'), cp('c', 'cg-2')],
+      [],
+    )
+
+    expect(ids(got)).toEqual([['a', 'b'], ['c']])
   })
 
-  it('skips posts already visited', () => {
-    const got = nextCheckpoints([cp('a'), cp('b'), cp('c'), cp('d')], ['a', 'b'])
+  // The correction this module exists for (task 273). A checkgroup is one leg and its posts are alternatives,
+  // so scanning at Post 4A finishes that leg — an arrow to Post 4B would send the patrol somewhere they have
+  // no reason to go, and would spend an arrow slot that should show the leg after.
+  it('drops the whole group when any of its posts was visited', () => {
+    const got = nextCheckpointGroups(
+      [cp('4a', 'cg-4'), cp('4b', 'cg-4'), cp('5a', 'cg-5')],
+      ['4a'],
+    )
 
-    expect(got.map((c) => c.id)).toEqual(['c', 'd'])
+    expect(ids(got)).toEqual([['5a']])
   })
 
-  // A patrol may reach posts out of order — a skitse sends them to one post before another, or they simply
-  // walk it their own way. Continuing to point at somewhere they have already stood would be worse than
-  // silence.
-  it('skips a visited post even when earlier ones are unvisited', () => {
-    const got = nextCheckpoints([cp('a'), cp('b'), cp('c')], ['b'])
+  it('keeps a group whose posts are all unvisited', () => {
+    const got = nextCheckpointGroups([cp('4a', 'cg-4'), cp('4b', 'cg-4')], ['other'])
 
-    expect(got.map((c) => c.id)).toEqual(['a', 'c'])
+    expect(ids(got)).toEqual([['4a', '4b']])
   })
 
-  // The viewport is a phone screen at night. Four arrows is decoration rather than instruction.
-  it('caps the count', () => {
-    const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => cp(id))
+  // Patrols legitimately do legs out of order — a skitse sends them one way, or they walk it their own way.
+  // Continuing to point at a leg they have finished is worse than silence.
+  it('skips a finished leg even when earlier legs are unfinished', () => {
+    const got = nextCheckpointGroups(
+      [cp('a', 'cg-1'), cp('b', 'cg-2'), cp('c', 'cg-3')],
+      ['b'],
+    )
 
-    expect(nextCheckpoints(many, [])).toHaveLength(MAX_ARROWS)
-    expect(MAX_ARROWS).toBe(3)
+    expect(ids(got)).toEqual([['a'], ['c']])
+  })
+
+  // The cap is in *legs*, which is the point of counting groups: three posts that all belong to one leg would
+  // otherwise fill the viewport and hide everything behind it.
+  it('caps the number of legs, not the number of posts', () => {
+    const many = [
+      cp('1a', 'cg-1'),
+      cp('1b', 'cg-1'),
+      cp('1c', 'cg-1'),
+      cp('2a', 'cg-2'),
+      cp('3a', 'cg-3'),
+      cp('4a', 'cg-4'),
+    ]
+
+    const got = nextCheckpointGroups(many, [])
+
+    expect(got).toHaveLength(MAX_ARROW_GROUPS)
+    expect(ids(got)).toEqual([['1a', '1b', '1c'], ['2a'], ['3a']])
+    expect(MAX_ARROW_GROUPS).toBe(3)
   })
 
   it('respects an explicit limit', () => {
-    const got = nextCheckpoints([cp('a'), cp('b'), cp('c')], [], 1)
+    const got = nextCheckpointGroups([cp('a', 'cg-1'), cp('b', 'cg-2')], [], 1)
 
-    expect(got.map((c) => c.id)).toEqual(['a'])
+    expect(ids(got)).toEqual([['a']])
   })
 
-  // Everything visited is a real state near the end of a race, and it means no arrows rather than a fallback
-  // to the nearest post.
-  it('returns nothing when every post has been visited', () => {
-    expect(nextCheckpoints([cp('a'), cp('b')], ['a', 'b'])).toEqual([])
+  // Near the end of a race every leg is done, and that means no arrows rather than a fallback to the nearest
+  // post.
+  it('returns nothing when every leg is finished', () => {
+    const got = nextCheckpointGroups([cp('a', 'cg-1'), cp('b', 'cg-2')], ['a', 'b'])
+
+    expect(got).toEqual([])
   })
 
   it('returns nothing for an empty list', () => {
-    expect(nextCheckpoints([], [])).toEqual([])
+    expect(nextCheckpointGroups([], [])).toEqual([])
   })
 
-  // Route order comes from the BFF, which is the only side holding both halves of it. Preserved here rather
-  // than re-derived: sorting by the post's own sortOrder alone would reorder posts across checkgroups and
-  // point the patrol at the wrong leg.
+  // A post can be revealed before its checkgroup is known: the group arrives on a different event
+  // (`checkpoint.created`) from the position and name (`checkpoint.updated`), so a catching-up projection can
+  // hold one without the other. Such posts stand alone rather than being merged into one nameless group, which
+  // would arrow one of them and hide the rest.
+  it('treats a post with no checkgroup as its own leg', () => {
+    const got = nextCheckpointGroups([cp('a', ''), cp('b', ''), cp('c', 'cg-1')], [])
+
+    expect(ids(got)).toEqual([['a'], ['b'], ['c']])
+  })
+
+  // Visiting a group-less post must not take other group-less posts with it — they are unrelated.
+  it('does not treat all group-less posts as one leg when one is visited', () => {
+    const got = nextCheckpointGroups([cp('a', ''), cp('b', '')], ['a'])
+
+    expect(ids(got)).toEqual([['b']])
+  })
+
+  // Route order comes from the BFF, which holds both halves of it. Preserved rather than re-derived: sorting by
+  // a post's own order would reorder legs and point the patrol at the wrong one.
   it('does not re-sort by the post’s own order', () => {
-    // Route order: cg-1 then cg-2. Within cg-2 the post's own order is lower, which a naive sort would
-    // promote to first.
     const inRouteOrder = [
-      cp('early', { checkgroup: 'cg-1', sortOrder: 5 }),
-      cp('late', { checkgroup: 'cg-2', sortOrder: 0 }),
+      cp('early', 'cg-1', { sortOrder: 5 }),
+      cp('late', 'cg-2', { sortOrder: 0 }),
     ]
 
-    const got = nextCheckpoints(inRouteOrder, [])
-
-    expect(got.map((c) => c.id)).toEqual(['early', 'late'])
+    expect(ids(nextCheckpointGroups(inRouteOrder, []))).toEqual([['early'], ['late']])
   })
 })
