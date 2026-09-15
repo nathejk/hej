@@ -1,8 +1,10 @@
 # 255 — `RevealedCheckpoints(year, patrolID)` with a publishable-only type
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-09-15
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-15
 
 ## Description
 
@@ -48,3 +50,7 @@ shared here).
 ## Progress Log
 
 - 2026-09-15 — Task created from PRD 016 phase 2.
+- 2026-09-15 — Picked up. Reading the four projections' read APIs first, to decide where the rule lives:
+  it needs sheets (kort), handouts (maphandout), reached checkgroups (scan) and the checkpoints
+  themselves, and the `nathejk/table/*` packages are bound for shared-go and must not know about each
+  other.
