@@ -49,6 +49,7 @@ import (
 
 	"github.com/nathejk/shared-go/types"
 
+	"nathejk.dk/nathejk/table/checkgroup"
 	"nathejk.dk/nathejk/table/checkpoint"
 	"nathejk.dk/nathejk/table/kort"
 	"nathejk.dk/nathejk/table/maphandout"
@@ -78,9 +79,25 @@ type Scans interface {
 //
 // Both reads are bounded by what we pass in, which is what keeps an un-revealed position unreachable from
 // here even by mistake.
+//
+// They also do the first half of the referential-integrity work this package needs: a sheet carries the
+// checkpoint ids that were *saved*, and nothing re-publishes them when a checkpoint later disappears — in
+// particular, **deleting a checkgroup emits no per-checkpoint event**, so ids inside a sheet's JSON array
+// cannot be cascaded out. Because these reads return only rows that exist, a stale id simply yields
+// nothing. That fix does not travel over the stream: any other consumer of the kort events has to do the
+// same resolution itself.
 type Checkpoints interface {
 	ByIDs(year string, ids []types.CheckpointID) ([]checkpoint.Checkpoint, error)
 	ByCheckgroups(year string, groups []types.CheckgroupID) ([]checkpoint.Checkpoint, error)
+}
+
+// Checkgroups reads the year's checkgroups, so a sheet's handout trigger can be resolved.
+//
+// The second half of the integrity work. HQ does not validate `handoutCheckgroupId` on write, and nothing
+// re-publishes a sheet when the checkgroup it names is later deleted — so the id can dangle, and this is
+// the only place that can notice.
+type Checkgroups interface {
+	ByYear(year string) ([]checkgroup.Checkgroup, error)
 }
 
 // Rule evaluates the reveal rule for a patrol.
@@ -89,11 +106,18 @@ type Rule struct {
 	handouts    Handouts
 	scans       Scans
 	checkpoints Checkpoints
+	checkgroups Checkgroups
 }
 
-// New builds the rule from the four projections.
-func New(sheets Sheets, handouts Handouts, scans Scans, checkpoints Checkpoints) *Rule {
-	return &Rule{sheets: sheets, handouts: handouts, scans: scans, checkpoints: checkpoints}
+// New builds the rule from the five projections.
+func New(sheets Sheets, handouts Handouts, scans Scans, checkpoints Checkpoints, checkgroups Checkgroups) *Rule {
+	return &Rule{
+		sheets:      sheets,
+		handouts:    handouts,
+		scans:       scans,
+		checkpoints: checkpoints,
+		checkgroups: checkgroups,
+	}
 }
 
 // Revealed returns the checkpoints this patrol may see, in route order.
@@ -126,12 +150,23 @@ func (r *Rule) Revealed(year string, patrolID string) ([]checkpoint.Checkpoint, 
 	reached := reachedCheckgroups(patrolScans)
 	held := heldSheetIDs(handouts)
 
+	// Which checkgroups still exist, so a sheet whose handout trigger names a deleted one can fall back
+	// to the QR rule instead of being keyed to a post that will never be reached.
+	groups, err := r.checkgroups.ByYear(year)
+	if err != nil {
+		return nil, err
+	}
+	knownGroups := make(map[types.CheckgroupID]bool, len(groups))
+	for _, g := range groups {
+		knownGroups[g.ID] = true
+	}
+
 	// Rules 1 and 2 both yield checkpoint *ids* from sheets; rule 3 yields whole *groups*. Kept apart
-	// until the end because they are answered by different reads \u2014 and because collapsing them early is
+	// until the end because they are answered by different reads — and because collapsing them early is
 	// how the "they do not nest" property gets quietly lost.
 	var ids []types.CheckpointID
 	for _, sheet := range sheets {
-		if !revealsFor(sheet, held, reached) {
+		if !revealsFor(sheet, held, reached, knownGroups) {
 			continue
 		}
 		ids = append(ids, sheet.CheckpointIDs...)
@@ -153,20 +188,42 @@ func (r *Rule) Revealed(year string, patrolID string) ([]checkpoint.Checkpoint, 
 //
 // The two sheet rules, and which one applies is decided by the sheet's own `handoutCheckgroupId`:
 //
-//   - "" \u2014 the QR rule. Revealed if the patrol has *ever* been handed this sheet. Ever, not currently:
+//   - "" — the QR rule. Revealed if the patrol has *ever* been handed this sheet. Ever, not currently:
 //     revealing is monotonic (see the package doc), so a sheet since reassigned still counts.
-//   - a checkgroup id \u2014 revealed once the patrol has reached that group. This is how a skitse works, and
+//   - a checkgroup id — revealed once the patrol has reached that group. This is how a skitse works, and
 //     how any sheet handed over at a post works.
 //
 // Note the second case does **not** require a handout record, and cannot: a skitse has no QR code, so no
-// binding event ever names it. Requiring one would make every skitse permanently invisible \u2014 the exact
+// binding event ever names it. Requiring one would make every skitse permanently invisible — the exact
 // mistake the two-rules-not-one warning in the contract exists to prevent.
-func revealsFor(sheet kort.Sheet, held map[kort.KortID]bool, reached []types.CheckgroupID) bool {
-	if sheet.HandoutCheckgroupID == "" {
+//
+// # A trigger naming a checkgroup that no longer exists falls back to the QR rule
+//
+// HQ does not validate the id on write, and nothing re-publishes the sheet when the group is deleted, so
+// the id can dangle. Falling back to the QR rule is the safe direction, and the asymmetry is worth being
+// explicit about: the alternative is a reveal keyed to a post that will never be reached, whose
+// checkpoints would therefore *never* appear — a sheet in a patrol's hand whose posts the app refuses to
+// draw, forever, with nothing in any log to explain it. Falling back can at worst reveal a sheet's
+// checkpoints to a patrol that was handed that sheet, which is the QR rule working as intended.
+//
+// HQ's own read path does the same thing, and like the checkpoint-id resolution this fix does not travel
+// over the stream.
+func revealsFor(
+	sheet kort.Sheet,
+	held map[kort.KortID]bool,
+	reached []types.CheckgroupID,
+	knownGroups map[types.CheckgroupID]bool,
+) bool {
+	trigger := sheet.HandoutCheckgroupID
+	if trigger != "" && !knownGroups[trigger] {
+		trigger = ""
+	}
+
+	if trigger == "" {
 		return held[sheet.ID]
 	}
 	for _, cg := range reached {
-		if cg == sheet.HandoutCheckgroupID {
+		if cg == trigger {
 			return true
 		}
 	}

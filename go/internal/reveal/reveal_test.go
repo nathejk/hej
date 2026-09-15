@@ -6,6 +6,7 @@ import (
 
 	"github.com/nathejk/shared-go/types"
 
+	"nathejk.dk/nathejk/table/checkgroup"
 	"nathejk.dk/nathejk/table/checkpoint"
 	"nathejk.dk/nathejk/table/kort"
 	"nathejk.dk/nathejk/table/maphandout"
@@ -38,6 +39,27 @@ type fakeScans struct {
 }
 
 func (f fakeScans) ByTeam(string, string) ([]scan.Scan, error) { return f.scans, f.err }
+
+// fakeCheckgroups says which groups exist. The zero value knows about the fixture world's three groups,
+// so a test only mentions it when it cares — which is what makes the dangling-trigger tests read clearly.
+type fakeCheckgroups struct {
+	groups []checkgroup.Checkgroup
+	err    error
+	empty  bool
+}
+
+func (f fakeCheckgroups) ByYear(string) ([]checkgroup.Checkgroup, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.empty {
+		return nil, nil
+	}
+	if f.groups != nil {
+		return f.groups, nil
+	}
+	return []checkgroup.Checkgroup{{ID: "cg-1"}, {ID: "cg-2"}, {ID: "cg-3"}}, nil
+}
 
 // fakeCheckpoints answers from a table of every checkpoint in the fixture world — including ones no rule
 // reveals, which is the whole point: if the rule asks a broader question than it should, these show up in
@@ -123,6 +145,7 @@ func TestRule1QRBoundSheet(t *testing.T) {
 		fakeHandouts{handouts: []maphandout.Handout{{QrID: "qr-1", MapID: "kort-1"}}},
 		fakeScans{},
 		cps,
+		fakeCheckgroups{},
 	)
 
 	got, err := r.Revealed("2026", "team-9")
@@ -148,6 +171,7 @@ func TestSheetNotHandedOutRevealsNothing(t *testing.T) {
 		fakeHandouts{}, // nothing handed out
 		fakeScans{},
 		cps,
+		fakeCheckgroups{},
 	)
 
 	got, err := r.Revealed("2026", "team-9")
@@ -174,6 +198,7 @@ func TestRule2SheetHandedOutAtAPost(t *testing.T) {
 		fakeHandouts{}, // no QR binding exists for a skitse, ever
 		fakeScans{scans: []scan.Scan{{CheckgroupID: "cg-1"}}},
 		cps,
+		fakeCheckgroups{},
 	)
 
 	got, err := r.Revealed("2026", "team-9")
@@ -197,6 +222,7 @@ func TestRule2NotBeforeTheGroupIsReached(t *testing.T) {
 		fakeHandouts{},
 		fakeScans{scans: []scan.Scan{{CheckgroupID: "cg-1"}}},
 		cps,
+		fakeCheckgroups{},
 	)
 
 	got, err := r.Revealed("2026", "team-9")
@@ -217,6 +243,7 @@ func TestRule3ScanRevealsTheWholeCheckgroup(t *testing.T) {
 		fakeHandouts{},
 		fakeScans{scans: []scan.Scan{{CheckpointID: "cp-1", CheckgroupID: "cg-1"}}},
 		cps,
+		fakeCheckgroups{},
 	)
 
 	got, err := r.Revealed("2026", "team-9")
@@ -247,6 +274,7 @@ func TestRulesOverlapWithoutDuplicating(t *testing.T) {
 		}},
 		fakeScans{scans: []scan.Scan{{CheckgroupID: "cg-1"}}},
 		cps,
+		fakeCheckgroups{},
 	)
 
 	got, err := r.Revealed("2026", "team-9")
@@ -280,6 +308,7 @@ func TestReassignedSheetStaysRevealed(t *testing.T) {
 		fakeHandouts{handouts: []maphandout.Handout{{QrID: "qr-1", MapID: "kort-1", Current: false}}},
 		fakeScans{},
 		cps,
+		fakeCheckgroups{},
 	)
 
 	got, err := r.Revealed("2026", "team-9")
@@ -303,6 +332,7 @@ func TestUnknownSheetRevealsNothing(t *testing.T) {
 		fakeHandouts{handouts: []maphandout.Handout{{QrID: "qr-1", MapID: ""}}},
 		fakeScans{},
 		cps,
+		fakeCheckgroups{},
 	)
 
 	got, err := r.Revealed("2026", "team-9")
@@ -323,6 +353,7 @@ func TestUnattributedScanRevealsNothing(t *testing.T) {
 		fakeHandouts{},
 		fakeScans{scans: []scan.Scan{{QrID: "qr-1"}}}, // no checkpoint, no group
 		cps,
+		fakeCheckgroups{},
 	)
 
 	got, err := r.Revealed("2026", "team-9")
@@ -339,7 +370,7 @@ func TestUnattributedScanRevealsNothing(t *testing.T) {
 
 // A patrol with nothing yet gets an empty list, not an error — the state of every patrol before the start.
 func TestNothingYetIsNotAnError(t *testing.T) {
-	r := New(fakeSheets{}, fakeHandouts{}, fakeScans{}, &fakeCheckpoints{all: world()})
+	r := New(fakeSheets{}, fakeHandouts{}, fakeScans{}, &fakeCheckpoints{all: world()}, fakeCheckgroups{})
 
 	got, err := r.Revealed("2026", "team-9")
 	if err != nil {
@@ -357,7 +388,7 @@ func TestNothingYetIsNotAnError(t *testing.T) {
 // "" can only ever return nothing.
 func TestNoPatrolAsksNothing(t *testing.T) {
 	cps := &fakeCheckpoints{all: world()}
-	r := New(fakeSheets{sheets: []kort.Sheet{{ID: "kort-1"}}}, fakeHandouts{}, fakeScans{}, cps)
+	r := New(fakeSheets{sheets: []kort.Sheet{{ID: "kort-1"}}}, fakeHandouts{}, fakeScans{}, cps, fakeCheckgroups{})
 
 	got, err := r.Revealed("2026", "")
 	if err != nil {
@@ -384,6 +415,7 @@ func TestOnlyRevealedIdsAreEverAskedFor(t *testing.T) {
 		fakeHandouts{handouts: []maphandout.Handout{{QrID: "qr-1", MapID: "kort-1"}}},
 		fakeScans{},
 		cps,
+		fakeCheckgroups{},
 	)
 
 	if _, err := r.Revealed("2026", "team-9"); err != nil {
@@ -407,6 +439,7 @@ func TestResultIsInRouteOrder(t *testing.T) {
 		fakeHandouts{handouts: []maphandout.Handout{{QrID: "qr-1", MapID: "kort-1"}}},
 		fakeScans{},
 		cps,
+		fakeCheckgroups{},
 	)
 
 	got, err := r.Revealed("2026", "team-9")
@@ -423,21 +456,167 @@ func TestResultIsInRouteOrder(t *testing.T) {
 
 // A failure in any input is returned, not silently treated as "nothing revealed". An empty map is a
 // legitimate state, so a swallowed error would be indistinguishable from a patrol that has scanned nothing —
-// and the client would cache that emptiness.
+// and the client would cache that emptiness offline.
 func TestInputFailuresAreReturned(t *testing.T) {
 	boom := errors.New("database is down")
 
 	cases := map[string]*Rule{
-		"sheets": New(fakeSheets{err: boom}, fakeHandouts{}, fakeScans{}, &fakeCheckpoints{}),
-		"handouts": New(fakeSheets{}, fakeHandouts{err: boom}, fakeScans{},
-			&fakeCheckpoints{}),
-		"scans":       New(fakeSheets{}, fakeHandouts{}, fakeScans{err: boom}, &fakeCheckpoints{}),
-		"checkpoints": New(fakeSheets{}, fakeHandouts{}, fakeScans{}, &fakeCheckpoints{err: boom}),
+		"sheets": New(fakeSheets{err: boom}, fakeHandouts{}, fakeScans{}, &fakeCheckpoints{},
+			fakeCheckgroups{}),
+		"handouts": New(fakeSheets{}, fakeHandouts{err: boom}, fakeScans{}, &fakeCheckpoints{},
+			fakeCheckgroups{}),
+		"scans": New(fakeSheets{}, fakeHandouts{}, fakeScans{err: boom}, &fakeCheckpoints{},
+			fakeCheckgroups{}),
+		"checkpoints": New(fakeSheets{}, fakeHandouts{}, fakeScans{}, &fakeCheckpoints{err: boom},
+			fakeCheckgroups{}),
+		"checkgroups": New(fakeSheets{}, fakeHandouts{}, fakeScans{}, &fakeCheckpoints{},
+			fakeCheckgroups{err: boom}),
 	}
 
 	for name, r := range cases {
 		if _, err := r.Revealed("2026", "team-9"); err == nil {
 			t.Errorf("%s: want the error returned rather than an empty reveal", name)
 		}
+	}
+}
+
+// --- Read-time referential integrity (task 256) -------------------------------------------------------
+//
+// Two fixes that do **not** travel over the stream, so every consumer of the kort events has to implement
+// them itself. Both are about ids that were valid when they were saved and are not any more.
+
+// A sheet's checkpointIds carry whatever was saved, and nothing re-publishes them when a checkpoint later
+// disappears. The stale id must be dropped silently — it is an ordinary state of the data, not an error the
+// caller can act on.
+func TestUnresolvableCheckpointIDsAreDropped(t *testing.T) {
+	cps := &fakeCheckpoints{all: world()}
+	r := New(
+		fakeSheets{sheets: []kort.Sheet{{
+			ID: "kort-1",
+			// cp-gone was deleted after the sheet was saved.
+			CheckpointIDs: []types.CheckpointID{"cp-1", "cp-gone"},
+		}}},
+		fakeHandouts{handouts: []maphandout.Handout{{QrID: "qr-1", MapID: "kort-1"}}},
+		fakeScans{},
+		cps,
+		fakeCheckgroups{},
+	)
+
+	got, err := r.Revealed("2026", "team-9")
+	if err != nil {
+		t.Fatalf("a stale id must not be an error: %v", err)
+	}
+	if len(got) != 1 || !has(got, "cp-1") {
+		t.Fatalf("want just cp-1, got %v", ids(got))
+	}
+}
+
+// The case that motivated the whole fix: **deleting a checkgroup emits no per-checkpoint event**, so the
+// ids inside a sheet's JSON array cannot be cascaded out. Resolving on read is what copes, and it does so
+// without depending on the order two independent projections happen to replay in.
+func TestCheckgroupDeletionRemovesItsCheckpointsFromSheets(t *testing.T) {
+	// The world after cg-2 was deleted: its checkpoint cp-3 is gone from the checkpoint projection, but
+	// the sheet still lists it, because no event ever told anyone.
+	remaining := []checkpoint.Checkpoint{
+		{ID: "cp-1", Name: "Post 1", Checkgroup: "cg-1", SortOrder: 0, Lat: 56.1, Lng: 9.5},
+	}
+	cps := &fakeCheckpoints{all: remaining}
+
+	r := New(
+		fakeSheets{sheets: []kort.Sheet{{
+			ID:            "kort-1",
+			CheckpointIDs: []types.CheckpointID{"cp-1", "cp-3"},
+		}}},
+		fakeHandouts{handouts: []maphandout.Handout{{QrID: "qr-1", MapID: "kort-1"}}},
+		fakeScans{},
+		cps,
+		fakeCheckgroups{groups: []checkgroup.Checkgroup{{ID: "cg-1"}}},
+	)
+
+	got, err := r.Revealed("2026", "team-9")
+	if err != nil {
+		t.Fatalf("Revealed: %v", err)
+	}
+	if has(got, "cp-3") {
+		t.Errorf("a checkpoint whose group was deleted must not be revealed, got %v", ids(got))
+	}
+	if !has(got, "cp-1") {
+		t.Errorf("the surviving checkpoint must still be revealed, got %v", ids(got))
+	}
+}
+
+// A handoutCheckgroupId naming a group that no longer exists falls back to the QR rule.
+//
+// The safe direction, and worth stating why: keyed to a deleted post, the sheet's checkpoints would never
+// appear at all — a sheet in the patrol's hand whose posts the app refuses to draw, forever, with nothing
+// in any log to explain it. Falling back can at worst reveal the sheet to a patrol that was handed it,
+// which is the QR rule working as intended.
+func TestDanglingHandoutCheckgroupFallsBackToTheQRRule(t *testing.T) {
+	cps := &fakeCheckpoints{all: world()}
+	sheet := kort.Sheet{
+		ID:                  "kort-1",
+		HandoutCheckgroupID: "cg-deleted",
+		CheckpointIDs:       []types.CheckpointID{"cp-1"},
+	}
+
+	t.Run("handed out: revealed via the QR rule", func(t *testing.T) {
+		r := New(
+			fakeSheets{sheets: []kort.Sheet{sheet}},
+			fakeHandouts{handouts: []maphandout.Handout{{QrID: "qr-1", MapID: "kort-1"}}},
+			fakeScans{},
+			cps,
+			fakeCheckgroups{groups: []checkgroup.Checkgroup{{ID: "cg-1"}}}, // cg-deleted is absent
+		)
+
+		got, err := r.Revealed("2026", "team-9")
+		if err != nil {
+			t.Fatalf("Revealed: %v", err)
+		}
+		if !has(got, "cp-1") {
+			t.Errorf("a sheet keyed to a deleted post must fall back to the QR rule, got %v", ids(got))
+		}
+	})
+
+	t.Run("not handed out: still hidden", func(t *testing.T) {
+		r := New(
+			fakeSheets{sheets: []kort.Sheet{sheet}},
+			fakeHandouts{}, // never handed out
+			fakeScans{},
+			cps,
+			fakeCheckgroups{groups: []checkgroup.Checkgroup{{ID: "cg-1"}}},
+		)
+
+		got, err := r.Revealed("2026", "team-9")
+		if err != nil {
+			t.Fatalf("Revealed: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("the fallback is the QR rule, not an unconditional reveal, got %v", ids(got))
+		}
+	})
+}
+
+// And the opposite must keep working: a trigger naming a group that *does* exist is still a post-handout
+// sheet, revealed by reaching the group and not by holding a QR binding it does not have.
+func TestResolvableHandoutCheckgroupStillUsesRule2(t *testing.T) {
+	cps := &fakeCheckpoints{all: world()}
+	r := New(
+		fakeSheets{sheets: []kort.Sheet{{
+			ID:                  "skitse-1",
+			HandoutCheckgroupID: "cg-1",
+			CheckpointIDs:       []types.CheckpointID{"cp-3"},
+		}}},
+		fakeHandouts{}, // no binding, as a skitse never has one
+		fakeScans{scans: []scan.Scan{{CheckgroupID: "cg-1"}}},
+		cps,
+		fakeCheckgroups{},
+	)
+
+	got, err := r.Revealed("2026", "team-9")
+	if err != nil {
+		t.Fatalf("Revealed: %v", err)
+	}
+	if !has(got, "cp-3") {
+		t.Fatalf("want cp-3 revealed by reaching cg-1, got %v", ids(got))
 	}
 }
