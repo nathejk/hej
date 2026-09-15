@@ -1,10 +1,10 @@
 # PRD 016 — Map handouts, visible checkpoints, and the scan drawer
 
-**Status:** draft
+**Status:** doing
 **Author:** agent session (Zed / Claude)
 **Created:** 2026-09-15
-**Last updated:** 2026-09-15 (all open questions settled — §11)
-**Approved:**
+**Last updated:** 2026-09-15 (approved; all open questions settled — §11)
+**Approved:** 2026-09-15
 **Shipped:**
 **Target users:** participant (patrol member)
 
