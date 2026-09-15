@@ -107,6 +107,10 @@ func (app *application) routes() http.Handler {
 	// The region the client caches map tiles for. Authenticated deliberately: unlike
 	// /api/config it is not public — the event area is not fully known to participants.
 	router.HandlerFunc(http.MethodGet, "/api/race-area", app.requireAuth(app.raceAreaHandler))
+	// The checkpoints this patrol has earned sight of (PRD 016). Patrol-scoped in the BFF:
+	// the read behind it cannot be asked for checkpoints the caller has not been shown, so
+	// this route cannot leak a position even if a future edit here got the filtering wrong.
+	router.HandlerFunc(http.MethodGet, "/api/checkpoints", app.requireAuth(app.listCheckpointsHandler))
 	router.HandlerFunc(http.MethodGet, "/api/push/public-key", app.pushPublicKeyHandler)
 	router.HandlerFunc(http.MethodPost, "/api/push/subscription", app.requireAuth(app.createPushSubscriptionHandler))
 

@@ -26,6 +26,7 @@ import (
 	"nathejk.dk/internal/pin"
 	"nathejk.dk/internal/push"
 	"nathejk.dk/internal/ratelimit"
+	"nathejk.dk/internal/reveal"
 	"nathejk.dk/internal/session"
 	"nathejk.dk/internal/sms"
 	"nathejk.dk/internal/users"
@@ -429,6 +430,21 @@ func run(logger *slog.Logger) error {
 		})
 	}
 
+	// The reveal rule (PRD 016), which decides what a patrol may see on the map.
+	//
+	// Composed from four projections, so it exists only when all four do. Partial construction is
+	// deliberately refused rather than degraded: a rule missing its handout projection would evaluate to
+	// "nothing revealed" for every patrol, which the client would cache offline and keep for the night. An
+	// honest 503 is recoverable; a cached empty map is not.
+	var mapReads *reveal.Rule
+	if sheets != nil && handouts != nil && scanProjection != nil && checkpoints != nil && checkgroups != nil {
+		mapReads = reveal.New(sheets, handouts, scanProjection, checkpoints, checkgroups)
+	} else if ev != nil {
+		logger.Warn("map reveal rule unavailable: one of its projections did not build",
+			"sheets", sheets != nil, "handouts", handouts != nil, "scans", scanProjection != nil,
+			"checkpoints", checkpoints != nil, "checkgroups", checkgroups != nil)
+	}
+
 	// Binary objects. This is the one store whose contents cannot be rebuilt by
 	// replaying the log, so an in-memory fallback is a real limitation rather than
 	// a convenience — log it plainly instead of letting it look configured.
@@ -445,9 +461,11 @@ func run(logger *slog.Logger) error {
 	}
 
 	app := &application{
-		JsonApi:  bff.JsonApi{Logger: logger},
-		config:   cfg,
-		models:   data.NewModels(directory, scanSourceFor(scanProjection, cfg.eventYear, logger), raceAreasOrNil(checkpoints), peopleOrNil(persons), vehiclesOrNil(vehicles)),
+		JsonApi: bff.JsonApi{Logger: logger},
+		config:  cfg,
+		models: data.NewModels(directory, scanSourceFor(scanProjection, cfg.eventYear, logger),
+			raceAreasOrNil(checkpoints), peopleOrNil(persons), vehiclesOrNil(vehicles),
+			data.WithMapReads(mapReadsOrNil(mapReads))),
 		commands: commands.New(publisherFor(ev)),
 		vehicles: vehicleCommandsOrNil(vehicles),
 		db:       db,

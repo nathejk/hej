@@ -6,6 +6,7 @@ package data
 import (
 	"github.com/nathejk/shared-go/tables/vehicle"
 
+	"nathejk.dk/internal/reveal"
 	"nathejk.dk/internal/scans"
 	"nathejk.dk/internal/users"
 	"nathejk.dk/nathejk/table/checkpoint"
@@ -66,6 +67,45 @@ type Models struct {
 	// held separately on the application, so nothing reachable through this facade can
 	// publish a vehicle event.
 	Vehicles vehicle.Queries
+
+	// Maps answers the two patrol-scoped map questions: which checkpoints this patrol has earned sight
+	// of, and which map sheets it has been handed (PRD 016).
+	//
+	// **May be nil**, like RaceAreas and for the same reason: it needs a database and the projections
+	// behind it. A nil means "we cannot tell what this patrol may see", which a handler must report as
+	// unavailable rather than as "nothing" — an empty reveal is a legitimate state early in the race, and
+	// the client caches it offline, so conflating the two would leave a patrol holding a cached empty map
+	// for the rest of the night.
+	//
+	// Typed as an interface declared here rather than as the concrete rule, so this facade keeps stating
+	// what handlers may ask rather than what the implementation happens to offer.
+	Maps MapReads
+}
+
+// MapReads is the patrol-scoped map read API.
+//
+// Both methods take the patrol id, and that is the whole shape of the thing: there is no "all
+// checkpoints" and no "all handouts" to ask for. A handler cannot widen the question, which is where the
+// reveal rule's guarantee becomes unavoidable rather than merely intended (PRD 016 §6).
+type MapReads interface {
+	// Revealed returns the checkpoints this patrol may see, in route order. Empty is normal.
+	Revealed(year string, patrolID string) ([]checkpoint.Checkpoint, error)
+	// Handouts returns the map sheets this patrol has been given, oldest first. Empty is normal.
+	Handouts(year string, patrolID string) ([]reveal.Handout, error)
+}
+
+// Option configures optional read models.
+//
+// Options rather than more constructor parameters, following the projections' own shape
+// (checkpoint.Option, kort.Option). NewModels already takes five sources, three of which may be nil, and
+// a sixth positional nil would make every one of its seventeen call sites read a little worse while
+// telling the reader nothing. An option names what it supplies.
+type Option func(*Models)
+
+// WithMapReads supplies the patrol-scoped map reads. Omit it and Models.Maps is nil, which handlers must
+// treat as "map data unavailable".
+func WithMapReads(m MapReads) Option {
+	return func(mo *Models) { mo.Maps = m }
 }
 
 // NewModels constructs the read-side facade with the given read sources.
@@ -78,12 +118,17 @@ func NewModels(
 	raceAreas checkpoint.AreaQueries,
 	people person.Queries,
 	vehicles vehicle.Queries,
+	opts ...Option,
 ) Models {
-	return Models{
+	m := Models{
 		Users:     usersDir,
 		Scans:     scanSource,
 		RaceAreas: raceAreas,
 		People:    people,
 		Vehicles:  vehicles,
 	}
+	for _, opt := range opts {
+		opt(&m)
+	}
+	return m
 }
