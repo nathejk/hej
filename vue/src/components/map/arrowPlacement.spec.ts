@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { ARROW_RADIUS, computeArrows, type ArrowInput } from '@/components/map/arrowPlacement'
+import {
+  ARROW_RADIUS,
+  computeArrows,
+  type ArrowInput,
+} from '@/components/map/arrowPlacement'
+import { isInside } from '@/components/map/arrowGeometry'
 import { arrowKeepOut } from '@/config/map'
 
 // A notched phone's reading, which is the case a desktop-tuned constant would get wrong.
@@ -94,14 +99,17 @@ describe('computeArrows', () => {
     expect(got).toEqual([])
   })
 
-  // The patrol has panned away from themselves: there is no honest edge crossing to compute from an origin
-  // that is not in the box.
-  it('draws nothing when the patrol’s own position is off screen', () => {
+  // Regression (bug reported 2026-09-15): arrows must survive the patrol's own position leaving the screen.
+  //
+  // The first implementation measured from the patrol and returned nothing when that origin was outside the
+  // box — so a pan or a zoom-out made every arrow disappear at once, exactly when the user was looking around
+  // for their next post. Placement is measured from the viewport centre now, which is always inside it.
+  it('still draws arrows when the patrol’s own position is off screen', () => {
     const here = { lat: 56, lng: 9, accuracy: 10 }
     const got = computeArrows(
       input({
         position: here,
-        // A projection that puts the patrol far off the left edge.
+        // A projection that puts the patrol far off the left edge, as a pan would.
         project: (lat, lng) => ({
           x: -500 + (lng - here.lng) * 2000,
           y: H / 2 - (lat - here.lat) * 2000,
@@ -110,7 +118,8 @@ describe('computeArrows', () => {
       }),
     )
 
-    expect(got).toEqual([])
+    expect(got).toHaveLength(1)
+    expect(got[0].id).toBe('a')
   })
 
   it('draws one arrow per off-screen leg', () => {
@@ -303,5 +312,135 @@ describe('computeArrows, per leg', () => {
     )
 
     expect(got.map((a) => a.id)).toEqual(['far'])
+  })
+})
+
+// --- Stability during pan and zoom (bug reported 2026-09-15) -------------------------------------------
+//
+// Two symptoms were reported: arrows disappearing from time to time, and their placement jumping around.
+// Both came from measuring placement from the patrol's own position, which moves across the screen during a
+// drag and leaves it entirely on a zoom-out. Placement is measured from the viewport centre instead.
+
+describe('computeArrows, panning and zooming', () => {
+  const here = { lat: 56, lng: 9, accuracy: 10 }
+
+  // A pan is a shift of the projection. Simulated by offsetting the projected points, which is exactly what
+  // Leaflet does as the map slides.
+  function pannedProjection(offsetX: number, offsetY: number) {
+    return (lat: number, lng: number) => ({
+      x: W / 2 + (lng - here.lng) * 2000 + offsetX,
+      y: H / 2 - (lat - here.lat) * 2000 + offsetY,
+    })
+  }
+
+  // The disappearing symptom, as a sweep rather than a single case: an arrow must be present at every step of a
+  // long drag, not merely at the start and end.
+  //
+  // The invariant is "an arrow exists **whenever the post is off screen**" — not "an arrow always exists". My
+  // first version of this test asserted the latter and failed, correctly: panning *towards* a post eventually
+  // brings it into view, and an arrow pointing at a visible marker is the noise this code deliberately
+  // suppresses. So the post's own projected position decides what to expect.
+  it('keeps the arrow through a long pan, for as long as the post is off screen', () => {
+    const post = cp('a', 56.4, 9.1)
+
+    for (let offset = -1200; offset <= 1200; offset += 100) {
+      for (const [dx, dy] of [
+        [offset, 0],
+        [0, offset],
+        [offset, offset],
+      ] as const) {
+        const project = pannedProjection(dx, dy)
+        const got = computeArrows(input({ project, groups: [[post]] }))
+
+        const onScreen = isInside(project(post.lat, post.lng), W, H, ARROW_RADIUS)
+        const where = `panned ${dx},${dy}`
+
+        if (onScreen) {
+          expect(got, `${where}: post is visible, so no arrow`).toHaveLength(0)
+        } else {
+          expect(got, `${where}: post is off screen, so an arrow is required`).toHaveLength(1)
+        }
+      }
+    }
+  })
+
+  // The jumping symptom. A small pan must move the arrow by a comparable amount — with the old geometry the
+  // ray pivoted around the patrol's dot and the crossing point raced along the edge.
+  it('moves the arrow smoothly, not faster than the map', () => {
+    const step = 10
+    let previous: { x: number; y: number } | null = null
+
+    for (let offset = 0; offset <= 300; offset += step) {
+      const [arrow] = computeArrows(
+        input({ project: pannedProjection(offset, 0), groups: [[cp('a', 56.4, 9.1)]] }),
+      )
+      expect(arrow).toBeDefined()
+
+      if (previous) {
+        const moved = Math.hypot(arrow.x - previous.x, arrow.y - previous.y)
+        // Generous, because an arrow legitimately turns a corner: what it rules out is the old behaviour,
+        // where a 10px drag could throw the arrow the length of an edge.
+        expect(moved, `a ${step}px pan moved the arrow ${moved.toFixed(1)}px`).toBeLessThan(step * 6)
+      }
+      previous = { x: arrow.x, y: arrow.y }
+    }
+  })
+
+  // A zoom changes the scale rather than the offset. The arrow must stay put through it — the post has not
+  // moved, and neither has the patrol.
+  it('keeps the arrow through a zoom-out that takes the patrol off screen', () => {
+    for (const pxPerDegree of [200_000, 50_000, 8_000, 2_000, 500]) {
+      const got = computeArrows(
+        input({
+          project: (lat, lng) => ({
+            // Deliberately off-centre, so zooming out sweeps the patrol out of the viewport.
+            x: W / 2 + (lng - here.lng) * pxPerDegree - 600,
+            y: H / 2 - (lat - here.lat) * pxPerDegree,
+          }),
+          groups: [[cp('a', 56.5, 9)]],
+        }),
+      )
+
+      expect(got, `at ${pxPerDegree}px per degree`).toHaveLength(1)
+    }
+  })
+
+  // "Just inside the viewport" — the reported expectation, asserted across a full circle of directions so no
+  // single quadrant can pass by luck.
+  it('places every arrow just inside the viewport, from any direction', () => {
+    for (let degrees = 0; degrees < 360; degrees += 15) {
+      const radians = (degrees * Math.PI) / 180
+      // A post well outside the viewport in that direction.
+      const post = cp('a', here.lat + Math.cos(radians) * 0.5, here.lng + Math.sin(radians) * 0.5)
+
+      const [arrow] = computeArrows(input({ groups: [[post]] }))
+      expect(arrow, `${degrees}°`).toBeDefined()
+
+      // Inside the box...
+      expect(arrow.x).toBeGreaterThanOrEqual(ARROW_RADIUS)
+      expect(arrow.x).toBeLessThanOrEqual(W - ARROW_RADIUS)
+      expect(arrow.y).toBeGreaterThanOrEqual(ARROW_RADIUS)
+      expect(arrow.y).toBeLessThanOrEqual(H - ARROW_RADIUS)
+
+      // ...and against an edge rather than adrift in the middle of it.
+      const nearAnEdge =
+        arrow.x <= ARROW_RADIUS * 2 ||
+        arrow.x >= W - ARROW_RADIUS * 2 ||
+        arrow.y <= ARROW_RADIUS * 2 ||
+        arrow.y >= H - ARROW_RADIUS * 2
+      expect(nearAnEdge, `${degrees}° placed the arrow at ${arrow.x},${arrow.y}`).toBe(true)
+    }
+  })
+
+  // The bearing and the distance are facts about the ground: dragging the map must not change either.
+  it('does not change the bearing or distance when the map is panned', () => {
+    const still = computeArrows(input({ groups: [[cp('a', 56.5, 9.2)]] }))
+    const panned = computeArrows(
+      input({ project: pannedProjection(400, -250), groups: [[cp('a', 56.5, 9.2)]] }),
+    )
+
+    expect(panned[0].bearing).toBeCloseTo(still[0].bearing, 6)
+    expect(panned[0].distance).toBe(still[0].distance)
+    expect(panned[0].label).toBe(still[0].label)
   })
 })

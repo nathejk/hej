@@ -68,16 +68,38 @@ export interface ArrowInput {
 /**
  * Which arrows to draw, and where.
  *
- * Returns an empty list rather than throwing for every "we cannot know" case. There are four of them and each
- * is a normal state, not an error:
+ * # Placement is measured from the centre of the viewport, not from the patrol
  *
- *   - **No position.** A bearing needs an origin. The permission card already on screen is the explanation,
- *     and an arrow pointing from a guess would be worse than none.
+ * This is the fix for a reported bug, and the reasoning is worth keeping. The first version drew each arrow
+ * where the line **from the patrol's own position** to the post crossed the screen edge. That reads well while
+ * the map is following them — they are in the middle, so the line leaves the screen exactly where the post is —
+ * and it falls apart the moment anybody pans or zooms:
+ *
+ *   - **Arrows vanished.** A pan or a zoom-out routinely puts the patrol's own position off screen, and a ray
+ *     needs an origin *inside* the box to have an edge crossing at all. So every arrow disappeared together,
+ *     exactly when the user was looking around for their next post.
+ *   - **Arrows jumped.** As the patrol's dot slid across the screen during a drag, the ray pivoted around it,
+ *     and the crossing point swung along the edge far faster than the map moved underneath.
+ *
+ * The viewport centre is always inside the viewport, and in container coordinates it never moves — so an arrow
+ * for an off-screen post is always placeable, and it tracks the post smoothly as the map slides beneath it.
+ * When the map *is* following the patrol the centre and the patrol coincide, which is the case the original
+ * geometry was tuned for, so nothing is lost there.
+ *
+ * # What stays measured from the patrol
+ *
+ * The **bearing** and the **distance**: those are facts about the ground, not about the screen. The chevron
+ * means "walk this way" and the label says how far, and neither may change because somebody dragged the map.
+ *
+ * # Why it returns an empty list rather than throwing
+ *
+ * Three "we cannot know" cases, each a normal state rather than an error:
+ *
+ *   - **No position.** A bearing needs somewhere to measure from. The permission card already on screen is the
+ *     explanation, and an arrow drawn from a guess would be worse than none.
  *   - **No map yet.** The overlay can mount before Leaflet has a container.
  *   - **The post is already on screen.** Its marker is right there; an arrow pointing at something visible is
  *     noise. Checked with a margin so an arrow does not flicker as a marker grazes the edge.
- *   - **The origin is outside the viewport.** The patrol has panned away from themselves, and there is no
- *     honest edge crossing to compute.
  *
  * One arrow per leg: a checkgroup's posts are alternatives, so only the reachable one is drawn.
  */
@@ -88,8 +110,8 @@ export function computeArrows(input: ArrowInput): Arrow[] {
   const size = input.viewportSize()
   if (!size) return []
 
-  const origin = input.project(here.lat, here.lng)
-  if (!origin) return []
+  // Fixed in container coordinates, and always inside the box — see the note above.
+  const centre: Point = { x: size.width / 2, y: size.height / 2 }
 
   const insets = input.insets ?? NO_INSETS
   const out: Arrow[] = []
@@ -103,7 +125,7 @@ export function computeArrows(input: ArrowInput): Arrow[] {
     if (isInside(target, size.width, size.height, ARROW_RADIUS)) continue
 
     const edge = edgeIntersection(
-      origin,
+      centre,
       target,
       size.width,
       size.height,
@@ -111,6 +133,7 @@ export function computeArrows(input: ArrowInput): Arrow[] {
     )
     if (!edge) continue
 
+    // From the patrol, not from the centre: this is the direction to walk and the distance to walk it.
     const bearing = bearingDegrees(here, cp)
     const distance = formatDistance(distanceMetres(here, cp))
 
