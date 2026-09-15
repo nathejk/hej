@@ -1,8 +1,10 @@
 # 252 — Widen the `checkpoint` projection: checkgroup, sort order, window
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-09-15
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-15
 
 ## Description
 
@@ -46,3 +48,7 @@ Keep every existing property of the projection:
 ## Progress Log
 
 - 2026-09-15 — Task created from PRD 016 phase 1.
+- 2026-09-15 — Picked up. Plan: add the five columns to `table.sql`, subscribe to
+  `checkpoint.*.created` for `checkgroupId` and `checkpoint.sorted` for `sortOrder`, extend
+  `handleUpdated` for the window — keeping its "only the columns the event carries" property intact,
+  since that is what stops a rename erasing a position.
