@@ -144,3 +144,23 @@ export const FALLBACK_ZOOM = 8
 // with backoff before we admit defeat.
 export const TILE_RETRY_LIMIT = 3
 export const TILE_RETRY_BASE_DELAY_MS = 400
+
+// Where an edge arrow may not go (PRD 016, task 264).
+//
+// `MapsView` floats three things over the map: the layer/locate control stack top-right, the notices
+// top-left, and the registrations handle bottom-centre — all in the same overlay layer the arrows use. An
+// arrow that lands under the locate button is worse than no arrow at all, because it is invisible *and* it
+// steals the tap.
+//
+// So arrows are confined to the **vertical middle band** of each edge. The numbers are the height of what
+// sits above and below, plus a margin:
+//
+//   - top: the safe-area inset is handled by the browser, but the control stack and the notices below it
+//     occupy roughly two stacked 44 px targets plus spacing.
+//   - bottom: the registrations handle (44 px) plus the bottom nav, plus the safe-area inset.
+//   - sides: nothing floats there, so only enough to clear the screen edge.
+//
+// Deliberately a constant rather than measured from the DOM. Measuring would track a control that moves, but
+// it would also mean the arrows' position depended on layout timing — and a wrong measurement mid-pan is a
+// harder bug than a number that is 10 px too generous. Revisit if the controls change materially.
+export const ARROW_KEEP_OUT = { top: 120, right: 8, bottom: 140, left: 8 }

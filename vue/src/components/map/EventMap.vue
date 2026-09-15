@@ -50,6 +50,14 @@ const emit = defineEmits<{
   tileError: []
   /** All visible tiles loaded — clears any earlier failure notice. */
   tilesOk: []
+  /**
+   * The map moved, so anything positioned over it has to be recomputed.
+   *
+   * A bare signal rather than a payload of coordinates: the overlay needs to *project* points, which only
+   * this component can do, so it calls back through `project()` instead. Emitting the viewport as data would
+   * mean reimplementing Leaflet's projection outside Leaflet.
+   */
+  viewportChanged: []
 }>()
 
 const container = ref<HTMLDivElement | null>(null)
@@ -303,6 +311,30 @@ function focusCheckpoint(id: string) {
   marker.openPopup()
 }
 
+/**
+ * Where a ground position falls in the container's pixel space, or null before the map exists.
+ *
+ * Exposed rather than emitted because projection is Leaflet's job and depends on the live centre, zoom and
+ * container size. An overlay that reimplemented it would drift out of step on every animated pan — and would
+ * have to know about Web Mercator, which is exactly the knowledge this component exists to contain.
+ */
+function project(lat: number, lng: number): { x: number; y: number } | null {
+  if (!map) {
+    return null
+  }
+  const p = map.latLngToContainerPoint([lat, lng])
+  return { x: p.x, y: p.y }
+}
+
+/** The map container's pixel size, or null before it exists. */
+function viewportSize(): { width: number; height: number } | null {
+  if (!map) {
+    return null
+  }
+  const size = map.getSize()
+  return { width: size.x, height: size.y }
+}
+
 /** Recentre on the current position (locate button). */
 function recenter() {
   if (props.position && map) {
@@ -310,7 +342,7 @@ function recenter() {
   }
 }
 
-defineExpose({ focusScan, focusCheckpoint, recenter })
+defineExpose({ focusScan, focusCheckpoint, recenter, project, viewportSize })
 
 onMounted(() => {
   if (!container.value) {
@@ -356,6 +388,17 @@ onMounted(() => {
       emit('userInteracted')
     }
   })
+
+  // Anything drawn over the map has to follow it. `move` fires continuously during a pan and a zoom
+  // animation, which is what keeps an edge arrow attached to its direction rather than jumping when the
+  // gesture ends. `resize` matters on a phone because the browser chrome appears and disappears as the page
+  // scrolls, changing the container height without any map interaction at all.
+  map.on('move zoom resize', () => {
+    emit('viewportChanged')
+  })
+
+  // One emit after mount so an overlay can place itself without waiting for the first gesture.
+  emit('viewportChanged')
 })
 
 onBeforeUnmount(() => {

@@ -5,6 +5,9 @@ import PermissionPrompt from '@/components/PermissionPrompt.vue'
 import LayerSwitcher from '@/components/map/LayerSwitcher.vue'
 import LocateButton from '@/components/map/LocateButton.vue'
 import ScanList from '@/components/map/ScanList.vue'
+import EdgeArrows from '@/components/map/EdgeArrows.vue'
+import { nextCheckpoints } from '@/components/map/nextCheckpoints'
+import { ARROW_KEEP_OUT } from '@/config/map'
 import { useLocationStore } from '@/stores/location.store'
 import { useScansStore } from '@/stores/scans.store'
 import { useCheckpointsStore } from '@/stores/checkpoints.store'
@@ -33,7 +36,16 @@ const mapRef = ref<{
   focusScan: (id: string) => void
   focusCheckpoint: (id: string) => void
   recenter: () => void
+  project: (lat: number, lng: number) => { x: number; y: number } | null
+  viewportSize: () => { width: number; height: number } | null
 } | null>(null)
+
+// Bumped on every Leaflet move, so the arrow overlay recomputes during a pan rather than after it.
+//
+// A counter is the seam between Leaflet's imperative world and Vue's reactive one: the map's centre and zoom
+// are not reactive state (deliberately — see `EventMap.vue`), so there is nothing to watch, and this is the
+// smallest thing that can stand in for "it moved".
+const mapRevision = ref(0)
 
 // Base layer choice survives navigation and reloads.
 const stored = localStorage.getItem(BASE_LAYER_STORAGE_KEY)
@@ -88,6 +100,18 @@ const missingToken = computed(
 const scannedCheckpointIds = computed(() =>
   scans.scans.map((s) => s.checkpointId).filter((id): id is string => Boolean(id)),
 )
+
+// The posts the arrows point at: the earliest unvisited ones in route order, capped. Route order comes from
+// the BFF, which is the only side holding both halves of it.
+const arrowTargets = computed(() =>
+  nextCheckpoints(checkpoints.checkpoints, scannedCheckpointIds.value),
+)
+
+function onSelectCheckpoint(id: string) {
+  // Tapping an arrow means the user wants to look elsewhere — same reasoning as picking from the list.
+  location.setFollowing(false)
+  mapRef.value?.focusCheckpoint(id)
+}
 
 async function accept() {
   const coords = await location.request()
@@ -185,6 +209,20 @@ onBeforeUnmount(() => {
       @user-interacted="location.setFollowing(false)"
       @tile-error="tileError = true"
       @tiles-ok="tileError = false"
+      @viewport-changed="mapRevision++"
+    />
+
+    <!-- Arrows towards the next posts, when we know where the patrol is. Placed by geometry, so they live
+         over the map rather than inside it; kept clear of the floating controls by ARROW_KEEP_OUT. -->
+    <EdgeArrows
+      v-if="configLoaded"
+      :targets="arrowTargets"
+      :position="location.position"
+      :revision="mapRevision"
+      :project="(lat: number, lng: number) => mapRef?.project(lat, lng) ?? null"
+      :viewport-size="() => mapRef?.viewportSize() ?? null"
+      :insets="ARROW_KEEP_OUT"
+      @select="onSelectCheckpoint"
     />
 
     <!-- Controls, top-right, clear of the notch. z-10 keeps them above the map
