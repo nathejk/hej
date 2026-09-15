@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed / Claude)
 **Created:** 2026-09-15
-**Last updated:** 2026-09-15 (approved; all open questions settled — §11)
+**Last updated:** 2026-09-15 (approved; §8 amended in implementation — the reveal rule lives in `internal/reveal`)
 **Approved:** 2026-09-15
 **Shipped:**
 **Target users:** participant (patrol member)
@@ -423,9 +423,20 @@ New projections in `go/nathejk/table/`, written here and owned here:
 
 Read API and handlers:
 
-- Extend `checkpoint.Queries` with `RevealedCheckpoints(ctx, year, patrolID)`,
-  returning a publishable-only type. `RaceArea` is untouched — the hull stays the
-  answer for everyone else.
+- **The reveal rule lives in `go/internal/reveal`, not on `checkpoint.Queries`.**
+  Amended during implementation (task 255). This PRD originally sketched it as
+  `checkpoint.Queries.RevealedCheckpoints`, which turned out to be the wrong home for a
+  constraint the sketch did not weigh: the `nathejk/table/*` packages are bound for
+  shared-go and must not import one another, while the rule needs four of them at once
+  (sheets, handouts, scans, checkpoints). Whichever projection hosted it would have to read
+  another's tables.
+
+  The security property is preserved, one layer out. `checkpoint.Queries` gained two reads
+  that are **bounded by what the caller already names** — `ByIDs(year, ids)` and
+  `ByCheckgroups(year, groups)` — so there is still no way to ask the projection for *all*
+  checkpoints, and a handler cannot leak a position it had no grounds to know about.
+  `internal/reveal` decides which ids a patrol has earned; the projection refuses every
+  broader question. `RaceArea` is untouched — the hull remains the answer for everyone else.
 - New `maphandout.Queries.ByPatrol`, returning a type with no successor-team
   fields.
 - The on-time verdict is computed in the BFF, joining a scan to its checkpoint's
@@ -528,8 +539,8 @@ so the projections land in dependency order.
       mock as the production source
 
 **Phase 2 — the reveal rule**
-- [ ] Task: `RevealedCheckpoints(year, patrolID)` implementing rules 1–3, with a
-      publishable-only return type
+- [ ] Task: the reveal rule in `internal/reveal` implementing rules 1–3, over
+      bounded projection reads
 - [ ] Task: resolve `checkpointIds` and dangling `handoutCheckgroupId` on read
 - [ ] Task: synthesise `skitse` handouts from `handoutCheckgroupId` reach
 - [ ] Task: regression test — an un-revealed checkpoint never leaves the BFF
