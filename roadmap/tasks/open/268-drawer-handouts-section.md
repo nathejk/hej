@@ -29,7 +29,9 @@ registrations).
 - [ ] Handle appears for a patrol with handouts but no scans (test) — the case today's
       `v-if="scans.hasAny"` gets wrong.
 - [ ] "afleveret" state renders without naming another team (test).
-- [ ] QR-less rows render cleanly (test).
+- [ ] QR-less rows render cleanly — carried over from task 257, whose BFF work marks such rows
+      `synthesised` so there is something to branch on. A skitse has no sticker number and the row
+      must not leave a gap where one would go.
 - [ ] Empty state string present.
 - [ ] `handouts.store.ts` cached offline; replaces rather than merges (test).
 
