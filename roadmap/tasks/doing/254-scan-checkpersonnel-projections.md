@@ -1,8 +1,10 @@
 # 254 — `scan` + `checkpersonnel` projections; retire the scans mock
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-09-15
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-15
 
 ## Description
 
@@ -52,3 +54,8 @@ than showing it plainly.
 ## Progress Log
 
 - 2026-09-15 — Task created from PRD 016 phase 1.
+- 2026-09-15 — Picked up. Plan: one package `go/nathejk/table/scan/` holding **both** tables —
+  `scan` and `checkpersonnel` — following the precedent of `person`, which owns a second `section`
+  table in the same package. They are not two independent entities here: `checkpersonnel` exists only
+  to attribute a scan to a checkpoint, the join is the whole point, and splitting them would put the
+  one query that matters in neither package.
