@@ -1,10 +1,11 @@
 # 249 — Mirror the `kort` / `kortsaet` event shapes locally
 
-**Status:** doing
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-15
 **Picked up by:** agent session (Zed / Claude)
 **Started:** 2026-09-15
+**Completed:** 2026-09-15
 
 ## Description
 
@@ -39,13 +40,13 @@ vendored copy has gone stale (PRD 016 §11.11).
 
 ## Acceptance Criteria
 
-- [ ] Mirror types in `go/nathejk/table/kort/messages.go` + `kortsaet_messages.go`.
-- [ ] File comment names `roadmap/api/kort-events.md` as the shape's source of truth and
+- [x] Mirror types in `go/nathejk/table/kort/messages.go` + `kortsaet_messages.go`.
+- [x] File comment names `roadmap/api/kort-events.md` as the shape's source of truth and
       explains why the types are local rather than imported.
-- [ ] Patch vs whole-record distinction encoded in the types and documented.
-- [ ] `HandoutCheckgroupID` round-trips an explicit `""`.
-- [ ] No import of hq anywhere; `go build ./...` passes.
-- [ ] Decode tests over the exact JSON bodies in the vendored contract, incl. an unknown
+- [x] Patch vs whole-record distinction encoded in the types and documented.
+- [x] `HandoutCheckgroupID` round-trips an explicit `""`.
+- [x] No import of hq anywhere; `go build ./...` passes.
+- [x] Decode tests over the exact JSON bodies in the vendored contract, incl. an unknown
       extra field being ignored.
 
 ## Progress Log
@@ -54,3 +55,20 @@ vendored copy has gone stale (PRD 016 §11.11).
 - 2026-09-15 — Picked up. Plan: `go/nathejk/table/kort/` with `messages.go` and
   `kortsaet_messages.go` holding mirror types, plus decode tests over the exact JSON bodies
   in `roadmap/api/kort-events.md`. Types only in this task; the projection is task 250.
+- 2026-09-15 — `messages.go` written: `KortID`/`KortsaetID`, `Format` (incl. why `skitse` is
+  the awkward one), `Extent`, `Created`, `Updated`, `Deleted`, `Sorted`. Package doc carries
+  the no-import-hq rule, the vendored-contract pointer, and why tolerant decoding is a
+  requirement rather than laziness.
+- 2026-09-15 — Decision: dropped two speculative helpers I had drafted (an
+  `UnknownFieldsAreIgnored` const and a `time.Time` alias). Neither had a caller; the
+  reasoning belongs in the package doc, not in fake code that exists to be commented.
+- 2026-09-15 — `kortsaet_messages.go` written. Added `PatrolTeamType = types.TeamTypePatrulje`
+  as a named constant so the "spejder" mistake has exactly one place it could be made, with
+  the filter-not-a-key consequences documented on it.
+- 2026-09-15 — ✅ All criteria complete. `go build ./...`, `go vet` and `gofmt -l` clean;
+  `go test ./nathejk/table/kort/` passes (13 tests). Grepped the package for any hq path: none.
+- 2026-09-15 — Test coverage note: the patch-vs-snapshot distinction has three separate tests
+  (absent stays nil, explicit empty array is an edit, explicit `""` is a value) because each is
+  a distinct silent failure. Also pinned `PatrolTeamType != "spejder"` in a test — a filter on
+  a value HQ refuses to store would reveal nothing while looking correct.
+- 2026-09-15 — Done. Moving to done/; task 250 (the projection) is unblocked.
