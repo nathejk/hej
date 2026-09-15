@@ -1,8 +1,10 @@
 # 251 — `maphandout` projection from `qr.registered`
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-09-15
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-15
 
 ## Description
 
@@ -48,3 +50,7 @@ rather than shared code.
 ## Progress Log
 
 - 2026-09-15 — Task created from PRD 016 phase 1.
+- 2026-09-15 — Picked up. Plan: `go/nathejk/table/maphandout/` — schema keyed
+  `(year, qrId, teamId)`, consumer on `qr.*.registered` reading `mapId` through a struct embedding
+  `messages.NathejkQrRegistered`, and a `ByPatrol` read that derives "still held" without ever
+  selecting the successor team.
