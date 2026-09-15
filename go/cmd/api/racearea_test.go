@@ -31,7 +31,7 @@ func (f fakeRaceAreas) RaceArea(year string) (checkpoint.RaceArea, bool, error) 
 }
 
 // raceAreaApp wires a test app with the given (possibly nil) race-area source.
-func raceAreaApp(t *testing.T, areas checkpoint.Queries, year string) *application {
+func raceAreaApp(t *testing.T, areas checkpoint.AreaQueries, year string) *application {
 	t.Helper()
 	app := newTestApp(t)
 	app.config.eventYear = year

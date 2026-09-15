@@ -92,3 +92,13 @@ shared here).
   by `ByIDs` (a row that does not exist cannot be returned), so that task's remaining work is the
   *checkgroup* half — a dangling `handoutCheckgroupId` reading as the QR rule — plus the tests that pin
   both.
+- 2026-09-15 — **Follow-up: I committed before running the full suite, and it was broken.** Widening
+  `checkpoint.Queries` made an existing test double in `cmd/api/racearea_test.go` stop satisfying it. My
+  mistake in process — the package tests passed and I took that for the suite.
+
+  Fixed by improving the design rather than patching the fake: `checkpoint.AreaQueries` (RaceArea only) is
+  now split out, `Queries` embeds it, and `data.Models.RaceAreas` is typed as the narrow one. The
+  race-area handler needed nothing else, and a handler that depends on the whole projection is a handler
+  that *could* read checkpoint positions — so narrowing the dependency is the same discipline as bounding
+  the reads. It also removes the pressure on every existing double to implement reads it has no opinion
+  about, which is how fakes drift into fiction. Suite, vet and gofmt clean.

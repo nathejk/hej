@@ -8,6 +8,24 @@ import (
 	"github.com/nathejk/shared-go/types"
 )
 
+// AreaQueries is the read API for the race area alone.
+//
+// Split out from Queries when the interface widened (task 255), and worth its own name rather than being
+// a subset by convention: the race-area handler needs nothing else, and a handler that depends on the
+// whole projection is a handler that *could* read checkpoint positions. Narrowing the dependency is the
+// same discipline as bounding the reads.
+//
+// It also stopped an unrelated cost: widening one interface would otherwise force every existing test
+// double to implement reads it has no opinion about, which is how fakes drift into fiction.
+type AreaQueries interface {
+	// RaceArea returns the buffered hull of the year's positioned checkpoints.
+	//
+	// ok is false when there is nothing to derive an area from — no checkpoints yet, none
+	// with positions, or a result too large to be plausible. Callers must fall back rather
+	// than substituting a default region.
+	RaceArea(year string) (RaceArea, bool, error)
+}
+
 // Queries is the read API handed to the application.
 //
 // # The shape is the security boundary
@@ -26,12 +44,7 @@ import (
 // The reveal rule itself lives in internal/reveal, which decides *which* ids a patrol has earned. This
 // package's job is to refuse to answer any broader question.
 type Queries interface {
-	// RaceArea returns the buffered hull of the year's positioned checkpoints.
-	//
-	// ok is false when there is nothing to derive an area from — no checkpoints yet, none
-	// with positions, or a result too large to be plausible. Callers must fall back rather
-	// than substituting a default region.
-	RaceArea(year string) (RaceArea, bool, error)
+	AreaQueries
 
 	// ByIDs returns the named checkpoints that exist, are not deleted, and have a position.
 	//

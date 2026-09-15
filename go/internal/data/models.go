@@ -30,11 +30,16 @@ type Models struct {
 	// a supported mode (PRD 008 §5). Handlers must check rather than assume — a nil here
 	// means "map data unavailable", which is a different answer from "no area derived yet".
 	//
-	// Typed as checkpoint.Queries rather than a local interface so the return type does not
-	// have to be duplicated. Note the interface exposes only the derived *area*, never the
-	// checkpoint positions it came from — that boundary is the projection's, not this
-	// facade's, so it cannot be widened by accident here.
-	RaceAreas checkpoint.Queries
+	// Typed as checkpoint.AreaQueries rather than the projection's whole read API: this field exists
+	// for the race area, and the handler that uses it has no business being able to read checkpoint
+	// positions. Narrowed in task 255, when the projection gained the two bounded reads the reveal
+	// rule needs — keeping this field wide would have handed every handler a capability one of them
+	// wanted.
+	//
+	// Note the interface exposes only the derived *area*, never the checkpoint positions it came
+	// from — that boundary is the projection's, not this facade's, so it cannot be widened by
+	// accident here.
+	RaceAreas checkpoint.AreaQueries
 
 	// People is the person projection's read API, for the one thing `Users` cannot
 	// express: a field that is not part of "who is this and what do they do".
@@ -70,7 +75,7 @@ type Models struct {
 func NewModels(
 	usersDir users.Directory,
 	scanSource scans.Source,
-	raceAreas checkpoint.Queries,
+	raceAreas checkpoint.AreaQueries,
 	people person.Queries,
 	vehicles vehicle.Queries,
 ) Models {

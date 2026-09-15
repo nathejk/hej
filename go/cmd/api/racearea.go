@@ -9,13 +9,13 @@ import (
 // raceAreasOrNil adapts the projection to the read interface, preserving nil-ness.
 //
 // Not redundant, and the reason is the classic Go trap: assigning a nil `*checkpoint.Table`
-// to a `checkpoint.Queries` interface variable produces an interface that is **not** nil, so
-// `app.models.RaceAreas == nil` in the handler would be false and the first call would
+// to a `checkpoint.AreaQueries` interface variable produces an interface that is **not** nil,
+// so `app.models.RaceAreas == nil` in the handler would be false and the first call would
 // dereference a nil pointer. The same hazard is noted on `eventing.publisherOrNil`.
 //
 // Returning an untyped nil keeps "no projection" checkable by the one test every handler
 // does.
-func raceAreasOrNil(t *checkpoint.Table) checkpoint.Queries {
+func raceAreasOrNil(t *checkpoint.Table) checkpoint.AreaQueries {
 	if t == nil {
 		return nil
 	}
