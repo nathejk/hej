@@ -1,8 +1,10 @@
 # 253 — `checkgroup` projection
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-09-15
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-15
 
 ## Description
 
@@ -43,3 +45,6 @@ Note `NathejkCheckgroupUpdated` is a **patch** (pointer fields) like the checkpo
 ## Progress Log
 
 - 2026-09-15 — Task created from PRD 016 phase 1.
+- 2026-09-15 — Picked up. Plan: new `go/nathejk/table/checkgroup/` following the `checkpoint`
+  package's shape. Subjects `checkgroup.*.updated`, `checkgroup.*.deleted`, `checkgroups.sorted`
+  (note the plural on the sorted subject — confirmed against hq rather than guessed).
