@@ -58,6 +58,37 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, opts ...Option) (*Table
 		return nil, fmt.Errorf("checkpoint: create table: %w", err)
 	}
 
+	// Additive drift only, following the person package. Every column here is also in table.sql — the
+	// duplication is deliberate: table.sql creates a correct table on a fresh database, and these
+	// calls bring an existing one forward. `CREATE TABLE IF NOT EXISTS` is a no-op against a database
+	// that has already booted once, so without these an existing deployment would silently keep the
+	// old five-column table and every new read would fail at the first query.
+	//
+	// All five arrived with PRD 016 (task 252). Before it, this projection existed only to derive the
+	// race area, which needs positions and nothing else.
+	for _, col := range []struct{ name, ddl string }{
+		// The reveal rule's foundation: scanning a checkpoint reveals its whole checkgroup.
+		{"checkgroupId", `checkgroupId VARCHAR(99) NOT NULL DEFAULT ""`},
+		// Position within the checkgroup — the inner half of route order for the map's arrows.
+		{"sortOrder", `sortOrder INT NOT NULL DEFAULT 0`},
+		// The open window, in the three shapes upstream uses. Zero means "not set" rather than 1970:
+		// a real window on this event is never near the epoch.
+		{"openFromUts", `openFromUts INT NOT NULL DEFAULT 0`},
+		{"openUntilUts", `openUntilUts INT NOT NULL DEFAULT 0`},
+		{"openDuration", `openDuration INT NOT NULL DEFAULT 0`},
+	} {
+		if err := cqrs.EnsureColumn(r, w, "checkpoint", col.name, col.ddl); err != nil {
+			return nil, fmt.Errorf("checkpoint: ensure column %s: %w", col.name, err)
+		}
+	}
+
+	// The reveal rule's read: given the checkgroups a patrol has reached, which checkpoints. Indexed
+	// because it runs on an authenticated request during the race, once per map load.
+	if err := cqrs.EnsureIndex(r, w, "checkpoint", "year_checkgroup_sort",
+		"ALTER TABLE checkpoint ADD INDEX year_checkgroup_sort (year, checkgroupId, sortOrder)"); err != nil {
+		return nil, fmt.Errorf("checkpoint: ensure index year_checkgroup_sort: %w", err)
+	}
+
 	t := &Table{
 		consumer: consumer{w: w},
 		querier:  querier{db: r},

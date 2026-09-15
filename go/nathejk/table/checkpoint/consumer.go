@@ -3,6 +3,7 @@ package checkpoint
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jrgensen/cqrs"
 	"github.com/nathejk/shared-go/messages"
@@ -15,14 +16,22 @@ type consumer struct {
 
 // Consumes lists the subjects this projection subscribes to.
 //
-// Only `.updated`. The matching `.created` events were checked against the live stream and
-// carry nothing this projection wants — no name, no position, just the id and the
-// checkgroup it belongs to (`NathejkCheckpointCreated`). Subscribing to them would add a
-// message family that can only ever write an empty row.
+// `.created` was **added in task 252**, and the comment it replaces said the opposite: that the
+// create events "carry nothing this projection wants". That was true while the only consumer of this
+// table was the race area, which needs positions and nothing else. It is no longer true —
+// `NathejkCheckpointCreated` carries the **checkgroup**, and the reveal rule (PRD 016) cannot be
+// evaluated without it: scanning a checkpoint reveals its whole checkgroup, and a sheet handed out at
+// a post reveals its checkpoints once that group is reached.
+//
+// `checkpoints_sorted` gives position within the checkgroup, which is half of route order. Note its
+// subject is under `checkgroup`, not `checkpoint` — the reorder is published against the group whose
+// checkpoints moved.
 func (c consumer) Consumes() []cqrs.Subject {
 	return []cqrs.Subject{
+		cqrs.SubjectFromStr("NATHEJK.*.checkpoint.*.created"),
 		cqrs.SubjectFromStr("NATHEJK.*.checkpoint.*.updated"),
 		cqrs.SubjectFromStr("NATHEJK.*.checkpoint.*.deleted"),
+		cqrs.SubjectFromStr("NATHEJK.*.checkgroup.*.checkpoints_sorted"),
 	}
 }
 
@@ -47,10 +56,88 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 	}
 
 	switch {
+	case subject.Match("nathejk.*.checkpoint.*.created"):
+		return c.handleCreated(msg, year)
 	case subject.Match("nathejk.*.checkpoint.*.updated"):
 		return c.handleUpdated(msg, year)
 	case subject.Match("nathejk.*.checkpoint.*.deleted"):
 		return c.handleDeleted(msg, year)
+	case subject.Match("nathejk.*.checkgroup.*.checkpoints_sorted"):
+		return c.handleCheckpointsSorted(msg, year)
+	}
+	return nil
+}
+
+// handleCreated records the checkpoint and, crucially, its checkgroup.
+//
+// Writes only the id, year and checkgroup: a create carries nothing else. That makes the row a
+// placeholder until an `.updated` describes it, which is the normal order of events — an operator adds
+// a post and then sites and names it.
+//
+// It must therefore **not** clear a name or position that a later-replayed update already wrote. The
+// upsert only touches the columns passed in, so a create replayed after an update leaves the
+// description alone; the checkgroup is the one thing it is authoritative about.
+func (c consumer) handleCreated(msg cqrs.Message, year string) error {
+	var body messages.NathejkCheckpointCreated
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+
+	id := string(body.CheckpointID)
+	if id == "" {
+		id = subjectEntityID(msg.Subject())
+	}
+	if id == "" {
+		return fmt.Errorf("checkpoint created with no checkpointId")
+	}
+
+	cols := map[string]string{
+		"checkpointId": quote(id),
+		"year":         quote(year),
+		// A create after a delete restores the checkpoint: the last event wins, as elsewhere here.
+		"deleted": "0",
+	}
+	// Guarded rather than written unconditionally: a create with no checkgroup would otherwise blank
+	// the group a previous create had established, and the reveal rule reads that column.
+	if body.CheckgroupID != "" {
+		cols["checkgroupId"] = quote(string(body.CheckgroupID))
+	}
+
+	return c.w.Consume(upsert(cols))
+}
+
+// handleCheckpointsSorted applies position within a checkgroup as sortOrder.
+//
+// # This deliberately does not do what HQ's handler does
+//
+// HQ's own consumer for this subject issues `DELETE FROM checkpoint WHERE checkgroupId=<...>` and
+// applies no order at all — and it reads the id from `Parts()[1]`, which is the **year**, so the
+// delete matches nothing and the handler is in practice a no-op. Both halves look like upstream bugs
+// and have been noted for HQ.
+//
+// Copying it would be actively harmful here: this table's positions are what the offline map's race
+// area is derived from, so a handler that deleted a checkgroup's checkpoints on a reorder would
+// silently shrink the cached region — the exact failure the position-preserving logic in
+// handleUpdated exists to prevent. So we implement what the event *means*: position in the list is
+// the order, following the `checkgroups.sorted` pattern.
+//
+// One UPDATE per named id rather than a single CASE expression: there are tens of checkpoints, and
+// one statement per id is what a dead-lettered log line can be matched back to an event.
+func (c consumer) handleCheckpointsSorted(msg cqrs.Message, year string) error {
+	var body messages.NathejkCheckpointsSorted
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+
+	for i, id := range body.SortedCheckpointIDs {
+		if id == "" {
+			continue
+		}
+		if err := c.w.Consume(fmt.Sprintf(
+			"UPDATE checkpoint SET sortOrder=%d WHERE checkpointId=%s AND year=%s",
+			i, quote(string(id)), quote(year))); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -100,6 +187,24 @@ func (c consumer) handleUpdated(msg cqrs.Message, year string) error {
 			cols["latitude"] = formatFloat(body.Position.Latitude)
 			cols["longitude"] = formatFloat(body.Position.Longitude)
 		}
+	}
+
+	// The open window (task 252). Two mutually exclusive shapes upstream, and each is written only
+	// when present — so a rename cannot clear a window any more than it can clear a position.
+	//
+	// The two are not merged into one representation on the way in. A fixed window is a pair of
+	// instants; a relative one is a duration whose anchor is *this patrol's* scan at another
+	// checkgroup, which this projection has no view of. Collapsing them here would mean either
+	// inventing an anchor or losing the distinction, and the verdict logic needs to know which kind it
+	// is holding.
+	if body.FixedTimeRange != nil {
+		cols["openFromUts"] = fmt.Sprintf("%d", body.FixedTimeRange.Start.Unix())
+		cols["openUntilUts"] = fmt.Sprintf("%d", body.FixedTimeRange.End.Unix())
+	}
+	if body.RelativeTimeDuration != nil {
+		// Minutes, matching how the organizers' own model stores it. Truncation is deliberate and
+		// harmless: these windows are set in whole minutes by hand.
+		cols["openDuration"] = fmt.Sprintf("%d", int(*body.RelativeTimeDuration/time.Minute))
 	}
 
 	return c.w.Consume(upsert(cols))
