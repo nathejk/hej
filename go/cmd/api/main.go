@@ -312,6 +312,10 @@ func run(logger *slog.Logger) error {
 				logger.Warn("kort event could not be decoded; the vendored contract may be stale",
 					"subject", subject, "err", derr)
 			}),
+			// Whether this year's sheets can reach a patrol at all. See mapreadiness.go: every part
+			// of this feature degrades to "nothing to show", which is also a legitimate state, so the
+			// aggregate is the only thing that distinguishes a quiet event from a misconfigured one.
+			kort.ReportCounts(mapCountsReporter(logger)),
 		); cerr != nil {
 			logger.Error("kort projection unavailable", "err", cerr)
 		} else {
@@ -427,6 +431,11 @@ func run(logger *slog.Logger) error {
 			// Keep reporting a non-zero count: a capture logged during a replay at
 			// 02:00 scrolls out of view otherwise.
 			ev.watchDeadletters(ctx, logger, 5*time.Minute)
+
+			// Whether this year's map data can actually reveal anything. Reported here, from the
+			// callback, rather than at construction: the numbers are only meaningful once the
+			// projections have replayed, and this is the first moment we know they have.
+			reportMapReadiness(logger, sheets, scanProjection, cfg.eventYear)
 		})
 	}
 
