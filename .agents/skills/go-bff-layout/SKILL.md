@@ -266,16 +266,29 @@ The dev container re-runs these on every `.go`/`.sql` change (see
 `docker/init/api-dev`):
 
 ```sh
-go test -timeout 10s ./...
+go test -timeout 120s ./...
 go vet ./...            # hard gate
 go tool staticcheck ./...   # hard gate
 go build ./...
 ```
 
 If any fail the dev loop will not restart the binary — keep `./...` green.
+
+**Run all four before committing, in that order.** `staticcheck` is the one that
+catches what the others do not — an unused identifier, a dead branch, a
+misused API — and it is a *gate*, so a failure there does not merely warn: the
+binary is never started, the dev environment answers `ECONNREFUSED`, and the
+visible symptom is a wall of Vite proxy errors that says nothing about Go. A
+stray unused test helper has taken the whole backend down this way (task 272).
+
+```sh
+cd go && go test ./... && go vet ./... && go tool staticcheck ./... && go build ./...
+```
+
 `gosec` and `govulncheck` also run once at container startup, but **report-only**
 (they don't gate the loop, since gosec findings and govulncheck's network vuln-DB
-fetch shouldn't block hot reload).
+fetch shouldn't block hot reload). `gosec` has pre-existing findings, so a
+non-zero count from it is not evidence that your change is wrong.
 
 CI does not run a separate `go test` step. The workflow
 (`.github/workflows/build-and-publish.yml`) builds the Docker image on every

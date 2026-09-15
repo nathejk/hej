@@ -27,7 +27,6 @@ func fold(t *testing.T, subject string, body any) []string {
 
 func str(s string) *string                          { return &s }
 func i(n int) *int                                  { return &n }
-func setID(s KortsaetID) *KortsaetID                { return &s }
 func format(f Format) *Format                       { return &f }
 func cgID(s types.CheckgroupID) *types.CheckgroupID { return &s }
 func cpIDs(ids ...types.CheckpointID) *[]types.CheckpointID {
