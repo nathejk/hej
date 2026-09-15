@@ -6,7 +6,7 @@
 **Last updated:** 2026-09-15
 **Approved:**
 **Shipped:**
-**Target users:** participant (patrol member), organizer (indirectly — as the source of handout and checkpoint data)
+**Target users:** participant (patrol member)
 
 <!--
 Status must match the folder this file is in: draft/, doing/ or done/.
@@ -18,116 +18,133 @@ moves to done/. See roadmap/prd/README.md for the lifecycle.
 
 ## 1. Summary
 
-Give a patrol the navigational context it already has on paper, in the app: the
-list of **map sheets handed out** to it, the **checkpoints it is allowed to see**
-plotted on the event map, **edge arrows** pointing towards the next checkpoints
-when they are off-screen, and a **drawer** listing every registration the patrol
-has accumulated — with checkpoint scans emphasised and marked as reached on
-time or late.
+Give a patrol, in the app, the navigational context it already holds on paper:
+the **map sheets it has been handed**, the **checkpoints those sheets have
+revealed** plotted on the event map, **edge arrows** pointing towards the next
+checkpoints when they are off-screen, and a **drawer** listing every
+registration — with checkpoint scans emphasised and marked as reached on time or
+late.
+
+The reveal rule is the heart of it: a patrol may see exactly the checkpoints that
+are drawn on the sheets it holds, plus the checkgroups it has already reached.
+Nothing else.
 
 ## 2. Problem & Motivation
 
 - **What problem does this solve?**
-  - **Handouts are untracked.** Patrols are handed physical map sheets (and
-    receive more at posts as the route unfolds). Nobody — not the patrol, not
-    the organizers — has a record of which sheets a given patrol holds. When a
-    patrol phones in lost, the first question ("which map are you looking at?")
-    has no reliable answer, and a patrol that was skipped a sheet only finds out
-    when it is already off the edge of what it can see.
-  - **The map shows nothing to navigate by.** PRD 002 shipped own position plus
-    the patrol's own scan history, and deliberately withholds checkpoint
-    positions (`checkpoint.Queries` exposes only the hull, by design). But some
-    checkpoints are *not* secret: the checkgroup carries an explicit
-    `ShowOnMap` flag on the stream, and those are already printed on the paper
-    maps the patrol carries. Withholding them in the app buys no secrecy and
-    costs the patrol the one thing the app is better at than paper — knowing
-    where it is relative to where it is going.
-  - **The scan history is a flat list.** Registrations are shown newest-first
-    with no distinction beyond kind, and nothing tells a patrol whether it hit a
-    post inside its time window. "Are we behind?" is the question patrols ask
-    all night, and the app holds the data to answer it but does not.
+  - **The app knows less than the patrol's own pocket.** A patrol is handed
+    printed sheets — each carrying a QR code that binds it to the team — and
+    those sheets have checkpoints drawn on them. The patrol can see those posts
+    on paper but not in the app, which is the one place that also knows where the
+    patrol currently *is*. The app is strictly worse than paper at the only
+    question that matters at 02:00: which way now, and how far.
+  - **Nobody can list a patrol's sheets.** The binding exists (skan records
+    QR ↔ team), but the patrol has no view of it. When a patrol phones in lost,
+    "which sheet are you holding?" has no reliable answer, and a patrol that was
+    skipped a sheet finds out only when it walks off the edge of one.
+  - **The scan history is a flat list.** `ScanList.vue` shows registrations
+    newest-first with no distinction beyond kind, and nothing says whether a post
+    was reached inside its window. "Are we behind?" is the question patrols ask
+    all night, and the data to answer it (`openFromUts` / `openUntilUts` /
+    `openDuration` on the checkpoint) is already on the stream.
 
-- **Why now?** The checkpoint projection, the race area, the offline data layer
-  (PRD 009) and the map itself are all in place. `ShowOnMap`,
-  `NathejkCheckpointsSorted` and the checkpoint time ranges already exist on the
-  stream and are simply not projected yet, so the marginal cost of this feature
-  is a wider projection plus frontend work — not new upstream domain events,
-  with the one exception of map handouts (§11).
+- **Why now?** The upstream work landed. HQ's **PRD 010** shipped `kort` and
+  `kortsaet` projections and — crucially — a written contract for *this repo*:
+  `hq/roadmap/api/kort-events.md`, addressed "**For:** the hej-app team". HQ also
+  already keeps a `maphandout` projection built from `qr.registered`, which is
+  the exact shape hej needs. The event map, offline data layer (PRD 009) and
+  checkpoint projection are all in place here. What remains is consuming events
+  that already flow.
 
-- **Evidence.** PRD 002 §11 recorded "which checkpoints may participants see?"
-  as deferred rather than settled. The `ScanList` drawer already exists in
-  `vue/src/components/map/ScanList.vue` but is a plain chronological list; the
-  emphasis and on-time information this PRD asks for is what makes it worth
-  keeping open.
+- **Evidence.**
+  - `hq/roadmap/api/kort-events.md` — the contract, including §1/§1.1, the two
+    reveal rules, which is the policy this PRD implements.
+  - `hq/go/nathejk/table/maphandout/table.sql` — "which maps has *this* team ever
+    been given?" is stated there as a question the current model must answer.
+  - PRD 002 §11 deferred "which checkpoints may participants see?" rather than
+    settling it. This PRD settles it.
 
 ## 3. Goals
 
 - A patrol can see, offline, which map sheets it has been handed and when.
-- A patrol can see on the map every checkpoint it is permitted to see, and
-  nothing more.
-- A patrol on the move can tell which direction and how far the next
-  checkpoint(s) are without panning the map.
+- A patrol sees on the map every checkpoint its sheets and its progress have
+  revealed — and no checkpoint that has not been revealed.
+- A patrol on the move can tell the direction and distance to its next
+  checkpoint(s) without panning the map.
 - A patrol can review its registrations and tell at a glance which were
-  checkpoints and whether each was reached inside its time window.
-- Checkpoint positions that are *not* flagged visible never leave the BFF.
+  checkpoint scans and whether each was inside the post's window.
+- The reveal rule is enforced in the BFF's read model, not in the client.
 
 ## 4. Non-Goals
 
-- **Not** exposing hidden checkpoints, in any form — not blurred, not as a
-  count, not as a bearing. The hull remains the only aggregate that leaves the
-  server for non-visible posts.
-- **Not** turn-by-turn routing, route lines between checkpoints, or distance
-  along a path. Arrows are straight-line bearing and great-circle distance.
-- **Not** an organizer tool for recording handouts. This PRD consumes handout
-  data; producing it belongs to the scanner/organizer app (§11).
-- **Not** downloadable/printable PDF map sheets in the app. "Map handed out" is
-  a record of a physical sheet, not a file.
-- **Not** scoring, penalties, or standings. "On time" here is informational for
-  the patrol, not an authoritative result.
-- **Not** changing the offline tile cache scope (still the race area, PRD 002).
+- **Not** revealing un-revealed checkpoints in any form — not blurred, not a
+  count, not a bearing. The race-area hull (PRD 002) remains the only aggregate
+  covering posts a patrol has not earned sight of.
+- **Not** turn-by-turn routing or route lines. Arrows are straight-line bearing
+  and great-circle distance.
+- **Not** an organizer tool. Handouts are recorded in skan; sheets are defined in
+  HQ. This repo only reads.
+- **Not** rendering the sheet's `extents` rectangles on the map (a plausible
+  later addition — see §11).
+- **Not** showing other teams' handouts, or who currently holds a sheet a patrol
+  no longer has. HQ's `maphandout.ByTeam` returns current-holder fields for an
+  organizer view; **this repo must project them out** (§6, non-functional).
+- **Not** scoring or standings. "On time" is informational for the patrol, not an
+  authoritative result.
+- **Not** changing the offline tile cache scope (still the race area).
 
 ## 5. User Stories & Scenarios
 
-- As a **patrol member**, I want to see which map sheets we were handed, so we
-  know whether we are missing one before we need it.
-- As a **patrol member**, I want the checkpoints we are allowed to know about
-  drawn on the map, so I can relate our position to them.
-- As a **patrol member**, I want an arrow at the edge of the screen pointing at
-  the next checkpoint with its distance, so I can keep walking in the right
-  direction while zoomed in on our own position.
-- As a **patrol member**, I want to open the registration drawer and see our
-  checkpoint scans stand out with a clear "på tid" / "for sent" marker, so we
-  can decide whether to press on or rest.
+- As a **patrol member**, I want to see which sheets we were handed, so we know
+  whether we are missing one before we need it.
+- As a **patrol member**, I want the checkpoints from our sheets drawn on the
+  map, so I can relate our position to them.
+- As a **patrol member**, I want an edge arrow with a distance towards the next
+  post, so I can keep walking the right way while zoomed in on ourselves.
+- As a **patrol member**, I want the drawer to show our checkpoint scans with a
+  clear "på tid" / "for sent" marker, so we can decide to press on or rest.
 
-**Happy path.** A patrol opens Kort. Their position is centred (PRD 002). Two
-visible checkpoints are within view as flag markers; a third is off-screen, so a
-chevron sits on the screen edge in its direction labelled "3,4 km". They tap the
-handle at the bottom: the drawer lists "Post 4 · på tid · lør 02:14", "Bandit
-taget · lør 01:02", "Post 3 · 12 min for sent · fre 22:40", and a "Kort udleveret"
-section showing sheets 1512 II SV and 1512 II NV. Tapping a row pans the map to
-that registration and closes the drawer.
+**Happy path.** A patrol opens Kort. Their position is centred (PRD 002). The two
+posts drawn on the sheet they are holding show as flag markers; a third, revealed
+when they reached the previous checkgroup, is off-screen, so a chevron sits on the
+screen edge in its direction labelled "3,4 km". They tap the bottom handle: the
+drawer lists "Post 4 · på tid · lør 02:14", "Bandit taget · lør 01:02", "Post 3 ·
+12 min for sent · fre 22:40", and a "Kort udleveret" section with "Kort 2 — Post 2
+til Post 5" and "Skitse, Post 5–6". Tapping a row pans the map and closes the
+drawer.
 
-**Edge cases.**
+**Edge cases** (each one traceable to a documented upstream reality):
 
 - **No patrol** (personnel roles): no handouts, no arrows, no drawer handle —
-  exactly as today, where an empty scan list hides the UI.
-- **No visible checkpoints yet** (early in the year, or none flagged): no
-  markers, no arrows, drawer still works. Never an error state.
-- **Visible checkpoint without a position:** listed nowhere on the map, and it
-  produces no arrow. Not an error.
-- **No own position** (permission denied, or indoors): markers still draw;
-  arrows do not, because a bearing needs an origin. The existing permission card
-  is the explanation already on screen.
-- **Checkpoint with no time window:** shown without an on-time verdict rather
-  than with a guessed one.
-- **Relative time windows** (`RelativeTimeDuration`) that depend on when the
-  patrol started: if the anchor is unknown to the BFF, no verdict is rendered.
-  A wrong "for sent" is worse than a missing one.
-- **Offline:** everything in this PRD reads from the cached client copy. Arrows
-  keep working, because bearing is computed on device from cached positions plus
-  the live GPS fix.
-- **Clock skew:** verdicts are computed **server-side**, so a device with a bad
-  clock cannot invent lateness.
+  as today, where an empty scan list hides the UI.
+- **Nothing revealed yet** (before the first handout): no markers, no arrows,
+  drawer still opens. Never an error.
+- **Sheet with an unknown `mapId`** — a QR registered before its sheet was
+  recorded. `maphandout` stores `""`, which means *unknown sheet*, not *no
+  sheet*. Listed as a handout without a name; reveals nothing, because there is
+  no checkpoint list to reveal.
+- **`skitse`** — a hand-drawn slip with **no QR code**, never scanned. It is
+  revealed by its `handoutCheckgroupId`, and its `checkpointIds` are its only
+  trace in the system. It has no extent. It must appear in the handout list even
+  though no QR binding exists for it (§11.1).
+- **Revealed checkpoint with no position** — normal for some posts. Listed
+  nowhere on the map and produces no arrow. Not an error.
+- **Checkpoint with no window** — shown without a verdict rather than with a
+  guessed one.
+- **Relative window** (`openDuration`) needing a per-patrol anchor — no verdict
+  unless the anchor is known. A wrong "for sent" is worse than a missing one.
+- **A sheet reassigned to another team** — when a patrol is discontinued its
+  scouts and sheets move on. The sheet leaves the patrol's *held* set (so it
+  stops revealing), but stays in its *history*, shown as no longer held. The
+  successor team's identity is never shown.
+- **Deleted checkpoint or checkgroup** — `checkpointIds` must be resolved against
+  our own checkpoint projection and unresolvable ids dropped; a deleted handout
+  checkgroup reads as `""`, the QR rule. Neither fix travels over the stream
+  (kort-events.md §4, §1.1).
+- **Offline** — every surface reads the cached client copy. Arrows keep working:
+  bearing is computed on device from cached positions plus the live GPS fix.
+- **Clock skew** — verdicts are computed **server-side**, so a bad device clock
+  cannot invent lateness.
 
 ## 6. Requirements
 
@@ -135,34 +152,43 @@ that registration and closes the drawer.
 
 **Map handouts**
 
-- [ ] The BFF exposes the map sheets handed out to the signed-in user's patrol:
-      an identifier/name per sheet, and when it was handed out.
+- [ ] The BFF exposes the map sheets handed out to the signed-in user's patrol,
+      newest last (handout order), each with: sheet name, format, when it was
+      handed over, and whether the patrol still holds it.
+- [ ] Handouts are scoped to sheets in the **patrol map set(s)** — matched on the
+      set's `teamType`, **never on its name** (kort-events.md §2). Collect *all*
+      matching sets; there is no "the" patrol set.
+- [ ] A handout whose sheet is unknown (`mapId == ""`) is still listed.
 - [ ] The frontend lists them; empty is a normal, silent state.
-- [ ] Handouts are part of the offline cached payload (PRD 009), so they survive
-      loss of signal.
+- [ ] Handouts are part of the offline cached payload (PRD 009).
 
 **Visible checkpoints**
 
-- [ ] The BFF exposes only checkpoints whose checkgroup has `ShowOnMap` true,
-      that are not deleted, and that have a position.
-- [ ] Each carries: id, name, position, sequence/order, and its time window when
-      one is known.
-- [ ] The frontend plots them on the event map, visually distinct from the
-      patrol's own scan markers.
-- [ ] A marker tap shows the name and, when known, the time window.
-- [ ] Markers respect the current base layer and remain legible on both topo and
-      aerial (PRD 002).
+- [ ] The BFF computes the patrol's revealed checkpoint set as the union of:
+      1. the `checkpointIds` of every sheet the patrol **currently holds** whose
+         reveal rule is the QR rule (`handoutCheckgroupId == ""`);
+      2. the `checkpointIds` of every sheet whose `handoutCheckgroupId` names a
+         checkgroup the patrol has **already reached**;
+      3. every checkpoint in a checkgroup the patrol has **already scanned**.
+      Rules 1–3 do not nest and none can be derived from another
+      (kort-events.md §1).
+- [ ] Ids are resolved against our own checkpoint projection; unresolvable ids are
+      dropped silently.
+- [ ] Only positioned, non-deleted checkpoints are returned, each with id, name,
+      checkgroup, sort order, and its window when known.
+- [ ] The frontend plots them, visually distinct from the patrol's own scan
+      markers, and legible on both topo and aerial base layers.
+- [ ] A marker tap shows the name and, when known, the window.
 
 **Next-checkpoint arrows**
 
-- [ ] When a visible checkpoint that is *next* for the patrol lies outside the
+- [ ] When a revealed checkpoint that is *next* for the patrol lies outside the
       viewport, an arrow is drawn at the viewport edge in its direction, with
       distance.
-- [ ] "Next" = the earliest not-yet-scanned visible checkpoints in sequence
-      order; at most **3** arrows on screen at once, to keep the viewport
-      readable.
-- [ ] Arrows update as the map is panned/zoomed and as the patrol's position
-      changes; an arrow disappears when its checkpoint enters the viewport.
+- [ ] "Next" = the earliest not-yet-scanned revealed checkpoints in sort order;
+      at most **3** arrows at once, to keep the viewport readable.
+- [ ] Arrows update on pan, zoom and position change; an arrow disappears when
+      its checkpoint enters the viewport.
 - [ ] Tapping an arrow pans the map to that checkpoint.
 - [ ] No own position ⇒ no arrows.
 
@@ -170,210 +196,286 @@ that registration and closes the drawer.
 
 - [ ] The drawer lists **all** registrations, newest first, as today.
 - [ ] Checkpoint scans are emphasised relative to other registrations.
-- [ ] Each checkpoint scan shows an on-time verdict — on time / late (with how
-      late) / early, or nothing when no window is known.
+- [ ] Each checkpoint scan carries an on-time verdict — on time / late (with how
+      late) / early — or nothing when no window is known.
 - [ ] The verdict comes from the BFF, not the client.
-- [ ] Handed-out map sheets appear in the drawer as their own section.
+- [ ] Handed-out sheets appear as their own section in the drawer.
 - [ ] Tapping a positioned row pans the map (existing behaviour, preserved).
 
 ### Non-Functional
 
-- **Privacy / secrecy.** The BFF must *project out* non-visible checkpoints
-  rather than send-and-hide. Following `checkpoint.Queries`' existing precedent,
-  the read interface handed to handlers must not be able to return a hidden
-  checkpoint's position at all, so no call site can leak one by accident. A test
-  must assert that a checkpoint in a non-`ShowOnMap` checkgroup never appears in
-  the response.
-- **No guardian data.** Nothing in this feature touches `phoneParent` (repo
-  rule); no contact data is added to map or drawer payloads.
-- **Offline-first.** All four surfaces read from the cached client store and
-  degrade to "no data yet" rather than an error (PRD 009).
-- **Performance.** Arrow bearing/distance recomputation runs on map move and
-  position update; it must stay cheap enough not to stutter panning on the
-  baseline device (iOS Safari 16.4). Expect tens of checkpoints, not thousands.
+- **The reveal rule is a read-model boundary, not a filter.** Following the
+  precedent already set by `checkpoint.Queries` in this repo — which exposes only
+  the hull precisely so that no call site *can* leak a position — the query
+  handed to handlers must take the patrol id and return only revealed
+  checkpoints. A handler must have no way to ask for all of them. A test must
+  assert that an un-revealed checkpoint never appears in any response.
+- **Other teams are projected out.** The handout payload must not carry the
+  successor team's id, number or name, even though the upstream read model has
+  them. Project out at the BFF, not in the client — same discipline as the
+  guardian-phone rule.
+- **No guardian data.** Nothing here touches `phoneParent`; no contact data
+  enters map or drawer payloads (repo rule).
+- **Offline-first.** All surfaces read from the cached client store and degrade
+  to "no data yet" rather than an error (PRD 009).
+- **Performance.** Arrow recomputation runs on map move and position update and
+  must not stutter panning on the baseline device. Expect tens of checkpoints.
 - **Battery.** No new geolocation subscriptions: arrows consume the existing
-  watch, which is already stopped when the page is hidden (PRD 002).
-- **Accessibility.** Arrows are decorative graphics *plus* an accessible label
-  ("Post 5, 3,4 km mod nordøst"); the drawer remains the non-visual route to the
+  watch, already stopped when the page is hidden (PRD 002).
+- **Accessibility.** Arrows are decorative graphics plus an accessible label
+  ("Post 5, 3,4 km mod nordøst"); the drawer stays the non-visual route to the
   same information. Touch targets ≥ 44 px.
-- **i18n.** Danish copy throughout; distances metric, `da-DK` formatting.
+- **i18n.** Danish copy; metric distances, `da-DK` formatting.
 - **Browser baseline.** iOS/iPadOS Safari 16.4+, Chrome 111+. No polyfills.
 
 ## 7. UX / UI Notes
 
 **Map (`vue/src/views/MapsView.vue`)**
 
-- Visible checkpoints render as flag markers, in a distinct colour from the
-  patrol's own scan markers. Scanned visible checkpoints read as "done" (muted /
-  check) so the map doubles as progress.
-- Edge arrows are chevrons pinned to the viewport edge, each with a short
-  distance label. They sit in the same `z-10` overlay layer as the existing
-  controls and must not collide with the top-right control stack, the top-left
-  notices, or the bottom handle — the safe region is the vertical middle band of
-  the edges.
-- The existing bottom-centre handle stays, relabelled to cover both
-  registrations and handouts, and is now shown when the patrol has *either*
-  registrations *or* handouts (today: only registrations).
+- Revealed checkpoints render as flag markers in a colour distinct from the
+  patrol's own scan markers. Already-scanned ones read as "done" (muted /
+  check), so the map doubles as a progress view.
+- Edge arrows are chevrons pinned to the viewport edge with a short distance
+  label, in the same `z-10` overlay layer as the existing controls. They must not
+  collide with the top-right control stack, the top-left notices or the bottom
+  handle — the safe region is the vertical middle band of each edge.
+- The existing bottom-centre handle stays, relabelled to cover registrations and
+  handouts, and is shown when the patrol has *either* (today: registrations
+  only).
 
 **Drawer (`vue/src/components/map/ScanList.vue`)**
 
 - Keeps the shadcn-vue `Drawer` primitive it already uses. Two sections:
   "Registreringer" and "Kort udleveret".
-- Checkpoint rows get the emphasis: stronger icon treatment and a verdict badge
-  ("på tid" green, "for sent" amber with the delta). Bandit catches keep their
+- Checkpoint rows get the emphasis: stronger icon treatment plus a verdict badge
+  ("på tid" green; "for sent" amber with the delta). Bandit catches keep their
   current red skull styling.
-- Any new heading uses `font-nathejk` only if it is title-level; row text stays
-  on the system sans stack.
-- Icons from Lucide only (`Flag`, `Skull`, `MapPinOff` already in use; add e.g.
-  `Map`, `Check`, `Clock`, `ChevronUp`).
+- A sheet the patrol no longer holds is shown de-emphasised — "afleveret" —
+  without naming who has it.
+- Title-level headings use `font-nathejk`; row text stays on the system sans
+  stack. Icons from Lucide only (`Flag`, `Skull`, `MapPinOff` already in use;
+  add e.g. `Map`, `Check`, `Clock`, `ChevronUp`).
 
-New components expected: `vue/src/components/map/CheckpointMarkers.vue` (or a
-layer inside `EventMap.vue`), `vue/src/components/map/EdgeArrows.vue`. No new
-routes.
+New components expected: a checkpoints layer inside `EventMap.vue` (or
+`CheckpointMarkers.vue`), and `EdgeArrows.vue`. No new routes.
 
 ## 8. Technical Considerations
 
-- **Frontend (Vue 3 / TS):**
-  - New store `checkpoints.store.ts` (visible checkpoints) and handouts — either
-    its own store or an extension of `scans.store.ts`, depending on whether the
-    BFF ships one endpoint or several (§11).
-  - `EventMap.vue` gains a checkpoints layer and exposes map bounds/centre so
-    the arrow overlay can compute what is off-screen.
-  - `EdgeArrows.vue` computes bearing + great-circle distance from
-    `location.position` to each next checkpoint, projects it onto the viewport
-    edge, and re-renders on Leaflet `move`/`zoom` and position change.
-  - `ScanList.vue` gains sections, emphasis and verdict badges.
-  - Cache new payloads through the existing offline data layer (PRD 009).
+### Integration shape
 
-- **BFF (Go):**
-  - `go/nathejk/table/checkpoint`: project the fields already on the stream but
-    currently discarded — name is stored, but `showOnMap` (from
-    `NathejkCheckgroupUpdated`, so the projection must now also consume
-    checkgroups and the checkpoint→checkgroup link from
-    `NathejkCheckpointCreated`), sort order (`NathejkCheckpointsSorted`), and the
-    time window (`FixedTimeRange` / `RelativeTimeDuration`) are not.
-  - Extend `checkpoint.Queries` with a `VisibleCheckpoints(year)` method whose
-    return type contains only publishable checkpoints. Keep `RaceArea` as-is.
-    The interface stays the security boundary.
-  - `go/internal/scans`: the on-time verdict is computed here (or in a small
-    package beside it) by joining a scan to its checkpoint's window. The mock
-    source must be able to produce all verdict states for dev/simulation
-    (PRD 014).
-  - New handout source (`go/internal/handouts`, likely) behind an interface with
-    a seeded mock first, mirroring how `internal/scans` was introduced.
-  - Wire new projections/sources in `go/cmd/api/app` + `routes.go`, using the
-    `…OrNil` adapter pattern (see `raceAreasOrNil`) so "no projection" stays
-    checkable.
+Over **JetStream**, building our own read model — not by calling HQ. This is
+stated in the contract for exactly the reason that matters here: a read model we
+own keeps answering on a race night while HQ is restarting or unreachable,
+whereas polling would make every reveal depend on HQ being up at that moment.
 
-- **API endpoints** (all behind `requireAuth`, all needing **OpenAPI
-  annotations** — repo rule):
-  - `GET /api/checkpoints` — visible checkpoints only: id, name, position,
-    sequence, optional time window. Empty list (200) when none.
-  - `GET /api/patrol/handouts` — map sheets handed out to the caller's patrol.
-    Empty list (200) for users without a patrol, matching `/api/patrol/scans`.
-  - `GET /api/patrol/scans` — **changed**: each checkpoint scan gains an optional
-    verdict (e.g. `on_time`, `delta_seconds`, `checkpoint_id`). Additive and
-    backwards compatible; the existing client ignores unknown fields.
-  - Consider folding checkpoints + handouts into one map-bootstrap response if
-    the offline layer prefers a single cacheable document (§11).
+**The `kort` / `kortsaet` message types are not in `shared-go` and are not being
+lifted yet** — they have not stabilised enough, and lifting a shape with one
+consumer gets it lifted wrong. So this repo decodes the JSON itself against local
+mirror types, exactly as the contract anticipates ("another service can consume
+these events today by decoding the JSON itself — the shapes are documented for
+that purpose"). Consequences to accept deliberately:
 
-- **Data / storage:**
-  - `checkpoint` table gains `checkgroupId`, `showOnMap`, `sortOrder`, and
-    window columns; new `checkgroup` table or a denormalised flag folded in at
-    consume time. Projections are rebuilt by stream replay on boot, so all
-    statements stay idempotent upserts (existing convention).
-  - Handouts need a source of truth. If the stream has no handout event yet,
-    that is an upstream domain change and the largest unknown in this PRD (§11).
+- The mirror types live in `go/nathejk/table/kort/messages.go` here, with a
+  comment naming `hq/roadmap/api/kort-events.md` as the source of truth and HQ's
+  task 138 as the eventual replacement.
+- We are the **second consumer**, which is what tells HQ which parts of the shape
+  are real. Anything we find awkward is raised against HQ's PRD 010, and the
+  contract changes there first.
+- Unknown JSON fields are ignored, not rejected, so an additive upstream field
+  cannot break a consumer mid-event.
 
-- **Dependencies & risks:**
-  - **Secrecy regression is the top risk.** Widening the checkpoint projection
-    puts positions of *hidden* posts one struct field away from a response.
-    Mitigation: a publishable-only return type, plus an explicit test.
-  - `ShowOnMap` semantics are per **checkgroup**, so a mis-set flag reveals a
-    whole group at once. Worth a log line reporting how many checkpoints are
-    visible at boot, in the spirit of `ReportPositionless`.
-  - Relative time windows may not be resolvable without a per-patrol start time
-    the BFF does not have; the verdict must be omittable per scan.
-  - Leaflet is already lazy-loaded; the arrow overlay must not pull Leaflet into
-    the app shell bundle.
+### BFF (Go)
+
+New and widened projections in `go/nathejk/table/`:
+
+- **`kort` + `kortsaet`** (new). Subjects: `NATHEJK.*.kort.*.{created,updated,deleted}`,
+  `NATHEJK.*.kort.sorted`, `NATHEJK.*.kortsaet.*.{created,updated,deleted}`,
+  `NATHEJK.*.kortsaet.sorted`. Three semantics that will be got wrong if not
+  written down in the code:
+  - a sheet's `updated` is a **patch** — absent means unchanged, and an
+    explicitly empty array/string **is** an edit (this repo's `checkpoint`
+    consumer already handles exactly this hazard; follow it);
+  - a set's `created`/`updated` is a **whole record** — an absent `teamType`
+    means *the set has none*, not "unchanged";
+  - `…sorted` names only the ids being placed; unnamed ids keep their order, and
+    a sheet may precede its set on replay, so an unknown `kortsaetId` is
+    tolerated rather than dropped.
+- **`maphandout`** (new). Subject `NATHEJK.*.qr.*.registered`, keyed
+  `(year, qrId, teamId)` so a re-bind is history rather than an overwrite. The
+  sheet id arrives as an **additive `mapId` field that skan adds to the shared
+  body**, so it is not on `messages.NathejkQrRegistered` and must be read through
+  a struct embedding it. `mapId` is never overwritten with `""`. Current holder
+  is derived on read as the newest binding of a code — but here we only need
+  "does this patrol still hold it", never who else does.
+- **`checkpoint`** (widen). Add `checkgroupId` (from `…checkpoint.*.created`,
+  which this repo currently does not consume at all), `sortOrder` (from
+  `NathejkCheckpointsSorted`), and the window (`FixedTimeRange` /
+  `RelativeTimeDuration`). All already on the stream and currently discarded.
+- **`checkgroup`** (new). From `NathejkCheckgroupUpdated` / `…Deleted`: name, and
+  the group membership needed for reveal rule 3.
+- **`checkpersonnel`** (new) and **`scan`** (new). This is how a QR scan becomes a
+  *checkpoint* scan: `qr.scanned` carries the scanner's user id, and
+  `NathejkCheckpersonnelAdded` binds a user to a checkpoint for a time range — so
+  scan → checkpoint is resolved by scanner id within the shift window. This
+  replaces the seeded mock behind `internal/scans`, whose interface was
+  introduced for precisely this substitution.
+
+Read API and handlers:
+
+- Extend `checkpoint.Queries` with `RevealedCheckpoints(ctx, year, patrolID)`,
+  returning a publishable-only type. `RaceArea` is untouched — the hull stays the
+  answer for everyone else.
+- New `maphandout.Queries.ByPatrol`, returning a type with no successor-team
+  fields.
+- The on-time verdict is computed in the BFF, joining a scan to its checkpoint's
+  window; `internal/scans`' mock must be able to produce every verdict state for
+  dev simulation (PRD 014).
+- Wire everything in `go/cmd/api/app` + `routes.go` using the `…OrNil` adapter
+  pattern (see `raceAreasOrNil`) so "no projection" stays checkable and a nil
+  interface cannot be non-nil.
+- Log an aggregate at boot — how many sheets, sets and revealed checkpoints the
+  year has — in the spirit of `ReportPositionless`. A reveal rule that silently
+  resolves nothing is the failure mode most likely to reach an event.
+
+### Frontend (Vue 3 / TS)
+
+- New `checkpoints.store.ts` and `handouts.store.ts` (or one map-bootstrap store
+  — see §11.7), cached through the offline data layer (PRD 009).
+- `EventMap.vue` gains a checkpoints layer and exposes bounds/centre so the arrow
+  overlay knows what is off-screen.
+- `EdgeArrows.vue` computes bearing + great-circle distance from
+  `location.position`, projects onto the viewport edge, re-renders on Leaflet
+  `move`/`zoom` and position change. Must not pull Leaflet into the app-shell
+  bundle — the map is lazy-loaded and stays so.
+- `ScanList.vue` gains sections, emphasis and verdict badges.
+
+### API endpoints
+
+All behind `requireAuth`, all needing **OpenAPI annotations** (repo rule):
+
+- `GET /api/checkpoints` — the caller's patrol's revealed checkpoints. Empty list
+  (200) when none, including for users without a patrol.
+- `GET /api/patrol/handouts` — the patrol's map sheets. Empty list (200) for
+  users without a patrol, matching `/api/patrol/scans`.
+- `GET /api/patrol/scans` — **changed, additively**: each checkpoint scan gains
+  `checkpoint_id` and an optional verdict (`on_time`, `delta_seconds`).
+  Backwards compatible; the shipped client ignores unknown fields.
+
+### Dependencies & risks
+
+- **Reveal-rule regression is the top risk.** Widening the checkpoint projection
+  puts un-revealed positions one struct field from a response. Mitigated by a
+  patrol-scoped query returning a publishable-only type, plus an explicit test.
+- **Contract drift.** The `kort` shapes are unstable by their owner's own
+  assessment. Mirror types, tolerant decoding, and a documented pointer to
+  kort-events.md are the mitigation; a shape change is an HQ PRD 010 change
+  first.
+- **Reveal correctness depends on two things HQ cannot fix for us**: resolving
+  `checkpointIds` against our own checkpoints, and treating a dangling
+  `handoutCheckgroupId` as the QR rule. Both are fixes that do not travel over
+  the stream.
+- **Scan → checkpoint resolution is inferential** (scanner id + shift window). A
+  scanner covering two posts, or a shift recorded loosely, produces a wrong or
+  missing attribution — which affects the verdict badge and reveal rule 3.
+- **Projection volume.** Six new/widened projections replaying from sequence zero
+  on every boot. All statements stay idempotent upserts (existing convention).
 
 ## 9. Success Metrics
 
-- A patrol can answer "which map sheet are you on?" from the app — handouts are
-  present for ≥ 95 % of patrols during the event (measured as patrols with ≥ 1
-  handout record).
-- Zero incidents of a non-`ShowOnMap` checkpoint position appearing in any API
-  response (asserted by test, verified by a post-event log review).
-- Drawer opens per patrol per event ≥ 3 (the drawer is worth reintroducing only
-  if it is used).
+- ≥ 95 % of patrols have at least one handout listed in the app during the event.
+- Zero un-revealed checkpoint positions in any API response (asserted by test,
+  confirmed by a post-event review of the reveal log line).
+- ≥ 3 drawer opens per patrol per event — the drawer is worth the work only if
+  it is used.
 - Qualitative: fewer "we don't know where we are" calls to the organizers than
   the previous event.
 
 ## 10. Rollout / Task Breakdown
 
-Sequenced so the secrecy-sensitive backend work lands and is tested before any
-of it is rendered, and so handouts — the piece with an unresolved upstream
-dependency — cannot block the map work.
+Sequenced so the reveal rule is built and tested before anything renders it, and
+so the projections land in dependency order.
 
-**Phase 1 — projection and contract**
-- [ ] Task: project checkgroup `showOnMap` and the checkpoint→checkgroup link
-- [ ] Task: project checkpoint sort order and time windows
-- [ ] Task: add `VisibleCheckpoints` to `checkpoint.Queries` with a
+**Phase 1 — consume the upstream facts**
+- [ ] Task: mirror the `kort`/`kortsaet` message shapes locally, documented
+      against `hq/roadmap/api/kort-events.md`
+- [ ] Task: `kort` + `kortsaet` projection (patch vs whole-record semantics,
+      sorted events, sheet-before-set tolerance)
+- [ ] Task: `maphandout` projection from `qr.registered`, incl. the additive
+      `mapId` field
+- [ ] Task: widen `checkpoint` with `checkgroupId`, sort order and window
+- [ ] Task: `checkgroup` projection
+- [ ] Task: `checkpersonnel` + `scan` projections; retire the `internal/scans`
+      mock as the production source
+
+**Phase 2 — the reveal rule**
+- [ ] Task: `RevealedCheckpoints(year, patrolID)` implementing rules 1–3, with a
       publishable-only return type
-- [ ] Task: `GET /api/checkpoints` handler + OpenAPI annotations
-- [ ] Task: assert hidden checkpoints never leave the BFF (regression test)
+- [ ] Task: resolve `checkpointIds` and dangling `handoutCheckgroupId` on read
+- [ ] Task: regression test — an un-revealed checkpoint never leaves the BFF
+- [ ] Task: `GET /api/checkpoints` + OpenAPI annotations
+- [ ] Task: boot-time aggregate log of sheets/sets/revealed counts
 
-**Phase 2 — map rendering**
-- [ ] Task: visible-checkpoint markers on `EventMap.vue`
+**Phase 3 — map rendering**
 - [ ] Task: `checkpoints.store.ts` with offline caching
-- [ ] Task: edge arrows for the next checkpoints (bearing, distance, tap-to-pan)
+- [ ] Task: checkpoint markers on `EventMap.vue`, incl. scanned/"done" state
+- [ ] Task: edge arrows (bearing, distance, tap-to-pan, ≤ 3)
 - [ ] Task: arrow overlay collision rules against existing map controls
 
-**Phase 3 — on-time verdicts and drawer**
-- [ ] Task: compute on-time verdict server-side and extend `/api/patrol/scans`
+**Phase 4 — verdicts and drawer**
+- [ ] Task: server-side on-time verdict; extend `/api/patrol/scans`
 - [ ] Task: emphasise checkpoint scans and render verdict badges in `ScanList.vue`
-- [ ] Task: dev-simulation fixtures covering every verdict state (PRD 014)
+- [ ] Task: `GET /api/patrol/handouts` (successor-team fields projected out) +
+      OpenAPI annotations
+- [ ] Task: "Kort udleveret" drawer section, offline-cached
+- [ ] Task: dev-simulation fixtures covering every verdict and reveal state
+      (PRD 014)
 
-**Phase 4 — handouts**
-- [ ] Task: decide and document the handout source of truth (blocked on §11)
-- [ ] Task: `internal/handouts` source + mock
-- [ ] Task: `GET /api/patrol/handouts` + OpenAPI annotations
-- [ ] Task: "Kort udleveret" section in the drawer, offline-cached
-
-No feature flag is proposed for phases 1–3; phase 4 ships behind "empty list
-hides the section", which is its own soft launch.
+No feature flag: each surface ships behind "empty hides the section", which is
+its own soft launch. Phases 1–2 are invisible to users by construction.
 
 ## 11. Open Questions
 
-1. **Where do map handouts come from?** There is no handout event or field
-   anywhere on the stream today (`shared-go/messages` has none). Options: a new
-   upstream domain event emitted when a post hands out a sheet; a manual
-   organizer entry; or the patrol self-declaring in the PWA. This determines
-   whether phase 4 is a projection or a write path, and it is the one thing that
-   could make this PRD span two repos.
-2. **What identifies a map sheet?** A Kort25 sheet code (e.g. "1512 II SV"), an
-   internal etape/leg number, or a free-text name? Affects the payload and
-   whether the frontend can render anything meaningful beyond a label.
-3. **Is "visible" exactly `ShowOnMap` on the checkgroup?** Or does the product
-   want a per-checkpoint override, and/or time-gated visibility (a checkpoint
-   becomes visible only once the patrol has reached the previous one)? Time
-   gating changes this from a static list into per-patrol filtering.
-4. **What is "next" when the route is not linear?** `NathejkCheckpointsSorted`
-   gives an order, but do all patrols follow the same sequence? If sequences are
-   per-team or per-etape, arrows need a per-patrol route rather than a global
-   sort.
-5. **Can the BFF resolve relative time windows?** `RelativeTimeDuration` needs a
-   per-patrol anchor (start time / previous checkpoint scan). Is that anchor
-   available to this service, or must those checkpoints ship without a verdict?
-6. **How late is "for sent"?** Is there a grace period (the `Minus`/`Plus`
-   fields on control groups suggest one exists upstream), and should the app
-   show the delta or only the verdict?
+1. **`teamType` for the patrol set is `patrulje`, not `spejder`.** The set we
+   want is the one an operator calls the scout/patrol set, but HQ **rejects**
+   `"spejder"` as a team type on write (`ErrInvalidTeamType`, with the reasoning
+   that spejder is the domain's word for a *person*, not a team type), and
+   `shared-go` has no such value. So the filter is `teamType == "patrulje"` —
+   collecting *all* sets that carry it, per kort-events.md §3. **Confirm** this
+   is what was meant, because a filter on a value that can never be stored would
+   match nothing and silently reveal nothing to anybody.
+2. **How does a `skitse` become a handout?** It has no QR code, so no
+   `qr.registered` event ever names it, so it cannot appear in `maphandout` — yet
+   it is physically handed over and does reveal checkpoints via
+   `handoutCheckgroupId`. Options: synthesise a handout when the patrol reaches
+   the handout checkgroup, or list only QR-bound sheets and accept that skitser
+   reveal checkpoints without appearing in the list. This is the one modelling
+   gap in the handout list.
+3. **Is `showOnMap` (on the checkgroup) relevant here at all?** It exists and
+   sounds like it answers "may participants see this", but it plausibly means
+   "show on HQ's own planning map". If it is a participant-facing flag it becomes
+   a fourth reveal input — or a gate over all three. Needs an answer from HQ
+   before phase 2.
+4. **Should a sheet the patrol no longer holds keep its checkpoints revealed?**
+   This PRD says no (reveal follows current holdings) but keeps the sheet in the
+   history. The opposite — once seen, always visible — is arguably kinder and is
+   certainly simpler. Un-revealing something a patrol has already seen on paper
+   achieves no secrecy.
+5. **Can the BFF resolve relative windows?** `openDuration` needs a per-patrol
+   anchor (start time, or the previous checkpoint scan). If unavailable, those
+   checkpoints ship without a verdict.
+6. **How late is "for sent", and do we show the delta?** The control-group
+   `Minus`/`Plus` fields suggest a grace period exists upstream. Worth confirming
+   before rendering an amber badge at one second past.
 7. **One endpoint or three?** The offline layer may prefer a single cacheable
-   map-bootstrap document over `/api/checkpoints` +
-   `/api/patrol/handouts` + `/api/patrol/scans`.
-8. **Should scanned visible checkpoints stay on the map?** Rendering them as
-   "done" makes the map a progress view; hiding them reduces clutter.
-9. **Was the drawer ever actually removed?** `ScanList.vue` is still wired into
-   `MapsView.vue` on `main`, so "reintroduce" may mean "upgrade the existing
-   drawer" (assumed here) rather than restore something deleted. Worth
-   confirming so phase 3 is scoped correctly.
+   map-bootstrap document over `/api/checkpoints` + `/api/patrol/handouts` +
+   `/api/patrol/scans`.
+8. **Draw the sheet `extents` on the map?** Zero, one or two normalised
+   north-west/south-east rectangles per sheet are available, and "here is what
+   your paper covers" is a compelling overlay. Deliberately out of scope for now;
+   easy to add once handouts exist.
+9. **Is "next" the same sequence for every patrol?** `NathejkCheckpointsSorted`
+   gives a global order. If routes are per-team or per-etape, arrows need a
+   per-patrol sequence rather than a global sort.
+10. **Was the drawer ever removed?** `ScanList.vue` is still wired into
+    `MapsView.vue` on `main`, so "reintroduce" is read here as "upgrade the
+    existing drawer". Confirm, so phase 4 is scoped correctly.
