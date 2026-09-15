@@ -1,8 +1,10 @@
 # 249 — Mirror the `kort` / `kortsaet` event shapes locally
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-09-15
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-15
 
 ## Description
 
@@ -49,3 +51,6 @@ vendored copy has gone stale (PRD 016 §11.11).
 ## Progress Log
 
 - 2026-09-15 — Task created from PRD 016 phase 1.
+- 2026-09-15 — Picked up. Plan: `go/nathejk/table/kort/` with `messages.go` and
+  `kortsaet_messages.go` holding mirror types, plus decode tests over the exact JSON bodies
+  in `roadmap/api/kort-events.md`. Types only in this task; the projection is task 250.
