@@ -222,6 +222,13 @@ drawer.
   enters map or drawer payloads (repo rule).
 - **Offline-first.** All surfaces read from the cached client store and degrade
   to "no data yet" rather than an error (PRD 009).
+- **Freshness is PRD 017's job, not this one's.** Handouts, revealed checkpoints
+  and scans all change during the race, so a copy fetched on mount is wrong within
+  minutes. This PRD defines the payloads and requires each to expose a cheap
+  version; the foreground sync check that consumes them is **PRD 017**. Neither
+  blocks the other — 016 can ship fetching on mount — but shipping 016 without 017
+  means a patrol sees a reveal only after a cold start, which is late enough to
+  matter.
 - **Performance.** Arrow recomputation runs on map move and position update and
   must not stutter panning on the baseline device. Expect tens of checkpoints.
 - **Battery.** No new geolocation subscriptions: arrows consume the existing
@@ -398,6 +405,9 @@ All behind `requireAuth`, all needing **OpenAPI annotations** (repo rule):
   `checkpoint_id` and an optional verdict (`on_time`, `delta_seconds`).
   Backwards compatible; the shipped client ignores unknown fields.
 
+Each of the three must also expose a cheap version derivation for PRD 017's sync
+check — a projection read or a cached hash, never a built-and-hashed payload.
+
 ### Dependencies & risks
 
 - **Reveal-rule regression is the top risk.** Widening the checkpoint projection
@@ -469,6 +479,8 @@ so the projections land in dependency order.
 - [ ] Task: `GET /api/patrol/handouts` (successor-team fields projected out) +
       OpenAPI annotations
 - [ ] Task: "Kort udleveret" drawer section, offline-cached
+- [ ] Task: cheap version derivations for handouts, checkpoints and scans, for
+      PRD 017's sync check
 - [ ] Task: dev-simulation fixtures covering every verdict and reveal state
       (PRD 014)
 
