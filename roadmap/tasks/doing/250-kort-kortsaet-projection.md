@@ -1,8 +1,10 @@
 # 250 — `kort` + `kortsaet` projection
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-09-15
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-15
 
 ## Description
 
@@ -48,3 +50,7 @@ Hazards that must be handled, all documented in the vendored contract:
 ## Progress Log
 
 - 2026-09-15 — Task created from PRD 016 phase 1.
+- 2026-09-15 — Picked up. Plan: follow the `checkpoint` package's shape exactly — `table.sql` +
+  `kortsaet.sql` embedded, `table.go` with `New`, `consumer.go` folding events, `querier.go` for
+  reads. Reuse its `quote`/`upsert`/`sortStrings` idioms rather than inventing new ones, since
+  the patch-semantics hazard is identical.
