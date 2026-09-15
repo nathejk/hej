@@ -1,8 +1,10 @@
 # 256 — Resolve `checkpointIds` and dangling `handoutCheckgroupId` on read
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-09-15
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-15
 
 ## Description
 
@@ -37,3 +39,7 @@ Both are cheap (tens of rows) and belong next to the reveal rule (task 255).
 ## Progress Log
 
 - 2026-09-15 — Task created from PRD 016 phase 2.
+- 2026-09-15 — Picked up. Half of this is already done by construction (task 255's log): `ByIDs` cannot
+  return a checkpoint that no longer exists, so unresolvable ids are dropped by the query itself. The
+  remaining work is the **checkgroup** half — a dangling `handoutCheckgroupId` must read as `""`, the QR
+  rule — plus tests pinning both, including the checkgroup-deletion case that motivated the whole fix.
