@@ -331,7 +331,7 @@ func TestHandoutListAgreesWithTheRevealRule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handouts: %v", err)
 	}
-	revealed, err := r.Revealed("2026", "team-9")
+	revealed, err := r.Revealed("2026", "team-9", false)
 	if err != nil {
 		t.Fatalf("Revealed: %v", err)
 	}

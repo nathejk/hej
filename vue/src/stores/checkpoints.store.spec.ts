@@ -46,7 +46,7 @@ function signIn(userId = 'user-1') {
 describe('checkpoints.store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    getMock = () => Promise.resolve({ checkpoints: [] })
+    getMock = () => Promise.resolve({ checkpoints: [], next_checkgroup: '' })
   })
 
   it('maps the snake_case payload at the store boundary', async () => {
@@ -246,5 +246,90 @@ describe('checkpoints.store', () => {
     await store.fetch()
 
     expect(store.checkpoints.map((c) => c.id)).toEqual(['cp-early', 'cp-late'])
+  })
+
+  // The line the patrol is heading for, decided by the BFF. The client must not re-derive it: it needs route
+  // order across checkgroups and whether the patrol has started, and "has started" has exactly one definition
+  // in the backend which a client-side copy would fork (task 275).
+  it('keeps the next line the BFF named', async () => {
+    getMock = () =>
+      Promise.resolve({
+        checkpoints: [apiCheckpoint({ id: 'cp-1a', checkgroup: 'cg-1' })],
+        next_checkgroup: 'cg-1',
+      })
+    const store = useCheckpointsStore()
+
+    await store.fetch()
+
+    expect(store.nextCheckgroup).toBe('cg-1')
+  })
+
+  // Every post in the next line, because the patrol chooses which to walk to when they get there. Posts from
+  // other lines must not leak in — that was the reported bug, an arrow pointing back at the start.
+  it('offers every post in the next line, and only those', async () => {
+    getMock = () =>
+      Promise.resolve({
+        checkpoints: [
+          apiCheckpoint({ id: 'afgang', checkgroup: 'cg-starter' }),
+          apiCheckpoint({ id: '1a', checkgroup: 'cg-1' }),
+          apiCheckpoint({ id: '1b', checkgroup: 'cg-1' }),
+          apiCheckpoint({ id: '2a', checkgroup: 'cg-2' }),
+        ],
+        next_checkgroup: 'cg-1',
+      })
+    const store = useCheckpointsStore()
+
+    await store.fetch()
+
+    expect(store.nextLine.map((c) => c.id)).toEqual(['1a', '1b'])
+  })
+
+  // At the end of the route there is no next line, and that means no arrows rather than a fallback.
+  it('offers nothing when there is no next line', async () => {
+    getMock = () =>
+      Promise.resolve({
+        checkpoints: [apiCheckpoint({ id: 'cp-1', checkgroup: 'cg-1' })],
+        next_checkgroup: '',
+      })
+    const store = useCheckpointsStore()
+
+    await store.fetch()
+
+    expect(store.nextLine).toEqual([])
+  })
+
+  // An older BFF, or a cached payload written before this field existed, must not produce `undefined` in a
+  // template or a comparison against it.
+  it('tolerates a response without the field', async () => {
+    getMock = () => Promise.resolve({ checkpoints: [apiCheckpoint()] })
+    const store = useCheckpointsStore()
+
+    await store.fetch()
+
+    expect(store.nextCheckgroup).toBe('')
+    expect(store.nextLine).toEqual([])
+  })
+
+  it('persists and rehydrates the next line', async () => {
+    const storage = fakeStorage()
+    signIn('user-1')
+    getMock = () =>
+      Promise.resolve({
+        checkpoints: [apiCheckpoint({ id: '1a', checkgroup: 'cg-1' })],
+        next_checkgroup: 'cg-1',
+      })
+
+    const store = useCheckpointsStore()
+    store.storage = storage
+    await store.fetch()
+
+    setActivePinia(createPinia())
+    signIn('user-1')
+    const reopened = useCheckpointsStore()
+    reopened.storage = storage
+    reopened.hydrate()
+
+    expect(reopened.nextCheckgroup).toBe('cg-1')
+    expect(reopened.nextLine.map((c) => c.id)).toEqual(['1a'])
   })
 })

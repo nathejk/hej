@@ -25,8 +25,8 @@ import type { Coords } from '@/stores/location.store'
 // kept here.
 
 const props = defineProps<{
-  /** The next legs, in route order and already capped — each entry is one checkgroup's posts. */
-  groups: Checkpoint[][]
+  /** Every revealed post in the line the patrol is heading for — one arrow each. */
+  targets: Checkpoint[]
   /** The patrol's own position. No position means no arrows — a bearing needs an origin. */
   position: Coords | null
   /**
@@ -55,7 +55,7 @@ const arrows = computed(() => {
   void props.revision
 
   return computeArrows({
-    groups: props.groups,
+    targets: props.targets,
     position: props.position,
     project: props.project,
     viewportSize: props.viewportSize,

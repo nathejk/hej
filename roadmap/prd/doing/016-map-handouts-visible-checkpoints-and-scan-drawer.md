@@ -200,15 +200,17 @@ drawer.
 - [ ] When a revealed checkpoint that is *next* for the patrol lies outside the
       viewport, an arrow is drawn at the viewport edge in its direction, with
       distance.
-- [ ] "Next" is measured in **checkgroups, not checkpoints** (§11.12): a checkgroup is one
-      leg and its posts are alternatives, so a leg with any scanned post is finished and
-      produces no arrow. The next legs are the earliest unfinished ones in route order,
-      which is `(checkgroup.sortOrder, checkpoint.sortOrder)` — one sequence for every
-      patrol (§11.9).
-- [ ] **One arrow per leg**, pointing at the nearest of that leg's posts, since the patrol
-      needs only one of them.
-- [ ] At most **3** arrows — i.e. three *legs* — so one multi-post leg cannot hide the legs
-      behind it.
+- [ ] "Next" is a **line** — a checkgroup — not a post, and not a set of lines (§11.12,
+      §11.13). The BFF names it as `next_checkgroup`, because deciding it needs route order
+      across checkgroups *and* whether the patrol has started, neither of which the client
+      can honestly hold.
+- [ ] **Every revealed post in that line gets an arrow.** A postlinje holds several posts —
+      an A and a B — and the patrol chooses which to walk to when they arrive; the app must
+      not nominate one for them.
+- [ ] A line is behind the patrol once they have been scanned at it **or at any later
+      line**, so an unattributed scan cannot point them backwards.
+- [ ] Having **started** retires the first line: departing is recorded at check-in, not as
+      a scan at a post, so nothing else ever will.
 - [ ] Arrows update on pan, zoom and position change; an arrow disappears when
       its checkpoint enters the viewport.
 - [ ] Tapping an arrow pans the map to that checkpoint.
@@ -710,6 +712,34 @@ next person to wonder should not have to go and look again.
     **Markers are unaffected**: they still show every revealed post, ticked where scanned. The map
     should show the ground truth; only the arrows are an instruction, and only an instruction has
     to be about the leg.
+
+13. **The arrows point at the whole next line, and the start is never next.** *Corrected by the
+    product owner 2026-09-15 (task 275), superseding half of §11.12.*
+
+    Reading the live data settled both halves. The route is: line 0 `Start` / `Starter`
+    (`Afgang`, `Til Gøgl`), then `Postlinje 1`–`4` each holding an **A and a B** post, then
+    `Mål`.
+
+    - **§11.12 was half wrong.** A line's posts *are* alternatives, but it does not follow that
+      the app should choose between them. Both are real destinations and the patrol picks one
+      when they arrive, so **every** revealed post in the next line gets an arrow. The
+      "nearest post per line" rule is withdrawn.
+    - **Only the next line is arrowed**, not the next three. A patrol is walking to one line;
+      lines beyond it are clutter they cannot act on.
+    - **Departing the start is not a scan.** It is recorded at check-in, so no attributed scan
+      will ever retire line 0 and the arrows pointed back at `Afgang` all night. Two rules fix
+      it: progress is **monotonic** (a line is behind you if you were scanned at it *or at any
+      later line*, which also survives a gap in the postmandskab rota), and **having started
+      retires the first line** — `person.HasStarted()` being the codebase's single definition of
+      "has begun the event".
+    - **The decision moved to the BFF**, surfaced as `next_checkgroup`. It needs route order
+      across checkgroups and the started fact; the client sees the latter only folded into
+      `confirmation_required`, so re-deriving it would fork a definition that exists precisely
+      to be singular.
+
+    A line whose posts are none of them revealed or sited is skipped rather than becoming a
+    dead "next" with no arrows — `Postlinje 3` is in exactly that state in the live data, its
+    posts having no positions yet.
 
 ### Consequences worth carrying forward
 

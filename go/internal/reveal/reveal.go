@@ -120,31 +120,55 @@ func New(sheets Sheets, handouts Handouts, scans Scans, checkpoints Checkpoints,
 	}
 }
 
-// Revealed returns the checkpoints this patrol may see, in route order.
+// RevealedMap is what a patrol may see, plus where it is going.
+//
+// One type rather than two calls, because both answers come from the same four reads and asking twice would
+// mean a second chance for them to disagree — a checkpoint list that says one thing and a "next line" that
+// says another is worse than either being wrong alone.
+type RevealedMap struct {
+	// Checkpoints are the posts this patrol has earned sight of, in route order.
+	Checkpoints []checkpoint.Checkpoint
+
+	// NextCheckgroup is the line the patrol is heading for, or "" when there is none.
+	//
+	// A *line*, not a post: a postlinje holds several posts — an A and a B — and the patrol heads for the
+	// line, choosing which post when they get there. So the client arrows every revealed post in this group,
+	// and the choice stays with the people walking (task 275).
+	//
+	// "" means no arrows: at the end of the route, or before anything is revealed.
+	NextCheckgroup types.CheckgroupID
+}
+
+// Revealed returns the checkpoints this patrol may see and the line it is heading for.
 //
 // Empty is a normal answer, not an error: a patrol before its first handout, and every user without a
 // patrol at all. An empty patrol id short-circuits, because personnel roles have none and asking for the
 // sheets of team "" can only ever return nothing.
 //
-// Only positioned checkpoints come back \u2014 the projections filter them \u2014 because an unpositioned checkpoint
+// Only positioned checkpoints come back — the projections filter them — because an unpositioned checkpoint
 // has nothing to draw and nothing to point an arrow at. It is revealed in principle and absent in practice,
 // which is the honest rendering of "the organizers have not sited it yet".
-func (r *Rule) Revealed(year string, patrolID string) ([]checkpoint.Checkpoint, error) {
+//
+// `hasStarted` says whether the patrol has begun the event. It is passed in rather than derived here
+// because it is a fact about a *person* (see person.HasStarted, which exists so that exactly one definition
+// of "started" is in play), and this package is patrol-scoped.
+func (r *Rule) Revealed(year string, patrolID string, hasStarted bool) (RevealedMap, error) {
+	empty := RevealedMap{Checkpoints: []checkpoint.Checkpoint{}}
 	if patrolID == "" {
-		return []checkpoint.Checkpoint{}, nil
+		return empty, nil
 	}
 
 	sheets, err := r.sheets.PatrolSheets(year)
 	if err != nil {
-		return nil, err
+		return empty, err
 	}
 	handouts, err := r.handouts.ByPatrol(year, types.TeamID(patrolID))
 	if err != nil {
-		return nil, err
+		return empty, err
 	}
 	patrolScans, err := r.scans.ByTeam(year, patrolID)
 	if err != nil {
-		return nil, err
+		return empty, err
 	}
 
 	reached := reachedCheckgroups(patrolScans)
@@ -154,7 +178,7 @@ func (r *Rule) Revealed(year string, patrolID string) ([]checkpoint.Checkpoint, 
 	// to the QR rule instead of being keyed to a post that will never be reached.
 	groups, err := r.checkgroups.ByYear(year)
 	if err != nil {
-		return nil, err
+		return empty, err
 	}
 	knownGroups := make(map[types.CheckgroupID]bool, len(groups))
 	for _, g := range groups {
@@ -174,14 +198,90 @@ func (r *Rule) Revealed(year string, patrolID string) ([]checkpoint.Checkpoint, 
 
 	fromSheets, err := r.checkpoints.ByIDs(year, dedupeIDs(ids))
 	if err != nil {
-		return nil, err
+		return empty, err
 	}
 	fromGroups, err := r.checkpoints.ByCheckgroups(year, reached)
 	if err != nil {
-		return nil, err
+		return empty, err
 	}
 
-	return merge(fromSheets, fromGroups, groupOrder(groups)), nil
+	revealed := merge(fromSheets, fromGroups, groupOrder(groups))
+	return RevealedMap{
+		Checkpoints:    revealed,
+		NextCheckgroup: nextCheckgroup(groups, revealed, reached, hasStarted),
+	}, nil
+}
+
+// nextCheckgroup picks the line the patrol is heading for.
+//
+// # Progress along the route is monotonic
+//
+// A line is behind the patrol if they were scanned at it **or at any later line**. The second half is what
+// makes this survive real data: departing the start is recorded at check-in rather than as a scan at a post,
+// and the postmandskab rota can be incomplete, so a patrol demonstrably at Postlinje 2 must not still be
+// pointed back at Postlinje 1 merely because nothing attributed their earlier scan (task 275).
+//
+// # Starting retires the first line
+//
+// The earliest line in route order is the start — `Start`/`Starter` in this event, with `Mål` last — and a
+// patrol using this app during the race has departed it. Without this the arrows point back at `Afgang`
+// forever, because no scan will ever be attributed there.
+//
+// Note this is the *first line*, not a name or a magic sortOrder: matching on "Start" would break the year
+// somebody renames it, and lines sharing the lowest sortOrder (both line 0 here) are all part of it.
+//
+// # A line with nothing to point at is skipped
+//
+// A line whose posts are all un-revealed or un-sited would otherwise become a dead "next" — the client would
+// have a group id and draw no arrows, which looks exactly like the feature being broken. `Postlinje 3` is in
+// that state in the live data today, its posts having no positions yet.
+func nextCheckgroup(
+	groups []checkgroup.Checkgroup,
+	revealed []checkpoint.Checkpoint,
+	reached []types.CheckgroupID,
+	hasStarted bool,
+) types.CheckgroupID {
+	if len(groups) == 0 {
+		return ""
+	}
+
+	// Route order. `ByYear` already sorts by (sortOrder, id), so index is position along the route.
+	ordered := groups
+
+	reachedSet := make(map[types.CheckgroupID]bool, len(reached))
+	for _, id := range reached {
+		reachedSet[id] = true
+	}
+
+	// The furthest line the patrol has been seen at. Everything up to and including it is behind them.
+	furthest := -1
+	for i, g := range ordered {
+		if reachedSet[g.ID] {
+			furthest = i
+		}
+	}
+
+	// Having started retires the whole first line, which is every group sharing the lowest sortOrder.
+	if hasStarted && furthest < 0 {
+		firstOrder := ordered[0].SortOrder
+		for i, g := range ordered {
+			if g.SortOrder == firstOrder {
+				furthest = i
+			}
+		}
+	}
+
+	hasDrawablePost := make(map[types.CheckgroupID]bool, len(revealed))
+	for _, cp := range revealed {
+		hasDrawablePost[cp.Checkgroup] = true
+	}
+
+	for i := furthest + 1; i < len(ordered); i++ {
+		if hasDrawablePost[ordered[i].ID] {
+			return ordered[i].ID
+		}
+	}
+	return ""
 }
 
 // groupOrder maps each checkgroup to its position along the route.

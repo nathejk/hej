@@ -88,8 +88,11 @@ type Models struct {
 // checkpoints" and no "all handouts" to ask for. A handler cannot widen the question, which is where the
 // reveal rule's guarantee becomes unavoidable rather than merely intended (PRD 016 §6).
 type MapReads interface {
-	// Revealed returns the checkpoints this patrol may see, in route order. Empty is normal.
-	Revealed(year string, patrolID string) ([]checkpoint.Checkpoint, error)
+	// Revealed returns the checkpoints this patrol may see and the line it is heading for. Empty is normal.
+	//
+	// `hasStarted` is passed in because "has begun the event" is a fact about a person and has exactly one
+	// definition (`person.HasStarted`); the map read is patrol-scoped and must not grow a second one.
+	Revealed(year string, patrolID string, hasStarted bool) (reveal.RevealedMap, error)
 	// Handouts returns the map sheets this patrol has been given, oldest first. Empty is normal.
 	Handouts(year string, patrolID string) ([]reveal.Handout, error)
 }

@@ -52,6 +52,17 @@ type checkpointResponse struct {
 
 type checkpointsResponse struct {
 	Checkpoints []checkpointResponse `json:"checkpoints"`
+
+	// NextCheckgroup is the line the patrol is heading for, or "" when there is none.
+	//
+	// A *line*, not a post: a postlinje holds several posts — an A and a B — and the patrol heads for the
+	// line, choosing which post when they arrive. The client draws an arrow to every post in this group, so
+	// the choice stays with the people walking (task 275).
+	//
+	// Decided here rather than in the client because it needs two facts the client cannot honestly hold:
+	// route order across checkgroups, and whether the patrol has started — the latter having exactly one
+	// definition in this codebase (`person.HasStarted`), which a client-side reimplementation would fork.
+	NextCheckgroup string `json:"next_checkgroup"`
 }
 
 // listCheckpointsHandler returns the checkpoints the signed-in user's patrol may see. Runs behind
@@ -72,7 +83,7 @@ type checkpointsResponse struct {
 // "the organizers have not sited it yet", and one fewer nullable case for the client.
 //
 // @Summary      Revealed checkpoints
-// @Description  The checkpoints the signed-in user's patrol has earned sight of: those drawn on the map sheets it has been handed, plus those in checkgroups it has already reached. Positions of checkpoints the patrol has not been shown are never returned — the read is patrol-scoped in the BFF, not filtered in the client. Users without a patrol get an empty list. Empty is a normal state, not an error.
+// @Description  The checkpoints the signed-in user's patrol has earned sight of: those drawn on the map sheets it has been handed, plus those in checkgroups it has already reached. Positions of checkpoints the patrol has not been shown are never returned — the read is patrol-scoped in the BFF, not filtered in the client. `next_checkgroup` names the line the patrol is heading for, so the client can point an arrow at every post in it; it is empty at the end of the route. Users without a patrol get an empty list. Empty is a normal state, not an error.
 // @Tags         map
 // @Produce      json
 // @Success      200  {object}  checkpointsResponse
@@ -99,15 +110,15 @@ func (app *application) listCheckpointsHandler(w http.ResponseWriter, r *http.Re
 	// empty response as a personnel user.
 	user, _ := app.models.Users.Get(s.UserID)
 
-	revealed, err := app.models.Maps.Revealed(app.config.eventYear, user.PatrolID)
+	revealed, err := app.models.Maps.Revealed(app.config.eventYear, user.PatrolID, app.hasStarted(s.UserID))
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
 	}
 
 	// Non-nil slice so the JSON is [] rather than null; the client iterates unconditionally.
-	out := make([]checkpointResponse, 0, len(revealed))
-	for _, c := range revealed {
+	out := make([]checkpointResponse, 0, len(revealed.Checkpoints))
+	for _, c := range revealed.Checkpoints {
 		out = append(out, checkpointResponse{
 			ID:           string(c.ID),
 			Name:         c.Name,
@@ -121,7 +132,35 @@ func (app *application) listCheckpointsHandler(w http.ResponseWriter, r *http.Re
 		})
 	}
 
-	if err := app.WriteJSON(w, http.StatusOK, checkpointsResponse{Checkpoints: out}, nil); err != nil {
+	resp := checkpointsResponse{
+		Checkpoints:    out,
+		NextCheckgroup: string(revealed.NextCheckgroup),
+	}
+	if err := app.WriteJSON(w, http.StatusOK, resp, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
 	}
+}
+
+// hasStarted reports whether the caller has begun the event.
+//
+// Used by the map to retire the start line: departing is recorded at check-in rather than as a scan at a
+// post, so without this the arrows point back at `Afgang` for the whole race (task 275).
+//
+// The **caller's own** member row stands for the patrol's state, which is sound in this direction: a patrol
+// member who has started is a patrol that has started. Reading every member to be certain would cost a query
+// per map load to answer a question the caller already answers.
+//
+// Falls back to false when the person projection is absent or the row is missing, and that is the safe
+// direction: the worst case is an arrow towards the start for a patrol we cannot place, which is
+// over-informative rather than misleading — the opposite mistake would hide the first real line from a patrol
+// that has not started yet.
+func (app *application) hasStarted(userID string) bool {
+	if app.models.People == nil {
+		return false
+	}
+	p, ok, err := app.models.People.Get(app.config.eventYear, userID)
+	if err != nil || !ok {
+		return false
+	}
+	return p.HasStarted()
 }

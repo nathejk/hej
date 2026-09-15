@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nathejk/shared-go/types"
+
 	"nathejk.dk/internal/data"
 	"nathejk.dk/internal/reveal"
 	"nathejk.dk/internal/scans"
@@ -16,26 +18,33 @@ import (
 	"nathejk.dk/nathejk/table/checkpoint"
 )
 
-// fakeMapReads records the patrol id it was asked about, which is the part worth pinning: the handler must
-// take it from the session and never from the request, or the endpoint would let one patrol read another's
-// map.
+// fakeMapReads records what it was asked about, which is the part worth pinning: the handler must take the
+// patrol from the session and never from the request, or the endpoint would let one patrol read another's map.
 type fakeMapReads struct {
 	revealed []checkpoint.Checkpoint
+	next     types.CheckgroupID
 	handouts []reveal.Handout
 	err      error
 
 	askedPatrols *[]string
 	askedYears   *[]string
+	askedStarted *[]bool
 }
 
-func (f fakeMapReads) Revealed(year string, patrolID string) ([]checkpoint.Checkpoint, error) {
+func (f fakeMapReads) Revealed(year string, patrolID string, hasStarted bool) (reveal.RevealedMap, error) {
 	if f.askedPatrols != nil {
 		*f.askedPatrols = append(*f.askedPatrols, patrolID)
 	}
 	if f.askedYears != nil {
 		*f.askedYears = append(*f.askedYears, year)
 	}
-	return f.revealed, f.err
+	if f.askedStarted != nil {
+		*f.askedStarted = append(*f.askedStarted, hasStarted)
+	}
+	if f.err != nil {
+		return reveal.RevealedMap{}, f.err
+	}
+	return reveal.RevealedMap{Checkpoints: f.revealed, NextCheckgroup: f.next}, nil
 }
 
 func (f fakeMapReads) Handouts(string, string) ([]reveal.Handout, error) {
@@ -214,5 +223,53 @@ func TestCheckpoints_ResponseCarriesOnlyTheExpectedFields(t *testing.T) {
 		if _, ok := raw.Checkpoints[0][key]; !ok {
 			t.Errorf("missing field %q", key)
 		}
+	}
+}
+
+// The line the patrol is heading for. Decided in the BFF because it needs route order across checkgroups and
+// whether the patrol has started — neither of which the client can honestly hold (task 275).
+func TestCheckpoints_ReportsTheNextLine(t *testing.T) {
+	app := checkpointsApp(t, fakeMapReads{
+		revealed: []checkpoint.Checkpoint{{ID: "cp-1a", Checkgroup: "cg-1", Lat: 56.1, Lng: 9.5}},
+		next:     "cg-1",
+	}, "2026")
+
+	_, body := getCheckpoints(t, app, true)
+
+	var got checkpointsResponse
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("unmarshal: %v: %s", err, body)
+	}
+	if got.NextCheckgroup != "cg-1" {
+		t.Errorf("next_checkgroup = %q, want cg-1: %s", got.NextCheckgroup, body)
+	}
+}
+
+// At the end of the route there is no next line, and the field must be present-and-empty rather than absent:
+// the client branches on it, and a missing key would read as undefined.
+func TestCheckpoints_NoNextLineAtTheEnd(t *testing.T) {
+	app := checkpointsApp(t, fakeMapReads{next: ""}, "2026")
+
+	_, body := getCheckpoints(t, app, true)
+
+	if !strings.Contains(body, `"next_checkgroup":""`) {
+		t.Errorf("want an empty next_checkgroup rather than a missing one: %s", body)
+	}
+}
+
+// The handler must pass the caller's started state through, since that is what retires the start line. Without
+// a person projection it is false, which is the safe direction — an arrow towards the start is
+// over-informative, whereas wrongly retiring the first line would hide it from a patrol still standing there.
+func TestCheckpoints_PassesTheStartedStateThrough(t *testing.T) {
+	var started []bool
+	app := checkpointsApp(t, fakeMapReads{askedStarted: &started}, "2026")
+
+	getCheckpoints(t, app, true)
+
+	if len(started) != 1 {
+		t.Fatalf("want one read, got %d", len(started))
+	}
+	if started[0] {
+		t.Error("want false without a person projection")
 	}
 }

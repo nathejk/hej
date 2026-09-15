@@ -51,11 +51,14 @@ export interface Arrow {
 
 export interface ArrowInput {
   /**
-   * The next legs, in route order and already capped — each entry is one checkgroup's posts.
+   * The posts to arrow: every revealed post in the line the patrol is heading for.
    *
-   * A group's posts are alternatives, so exactly one arrow is drawn per group (see `pickReachable`).
+   * A *line* holds several posts — an A and a B — and the patrol heads for the line, choosing which post when
+   * they arrive. So each of them gets its own arrow and the choice stays with the people walking (task 275).
+   * Which line is next is decided by the BFF, which is the only side that knows route order and whether the
+   * patrol has started.
    */
-  groups: Checkpoint[][]
+  targets: Checkpoint[]
   /** The patrol's own position, or null. */
   position: Coords | null
   /** Projects a ground position into container pixels; null before the map exists. */
@@ -101,7 +104,8 @@ export interface ArrowInput {
  *   - **The post is already on screen.** Its marker is right there; an arrow pointing at something visible is
  *     noise. Checked with a margin so an arrow does not flicker as a marker grazes the edge.
  *
- * One arrow per leg: a checkgroup's posts are alternatives, so only the reachable one is drawn.
+ * One arrow per post in the next line: the patrol chooses which of a line's posts to walk to, so the app shows
+ * them all rather than nominating one.
  */
 export function computeArrows(input: ArrowInput): Arrow[] {
   const here = input.position
@@ -116,10 +120,7 @@ export function computeArrows(input: ArrowInput): Arrow[] {
   const insets = input.insets ?? NO_INSETS
   const out: Arrow[] = []
 
-  for (const group of input.groups) {
-    const cp = pickReachable(group, here)
-    if (!cp) continue
-
+  for (const cp of input.targets) {
     const target = input.project(cp.lat, cp.lng)
     if (!target) continue
     if (isInside(target, size.width, size.height, ARROW_RADIUS)) continue
@@ -147,30 +148,6 @@ export function computeArrows(input: ArrowInput): Arrow[] {
     })
   }
   return out
-}
-
-/**
- * Which post in a leg to point at.
- *
- * The **nearest**, because a checkgroup's posts are alternatives — the patrol needs one of them, so the useful
- * answer is the one they can actually walk to. Pointing at the group's first post in route order would be
- * deterministic and sometimes send them past the closer option for no reason.
- *
- * Straight-line distance, like everything else here: it does not know about the stream they would have to
- * cross, and it does not pretend to (PRD 016 §4).
- */
-function pickReachable(group: Checkpoint[], from: Coords): Checkpoint | null {
-  let best: Checkpoint | null = null
-  let bestMetres = Number.POSITIVE_INFINITY
-
-  for (const cp of group) {
-    const metres = distanceMetres(from, cp)
-    if (metres < bestMetres) {
-      best = cp
-      bestMetres = metres
-    }
-  }
-  return best
 }
 
 /**

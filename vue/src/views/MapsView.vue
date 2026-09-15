@@ -6,7 +6,6 @@ import LayerSwitcher from '@/components/map/LayerSwitcher.vue'
 import LocateButton from '@/components/map/LocateButton.vue'
 import ScanList from '@/components/map/ScanList.vue'
 import EdgeArrows from '@/components/map/EdgeArrows.vue'
-import { nextCheckpointGroups } from '@/components/map/nextCheckpoints'
 import { arrowKeepOut } from '@/config/map'
 import { useLocationStore } from '@/stores/location.store'
 import { useScansStore } from '@/stores/scans.store'
@@ -101,14 +100,13 @@ const scannedCheckpointIds = computed(() =>
   scans.scans.map((s) => s.checkpointId).filter((id): id is string => Boolean(id)),
 )
 
-// The legs the arrows point at: the next unvisited checkgroups in route order, capped.
+// The posts the arrows point at: every revealed post in the line the patrol is heading for.
 //
-// Checkgroups rather than checkpoints, because a group is one leg and its posts are alternatives — a patrol
-// scanned at Post 4A has finished that leg, and an arrow to Post 4B would send them somewhere they have no
-// reason to go (task 273). Route order comes from the BFF, which is the only side holding both halves of it.
-const arrowGroups = computed(() =>
-  nextCheckpointGroups(checkpoints.checkpoints, scannedCheckpointIds.value),
-)
+// Which line that is comes from the BFF (`next_checkgroup`), because deciding it needs route order across
+// checkgroups and whether the patrol has started — departing the start is recorded at check-in, not as a scan
+// at a post, so the client cannot work it out (task 275). All of the line's posts get an arrow: the patrol
+// chooses which to walk to when they arrive.
+const arrowTargets = computed(() => checkpoints.nextLine)
 
 function onSelectCheckpoint(id: string) {
   // Tapping an arrow means the user wants to look elsewhere — same reasoning as picking from the list.
@@ -241,7 +239,7 @@ onBeforeUnmount(() => {
          over the map rather than inside it; kept clear of the floating controls by ARROW_KEEP_OUT. -->
     <EdgeArrows
       v-if="configLoaded"
-      :groups="arrowGroups"
+      :targets="arrowTargets"
       :position="location.position"
       :revision="mapRevision"
       :project="(lat: number, lng: number) => mapRef?.project(lat, lng) ?? null"

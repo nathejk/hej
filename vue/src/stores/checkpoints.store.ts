@@ -34,7 +34,7 @@ import { useSessionStore } from '@/stores/session.store'
 export interface Checkpoint {
   id: string
   name: string
-  /** The postlinje group. Route order is (checkgroup order, sortOrder) — see `useRouteOrder`. */
+  /** The postlinje group. Route order is decided by the BFF, which sends the list already sorted. */
   checkgroup: string
   sortOrder: number
   lat: number
@@ -73,6 +73,7 @@ interface StoredPayload {
   schema: number
   syncedAt: number
   checkpoints: Checkpoint[]
+  nextCheckgroup: string
 }
 
 // `localStorage` is absent in a node test run and *throws on access* — not on use, on access — in some
@@ -114,6 +115,14 @@ function writeStored(storage: ScopedStorage | null, key: string | null, payload:
 export const useCheckpointsStore = defineStore('checkpoints', {
   state: () => ({
     checkpoints: [] as Checkpoint[],
+    /**
+     * The line the patrol is heading for, or '' when there is none.
+     *
+     * Decided by the BFF, not here. It needs route order across checkgroups *and* whether the patrol has
+     * started — departing the start is recorded at check-in rather than as a scan at a post, and "has started"
+     * has exactly one definition in the backend which a client-side copy would fork (task 275).
+     */
+    nextCheckgroup: '',
     loading: false,
     loaded: false,
     error: '',
@@ -136,8 +145,18 @@ export const useCheckpointsStore = defineStore('checkpoints', {
     /**
      * Checkpoints by id, for joining a scan to the post it happened at.
      */
-    byId: (state): Map<string, Checkpoint> =>
-      new Map(state.checkpoints.map((c) => [c.id, c])),
+    byId: (state): Map<string, Checkpoint> => new Map(state.checkpoints.map((c) => [c.id, c])),
+
+    /**
+     * The posts to arrow: every revealed post in the next line.
+     *
+     * All of them, because a line holds several posts and the patrol chooses which to walk to when they get
+     * there — the app must not nominate one for them (task 275).
+     */
+    nextLine: (state): Checkpoint[] =>
+      state.nextCheckgroup === ''
+        ? []
+        : state.checkpoints.filter((c) => c.checkgroup === state.nextCheckgroup),
   },
 
   actions: {
@@ -151,6 +170,7 @@ export const useCheckpointsStore = defineStore('checkpoints', {
       const stored = readStored(this.storage, this.storageKey)
       if (!stored) return
       this.checkpoints = stored.checkpoints
+      this.nextCheckgroup = stored.nextCheckgroup ?? ''
       this.syncedAt = stored.syncedAt
       this.loaded = true
     },
@@ -165,9 +185,10 @@ export const useCheckpointsStore = defineStore('checkpoints', {
     async fetch() {
       this.loading = true
       try {
-        const data = await fetchWrapper.get<{ checkpoints: CheckpointResponse[] | null }>(
-          '/api/checkpoints',
-        )
+        const data = await fetchWrapper.get<{
+          checkpoints: CheckpointResponse[] | null
+          next_checkgroup?: string
+        }>('/api/checkpoints')
         // Replace, never merge: a post the server stopped sending must stop existing here.
         this.checkpoints = (data.checkpoints ?? []).map(
           (c): Checkpoint => ({
@@ -182,6 +203,7 @@ export const useCheckpointsStore = defineStore('checkpoints', {
             openDurationMinutes: c.open_duration_minutes,
           }),
         )
+        this.nextCheckgroup = data.next_checkgroup ?? ''
         this.syncedAt = Date.now()
         this.error = ''
         this.loaded = true
@@ -189,6 +211,7 @@ export const useCheckpointsStore = defineStore('checkpoints', {
           schema: SCHEMA,
           syncedAt: this.syncedAt,
           checkpoints: this.checkpoints,
+          nextCheckgroup: this.nextCheckgroup,
         })
       } catch {
         // The cached copy stays. Danish, and specific: "we could not refresh" is a different thing
