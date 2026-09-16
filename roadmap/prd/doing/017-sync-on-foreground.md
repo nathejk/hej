@@ -183,8 +183,11 @@ not touched.
       nothing is worse than the request), but not the overlap guard.
 - [ ] The client compares each version with what it holds and refetches only the
       datasets that differ.
-- [ ] Datasets covered at ship: contacts manifest (incl. portrait versions), own
+- [x] Datasets covered at ship: contacts manifest (incl. portrait versions), own
       profile, patrol scans, patrol map handouts, revealed checkpoints, race area.
+      **Five of the six refresh a cached copy; `race_area` has none to refresh** — it is
+      fetched on demand when a bulk tile download starts, so its version is reported and
+      consumed by task 294 instead.
 - [ ] A dataset absent from the response is one the user may not hold; the client
       must not request it.
 - [ ] A dataset whose version could not be derived is reported as **unavailable**,
@@ -387,34 +390,32 @@ there is no longer a phase gated on another PRD. What remains is one coherent pi
 of work plus cleanup.
 
 **Phase 1 — the mechanism**
-- [ ] Task: **device check on iOS/iPadOS home-screen PWA and bfcache** — which
+- [ ] Task 280: **device check on iOS/iPadOS home-screen PWA and bfcache** — which
       events actually fire on return (§11 *Decided*). A blocker, not a question: it decides
-      what the loop listens to, and every other task assumes an answer.
-- [ ] Task: debounce in `useFreshnessLoop` (minimum gap between checks), with the
-      manual-refresh override
-- [ ] Task: manual refresh control on the panes holding synced data, wired to the
-      loop's `check`, acknowledging a nothing-changed answer
-- [ ] Task: `Version(viewer)` for **profile** and **race area**, each with a
-      changes-when-data-changes test, following `mapversion.go`
-- [ ] Task: `GET /api/sync` composing the four existing versions
-      (`contactsVersionFor`, `scansVersionFor`, `handoutsVersionFor`,
-      `checkpointsVersionFor`) plus the two new ones, with `unavailable` handling and
-      OpenAPI annotations
-- [ ] Task: rewrite the convention comment in `useFreshnessLoop.ts` to describe the
-      multiplexed check — in this phase, not later: its §1 and §4 become actively
-      misleading the moment `useSyncLoop` lands
-- [ ] Task: `useSyncLoop` at app level, dispatching per-dataset refreshes
-- [ ] Task: uniform `refreshIfVersionDiffers` across the stores
-- [ ] Task: collapse `useContactsFreshness` and `useQuietPrefetch` into the sync
-      loop; remove `MapsView`'s mount-time scan fetch
-- [ ] Task: served `interval_seconds`, incl. the zero-disables-the-interval test
-- [ ] Task: verify on device that a reveal appears within one foreground
-- [ ] Task: load test at expected device count; record the numbers in this PRD
+      what the loop listens to, and every other task assumes an answer. **Needs a device.**
+- [x] Task 281: debounce in `useFreshnessLoop`, with the manual-refresh override
+- [x] Task 282: manual refresh control, wired to the loop's `check`
+- [x] Task 283: `Version(viewer)` for **profile** and **race area**
+- [x] Task 284: `GET /api/sync` composing all six versions, `unavailable` handling, OpenAPI
+- [x] Task 285: rewrite the convention comment in `useFreshnessLoop.ts`
+- [x] Task 286: `useSyncLoop` at app level, dispatching per-dataset refreshes
+- [x] Task 287: uniform `refreshIfVersionDiffers` across the stores
+- [x] Task 288: collapse `useContactsFreshness` and `useQuietPrefetch` into the sync loop;
+      remove `MapsView`'s mount-time fetches
+- [x] Task 289: served `interval_seconds`, incl. the zero-disables-the-interval test
+- [ ] Task 290: verify on device that a reveal appears within one foreground. **Needs a
+      device and a server-side handout trigger.**
+- [ ] Task 291: load test at expected device count; record the numbers in §9
 
 **Phase 2 — cleanup**
-- [ ] Task: retire `/api/contacts/version` once no client calls it
-- [ ] Task: instrument the unchanged/changed ratio and review after the first
-      event
+- [ ] Task 292: retire `/api/contacts/version` once no client calls it
+- [ ] Task 293: instrument the unchanged/changed ratio and review after the first event
+
+**Opened during implementation**
+- [ ] Task 294: tell a user when their downloaded map area no longer matches the event. The
+      `race_area` version has no store to refresh — the area is fetched on demand when a bulk
+      tile download starts — so what a change in it means is a user-visible fact rather than a
+      refresh, and belongs in its own task.
 
 No feature flag. The mechanism is a strict improvement over "fetch once on
 mount", and the lever that matters — the interval — is served, so load can be
