@@ -33,8 +33,10 @@ per-response and can change *while the loop is running*.
 ## Acceptance Criteria
 
 - [ ] `interval_seconds` and the debounce window are server-configurable (env → config),
-      defaulting to 60 s and 5 s.
-- [ ] Both served in the `/api/sync` response.
+      defaulting to 60 s and 5 s. **Done in task 284** — they are part of that response's
+      contract, so shipping the endpoint without them would have shipped a shape that
+      immediately changed.
+- [ ] Both served in the `/api/sync` response. **Done in task 284.**
 - [ ] The loop adopts a changed interval on the next check without a reload — the timer
       is restarted, not left on the old period.
 - [ ] Zero disables the interval only: foreground, `online` and manual checks still fire.
@@ -47,3 +49,10 @@ per-response and can change *while the loop is running*.
 ## Progress Log
 
 - 2026-09-16 10:00 — Task created from PRD 017 phase 1.
+- 2026-09-16 12:40 — The **server half moved into task 284**: `syncIntervalSeconds` /
+  `syncDebounceSeconds` (env `SYNC_INTERVAL_SECONDS` / `SYNC_DEBOUNCE_SECONDS`, defaults
+  60/5) and their presence in the response shipped with the endpoint, with a test that
+  zero is served *as zero* rather than corrected to a default. What remains here is the
+  client half, which is the part with the interesting failure mode: adopting a changed
+  interval **without a reload** (restarting the timer at the new period rather than
+  leaving it on the old one) and proving zero disables the interval *only*.

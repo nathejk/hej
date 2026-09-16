@@ -85,6 +85,25 @@ type config struct {
 	// 60s by default, per the PRD's "within ~60 seconds while the app is open".
 	contactsPollSeconds int
 
+	// syncIntervalSeconds and syncDebounceSeconds tune the multiplexed freshness check (PRD 017):
+	// how often a client re-checks while the app is open, and the minimum gap between checks.
+	//
+	// Both are **operational levers, not constants**, and served in the `/api/sync` response itself
+	// rather than only in `/api/config`. The reason is response time: an operator shedding load at
+	// 02:00 needs the change to take effect on the next check, on every device, without waiting for
+	// anybody to refetch config.
+	//
+	// The interval is set by the strictest dataset rather than by the average — scans should surface
+	// inside a minute — and everything else rides along for free, because one multiplexed check costs
+	// the same whether one dataset changed or none did.
+	//
+	// Zero interval disables the periodic check and **nothing else**: foreground, reconnect and
+	// manual checks keep running, so "poll less" can never silently become "stop updating". Zero
+	// debounce disables the debounce, which is the right behaviour for a test and the wrong one for
+	// an event.
+	syncIntervalSeconds int
+	syncDebounceSeconds int
+
 	// MariaDB connection. dbDSN is a go-sql-driver/mysql DSN; empty means "run
 	// without a database", which is a legitimate mode: everything served today
 	// comes from mocks (PRD 008 is what introduces persistence), so a missing DSN
@@ -211,6 +230,8 @@ func loadConfig() config {
 	flag.BoolVar(&cfg.showLayoutDebug, "show-layout-debug", envBool("SHOW_LAYOUT_DEBUG", false), "Overlay viewport/safe-area/geometry values on the client (diagnostic)")
 	flag.BoolVar(&cfg.installGate, "install-gate", envBool("INSTALL_GATE", true), "Require the app to be installed before it can be used (PRD 005). Set INSTALL_GATE=false to disable the gate without a redeploy.")
 	flag.IntVar(&cfg.contactsPollSeconds, "contacts-poll-seconds", envInt("CONTACTS_POLL_SECONDS", 60), "How often the contacts pane checks for directory changes while open (PRD 007). 0 disables the interval; foreground and reconnect checks still run.")
+	flag.IntVar(&cfg.syncIntervalSeconds, "sync-interval-seconds", envInt("SYNC_INTERVAL_SECONDS", 60), "How often a client re-runs the multiplexed freshness check while the app is open (PRD 017). 0 disables the interval; foreground, reconnect and manual checks still run.")
+	flag.IntVar(&cfg.syncDebounceSeconds, "sync-debounce-seconds", envInt("SYNC_DEBOUNCE_SECONDS", 5), "Minimum seconds between freshness checks (PRD 017). Absorbs repeated foregrounding; a user-requested refresh ignores it. 0 disables the debounce.")
 	flag.StringVar(&cfg.dbDSN, "db-dsn", envStr("DB_DSN", ""), "MariaDB DSN (empty runs without a database)")
 	flag.IntVar(&cfg.dbMaxOpenConns, "db-max-open-conns", envInt("DB_MAX_OPEN_CONNS", 25), "Maximum open database connections")
 	flag.IntVar(&cfg.dbMaxIdleConns, "db-max-idle-conns", envInt("DB_MAX_IDLE_CONNS", 25), "Maximum idle database connections")

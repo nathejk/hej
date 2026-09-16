@@ -93,6 +93,12 @@ func (app *application) routes() http.Handler {
 	// every web push to raise a notification and a corrected phone number is not worth
 	// buzzing a phone for (PRD 007 §8).
 	router.HandlerFunc(http.MethodGet, "/api/contacts/version", app.requireAuth(app.contactsVersionHandler))
+	// The multiplexed freshness check (PRD 017): one request answers "did anything I hold
+	// change?" for every dataset this caller has. Supersedes the per-dataset version endpoint
+	// above, which stays one release while installed clients still hold an older bundle.
+	// Deliberately the cheapest authenticated endpoint in the API — it is called on every
+	// foreground by every device, so nothing in it may build a payload.
+	router.HandlerFunc(http.MethodGet, "/api/sync", app.requireAuth(app.syncHandler))
 	// A directory member's portrait, authorized per request. Under /people/ rather than
 	// directly under /contacts/{personId} because httprouter refuses a wildcard segment
 	// alongside the static `manifest` and `version` siblings — and the extra segment reads
