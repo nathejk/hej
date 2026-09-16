@@ -5,7 +5,7 @@
 import { computed } from 'vue'
 import { ChevronUp } from '@lucide/vue'
 
-import { computeArrows, type Insets } from '@/components/map/arrowPlacement'
+import { computeArrows, type KeepOutZone } from '@/components/map/arrowPlacement'
 import type { Point } from '@/components/map/arrowGeometry'
 import type { Checkpoint } from '@/stores/checkpoints.store'
 import type { Coords } from '@/stores/location.store'
@@ -41,8 +41,8 @@ const props = defineProps<{
   project: (lat: number, lng: number) => Point | null
   /** The map container's pixel size. */
   viewportSize: () => { width: number; height: number } | null
-  /** Keep-out margins, so an arrow never lands under a floating control (task 264). */
-  insets?: Insets
+  /** Rectangles an arrow must not sit on, because a floating control does (task 264). */
+  keepOut?: KeepOutZone[]
 }>()
 
 const emit = defineEmits<{
@@ -59,7 +59,7 @@ const arrows = computed(() => {
     position: props.position,
     project: props.project,
     viewportSize: props.viewportSize,
-    insets: props.insets,
+    keepOut: props.keepOut,
   })
 })
 </script>

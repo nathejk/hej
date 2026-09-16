@@ -6,7 +6,7 @@ import LayerSwitcher from '@/components/map/LayerSwitcher.vue'
 import LocateButton from '@/components/map/LocateButton.vue'
 import ScanList from '@/components/map/ScanList.vue'
 import EdgeArrows from '@/components/map/EdgeArrows.vue'
-import { arrowKeepOut } from '@/config/map'
+import { arrowKeepOutZones } from '@/config/map'
 import { useLocationStore } from '@/stores/location.store'
 import { useScansStore } from '@/stores/scans.store'
 import { useCheckpointsStore } from '@/stores/checkpoints.store'
@@ -114,17 +114,15 @@ function onSelectCheckpoint(id: string) {
   mapRef.value?.focusCheckpoint(id)
 }
 
-// Where arrows may not go: the bands the floating controls occupy, plus the device's safe-area insets.
-//
-// Read from the same `--sat`/`--sab` custom properties the controls are positioned with, rather than
-// hardcoded: they are 59 px and 34 px on a notched iPhone and zero on a desktop browser, so a fixed number
-// would either waste half the screen or put arrows under the layer switcher.
-//
-// Recomputed on every viewport change, which includes `resize` — that is when the insets actually move (an
-// orientation change, or the browser chrome appearing as the page scrolls).
-const arrowInsets = computed(() => {
+// Where arrows may not sit: the corners the floating controls occupy (task 264), rebuilt on every viewport
+// change because both the size and the safe-area insets move — an orientation change, or the browser chrome
+// appearing as the page scrolls. Corners rather than whole edges (task 276): reserving a full top band pushed
+// left-edge arrows into mid-air.
+const arrowKeepOut = computed(() => {
   void mapRevision.value
-  return arrowKeepOut(readSafeAreaInsets())
+  const size = mapRef.value?.viewportSize()
+  if (!size) return []
+  return arrowKeepOutZones(size, readSafeAreaInsets())
 })
 
 function readSafeAreaInsets(): { top: number; bottom: number } {
@@ -244,7 +242,7 @@ onBeforeUnmount(() => {
       :revision="mapRevision"
       :project="(lat: number, lng: number) => mapRef?.project(lat, lng) ?? null"
       :viewport-size="() => mapRef?.viewportSize() ?? null"
-      :insets="arrowInsets"
+      :keep-out="arrowKeepOut"
       @select="onSelectCheckpoint"
     />
 

@@ -270,9 +270,12 @@ drawer.
   patrol's own scan markers. Already-scanned ones read as "done" (muted /
   check), so the map doubles as a progress view.
 - Edge arrows are chevrons pinned to the viewport edge with a short distance
-  label, in the same `z-10` overlay layer as the existing controls. They must not
-  collide with the top-right control stack, the top-left notices or the bottom
-  handle — the safe region is the vertical middle band of each edge.
+  label, in the same `z-10` overlay layer as the existing controls. They **hug the
+  edge** and slide *along* it to clear the controls that occupy corners — the
+  top-right stack and the bottom-centre handle — rather than being confined to a
+  middle band (that was task 264's first attempt, and §11.14 records why it was
+  wrong). The top-left notices get no reserved space, since they are conditional
+  and reserving for them floats the whole left of the top edge.
 - The existing bottom-centre handle stays, relabelled to cover registrations and
   handouts, and is shown when the patrol has *either* (today: registrations
   only).
@@ -740,6 +743,17 @@ next person to wonder should not have to go and look again.
     A line whose posts are none of them revealed or sited is skipped rather than becoming a
     dead "next" with no arrows — `Postlinje 3` is in exactly that state in the live data, its
     posts having no positions yet.
+
+14. **Edge arrows hug the edge and slide past the controls; they are not confined to a band.**
+    *Corrected by the product owner 2026-09-15 (task 276), superseding the placement rule task
+    264 shipped.* To keep arrows off the floating controls, task 264 reserved a full-width band
+    — 112 px off the top, 96 off the bottom — and clamped every arrow into the strip between. But
+    the controls sit in **corners** (layer/locate stack top-right, registrations handle
+    bottom-centre), so an arrow leaving the top edge on the left, where nothing floats, hung 112
+    px in mid-air. The keep-out is now corner **rectangles** an arrow slides *along its edge* to
+    clear, and every other part of every edge is free. The top-left notices get no reserved
+    space — they are conditional, and reserving for them is what floated the left of the top
+    edge.
 
 ### Consequences worth carrying forward
 

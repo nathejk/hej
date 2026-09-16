@@ -6,14 +6,14 @@ import {
   type ArrowInput,
 } from '@/components/map/arrowPlacement'
 import { isInside } from '@/components/map/arrowGeometry'
-import { arrowKeepOut } from '@/config/map'
-
-// A notched phone's reading, which is the case a desktop-tuned constant would get wrong.
-const KEEP_OUT = arrowKeepOut({ top: 59, bottom: 34 })
+import { arrowKeepOutZones } from '@/config/map'
 import type { Checkpoint } from '@/stores/checkpoints.store'
 
 const W = 400
 const H = 800
+
+// A notched phone's control zones, which is the case a desktop-tuned constant would get wrong.
+const ZONES = arrowKeepOutZones({ width: W, height: H }, { top: 59, bottom: 34 })
 
 function cp(id: string, lat: number, lng: number): Checkpoint {
   return {
@@ -155,56 +155,75 @@ describe('computeArrows', () => {
     }
   })
 
-  // Task 264's rule, tested here because this is where it is implemented: an arrow under the locate button is
-  // worse than no arrow, since it is invisible *and* steals the tap.
-  it('keeps arrows out of the bands the floating controls occupy', () => {
+  // The bug reported in task 276, as a test. An arrow leaving the top edge where nothing floats must **hug the
+  // edge** — the first version pushed it 112 px inward for controls that were not there. "Just inside the
+  // viewport" is a near-side within a few px of the edge.
+  it('hugs the edge where no control floats', () => {
+    // Due north exits the top edge, at the horizontal centre — far from the top-right stack.
+    const [arrow] = computeArrows(input({ keepOut: ZONES, targets: [cp('n', 57, 9)] }))
+
+    expect(arrow).toBeDefined()
+    // The arrow's centre is within a radius-plus-small-margin of the top edge, not a control-band inside it.
+    expect(arrow.y).toBeLessThanOrEqual(ARROW_RADIUS + 12)
+  })
+
+  // Task 264's rule, preserved through the fix: an arrow that would sit under the top-right stack slides along
+  // the edge to clear it, rather than being pushed into mid-air.
+  it('slides an arrow along the edge to clear the top-right controls', () => {
+    // A post up and well to the right exits near the top-right corner, under the control stack.
+    const stack = ZONES[0]
+    const [arrow] = computeArrows(input({ keepOut: ZONES, targets: [cp('ne', 57, 12)] }))
+
+    expect(arrow).toBeDefined()
+    // Cleared the stack: either left of it along the top edge, or below it down the right edge.
+    const clearedHorizontally = arrow.x <= stack.x - ARROW_RADIUS + 0.01
+    const clearedVertically = arrow.y >= stack.y + stack.height + ARROW_RADIUS - 0.01
+    expect(clearedHorizontally || clearedVertically).toBe(true)
+  })
+
+  // And having cleared it, the arrow still hugs the edge — sliding is *along* the edge, not inward.
+  it('still hugs the edge after sliding past a control', () => {
+    const [arrow] = computeArrows(input({ keepOut: ZONES, targets: [cp('ne', 57, 12)] }))
+
+    expect(arrow).toBeDefined()
+    const nearTop = arrow.y <= ARROW_RADIUS + 12
+    const nearRight = arrow.x >= W - ARROW_RADIUS - 12
+    expect(nearTop || nearRight).toBe(true)
+  })
+
+  // No control on an edge means no adjustment at all: the arrow sits exactly where the geometry put it.
+  it('does not move an arrow that is already clear of every control', () => {
+    const withZones = computeArrows(input({ keepOut: ZONES, targets: [cp('w', 56, 8)] }))
+    const without = computeArrows(input({ targets: [cp('w', 56, 8)] }))
+
+    expect(withZones[0].x).toBeCloseTo(without[0].x, 6)
+    expect(withZones[0].y).toBeCloseTo(without[0].y, 6)
+  })
+
+  // Sliding keeps the bearing and distance untouched — they are facts about the ground, not the screen.
+  it('does not change bearing or distance when it slides an arrow', () => {
+    const [slid] = computeArrows(input({ keepOut: ZONES, targets: [cp('ne', 57, 12)] }))
+    const [free] = computeArrows(input({ targets: [cp('ne', 57, 12)] }))
+
+    expect(slid.bearing).toBeCloseTo(free.bearing, 6)
+    expect(slid.distance).toBe(free.distance)
+  })
+
+  // Every arrow stays on screen even with the zones applied, from all directions.
+  it('keeps every arrow on screen with the control zones applied', () => {
     const got = computeArrows(
       input({
-        insets: KEEP_OUT,
+        keepOut: ZONES,
         targets: [cp('n', 57, 9), cp('s', 55, 9), cp('e', 56, 10), cp('w', 56, 8)],
       }),
     )
 
     expect(got).toHaveLength(4)
     for (const arrow of got) {
-      expect(arrow.y).toBeGreaterThanOrEqual(KEEP_OUT.top + ARROW_RADIUS)
-      expect(arrow.y).toBeLessThanOrEqual(H - KEEP_OUT.bottom - ARROW_RADIUS)
-    }
-  })
-
-  // Clamped rather than dropped: direction is approximate at the edge anyway, so a few pixels of slide costs
-  // almost nothing, while losing the arrow loses the only thing telling the patrol which way to walk.
-  it('clamps an arrow into the band rather than discarding it', () => {
-    const withoutInsets = computeArrows(input({ targets: [cp('n', 57, 9)] }))
-    const withInsets = computeArrows(
-      input({ insets: KEEP_OUT, targets: [cp('n', 57, 9)] }),
-    )
-
-    expect(withoutInsets).toHaveLength(1)
-    expect(withInsets).toHaveLength(1)
-    // The arrow moved down out of the top band, and kept its direction.
-    expect(withInsets[0].y).toBeGreaterThan(withoutInsets[0].y)
-    expect(withInsets[0].bearing).toBeCloseTo(withoutInsets[0].bearing, 6)
-  })
-
-  // A viewport shorter than the keep-out bands is possible in landscape. Centring what is left beats clamping
-  // against contradictory bounds, which would pin the arrow off screen entirely.
-  it('survives a viewport shorter than its keep-out bands', () => {
-    const here = { lat: 56, lng: 9, accuracy: 10 }
-    const shortSize = { width: W, height: 200 }
-
-    const got = computeArrows(
-      input({
-        insets: KEEP_OUT,
-        viewportSize: () => shortSize,
-        project: projectionAround(here, shortSize),
-        targets: [cp('n', 57, 9)],
-      }),
-    )
-
-    for (const arrow of got) {
-      expect(arrow.y).toBeGreaterThanOrEqual(0)
-      expect(arrow.y).toBeLessThanOrEqual(200)
+      expect(arrow.x).toBeGreaterThanOrEqual(ARROW_RADIUS)
+      expect(arrow.x).toBeLessThanOrEqual(W - ARROW_RADIUS)
+      expect(arrow.y).toBeGreaterThanOrEqual(ARROW_RADIUS)
+      expect(arrow.y).toBeLessThanOrEqual(H - ARROW_RADIUS)
     }
   })
 

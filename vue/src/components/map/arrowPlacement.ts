@@ -7,8 +7,12 @@ import {
   isInside,
   type Point,
 } from '@/components/map/arrowGeometry'
+import type { KeepOutZone } from '@/config/map'
 import type { Checkpoint } from '@/stores/checkpoints.store'
 import type { Coords } from '@/stores/location.store'
+
+// Re-exported so the overlay component and its spec have one import for the arrow types.
+export type { KeepOutZone }
 
 // Placing the edge arrows (PRD 016).
 //
@@ -24,18 +28,8 @@ import type { Coords } from '@/stores/location.store'
 /** Half the arrow's rendered size, so geometry can keep it fully on screen. */
 export const ARROW_RADIUS = 26
 
-/** Extra clearance between the arrow and the viewport edge, so it does not sit half off. */
+/** Extra clearance between the arrow and the viewport edge, so it hugs the edge without sitting half off. */
 const EDGE_MARGIN = 8
-
-/** Margins an arrow must not intrude into, because floating controls live there. */
-export interface Insets {
-  top: number
-  right: number
-  bottom: number
-  left: number
-}
-
-export const NO_INSETS: Insets = { top: 0, right: 0, bottom: 0, left: 0 }
 
 export interface Arrow {
   id: string
@@ -65,7 +59,13 @@ export interface ArrowInput {
   project: (lat: number, lng: number) => Point | null
   /** The map container's pixel size; null before the map exists. */
   viewportSize: () => { width: number; height: number } | null
-  insets?: Insets
+  /**
+   * Rectangles the arrow must not sit on, because a floating control does (task 264).
+   *
+   * The arrow slides *along its edge* to clear these rather than being pushed inward — see slideClear. An
+   * empty list means every edge is free, which is the norm; the controls occupy only two corners.
+   */
+  keepOut?: KeepOutZone[]
 }
 
 /**
@@ -117,7 +117,7 @@ export function computeArrows(input: ArrowInput): Arrow[] {
   // Fixed in container coordinates, and always inside the box — see the note above.
   const centre: Point = { x: size.width / 2, y: size.height / 2 }
 
-  const insets = input.insets ?? NO_INSETS
+  const keepOut = input.keepOut ?? []
   const out: Arrow[] = []
 
   for (const cp of input.targets) {
@@ -141,7 +141,7 @@ export function computeArrows(input: ArrowInput): Arrow[] {
     out.push({
       id: cp.id,
       name: cp.name,
-      ...clampToBand(edge, size, insets),
+      ...slideClear(edge, size, keepOut),
       bearing,
       distance,
       label: `${cp.name}, ${distance} mod ${compassDanish(bearing)}`,
@@ -151,24 +151,52 @@ export function computeArrows(input: ArrowInput): Arrow[] {
 }
 
 /**
- * Move a point out of the margins the floating controls occupy.
+ * Slide a point *along the edge it sits on* until it clears the keep-out zones.
  *
- * **Clamped rather than dropped**, deliberately (task 264): direction is approximate at the edge anyway, so a
- * few pixels of slide costs almost nothing — while losing the arrow loses the only thing on screen telling
- * the patrol which way to walk.
+ * This replaces the band-clamp that shipped in task 264 and caused the bug in task 276. The band pushed every
+ * arrow inward by the height of the controls, so an arrow leaving the top edge on the *left* — where nothing
+ * floats — hung 112 px in mid-air instead of at the edge. Sliding keeps the arrow hugging the edge and simply
+ * moves it past the control: an arrow that would sit under the top-right stack slides left along the top edge,
+ * or down along the right edge, to just clear it.
  *
- * When the band is narrower than the arrow — a very short viewport — the arrow is centred in what is left
- * rather than pushed off one side, because clamping twice against contradictory bounds would otherwise pin it
- * outside the screen.
+ * The edge the point is on is read from which coordinate is pinned to the inset. A point on a horizontal edge
+ * slides in x; on a vertical edge, in y. It moves to the nearer clear side of the zone, so the arrow stays as
+ * close as it can to where the post actually is.
+ *
+ * A zone that spans the whole edge would leave nowhere to slide to; the final clamp keeps the point on screen
+ * rather than off it, which is the only case where an arrow can still end up touching a control. The controls
+ * are corner-sized, so it does not arise in practice.
  */
-function clampToBand(
+function slideClear(
   p: Point,
   size: { width: number; height: number },
-  insets: Insets,
+  zones: KeepOutZone[],
 ): Point {
+  const inset = ARROW_RADIUS + EDGE_MARGIN
+  const near = 0.5
+  const onHorizontalEdge =
+    Math.abs(p.y - inset) < near || Math.abs(p.y - (size.height - inset)) < near
+
+  let { x, y } = p
+  for (const z of zones) {
+    const inX = x >= z.x - ARROW_RADIUS && x <= z.x + z.width + ARROW_RADIUS
+    const inY = y >= z.y - ARROW_RADIUS && y <= z.y + z.height + ARROW_RADIUS
+    if (!inX || !inY) continue
+
+    if (onHorizontalEdge) {
+      const left = z.x - ARROW_RADIUS
+      const right = z.x + z.width + ARROW_RADIUS
+      x = Math.abs(x - left) <= Math.abs(x - right) ? left : right
+    } else {
+      const up = z.y - ARROW_RADIUS
+      const down = z.y + z.height + ARROW_RADIUS
+      y = Math.abs(y - up) <= Math.abs(y - down) ? up : down
+    }
+  }
+
   return {
-    x: clamp(p.x, insets.left + ARROW_RADIUS, size.width - insets.right - ARROW_RADIUS),
-    y: clamp(p.y, insets.top + ARROW_RADIUS, size.height - insets.bottom - ARROW_RADIUS),
+    x: clamp(x, inset, size.width - inset),
+    y: clamp(y, inset, size.height - inset),
   }
 }
 

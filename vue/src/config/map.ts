@@ -145,59 +145,77 @@ export const FALLBACK_ZOOM = 8
 export const TILE_RETRY_LIMIT = 3
 export const TILE_RETRY_BASE_DELAY_MS = 400
 
-// Where an edge arrow may not go (PRD 016, task 264).
+// Where the map's floating controls sit, so edge arrows can avoid them (PRD 016, task 264; corrected task
+// 276).
 //
-// `MapsView` floats three things over the map: the layer/locate control stack top-right, the notices top-left,
-// and the registrations handle bottom-centre — all in the same overlay layer the arrows use. An arrow that
-// lands under the locate button is worse than no arrow at all, because it is invisible *and* it steals the
-// tap.
+// `MapsView` floats things over the map in the same layer the arrows use, and an arrow under the locate
+// button is worse than no arrow — it is invisible *and* it steals the tap. But the controls are **in the
+// corners**, not across whole edges: the layer/locate stack is top-right, the registrations handle is
+// bottom-centre. The notices are top-left and only sometimes present.
 //
-// So arrows are confined to the **vertical middle band** of each edge. The extents below are what the controls
-// themselves occupy, in CSS pixels, *excluding* the safe-area inset — which is added at call time from the
-// same `--sat`/`--sab` custom properties the controls are positioned with (`arrowKeepOut`). Deriving it rather
-// than hardcoding one number matters on a notched phone: `--sat` is 59 px on the maintainer's iPhone, so a
-// fixed keep-out tuned on a desktop browser would put arrows under the layer switcher on every real device.
-export const CONTROL_EXTENT = {
-  /** The control stack (two ≥ 44 px targets plus spacing) and the notices that sit level with it. */
-  top: 112,
-  /** The registrations handle plus the bottom nav. */
-  bottom: 96,
-  /** Nothing floats at the sides — just enough to clear the screen edge. */
-  sides: 8,
-} as const
+// The first version (task 264) reserved a full-width band — 112 px off the top, 96 off the bottom — and that
+// broke the feature it was protecting: an arrow leaving the top edge on the *left*, where nothing floats, was
+// shoved 112 px inward and hung in mid-air instead of hugging the edge. So the keep-out is now a set of
+// **rectangles** the arrow slides along the edge to clear (see arrowPlacement.slideClear), and the rest of
+// every edge is free.
+//
+// The notices are deliberately **not** a zone. They are top-left, conditional, and reserving space for them
+// is exactly what made the left of the top edge float; a rare transient overlap with a notice is the better
+// trade. Sizes are anchored to the corners the controls actually occupy, safe-area aware because `--sat` is
+// 59 px on a notched phone and 0 on desktop.
 
-/** Margins an arrow must stay out of. */
-export interface ArrowInsets {
-  top: number
-  right: number
-  bottom: number
-  left: number
+/** A rectangle in the map container's pixel space. */
+export interface KeepOutZone {
+  x: number
+  y: number
+  width: number
+  height: number
 }
 
+// The control stack's footprint: a couple of stacked ≥ 44 px targets, inset ~12 px from the top-right corner.
+const CONTROL_STACK = { width: 60, height: 108, margin: 12 } as const
+// The registrations handle: a pill centred on the bottom edge, above the safe-area inset.
+const HANDLE = { width: 240, height: 56, margin: 12 } as const
+
 /**
- * The keep-out margins for a given safe-area reading.
+ * The rectangles an edge arrow must not sit on, for a given viewport and safe-area reading.
  *
- * Pure, so the composition can be tested without a browser — the reading needs a device, the arithmetic does
- * not. Same split as `safeArea.insetVars`.
- *
- * A negative or non-finite reading is treated as zero rather than trusted: the safe-area properties can read
- * as anything before the first paint (see `safeArea.ts`, which discards an all-zero read for the same class of
- * reason), and either value here would place an arrow off screen.
+ * Pure and viewport-relative, so it can be tested without a browser — the reading and the size need a device,
+ * the arithmetic does not.
  */
-export function arrowKeepOut(safe: { top: number; bottom: number }): ArrowInsets {
-  return {
-    top: CONTROL_EXTENT.top + usableInset(safe.top),
-    bottom: CONTROL_EXTENT.bottom + usableInset(safe.bottom),
-    right: CONTROL_EXTENT.sides,
-    left: CONTROL_EXTENT.sides,
-  }
+export function arrowKeepOutZones(
+  size: { width: number; height: number },
+  safe: { top: number; bottom: number },
+): KeepOutZone[] {
+  const top = usableInset(safe.top)
+  const bottom = usableInset(safe.bottom)
+
+  return [
+    // Top-right: the layer switcher and locate button. From the very top edge (y = 0) down past the
+    // controls, so an arrow grazing the top-right corner is caught even in the notch area above the
+    // controls' own inset.
+    {
+      x: size.width - CONTROL_STACK.width - CONTROL_STACK.margin,
+      y: 0,
+      width: CONTROL_STACK.width + CONTROL_STACK.margin,
+      height: CONTROL_STACK.height + top,
+    },
+    // Bottom-centre: the registrations handle.
+    {
+      x: size.width / 2 - HANDLE.width / 2,
+      y: size.height - bottom - HANDLE.height - HANDLE.margin,
+      width: HANDLE.width,
+      height: HANDLE.height + bottom + HANDLE.margin,
+    },
+  ]
 }
 
 // A safe-area reading we can add to a pixel extent.
 //
-// `Math.max(0, NaN)` is `NaN`, which would propagate into a CSS `top` and place the arrow nowhere — so the
-// non-finite case is checked explicitly rather than assumed away by the clamp. Not hypothetical:
-// `parseFloat('')` on an unset custom property is exactly `NaN`, and this function is public.
+// `Math.max(0, NaN)` is `NaN`, which would propagate into a CSS coordinate and place the arrow nowhere — so
+// the non-finite case is checked explicitly rather than assumed away by the clamp. Not hypothetical:
+// `parseFloat('')` on an unset custom property is exactly `NaN`, and the safe-area values can read as anything
+// before the first paint (see `safeArea.ts`).
 function usableInset(value: number): number {
   if (!Number.isFinite(value) || value < 0) return 0
   return value
