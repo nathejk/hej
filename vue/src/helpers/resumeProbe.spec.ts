@@ -160,6 +160,19 @@ describe('toMarkdown', () => {
     expect(md).toContain('12s')
   })
 
+  // The document facts are what task 297 turns on: a reload and a second navigation look identical in a
+  // table of events, and have entirely different causes.
+  it('carries the per-load document facts', () => {
+    const md = toMarkdown(
+      [entry({ event: 'mount', load: 'ab12', nav: 'reload', path: '/genoptag', controlled: true })],
+      'iPhone',
+    )
+
+    expect(md).toContain('ab12')
+    expect(md).toContain('reload')
+    expect(md).toContain('/genoptag')
+  })
+
   it('says so when nothing was recorded', () => {
     expect(toMarkdown([], 'x')).toContain('Ingen hændelser optaget')
   })

@@ -23,6 +23,7 @@ import {
   PROBED_EVENTS,
   UNMARKED,
   groupByMark,
+  navigationType,
   toMarkdown,
   verdictFor,
   verdictLabel,
@@ -113,6 +114,16 @@ function record(event: ProbedEvent, persisted?: boolean) {
     load: LOAD_ID,
   }
   if (persisted !== undefined) entry.persisted = persisted
+  // Document facts, recorded on the mount only: they are properties of this load, not of the event, and
+  // repeating them on every row would make the pasted table unreadable.
+  if (event === 'mount') {
+    entry.nav = navigationType()
+    entry.path = typeof location === 'undefined' ? '' : location.pathname
+    entry.controlled =
+      typeof navigator !== 'undefined' && 'serviceWorker' in navigator
+        ? Boolean(navigator.serviceWorker.controller)
+        : undefined
+  }
   const next = [...entries.value, entry]
   entries.value = next
   // Written inside the handler rather than in a watcher: `pagehide` may be the last code that runs
@@ -161,6 +172,18 @@ onMounted(() => {
 onBeforeUnmount(() => listeners.forEach((off) => off()))
 
 const groups = computed(() => groupByMark(entries.value))
+
+// This document's own identity, shown on screen so the two-loads question can be read at a glance
+// rather than only in a pasted table.
+const thisLoad = {
+  load: LOAD_ID,
+  nav: navigationType(),
+  path: typeof location === 'undefined' ? '' : location.pathname,
+  controlled:
+    typeof navigator !== 'undefined' && 'serviceWorker' in navigator
+      ? String(Boolean(navigator.serviceWorker.controller))
+      : 'n/a',
+}
 
 const platform = computed(() =>
   [
@@ -316,6 +339,22 @@ const clock = (ms: number) =>
           </tbody>
         </table>
       </div>
+    </section>
+
+    <section class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+      <h2 class="text-xs font-semibold uppercase tracking-wide text-slate-500">Denne indlæsning</h2>
+      <!-- The evidence for task 297: two documents a second apart could be a reload or a second
+           navigation, and those have entirely different causes. `nav` says which. -->
+      <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 font-mono text-xs text-slate-700">
+        <dt class="text-slate-500">load</dt>
+        <dd>{{ thisLoad.load }}</dd>
+        <dt class="text-slate-500">nav</dt>
+        <dd>{{ thisLoad.nav }}</dd>
+        <dt class="text-slate-500">path</dt>
+        <dd>{{ thisLoad.path }}</dd>
+        <dt class="text-slate-500">sw</dt>
+        <dd>{{ thisLoad.controlled }}</dd>
+      </dl>
     </section>
 
     <section class="rounded-xl border border-slate-200 bg-slate-50 p-3">

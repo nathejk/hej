@@ -81,6 +81,25 @@ export interface ProbeEntry {
    * mounts in *two* documents is just a reload. Same id means the first; different ids mean the second.
    */
   load?: string
+  /**
+   * How this document came to exist, from the Navigation Timing API: `navigate`, `reload`,
+   * `back_forward` or `prerender`. Recorded on `mount` only, since it is a fact about the document.
+   *
+   * This is the field that decides task 297. Two documents a second apart could be a *reload* (something
+   * in the app calling `location.reload`, or the service worker taking control) or a second *navigate*
+   * (iOS launching the PWA twice, or a full-document redirect). Those have completely different causes,
+   * and reading source code has not been able to tell them apart — the browser can.
+   */
+  nav?: string
+  /** The path this document loaded, so a launch that starts at `start_url` and moves is visible. */
+  path?: string
+  /**
+   * Whether a service worker was controlling this document at mount.
+   *
+   * `false` on the very first load after an install (nothing controls it until the worker activates),
+   * which is one of the few things that can plausibly differ between two loads a second apart.
+   */
+  controlled?: boolean
 }
 
 /**
@@ -147,6 +166,22 @@ export function groupByMark(entries: ProbeEntry[]): { mark: string; entries: Pro
  */
 export const UNMARKED = 'ingen vej valgt'
 
+/**
+ * How this document came to exist, from the Navigation Timing API.
+ *
+ * `'navigate'` — a fresh navigation. `'reload'` — something reloaded it. `'back_forward'` — a history
+ * traversal, which on iOS includes some app resumes. Unknown when the API is unavailable, which is
+ * itself worth recording rather than hiding behind a default.
+ */
+export function navigationType(): string {
+  try {
+    const [nav] = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[]
+    return nav?.type ?? 'ukendt'
+  } catch {
+    return 'ukendt'
+  }
+}
+
 const clock = (ms: number) =>
   new Date(ms).toLocaleTimeString('da-DK', {
     hour: '2-digit',
@@ -169,8 +204,8 @@ export function toMarkdown(entries: ProbeEntry[], platform: string): string {
   for (const group of groupByMark(entries)) {
     lines.push(`**${group.mark}** — ${verdictLabel(verdictFor(group.entries))}`)
     lines.push('')
-    lines.push('| tid | gap | event | visibility | persisted | loop? | load |')
-    lines.push('|---|---|---|---|---|---|---|')
+    lines.push('| tid | gap | event | visibility | persisted | loop? | load | nav | path | sw |')
+    lines.push('|---|---|---|---|---|---|---|---|---|---|')
     let previous: number | null = null
     for (const entry of group.entries) {
       const gap = previous === null ? '' : `${Math.round((entry.at - previous) / 1000)}s`
@@ -178,7 +213,8 @@ export function toMarkdown(entries: ProbeEntry[], platform: string): string {
       lines.push(
         `| ${clock(entry.at)} | ${gap} | \`${entry.event}\` | ${entry.visibility} | ` +
           `${entry.persisted === undefined ? '' : entry.persisted} | ${wouldCheck(entry) ? '**ja**' : 'nej'} | ` +
-          `${entry.load ?? ''} |`,
+          `${entry.load ?? ''} | ${entry.nav ?? ''} | ${entry.path ?? ''} | ` +
+          `${entry.controlled === undefined ? '' : entry.controlled} |`,
       )
     }
     lines.push('')
