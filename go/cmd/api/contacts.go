@@ -533,6 +533,11 @@ type versionCache struct {
 	entries map[string]versionCacheEntry
 	// now is injectable so tests can expire entries without sleeping.
 	now func() time.Time
+
+	// dataset and metrics are set by `observedAs` when this cache backs a `/api/sync` dataset
+	// (task 293). Both nil in tests that only exercise caching.
+	dataset string
+	metrics *syncMetrics
 }
 
 // versionCacheSweepAt is the size at which `put` sweeps expired entries.
@@ -549,6 +554,26 @@ type versionCacheEntry struct {
 
 func newVersionCache(ttl time.Duration) *versionCache {
 	return &versionCache{ttl: ttl, entries: map[string]versionCacheEntry{}, now: time.Now}
+}
+
+// observedAs names this cache's dataset and attaches metrics, returning the cache for chaining.
+//
+// The cache is the right place to observe version churn, because a `put` happens **exactly once per
+// derivation** — on a cache miss — and it is the only place that has both the key and the freshly
+// computed version. Deriving the key again at the call site would mean restating each dataset's keying
+// rule in a second place, which is how the two would drift.
+//
+// Note that this counts derivations from *every* caller of the derivation, not only `/api/sync`: churn
+// is a property of the version, not of the endpoint that asked for it.
+func (c *versionCache) observedAs(dataset string, m *syncMetrics) *versionCache {
+	if c == nil {
+		return c
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.dataset = dataset
+	c.metrics = m
+	return c
 }
 
 func (c *versionCache) get(key string) (string, bool) {
@@ -569,12 +594,19 @@ func (c *versionCache) put(key, version string) {
 		return
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	// Read under the lock, used after releasing it: `recordDerivation` takes the metrics' own lock, and
+	// holding two locks in an order nothing else guarantees is how a deadlock gets introduced later.
+	dataset, metrics := c.dataset, c.metrics
 	// Before inserting, so a cache that only ever grows through this path cannot outrun the sweep.
 	if len(c.entries) >= versionCacheSweepAt {
 		c.sweepExpiredLocked()
 	}
 	c.entries[key] = versionCacheEntry{version: version, expires: c.now().Add(c.ttl)}
+	c.mu.Unlock()
+
+	if metrics != nil {
+		metrics.recordDerivation(dataset, key, version)
+	}
 }
 
 // sweepExpiredLocked drops entries past their TTL. Caller holds the lock.

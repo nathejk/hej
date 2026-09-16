@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"time"
 
 	"nathejk.dk/internal/users"
 )
@@ -125,6 +126,10 @@ func (app *application) syncDatasets() []syncDataset {
 // @Failure      401  {object}  map[string]string
 // @Router       /sync [get]
 func (app *application) syncHandler(w http.ResponseWriter, r *http.Request) {
+	// Measured around the whole handler, including the derivations, because that is what a device waits
+	// for (PRD 017 §8 asks for "the endpoint's own timing").
+	started := time.Now()
+
 	s, ok := contextGetSession(r)
 	if !ok {
 		app.AuthenticationRequiredResponse(w, r)
@@ -154,7 +159,12 @@ func (app *application) syncHandler(w http.ResponseWriter, r *http.Request) {
 			// Logged, not returned. The other five datasets are still answerable, and a check that
 			// failed wholesale because one projection hiccuped would strand every dataset on the
 			// device rather than one.
+			//
+			// Error level and counted separately (task 293): a non-empty `unavailable` is a server
+			// fault rather than a state of the event, and it is the one thing in this response worth
+			// alerting on instead of reviewing afterwards.
 			app.Logger.Error("deriving sync version", "err", err, "dataset", ds.name, "userId", viewer.ID)
+			app.syncMetrics.recordUnavailable(ds.name)
 			out.Unavailable = append(out.Unavailable, ds.name)
 			continue
 		}
@@ -167,13 +177,25 @@ func (app *application) syncHandler(w http.ResponseWriter, r *http.Request) {
 	// if a client misbehaves and checks far more often than the served debounce, the browser's own
 	// cache absorbs it before the request reaches us.
 	w.Header().Set("Cache-Control", "private, max-age=5")
-	if r.Header.Get("If-None-Match") == etag {
+
+	// The 304 is also the measurement (task 293). It means every dataset this caller holds is unchanged
+	// — the device said so by sending a matching `If-None-Match` — which is exactly PRD 017 §9's ≥ 95 %
+	// target, measured without asking the client to send anything extra.
+	unchanged := r.Header.Get("If-None-Match") == etag
+	app.syncMetrics.recordCall(unchanged, time.Since(started))
+	if unchanged {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 
 	if err := app.WriteJSON(w, http.StatusOK, out, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
+	}
+
+	// Last, and after the response: a summary is a diagnostic, and nothing about it should sit between a
+	// device and its answer on the endpoint every device calls on every foreground.
+	if snapshot, due := app.syncMetrics.dueForSummary(); due {
+		snapshot.logSummary(app.Logger)
 	}
 }
 

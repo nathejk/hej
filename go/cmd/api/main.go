@@ -144,6 +144,11 @@ type application struct {
 	// answer by the device count. Nil is safe for both.
 	profileVersions  *versionCache
 	raceAreaVersions *versionCache
+
+	// syncMetrics accumulates the freshness check's own numbers (task 293): the aggregate unchanged
+	// ratio, and per-dataset version churn from a bounded witness sample. Nil is safe — every method on
+	// it tolerates a nil receiver — so tests need not wire it.
+	syncMetrics *syncMetrics
 }
 
 // @title        Hej Nathejk API
@@ -486,6 +491,10 @@ func run(logger *slog.Logger) error {
 		logger.Info("blob store ready", "path", cfg.blobPath)
 	}
 
+	// The freshness check's metrics, constructed before the caches so each can be handed the same
+	// instance (task 293).
+	syncMetrics := newSyncMetrics()
+
 	app := &application{
 		JsonApi: bff.JsonApi{Logger: logger},
 		config:  cfg,
@@ -498,19 +507,23 @@ func run(logger *slog.Logger) error {
 		eventing: ev,
 		blobs:    blobs,
 
+		// The freshness check's own numbers (task 293). Attached to each cache below, so a derivation is
+		// counted where it happens rather than at whichever endpoint asked for it.
+		syncMetrics: syncMetrics,
+
 		// Five seconds of version caching. The client polls every ~60 s, so this adds at
 		// most a few seconds to how stale an answer can be — well inside PRD 007's
 		// "without too much delay" — while collapsing several hundred devices' polls into
 		// a handful of queries per minute.
-		contactsVersions: newVersionCache(5 * time.Second),
+		contactsVersions: newVersionCache(5*time.Second).observedAs("contacts", syncMetrics),
 
 		// The map datasets get their own caches (task 269). Same 5 s bound as contacts for now; PRD 017
-		// will give each its own served poll interval.
-		checkpointsVersions: newVersionCache(5 * time.Second),
-		handoutsVersions:    newVersionCache(5 * time.Second),
-		scansVersions:       newVersionCache(5 * time.Second),
-		profileVersions:     newVersionCache(5 * time.Second),
-		raceAreaVersions:    newVersionCache(5 * time.Second),
+		// gives the whole check one served interval instead.
+		checkpointsVersions: newVersionCache(5*time.Second).observedAs("checkpoints", syncMetrics),
+		handoutsVersions:    newVersionCache(5*time.Second).observedAs("handouts", syncMetrics),
+		scansVersions:       newVersionCache(5*time.Second).observedAs("scans", syncMetrics),
+		profileVersions:     newVersionCache(5*time.Second).observedAs("profile", syncMetrics),
+		raceAreaVersions:    newVersionCache(5*time.Second).observedAs("race_area", syncMetrics),
 
 		pins: pinStoreFor(cfg),
 		sms:  sms.LogSender{Logger: logger},
