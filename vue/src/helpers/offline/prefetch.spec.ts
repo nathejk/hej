@@ -30,6 +30,9 @@ function fakeTarget() {
         return intervals.length
       },
       clearInterval() {},
+      // The prefetch loop passes no debounce (the default is zero/disabled), so this is never
+      // consulted for a timing decision; it is here because the loop's clock is an injected seam.
+      now: () => Date.now(),
     } satisfies FreshnessTarget,
     hide() {
       visible = false

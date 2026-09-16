@@ -60,6 +60,12 @@ export interface FreshnessTarget {
   onOnline(handler: () => void): () => void
   setInterval(handler: () => void, ms: number): number
   clearInterval(id: number): void
+  /**
+   * The clock, injected for the same reason as everything else here: the debounce is a decision
+   * about elapsed time, and a test that has to actually wait five seconds to assert a five-second
+   * window is a test nobody will keep.
+   */
+  now(): number
 }
 
 export interface FreshnessLoopSpec {
@@ -68,6 +74,18 @@ export interface FreshnessLoopSpec {
   /** Seconds between checks while visible. Zero or less disables the interval only. */
   intervalSeconds: number
   /**
+   * Minimum seconds between checks. Zero or less disables the debounce.
+   *
+   * Guards *repetition*, where `checking` guards *overlap* — a distinction that sounds academic and
+   * is not: unlock, glance at the map, lock, unlock again is how this app is used while walking, and
+   * each of those unlocks is a completed, non-overlapping, entirely redundant check.
+   *
+   * Deliberately defaulted to zero rather than to a config value. The loop is the mechanism; how
+   * often a given dataset is worth asking about is policy, and policy belongs to the caller that
+   * knows which dataset it is. `useSyncLoop` passes the served value.
+   */
+  debounceSeconds?: number
+  /**
    * Optional gate, consulted before every check.
    *
    * For a dataset the current user has no business fetching at all — a spejder has no contacts
@@ -75,6 +93,19 @@ export interface FreshnessLoopSpec {
    */
   enabled?: () => boolean
   target?: FreshnessTarget
+}
+
+/** Options for a single check. */
+export interface CheckOptions {
+  /**
+   * Ignore the debounce.
+   *
+   * For a user-initiated refresh only. The user has asked, and a control that visibly does nothing
+   * is worse than the request it saves. Everything else — the overlap guard, the visibility guard,
+   * `enabled` — still applies: forcing means "do not tell me it is too soon", not "fetch data this
+   * user may not have".
+   */
+  force?: boolean
 }
 
 export function browserFreshnessTarget(): FreshnessTarget {
@@ -90,6 +121,7 @@ export function browserFreshnessTarget(): FreshnessTarget {
     },
     setInterval: (handler, ms) => window.setInterval(handler, ms),
     clearInterval: (id) => window.clearInterval(id),
+    now: () => Date.now(),
   }
 }
 
@@ -107,14 +139,29 @@ export function useFreshnessLoop(spec: FreshnessLoopSpec) {
   // Guards against overlapping checks: a foreground event landing on top of an interval tick would
   // otherwise fire two requests, and on a slow link the second is pure waste.
   let checking = false
+  // Guards against *repeated* checks, which the overlap guard cannot see because they do not
+  // overlap. Null until the first check, so the mount check is never debounced away — nothing
+  // precedes it, and a loop that did nothing when it started would be a strange thing to own.
+  let lastCheckedAt: number | null = null
 
-  async function check() {
+  const debounceMs = Math.max(0, (spec.debounceSeconds ?? 0) * 1000)
+
+  function tooSoon(): boolean {
+    if (debounceMs <= 0 || lastCheckedAt === null) return false
+    return target.now() - lastCheckedAt < debounceMs
+  }
+
+  async function check(options: CheckOptions = {}) {
     if (stopped || checking) return
     // A hidden document must not generate traffic even if a timer somehow survives — belt and braces
     // around the visibility handling below.
     if (!target.isVisible()) return
     if (spec.enabled && !spec.enabled()) return
+    if (!options.force && tooSoon()) return
 
+    // Stamped before the check rather than after, so the window is "time since we last asked" and a
+    // slow round trip cannot extend it into a second skipped check.
+    lastCheckedAt = target.now()
     checking = true
     try {
       await spec.check()

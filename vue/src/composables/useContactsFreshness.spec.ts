@@ -46,6 +46,10 @@ function fakeTarget() {
     clearInterval(id) {
       timers.delete(id)
     },
+    // The contacts loop passes no debounce (the default is zero/disabled), so the clock is never
+    // consulted for a timing decision here. This file is about the trigger points; the debounce
+    // window has its own tests in `useFreshnessLoop.spec.ts`.
+    now: () => Date.now(),
 
     setVisible(v) {
       visible = v
