@@ -33,6 +33,10 @@ HTTP route and handler only.
 - [ ] Route and handler removed from `routes.go` / `contacts.go`.
 - [ ] `contactsVersionFor` and its `versionCache` retained and still tested.
 - [ ] OpenAPI annotations for the removed endpoint deleted.
+- [ ] `/api/config`'s `contacts_poll_seconds` removed with it, along with the now-dead
+      `contactsPollSeconds` in `vue/src/config/runtime.ts` and its remembered-value key —
+      nothing has read the client value since task 288, and the two halves belong together
+      (noted in task 289).
 - [ ] `contactsversion_test.go` reduced to the derivation's own tests.
 - [ ] The convention's reasoning still documented somewhere it will be found.
 - [ ] All four Go gates green.
