@@ -216,15 +216,18 @@ onMounted(async () => {
     location.watch()
   }
   document.addEventListener('visibilitychange', onVisibilityChange)
-  void scans.fetch()
-  // The cached copy first, so posts are on the map before the network answers — offline, or on a slow link
-  // at 02:00, that is the difference between a usable map and an empty one.
+  // Cached copies only — no fetches here.
+  //
+  // This view used to `fetch()` scans, checkpoints and handouts on mount and then never again for as
+  // long as it stayed mounted, which is the bug PRD 017 exists to fix: a patrol that scanned a post and
+  // looked at the map saw the old list. The app-level sync loop (task 286) now refetches these three
+  // whenever the server says they changed, so a fetch here would either duplicate its work or race it.
+  //
+  // Hydrating is still this view's job: posts and sheets have to be on the map before the network
+  // answers — offline, or on a slow link at 02:00, that is the difference between a usable map and an
+  // empty one.
   checkpoints.hydrate()
-  void checkpoints.fetch()
-  // Handouts follow the same cache-then-refresh pattern, for the same reason: the drawer should list the
-  // patrol's sheets even before the network answers.
   handouts.hydrate()
-  void handouts.fetch()
 })
 
 onBeforeUnmount(() => {

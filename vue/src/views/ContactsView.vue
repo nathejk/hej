@@ -29,7 +29,6 @@ import {
 import { Input } from '@/components/ui/input'
 import ContactRow from '@/components/contacts/ContactRow.vue'
 import PatrolLookup from '@/components/contacts/PatrolLookup.vue'
-import { useContactsFreshness } from '@/composables/useContactsFreshness'
 import { isCrewRole } from '@/config/roles'
 import { searchContacts } from '@/helpers/contactSearch'
 import { useContactsStore, type ContactEntry } from '@/stores/contacts.store'
@@ -47,12 +46,11 @@ const canLookUpPatrols = computed(() => isCrewRole(session.role))
 
 const query = ref('')
 
-// Starts the freshness loop for as long as this pane is mounted, and gives us the initial
-// refresh for free (task 162). Scoped here rather than app-wide so a user who never opens the
-// pane generates no polling traffic at all.
-useContactsFreshness()
-
 onMounted(() => {
+  // Cache only. Freshness is the app-level sync loop's job (PRD 017, task 288): this pane used to run
+  // its own loop, which meant two loops polling the same directory on the same triggers once the
+  // app-level one existed. The pane still hydrates, because drawing the cached copy immediately is
+  // what makes it usable offline and at 02:00 on a slow link.
   contacts.hydrate()
   favourites.hydrate(contacts.storage)
   favourites.pruneAgainstDirectory()

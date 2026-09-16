@@ -46,16 +46,16 @@ export function allRolesExcept(...excluded: Role[]): Role[] {
  * Whether this role has the contacts pane at all.
  *
  * Mirrors `users.MayUseContacts` in the BFF, which is the actual authority — this is for deciding
- * whether to *ask*. Two uses, and the second is why it exists as a function rather than being
- * inlined in the navigation config:
+ * what to *draw*: the nav entry, via `allRolesExcept('spejder')`.
  *
- *  - drawing the nav entry (via `allRolesExcept('spejder')`);
- *  - the quiet prefetch (task 194), which runs on every launch. Without a role gate, every spejder
- *    device would ask for a directory the server will always refuse, on every foreground — a few
- *    hundred phones generating 403s all race for a pane they cannot open.
+ * It used to gate the quiet prefetch too, so a spejder device would not ask for a directory the
+ * server always refuses. **That job moved to the server** (PRD 017, task 288): `/api/sync` simply
+ * omits the `contacts` key for a role that may not hold it, and the client asks for nothing it was
+ * not offered. That is strictly better than a gate here, because a client-side copy of the rule can
+ * disagree with the BFF — and when it did, the disagreement cost a 403 per foreground.
  *
- * A `null` role — nobody signed in, or a role this build does not know — answers false: prefetching
- * on a guess is worse than not prefetching.
+ * A `null` role — nobody signed in, or a role this build does not know — answers false: guessing that
+ * someone may see a directory is the wrong way to be wrong.
  */
 export function hasContactsPane(role: string | null | undefined): boolean {
   if (!role) return false

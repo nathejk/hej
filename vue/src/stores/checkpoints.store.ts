@@ -250,6 +250,11 @@ export const useCheckpointsStore = defineStore('checkpoints', {
      * must see, even though no post did.
      */
     async refreshIfVersionDiffers(version: string): Promise<boolean> {
+      // Hydrate first, or a cold start would compare against an empty version and refetch a map we
+      // already hold — the exact cost this design removes. Guarded, because hydrating over a fresher
+      // in-memory copy would put the stored one back.
+      if (!this.loaded) this.hydrate()
+
       const previous = this.version
       // Set before fetching so the version and the payload reach storage in one write.
       this.version = version

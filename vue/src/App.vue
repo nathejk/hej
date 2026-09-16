@@ -8,7 +8,6 @@ import { useTrackStore } from '@/stores/track.store'
 import { useOnboardingStore } from '@/stores/onboarding.store'
 import { useOfflineStore } from '@/stores/offline.store'
 import { registerOfflineDatasets } from '@/helpers/offline/reporters'
-import { useQuietPrefetch } from '@/helpers/offline/prefetch'
 import { useSyncLoop } from '@/composables/useSyncLoop'
 import { logEvent } from '@/helpers/trackDb'
 import BottomNav from '@/components/BottomNav.vue'
@@ -27,18 +26,18 @@ const track = useTrackStore()
 const onboarding = useOnboardingStore()
 const offline = useOfflineStore()
 
-// Keeps the small datasets current without asking anyone (task 194). Scoped to the app, so it covers
-// the device whose owner never opens `Kontakter` — which matters most in the run-up, when portraits
-// and details are still churning. Foreground and reconnect only; the during-race interval belongs to
-// the pane.
-useQuietPrefetch()
-
-// The app's single freshness loop (PRD 017, task 286): one request per foreground asks whether
-// anything this device holds has changed, and only the datasets whose answer differs are refetched.
-// Registered here because it covers every dataset, including panes the user has not opened.
+// The app's **single** freshness loop (PRD 017, tasks 286/288): one request per foreground asks
+// whether anything this device holds has changed, and only the datasets whose answer differs are
+// refetched.
 //
-// It supersedes `useQuietPrefetch` above and the contacts pane's own loop; task 288 removes them, and
-// until it does the two overlap on the contacts directory.
+// Registered here rather than per pane, deliberately. It replaced two loops that both polled the
+// contacts directory on the same triggers — an app-level quiet prefetch and the pane's own — plus a
+// mount-time scan fetch that never checked again. Being app-level is also what keeps the device of
+// someone who never opens `Kontakter` current, which matters most in the run-up while portraits and
+// details are still churning.
+//
+// What it must *not* become is one loop per dataset again: the whole point is that six datasets cost
+// one request, and a second loop alongside this one doubles the traffic it was built to remove.
 useSyncLoop()
 const route = useRoute()
 

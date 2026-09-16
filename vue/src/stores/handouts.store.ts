@@ -226,6 +226,10 @@ export const useHandoutsStore = defineStore('handouts', {
      * leaving a copy labelled with a version it does not have.
      */
     async refreshIfVersionDiffers(version: string): Promise<boolean> {
+      // Hydrate first, or a cold start would compare against an empty version and refetch sheets we
+      // already hold. Guarded, so hydrating cannot overwrite a fresher in-memory copy.
+      if (!this.loaded) this.hydrate()
+
       const previous = this.version
       this.version = version
       const refreshed = await versionedRefresh(previous, version, () => this.fetch())

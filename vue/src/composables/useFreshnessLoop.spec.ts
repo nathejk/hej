@@ -6,7 +6,7 @@ import {
 } from '@/composables/useFreshnessLoop'
 
 // A scriptable browser *and clock*, so the debounce window can be asserted without waiting for it.
-// Same reasoning as `useContactsFreshness.spec.ts`'s fake, plus `advance`.
+// Plus `advance`, `intervalMs` and `activeTimers`, which the trigger-point tests below need.
 function fakeTarget() {
   let visible = true
   let clock = 1_000_000
@@ -21,6 +21,7 @@ function fakeTarget() {
     tick(): void
     advance(ms: number): void
     activeTimers(): number
+    intervalMs(): number | null
   } = {
     isVisible: () => visible,
     onVisibilityChange(handler) {
@@ -61,6 +62,7 @@ function fakeTarget() {
       clock += ms
     },
     activeTimers: () => timers.size,
+    intervalMs: () => [...timers.values()][0]?.ms ?? null,
   }
   return target
 }
@@ -163,6 +165,246 @@ describe('useFreshnessLoop debounce', () => {
       expect(calls.n).toBe(3)
       loop.stop()
     }
+  })
+})
+
+describe('useFreshnessLoop trigger points', () => {
+  // These assertions came from `useContactsFreshness.spec.ts` (tasks 162/190), which tested the shared
+  // loop through the one dataset that happened to use it. Task 288 removed that wrapper; the
+  // behaviours it pinned are the loop's own, so they moved here rather than being deleted.
+
+  it('checks immediately on start', () => {
+    const target = fakeTarget()
+    const { loop, calls } = countingLoop(target, 0)
+    expect(calls.n).toBe(1)
+    loop.stop()
+  })
+
+  it('checks on the interval while visible', async () => {
+    const target = fakeTarget()
+    const { loop, calls } = countingLoop(target, 0)
+    await flush()
+
+    target.tick()
+    await flush()
+    target.tick()
+    await flush()
+
+    expect(calls.n).toBe(3)
+    expect(target.intervalMs()).toBe(60_000)
+    loop.stop()
+  })
+
+  // A phone in a pocket has nobody reading anything, so it must generate no traffic at all.
+  it('stops polling entirely when hidden', () => {
+    const target = fakeTarget()
+    const { loop, calls } = countingLoop(target, 0)
+    expect(target.activeTimers()).toBe(1)
+
+    target.setVisible(false)
+    expect(target.activeTimers()).toBe(0)
+
+    // And even a stray timer firing must not produce a request.
+    target.tick()
+    expect(calls.n).toBe(1)
+    loop.stop()
+  })
+
+  // The case that matters most: someone opening the app wants what they are looking at to be current.
+  it('checks immediately on foreground, and resumes polling', async () => {
+    const target = fakeTarget()
+    const { loop, calls } = countingLoop(target, 0)
+    await flush()
+    target.setVisible(false)
+
+    target.setVisible(true)
+    await flush()
+
+    expect(calls.n).toBe(2)
+    expect(target.activeTimers()).toBe(1)
+    loop.stop()
+  })
+
+  it('checks on reconnect', async () => {
+    const target = fakeTarget()
+    const { loop, calls } = countingLoop(target, 0)
+    await flush()
+
+    target.goOnline()
+    await flush()
+
+    expect(calls.n).toBe(2)
+    loop.stop()
+  })
+
+  // Zero is the operator's kill switch for the interval — but not for the app. Foregrounding must
+  // still check, or "reduce load" silently becomes "stop updating".
+  it('honours a disabled interval without disabling foreground checks', async () => {
+    const target = fakeTarget()
+    const { loop, calls } = countingLoop(target, 0, 0)
+
+    expect(calls.n).toBe(1)
+    expect(target.activeTimers()).toBe(0)
+    await flush()
+
+    target.setVisible(false)
+    target.setVisible(true)
+    await flush()
+    expect(calls.n).toBe(2)
+
+    target.goOnline()
+    await flush()
+    expect(calls.n).toBe(3)
+    loop.stop()
+  })
+
+  it('treats a negative interval like zero', () => {
+    const target = fakeTarget()
+    const { loop } = countingLoop(target, 0, -30)
+    expect(target.activeTimers()).toBe(0)
+    loop.stop()
+  })
+
+  it('does not start when the document is hidden', () => {
+    const target = fakeTarget()
+    target.setVisible(false)
+    const { loop, calls } = countingLoop(target, 0)
+
+    expect(calls.n).toBe(0)
+    expect(target.activeTimers()).toBe(0)
+    loop.stop()
+  })
+
+  // Overlapping checks are pure waste on a slow link, which is the link this app runs on.
+  it('does not run overlapping checks', async () => {
+    const target = fakeTarget()
+    const releasers: (() => void)[] = []
+    let calls = 0
+    const loop = useFreshnessLoop({
+      check: () => {
+        calls += 1
+        return new Promise<void>((resolve) => releasers.push(resolve))
+      },
+      intervalSeconds: 60,
+      target,
+    })
+    expect(calls).toBe(1)
+
+    // Two more triggers while the first is still in flight.
+    target.tick()
+    target.goOnline()
+    expect(calls).toBe(1)
+
+    // Let the first finish; a later trigger works normally.
+    releasers.shift()?.()
+    await flush()
+    target.tick()
+    await flush()
+    expect(calls).toBe(2)
+
+    releasers.forEach((r) => r())
+    loop.stop()
+  })
+
+  // A dataset the current user has no business fetching — the `enabled` gate.
+  it('generates no traffic when disabled', () => {
+    const target = fakeTarget()
+    let calls = 0
+    const loop = useFreshnessLoop({
+      check: () => {
+        calls += 1
+      },
+      intervalSeconds: 60,
+      enabled: () => false,
+      target,
+    })
+
+    expect(calls).toBe(0)
+    target.tick()
+    expect(calls).toBe(0)
+    loop.stop()
+  })
+
+  it('stops cleanly, leaving no listeners or timers', async () => {
+    const target = fakeTarget()
+    const { loop, calls } = countingLoop(target, 0)
+    await flush()
+    const before = calls.n
+
+    loop.stop()
+
+    expect(target.activeTimers()).toBe(0)
+    target.setVisible(true)
+    target.goOnline()
+    target.tick()
+    await flush()
+    expect(calls.n).toBe(before)
+  })
+})
+
+describe('useFreshnessLoop served values', () => {
+  // The 02:00 lever (PRD 017): a widened interval must take effect on a device that may not be
+  // reloaded for hours, so the timer is restarted rather than left running on the old period.
+  it('restarts the timer when the interval changes', async () => {
+    const target = fakeTarget()
+    const { loop } = countingLoop(target, 0, 60)
+    expect(target.intervalMs()).toBe(60_000)
+
+    loop.setIntervalSeconds(300)
+    expect(target.intervalMs()).toBe(300_000)
+    expect(target.activeTimers()).toBe(1)
+    loop.stop()
+  })
+
+  it('drops the timer when the interval becomes zero, and restores it when it returns', async () => {
+    const target = fakeTarget()
+    const { loop, calls } = countingLoop(target, 0, 60)
+    // Let the mount check settle: while it is in flight the overlap guard would drop the foreground
+    // check below, which is correct behaviour and not what this test is about.
+    await flush()
+
+    loop.setIntervalSeconds(0)
+    expect(target.activeTimers()).toBe(0)
+
+    // Still checks on foreground: zero disables the interval and nothing else.
+    target.setVisible(false)
+    target.setVisible(true)
+    await flush()
+    expect(calls.n).toBe(2)
+
+    loop.setIntervalSeconds(60)
+    expect(target.intervalMs()).toBe(60_000)
+    loop.stop()
+  })
+
+  it('does not restart the timer when the interval is unchanged', () => {
+    const target = fakeTarget()
+    const { loop } = countingLoop(target, 0, 60)
+    const before = target.activeTimers()
+
+    loop.setIntervalSeconds(60)
+
+    expect(target.activeTimers()).toBe(before)
+    expect(target.intervalMs()).toBe(60_000)
+    loop.stop()
+  })
+
+  it('adopts a new debounce window', async () => {
+    const target = fakeTarget()
+    const { loop, calls } = countingLoop(target, 0)
+    await flush()
+
+    loop.setDebounceSeconds(60)
+    target.advance(1_000)
+    target.tick()
+    await flush()
+    expect(calls.n).toBe(1)
+
+    loop.setDebounceSeconds(0)
+    target.tick()
+    await flush()
+    expect(calls.n).toBe(2)
+    loop.stop()
   })
 })
 
