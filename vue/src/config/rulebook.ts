@@ -120,7 +120,7 @@ export const rulebookSections: RulebookSection[] = [
         lead: 'Det hvide mærke udleveres til de spejdere, der gennemfører Nathejk og opfylder nedenstående:',
         items: [
           'Har været på alle check-points',
-          'Kommer samlet i mål senest søndag morgen kl. 04.00',
+          'Kommer i mål senest søndag morgen kl. 04.00',
         ],
       },
       { kind: 'subheading', text: 'Det sorte mærke' },
