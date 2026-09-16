@@ -144,7 +144,10 @@ export function useFreshnessLoop(spec: FreshnessLoopSpec) {
   // precedes it, and a loop that did nothing when it started would be a strange thing to own.
   let lastCheckedAt: number | null = null
 
-  const debounceMs = Math.max(0, (spec.debounceSeconds ?? 0) * 1000)
+  // Mutable, because both values are served by the server and may change *while the loop runs* — the
+  // 02:00 load lever (PRD 017). Seeded from the spec so a caller with no served value still works.
+  let intervalSeconds = spec.intervalSeconds
+  let debounceMs = Math.max(0, (spec.debounceSeconds ?? 0) * 1000)
 
   function tooSoon(): boolean {
     if (debounceMs <= 0 || lastCheckedAt === null) return false
@@ -173,14 +176,33 @@ export function useFreshnessLoop(spec: FreshnessLoopSpec) {
   function startTimer() {
     // Zero or less is the operator's kill switch for the interval. Foreground and reconnect checks
     // keep working, so "reduce load" can never silently become "stop updating".
-    if (timer !== null || spec.intervalSeconds <= 0) return
-    timer = target.setInterval(() => void check(), spec.intervalSeconds * 1000)
+    if (timer !== null || intervalSeconds <= 0) return
+    timer = target.setInterval(() => void check(), intervalSeconds * 1000)
   }
 
   function stopTimer() {
     if (timer === null) return
     target.clearInterval(timer)
     timer = null
+  }
+
+  /**
+   * Adopt a new interval, served by the server.
+   *
+   * Restarts the timer rather than leaving it on the old period, which is the whole point: an
+   * operator widening the interval during an event needs it to take effect now, on a device that may
+   * not be reloaded for hours. Zero stops the timer and leaves every other trigger alone.
+   */
+  function setIntervalSeconds(seconds: number) {
+    if (seconds === intervalSeconds) return
+    intervalSeconds = seconds
+    stopTimer()
+    if (target.isVisible()) startTimer()
+  }
+
+  /** Adopt a new debounce window, served by the server. Takes effect on the next check. */
+  function setDebounceSeconds(seconds: number) {
+    debounceMs = Math.max(0, seconds * 1000)
   }
 
   const offVisibility = target.onVisibilityChange(() => {
@@ -213,5 +235,5 @@ export function useFreshnessLoop(spec: FreshnessLoopSpec) {
   // scope, so a try/catch would still print. Tests construct the loop directly and own `stop`.
   if (getCurrentScope()) onScopeDispose(stop)
 
-  return { stop, check }
+  return { stop, check, setIntervalSeconds, setDebounceSeconds }
 }

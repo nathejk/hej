@@ -9,6 +9,7 @@ import { useOnboardingStore } from '@/stores/onboarding.store'
 import { useOfflineStore } from '@/stores/offline.store'
 import { registerOfflineDatasets } from '@/helpers/offline/reporters'
 import { useQuietPrefetch } from '@/helpers/offline/prefetch'
+import { useSyncLoop } from '@/composables/useSyncLoop'
 import { logEvent } from '@/helpers/trackDb'
 import BottomNav from '@/components/BottomNav.vue'
 import PortraitNudge from '@/components/PortraitNudge.vue'
@@ -31,6 +32,14 @@ const offline = useOfflineStore()
 // and details are still churning. Foreground and reconnect only; the during-race interval belongs to
 // the pane.
 useQuietPrefetch()
+
+// The app's single freshness loop (PRD 017, task 286): one request per foreground asks whether
+// anything this device holds has changed, and only the datasets whose answer differs are refetched.
+// Registered here because it covers every dataset, including panes the user has not opened.
+//
+// It supersedes `useQuietPrefetch` above and the contacts pane's own loop; task 288 removes them, and
+// until it does the two overlap on the contacts directory.
+useSyncLoop()
 const route = useRoute()
 
 // Connectivity (task 090). The browser events are a hint, not the truth —
