@@ -330,4 +330,34 @@ describe('contacts store versioned refresh', () => {
 
     expect(store.version).toBe('server-truth')
   })
+
+  // "We checked" is not "we synced": the pane reports the second, so an unchanged answer must not move
+  // `syncedAt`. Moved here from `contacts.store.spec.ts` when task 292 retired `refreshIfStale`.
+  it('does not move syncedAt when nothing changed', async () => {
+    const store = useContactsStore()
+    store.storage = null
+    await store.refreshIfVersionDiffers('v1')
+    const syncedAt = store.syncedAt
+
+    getMock.mockClear()
+    expect(await store.refreshIfVersionDiffers('v1')).toBe(false)
+
+    expect(store.syncedAt).toBe(syncedAt)
+    expect(getMock).not.toHaveBeenCalled()
+  })
+
+  // A failed refetch keeps the copy *and* the old version, so the next check tries again rather than
+  // holding stale rows labelled as current. Also moved from `contacts.store.spec.ts` (task 292).
+  it('keeps the copy and the old version when the refetch fails', async () => {
+    const store = useContactsStore()
+    store.storage = null
+    await store.refreshIfVersionDiffers('v1')
+
+    getMock.mockRejectedValue(new Error('offline'))
+    expect(await store.refreshIfVersionDiffers('v2')).toBe(true)
+
+    expect(store.entries).toHaveLength(1)
+    expect(store.version).toBe('v1')
+    expect(store.error).not.toBe('')
+  })
 })

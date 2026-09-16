@@ -29,6 +29,13 @@ import (
 // something in this file starts assembling a manifest to hash it, the endpoint has lost its reason to
 // exist: it would then cost what it was built to avoid.
 //
+// # Push is not an alternative to any of this
+//
+// iOS 16.4+ requires *every* web push to raise a user-visible notification (`public/push-sw.js`
+// always calls `showNotification`), so there is no silent data push on our baseline. Using one for
+// invalidation would buzz every phone over a corrected phone number, or get the permission revoked.
+// Inherited from `/api/contacts/version`, which was retired in task 292 and stated this first.
+//
 // # Absence and unavailability are different answers, and the difference is load-bearing
 //
 // A dataset the caller may not hold is simply **not a key**. That is how a spejder's device learns
@@ -51,6 +58,12 @@ type syncResponse struct {
 	//
 	// Opaque is a contract, not an implementation detail: the client may only compare these for
 	// equality. Nothing may parse one, order two, or read a timestamp out of one.
+	//
+	// They travel in the **body**, not only in the `ETag`, and that is deliberate rather than
+	// redundant (PRD 009 §8, and inherited from the retired `/api/contacts/version`, task 292): the
+	// client's `fetchWrapper` does not expose response headers, so a header-only version would force
+	// every consumer to bypass it. The `ETag` is still set, for the browser's own conditional requests —
+	// and it is what makes the cheap case cheap, since an unchanged answer is a `304` with no body.
 	Versions map[string]string `json:"versions"`
 
 	// Unavailable names the datasets whose version could not be derived this time.

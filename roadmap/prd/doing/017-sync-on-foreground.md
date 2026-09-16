@@ -423,9 +423,9 @@ of work plus cleanup.
 - [x] Task 291: load test at expected device count; numbers recorded in §9
 
 **Phase 2 — cleanup**
-- [ ] Task 292: retire `/api/contacts/version` once no client calls it. **No client does
-      as of task 288**; it waits for a release to have shipped, so installed PWAs on an older
-      bundle keep working.
+- [x] Task 292: retire `/api/contacts/version`. Done early: the app is not launched and there
+      are no field devices outside the maintainer's control, so the wait-a-release gate — which
+      exists to protect users on an older cached bundle — had nobody to protect.
 - [x] Task 293: instrument the unchanged/changed ratio
 - [ ] Task 296: review those numbers after the first event
 

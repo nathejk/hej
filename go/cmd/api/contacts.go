@@ -413,59 +413,6 @@ func portraitVersion(p person.Person) string {
 	return p.PortraitRef
 }
 
-// @Summary      Contacts directory version
-// @Description  A short opaque version for the caller's directory, used by the client's freshness poll: on foreground, on reconnect, and on an interval while the app is open. Changes whenever anything the caller may see changes. Deliberately tiny — this is called by every device with the pane open, and it is the first continuous during-race traffic this API takes. Push cannot be used for invalidation, because iOS requires every web push to show a notification.
-// @Tags         contacts
-// @Produce      json
-// @Param        If-None-Match  header    string  false  "version held by the client"
-// @Success      200  {object}  contactsVersionResponse
-// @Success      304  "unchanged"
-// @Failure      401  {object}  map[string]string
-// @Failure      403  {object}  map[string]string  "spejdere do not get the contacts pane"
-// @Router       /contacts/version [get]
-func (app *application) contactsVersionHandler(w http.ResponseWriter, r *http.Request) {
-	viewer, ok := app.contactsViewer(w, r)
-	if !ok {
-		return
-	}
-
-	version, err := app.contactsVersionFor(viewer)
-	if err != nil {
-		app.ServerErrorResponse(w, r, err)
-		return
-	}
-
-	etag := `"` + version + `"`
-	w.Header().Set("ETag", etag)
-	// A short max-age is a second line of defence against the poll's cost: if a client
-	// misbehaves and polls far more often than the agreed interval, the browser's own cache
-	// absorbs it before the request reaches us.
-	w.Header().Set("Cache-Control", "private, max-age=10")
-	if r.Header.Get("If-None-Match") == etag {
-		w.WriteHeader(http.StatusNotModified)
-		return
-	}
-
-	if err := app.WriteJSON(w, http.StatusOK, contactsVersionResponse{Version: version}, nil); err != nil {
-		app.ServerErrorResponse(w, r, err)
-	}
-}
-
-type contactsVersionResponse struct {
-	// Version travels in the **body**, not only in the ETag, and that is the shared convention
-	// rather than this endpoint's quirk (PRD 009 §8, task 190): the client's `fetchWrapper` does
-	// not expose response headers, so a header-only version would force every consumer to bypass
-	// it. The ETag is still set, for the browser's own conditional requests.
-	//
-	// This endpoint **was** the reference implementation of that convention, and is superseded by
-	// `GET /api/sync` (PRD 017, sync.go), which answers the same question for every dataset the caller
-	// holds in one request instead of one per dataset. A new dataset needing during-event freshness adds
-	// a key there — do not copy this endpoint. It survives one release while installed clients may still
-	// be running an older bundle; task 292 retires it. `contactsVersionFor` stays either way, because
-	// `/api/sync` composes it.
-	Version string `json:"version"`
-}
-
 // contactsVersionFor returns the version for a viewer's permitted set, from a short-lived
 // cache.
 //

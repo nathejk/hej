@@ -88,14 +88,9 @@ func (app *application) routes() http.Handler {
 	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach
 	// them only through the patrol lookup, which is a separate, uncached surface.
 	router.HandlerFunc(http.MethodGet, "/api/contacts/manifest", app.requireAuth(app.contactsManifestHandler))
-	// The freshness poll: every device with the pane open calls this on an interval, so it
-	// is deliberately the cheapest endpoint in the API. Not a push, because iOS requires
-	// every web push to raise a notification and a corrected phone number is not worth
-	// buzzing a phone for (PRD 007 §8).
-	router.HandlerFunc(http.MethodGet, "/api/contacts/version", app.requireAuth(app.contactsVersionHandler))
 	// The multiplexed freshness check (PRD 017): one request answers "did anything I hold
-	// change?" for every dataset this caller has. Supersedes the per-dataset version endpoint
-	// above, which stays one release while installed clients still hold an older bundle.
+	// change?" for every dataset this caller has. It replaced a per-dataset version endpoint
+	// (`/api/contacts/version`, retired in task 292) — do not add another one; add a key here.
 	// Deliberately the cheapest authenticated endpoint in the API — it is called on every
 	// foreground by every device, so nothing in it may build a payload.
 	router.HandlerFunc(http.MethodGet, "/api/sync", app.requireAuth(app.syncHandler))

@@ -74,16 +74,6 @@ type config struct {
 	// supported way to use this.
 	installGate bool
 
-	// contactsPollSeconds is how often a client with the contacts pane open asks whether the
-	// directory has changed (PRD 007 §8).
-	//
-	// Configurable for the same reason as installGate, though against a smaller risk: this is
-	// the app's first continuous during-race traffic, so if it costs more than expected it has
-	// to be widenable mid-event. 0 or less disables the interval while leaving the foreground
-	// and reconnect checks in place.
-	//
-	// 60s by default, per the PRD's "within ~60 seconds while the app is open".
-	contactsPollSeconds int
 
 	// syncIntervalSeconds and syncDebounceSeconds tune the multiplexed freshness check (PRD 017):
 	// how often a client re-checks while the app is open, and the minimum gap between checks.
@@ -229,7 +219,6 @@ func loadConfig() config {
 	flag.BoolVar(&cfg.showBuildId, "show-build-id", envBool("SHOW_BUILD_ID", envStr("ENV", "development") != "production"), "Overlay the build id on the bottom nav (diagnostic)")
 	flag.BoolVar(&cfg.showLayoutDebug, "show-layout-debug", envBool("SHOW_LAYOUT_DEBUG", false), "Overlay viewport/safe-area/geometry values on the client (diagnostic)")
 	flag.BoolVar(&cfg.installGate, "install-gate", envBool("INSTALL_GATE", true), "Require the app to be installed before it can be used (PRD 005). Set INSTALL_GATE=false to disable the gate without a redeploy.")
-	flag.IntVar(&cfg.contactsPollSeconds, "contacts-poll-seconds", envInt("CONTACTS_POLL_SECONDS", 60), "How often the contacts pane checks for directory changes while open (PRD 007). 0 disables the interval; foreground and reconnect checks still run.")
 	flag.IntVar(&cfg.syncIntervalSeconds, "sync-interval-seconds", envInt("SYNC_INTERVAL_SECONDS", 60), "How often a client re-runs the multiplexed freshness check while the app is open (PRD 017). 0 disables the interval; foreground, reconnect and manual checks still run.")
 	flag.IntVar(&cfg.syncDebounceSeconds, "sync-debounce-seconds", envInt("SYNC_DEBOUNCE_SECONDS", 5), "Minimum seconds between freshness checks (PRD 017). Absorbs repeated foregrounding; a user-requested refresh ignores it. 0 disables the debounce.")
 	flag.StringVar(&cfg.dbDSN, "db-dsn", envStr("DB_DSN", ""), "MariaDB DSN (empty runs without a database)")

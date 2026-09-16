@@ -1,70 +1,40 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"nathejk.dk/internal/users"
 	"nathejk.dk/nathejk/table/person"
 )
 
-func fetchVersion(t *testing.T, app *application, srv *httptest.Server, phone, normalized string) (*http.Response, string) {
-	t.Helper()
-	cookies := authedCookies(t, app, srv, phone, normalized)
-	resp := getWithCookies(t, srv.URL+"/api/contacts/version", cookies)
+// The endpoint that used to back these tests (`GET /api/contacts/version`) was retired in task 292,
+// superseded by `/api/sync`. The *derivation* it exposed is still here and still composed by that
+// endpoint, so every assertion below survived the removal — rewritten against `contactsVersionFor`
+// directly, which is a better place to test it anyway: these are properties of the version, not of a
+// route. Auth and the spejder refusal moved with the route, to `TestSync_RequiresAuth` and
+// `TestSync_SpejderHoldsEverythingButContacts`.
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("reading body: %v", err)
-	}
-	resp.Body.Close()
+// crewViewer is the only input `contactsVersionFor` reads: the role, which decides the permitted set.
+func crewViewer() users.User { return users.User{ID: "u-crew", Role: users.RoleCrew} }
 
-	var v contactsVersionResponse
-	if resp.StatusCode == http.StatusOK {
-		if err := json.Unmarshal(body, &v); err != nil {
-			t.Fatalf("decoding version: %v\nbody: %s", err, body)
-		}
-	}
-	return resp, v.Version
-}
-
-func TestContactsVersion_RequiresAuthAndRefusesSpejder(t *testing.T) {
-	app, _ := contactsTestApp(t, []person.Person{banditRow()})
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
-
-	anon, err := http.Get(srv.URL + "/api/contacts/version")
-	if err != nil {
-		t.Fatalf("GET: %v", err)
-	}
-	io.Copy(io.Discard, anon.Body)
-	anon.Body.Close()
-	if anon.StatusCode != http.StatusUnauthorized {
-		t.Errorf("anonymous status = %d, want 401", anon.StatusCode)
-	}
-
-	spejder, _ := fetchVersion(t, app, srv, "30000001", "+4530000001")
-	if spejder.StatusCode != http.StatusForbidden {
-		t.Errorf("spejder status = %d, want 403", spejder.StatusCode)
-	}
-}
-
-// The version endpoint must agree with the manifest's, or the client refetches forever (or
-// never).
+// The version must agree with the one inside the manifest, or a client compares two different things
+// and refetches forever (or never).
+//
+// Now checked across the two surfaces a client actually uses: the `contacts` key in `/api/sync`, and
+// the `version` field in the manifest it stores. That pairing *is* the freshness mechanism.
 func TestContactsVersion_MatchesManifest(t *testing.T) {
 	app, _ := contactsTestApp(t, []person.Person{banditRow(), crewRow()})
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
 	_, manifest := fetchManifest(t, app, srv, "30000002", "+4530000002")
-	_, version := fetchVersion(t, app, srv, "30000002", "+4530000002")
 
-	if manifest.Version != version {
-		t.Errorf("version endpoint says %q, manifest says %q", version, manifest.Version)
+	_, sync := getSync(t, app, "+4530000002", "")
+	if sync.Versions["contacts"] != manifest.Version {
+		t.Errorf("/api/sync says %q, manifest says %q", sync.Versions["contacts"], manifest.Version)
 	}
 }
 
@@ -73,17 +43,20 @@ func TestContactsVersion_ChangesWithData(t *testing.T) {
 	// No caching for this test: the point is that data changes propagate, not how long
 	// they are allowed to lag.
 	app.contactsVersions = newVersionCache(0)
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
 
-	_, before := fetchVersion(t, app, srv, "30000002", "+4530000002")
+	before, err := app.contactsVersionFor(crewViewer())
+	if err != nil {
+		t.Fatalf("contactsVersionFor: %v", err)
+	}
 
 	changed := banditRow()
 	changed.Name = "Bo Bandit-Jensen"
 	stub.listed = []person.Person{changed}
 
-	_, after := fetchVersion(t, app, srv, "30000002", "+4530000002")
-
+	after, err := app.contactsVersionFor(crewViewer())
+	if err != nil {
+		t.Fatalf("contactsVersionFor: %v", err)
+	}
 	if before == after {
 		t.Error("the version did not change when a name did")
 	}
@@ -109,16 +82,14 @@ func TestContactsVersion_CoversEveryExposedField(t *testing.T) {
 			base := crewBanditRow()
 			app, stub := contactsTestApp(t, []person.Person{base})
 			app.contactsVersions = newVersionCache(0)
-			srv := httptest.NewServer(app.routes())
-			defer srv.Close()
 
-			_, before := fetchVersion(t, app, srv, "30000005", "+4530000005")
+			before, _ := app.contactsVersionFor(crewViewer())
 
 			changed := base
 			mutate(&changed)
 			stub.listed = []person.Person{changed}
 
-			_, after := fetchVersion(t, app, srv, "30000005", "+4530000005")
+			after, _ := app.contactsVersionFor(crewViewer())
 			if before == after {
 				t.Errorf("changing %s did not change the version; that edit would never reach devices", field)
 			}
@@ -126,42 +97,43 @@ func TestContactsVersion_CoversEveryExposedField(t *testing.T) {
 	}
 }
 
-// The cache is what makes a 60-second poll affordable. Without it, every device's poll is a
+// The cache is what makes a check on every foreground affordable. Without it, every device's check is a
 // query on the same BFF that takes position reports.
 func TestContactsVersion_CachesAcrossRequests(t *testing.T) {
 	app, stub := contactsTestApp(t, []person.Person{banditRow()})
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
 
-	cookies := authedCookies(t, app, srv, "30000002", "+4530000002")
-	for i := 0; i < 5; i++ {
-		resp := getWithCookies(t, srv.URL+"/api/contacts/version", cookies)
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+	for range 5 {
+		if _, err := app.contactsVersionFor(crewViewer()); err != nil {
+			t.Fatalf("contactsVersionFor: %v", err)
+		}
 	}
 
 	if len(stub.listedRoles) != 1 {
-		t.Errorf("5 polls caused %d queries, want 1 — the version cache is not working", len(stub.listedRoles))
+		t.Errorf("5 checks caused %d queries, want 1 — the version cache is not working", len(stub.listedRoles))
 	}
 }
 
 // Two viewers with the same permitted set share a cache entry; different sets do not.
 func TestContactsVersion_CacheIsKeyedByPermittedSet(t *testing.T) {
 	app, stub := contactsTestApp(t, []person.Person{banditRow(), goeglerRow(), crewRow()})
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
 
 	// A samarit and a plain crew member have identical permitted sets, so the second
-	// poll must be free.
-	fetchVersion(t, app, srv, "30000005", "+4530000005")
+	// derivation must be free.
+	if _, err := app.contactsVersionFor(users.User{ID: "u-1", Role: users.RoleSamarit}); err != nil {
+		t.Fatalf("contactsVersionFor: %v", err)
+	}
 	afterFirstCrew := len(stub.listedRoles)
-	fetchVersion(t, app, srv, "30000007", "+4530000007")
+	if _, err := app.contactsVersionFor(users.User{ID: "u-2", Role: users.RoleCrew}); err != nil {
+		t.Fatalf("contactsVersionFor: %v", err)
+	}
 	if len(stub.listedRoles) != afterFirstCrew {
 		t.Error("two crew viewers did not share a cache entry despite identical permitted sets")
 	}
 
 	// A bandit's set differs, so it must be computed separately.
-	fetchVersion(t, app, srv, "30000002", "+4530000002")
+	if _, err := app.contactsVersionFor(users.User{ID: "u-3", Role: users.RoleBandit}); err != nil {
+		t.Fatalf("contactsVersionFor: %v", err)
+	}
 	if len(stub.listedRoles) == afterFirstCrew {
 		t.Error("a bandit reused the crew cache entry; permitted sets differ and so must versions")
 	}
@@ -245,37 +217,5 @@ func TestVersionCache_ManyLiveEntriesAreAllServed(t *testing.T) {
 		if got, ok := cache.get(fmt.Sprintf("user-%d", i)); !ok || got != fmt.Sprintf("v-%d", i) {
 			t.Fatalf("live entry %d not served: %q, %v", i, got, ok)
 		}
-	}
-}
-
-func TestContactsVersion_NotModified(t *testing.T) {
-	app, _ := contactsTestApp(t, []person.Person{banditRow()})
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
-
-	cookies := authedCookies(t, app, srv, "30000002", "+4530000002")
-	first := getWithCookies(t, srv.URL+"/api/contacts/version", cookies)
-	io.Copy(io.Discard, first.Body)
-	first.Body.Close()
-
-	etag := first.Header.Get("ETag")
-	if etag == "" {
-		t.Fatal("no ETag on the version response")
-	}
-
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/contacts/version", nil)
-	for _, c := range cookies {
-		req.AddCookie(c)
-	}
-	req.Header.Set("If-None-Match", etag)
-	second, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET: %v", err)
-	}
-	io.Copy(io.Discard, second.Body)
-	second.Body.Close()
-
-	if second.StatusCode != http.StatusNotModified {
-		t.Errorf("status = %d, want 304", second.StatusCode)
 	}
 }

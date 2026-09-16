@@ -37,37 +37,11 @@ func TestRuntimeConfig_InstallGateCanBeSwitchedOff(t *testing.T) {
 	}
 }
 
-// The contacts poll interval is served so it can be widened mid-event; a value the client
-// cannot be told is not a lever.
-func TestRuntimeConfig_ContactsPollInterval(t *testing.T) {
-	app := newTestApp(t)
-	app.config.contactsPollSeconds = 60
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
-
-	body := getRuntimeConfig(t, srv.URL)
-	v, present := body["contacts_poll_seconds"]
-	if !present {
-		t.Fatal("contacts_poll_seconds must be present in /api/config")
-	}
-	if v != float64(60) {
-		t.Errorf("contacts_poll_seconds = %v, want 60", v)
-	}
-}
-
-// Zero is the kill switch for the interval, and it must survive the round trip rather than
-// being treated as "unset" and quietly replaced by a default.
-func TestRuntimeConfig_ContactsPollCanBeDisabled(t *testing.T) {
-	app := newTestApp(t)
-	app.config.contactsPollSeconds = 0
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
-
-	body := getRuntimeConfig(t, srv.URL)
-	if body["contacts_poll_seconds"] != float64(0) {
-		t.Errorf("contacts_poll_seconds = %v, want 0", body["contacts_poll_seconds"])
-	}
-}
+// The poll interval used to be served here as `contacts_poll_seconds`, with two tests asserting it
+// round-tripped and that zero survived as a kill switch rather than being read as "unset". Both moved
+// with the value itself: PRD 017 serves the interval in the `/api/sync` response instead, so that an
+// operator shedding load mid-event does not have to wait for a config refetch. The equivalents are
+// `TestSync_ServesTheIntervalAndDebounce` and `TestSync_ZeroIntervalIsServedAsZero` (task 292).
 
 func getRuntimeConfig(t *testing.T, base string) map[string]any {
 	t.Helper()

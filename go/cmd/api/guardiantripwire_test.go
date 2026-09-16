@@ -137,7 +137,11 @@ func TestContactsSurfacesNeverCarryAGuardianNumber(t *testing.T) {
 	// A surface missing from this list is a surface with no tripwire.
 	paths := []string{
 		"/api/contacts/manifest",
-		"/api/contacts/version",
+		// The multiplexed freshness check, which inherited `/api/contacts/version`'s place here when
+		// task 292 retired it. It returns only opaque hashes and integers, so it should be the dullest
+		// entry in this list — but a version is *derived from* a guardian number for the profile
+		// dataset, and "derived from" is exactly the kind of proximity worth a tripwire.
+		"/api/sync",
 		"/api/contacts/patrols/138",
 	}
 
@@ -180,7 +184,10 @@ func TestContactsResponseTypesHaveNoGuardianField(t *testing.T) {
 		contactsManifest{},
 		contactEntry{},
 		contactGroup{},
-		contactsVersionResponse{},
+		// Replaced `contactsVersionResponse{}` when task 292 retired that endpoint. Worth keeping a
+		// freshness response in this list: it is the one surface every device hits on every foreground,
+		// so a field added there would be the most widely leaked field in the app.
+		syncResponse{},
 		patrolLookupResponse{},
 		patrolLookupMember{},
 	}

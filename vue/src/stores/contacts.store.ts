@@ -62,9 +62,6 @@ interface ManifestResponse {
   entries: ContactEntry[] | null
 }
 
-interface VersionResponse {
-  version: string
-}
 
 /** One rendered group with its members, ready for the accordion. */
 export interface ContactGroupView {
@@ -321,7 +318,7 @@ export const useContactsStore = defineStore('contacts', {
      *
      * Offered by the readiness view (task 187). Deliberately does not clear `entries`: a user
      * freeing space should not watch the pane go blank underneath them, and the next
-     * `refreshIfStale` fetches it again anyway.
+     * the next sync check fetches it again anyway.
      */
     clearLocalCopy() {
       clearStored(this.storage, this.storageKey)
@@ -407,53 +404,11 @@ export const useContactsStore = defineStore('contacts', {
     },
 
     /**
-     * Asks whether our copy is current, and refetches only if not.
-     *
-     * The **pre-PRD-017 path**: it asks `/api/contacts/version` itself, which costs a request per
-     * dataset. Superseded by `refreshIfVersionDiffers`, which is handed the version by the multiplexed
-     * `/api/sync` check and so costs nothing when nothing changed.
-     *
-     * Kept while `/api/contacts/version` still exists (task 292 retires it), because an installed PWA
-     * can be running an older cached bundle: the endpoint and this method go together, and removing
-     * either early breaks freshness for exactly the users least likely to have updated.
-     */
-    async refreshIfStale(): Promise<boolean> {
-      this.hydrate()
-
-      // Nothing held yet: skip the version check and go straight for the payload.
-      if (!this.version) {
-        await this.fetch()
-        return true
-      }
-
-      try {
-        const data = await fetchWrapper.get<VersionResponse>('/api/contacts/version')
-        if (data.version === this.version) {
-          // Current. Not an error, and not a sync either — deliberately does not touch
-          // syncedAt, because "we checked" and "we refetched" are different facts and the UI
-          // shows the second one.
-          this.error = ''
-          return false
-        }
-      } catch (err) {
-        if (err instanceof HttpError && err.status === 403) {
-          await this.fetch()
-          return false
-        }
-        this.error = 'Kunne ikke opdatere kontakter.'
-        return false
-      }
-
-      await this.fetch()
-      return true
-    },
-
-    /**
      * Refetch the directory when the server's version differs from ours (PRD 017).
      *
-     * Where `refreshIfStale` above asks for the version itself, this is handed it — so the common
-     * case (nothing changed) costs **no request at all**, rather than a small one per dataset per
-     * foreground.
+     * The version is **handed** to this store by the multiplexed `/api/sync` check, rather than asked
+     * for per dataset — so the common case (nothing changed) costs **no request at all**. The
+     * per-dataset version endpoint this replaced was retired in task 292.
      *
      * This store is the one that already held a version, and it holds it for a second reason: the
      * manifest carries its own `version` field, which `fetch` records. So the version this method is
