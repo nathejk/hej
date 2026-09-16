@@ -41,11 +41,40 @@ the chain — **event → projection → version → refetch → UI** — with r
 likely culprit is the data path, not the resume. There is a two-second way to tell them apart; see
 step 5.
 
+**Before starting, check the device is on the build you think it is** (task 298): the app checks for a
+new build only once per document load, so an already-open app can be hours behind. Compare the build id
+on the bottom nav against `curl -s <host>/api/healthcheck | jq .system_info.version`. Testing a
+mechanism on a build that predates it is the most expensive way to get a false negative here.
+
 ### 1. Sign in as a real patrol member
+
+**Which datasets you can test depends entirely on who you are signed in as**, and that is the design
+rather than an obstacle. A crew/personnel account has **no patrol**, so `/api/sync` deliberately omits
+`scans`, `handouts` and `checkpoints` — there is no scan drawer to watch and no reveal to trigger. It
+does have `contacts` and `profile`.
+
+So:
+
+| signed in as | testable datasets | how to change them |
+|---|---|---|
+| **spejder with a patrol** | scans, handouts, checkpoints (+ profile) | `cmd/simscan`, skan QR binding |
+| **crew / personnel** | contacts, profile | edit a member in the register, or add a portrait |
+
+The crew path is worth doing even though it is not the headline scenario: it exercises the identical
+chain — event → projection → version → refetch → UI — and needs no simulation tooling at all. Change a
+phone number or add a portrait for somebody in the contact list, lock, wait, unlock: the row must
+change. If that works, the mechanism works, and the patrol-scoped datasets differ only in which
+projection moved.
+
+**A free prediction to check while you are there:** as crew, `/api/sync` must contain `contacts`,
+`profile` and `race_area` and **must not** contain `scans`, `handouts` or `checkpoints`. Absence is how
+the client learns not to ask (PRD 017 §6). If you can see the response, that is a one-glance
+confirmation of the permission model.
 
 The dev API starts on the mock directory but **switches to the real person projection as soon as a
 database is present** (`main.go`, `newSwitchableDirectory`). The mock's patrol ids do not exist in the
-projections, so a mock login cannot be used here: `simscan` and skan publish against real team ids.
+projections, so a mock login cannot be used for the patrol-scoped half: `simscan` and skan publish
+against real team ids.
 
 Use a real registered number, and read the PIN from the dev endpoint rather than the logs:
 
@@ -118,9 +147,14 @@ over by a tool written against our own reading of the schema.
 
 ## Acceptance Criteria
 
-- [ ] Reveal: new checkpoints drawn within one foreground, from a locked phone.
-- [ ] Handout: new sheet listed within one foreground.
-- [ ] Scan: new row in the drawer within one foreground.
+- [ ] Reveal: new checkpoints drawn within one foreground, from a locked phone. *(needs a spejder
+      login)*
+- [ ] Handout: new sheet listed within one foreground. *(needs a spejder login)*
+- [ ] Scan: new row in the drawer within one foreground. *(needs a spejder login)*
+- [ ] **Contacts: a changed row appears within one foreground.** *(any crew/personnel login — same
+      chain, no tooling needed)*
+- [ ] Confirmed as crew that `/api/sync` omits `scans`/`handouts`/`checkpoints` and carries
+      `contacts`/`profile`/`race_area`.
 - [ ] Same three, returning from the app switcher rather than from lock.
 - [ ] Same three, returning after a bfcache navigation (external link and back).
 - [ ] Confirmed no duplicate `/api/sync` per resume (debounce working, task 281).
@@ -148,3 +182,12 @@ over by a tool written against our own reading of the schema.
   and the feature looks broken. And the **Opdatér-button differential** — if the data appears on a
   manual tap, the trigger failed; if it does not, the data path did. That turns a "it didn't work"
   into one of two much smaller questions.
+- 2026-09-17 02:35 — The device available for this is signed in as **crew, not a spejder**, so there
+  is no scan drawer and nothing patrol-scoped to trigger — `/api/sync` legitimately omits those three
+  datasets for a user with no patrol. Added a **contacts-based route to the same verification**, which
+  needs no simulation tooling at all and exercises an identical chain; the patrol-scoped criteria stay
+  open for a spejder login. Also added the crew-omits-patrol-datasets check, which is a free
+  confirmation of the permission model while somebody is looking at a response.
+- 2026-09-17 02:40 — Noted task 298 at the top: that device was on `main.85` against `main.87`, so any
+  measurement taken now needs the build id checked first. Testing this mechanism on a build that
+  predates it would be the most expensive possible false negative.

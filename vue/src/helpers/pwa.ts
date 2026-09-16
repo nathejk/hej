@@ -6,6 +6,13 @@ let reloadWithNewVersion: ((reloadPage?: boolean) => Promise<void>) | undefined
 // initPwa registers the service worker. `onNeedRefresh` fires when a new build
 // is waiting; the app turns this into an update prompt (task 020).
 //
+// **Known gap (task 298): this checks for a new build once per document load and never again.**
+// `registerSW` triggers an update check at registration; nothing here calls `registration.update()`
+// afterwards. On iOS an installed PWA's document survives for hours across suspend/resume (task 280
+// measured 47 minutes and a 32-minute suspension on one document), so a device can sit on a stale build
+// indefinitely — which also means there is currently no way to ship a fix to already-open apps during
+// an event. Do not treat the banner's absence as "no update available" until that is fixed.
+//
 // Note what `registerType: 'prompt'` means for a user who taps "Senere": the waiting worker stays
 // waiting, so `onNeedRefresh` fires again on the next launch and the banner comes back — every launch,
 // until they accept it. That is the intended trade (never reload under someone mid-task, especially
