@@ -107,7 +107,7 @@ export function wouldCheck(entry: ProbeEntry): boolean {
  * exactly like the damning finding while meaning only "you have opened the page". A diagnostic that
  * cries wolf on first sight is worse than no diagnostic.
  */
-export type Verdict = 'checked' | 'events-but-no-check' | 'none' | 'not-a-resume'
+export type Verdict = 'checked' | 'events-but-no-check' | 'none' | 'not-a-resume' | 'left-not-returned'
 
 export function verdictFor(entries: ProbeEntry[]): Verdict {
   if (entries.length === 0) return 'none'
@@ -115,6 +115,15 @@ export function verdictFor(entries: ProbeEntry[]): Verdict {
   // though a mount *does* trigger a check and would otherwise report a cheerful, meaningless green.
   if (entries.every((e) => e.event === 'mount')) return 'not-a-resume'
   if (entries.some(wouldCheck)) return 'checked'
+  // Nothing was recorded while the document was visible, so there is no evidence the app has come back
+  // yet — this is the departure half of a path still in progress. Reporting it as a failed resume is what
+  // the cold-start control did on its first run: swiping the app away records only `blur`/`hidden`, and
+  // the return lands in a *new document* under a fresh label.
+  //
+  // The ambiguity is real and cannot be resolved from the log: "left and not back yet" and "came back and
+  // truly nothing fired" look identical from here. So this is labelled neutrally *and* the label says
+  // that if the tester did come back, the silence is itself the finding.
+  if (!entries.some((e) => e.visibility === 'visible')) return 'left-not-returned'
   return 'events-but-no-check'
 }
 
@@ -185,6 +194,8 @@ export function verdictLabel(verdict: Verdict): string {
       return 'loopet ville have tjekket'
     case 'events-but-no-check':
       return 'hændelser, men INTET tjek — loopet hører dem ikke'
+    case 'left-not-returned':
+      return 'forlod appen — intet registreret ved tilbagevenden. Hvis du ER kommet tilbage, er det selve fundet.'
     case 'not-a-resume':
       return 'siden blev åbnet — ingen genoptagelse målt endnu'
     case 'none':

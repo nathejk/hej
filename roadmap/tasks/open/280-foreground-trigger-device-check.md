@@ -60,7 +60,8 @@ the page shows a verdict rather than only rows.
 ## Acceptance Criteria
 
 - [x] A table in the Progress Log: resume path × event, for iOS home-screen PWA.
-      (Paste the probe's **Kopiér** output.) — three of five paths measured; see the log.
+      (Paste the probe's **Kopiér** output.) — lock/unlock ×3, app-switcher ×2, bfcache, cold
+      start. `telefonopkald` remains unmeasured; see the log.
 - [ ] Same for Android Chrome, at least for paths 1, 2 and 4.
 - [x] A stated conclusion: the exact set of events `browserFreshnessTarget` must
       listen to, and which are redundant.
@@ -71,7 +72,8 @@ the page shows a verdict rather than only rows.
       `LOOP_EVENTS` in `helpers/resumeProbe.ts` both updated to match the finding.
 - [x] Findings recorded in PRD 017 §11 *Decided*, replacing the pending device check.
 - [ ] `telefonopkald` path measured.
-- [ ] The double `mount` per load explained (see the log — `load` column added to answer it).
+- [x] The double `mount` per load explained — two documents, not a double-mounted view.
+      Now **task 297**.
 
 ## Progress Log
 
@@ -187,3 +189,38 @@ the page shows a verdict rather than only rows.
      may be created twice, quietly breaking PRD 017 §6's "exactly one app-level loop" — or simply
      two document loads a second apart. Added a `load` column (a per-document random id) so the
      next run answers it: **same id twice = a real problem; two ids = an ordinary reload.**
+- 2026-09-16 23:40 — **Third run. The conclusion holds, on more data, and the double-mount
+  question is answered.**
+
+  Two further lock/unlock cycles (23.37.35, 23.38.02) and a second app-switcher run (23.38.22),
+  all with the same shape: `blur` → `visibilitychange` hidden on the way out; `focus`, `focus`,
+  `visibilitychange` **visible** on the way back. The app-switcher run again showed
+  `pagehide`/`pageshow` with `persisted=true` — a genuine bfcache round trip — and
+  `visibilitychange` still led the return. **Five measured resumes, five checks.** Nothing to add
+  to `browserFreshnessTarget`.
+
+  Also confirmed: `focus` fires **twice** on every unlock, before `visibilitychange`. Listening to
+  it would mean three checks per resume where one suffices. All three events landed within the same
+  second, so the 5 s debounce would have absorbed them — but not listening is the better fix than
+  relying on that.
+
+- 2026-09-16 23:45 — **The double `mount` is two documents, not a double-mounted view.** The
+  `load` ids differ (`5lp5`, `snh3`), so the app is doing a full reload about a second after
+  launch. That rules out the thing I was actually worried about — a second `useSyncLoop`
+  registration, i.e. PRD 017 §6's "exactly one app-level loop" quietly broken — and leaves a
+  narrower but real problem: every launch pays for the app twice, on the cold-start path that this
+  same probe run showed is common (~51 s hidden was enough for iOS to discard the app). Split out
+  as **task 297**, with the service worker as the first suspect and `registerType: 'prompt'` as the
+  assumption to re-examine.
+
+- 2026-09-16 23:50 — **Two more probe fixes, both found by using it.**
+  1. **The chosen path now persists** (`hej.resumeProbe.mark.v1`). Swiping the app away ends the
+     document, so an in-memory selection was gone on return and the mount landed under "ingen vej
+     valgt" — splitting one cold-start test across two groups and reporting its departure half as
+     the damning verdict. The control could not work without this.
+  2. **A departure with no return is no longer reported as a failure.** New verdict
+     `left-not-returned`, neutral. The ambiguity is genuine and cannot be resolved from the log
+     — "left and not back yet" and "came back and truly nothing fired" look identical — so the
+     label says so out loud: *"Hvis du ER kommet tilbage, er det selve fundet."*
+  Also added an explicit **(ingen)** button, so a tester can stop attributing stray events to the
+  last path they tapped.

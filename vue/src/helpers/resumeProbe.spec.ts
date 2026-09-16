@@ -91,6 +91,28 @@ describe('verdictFor', () => {
       verdictFor([entry({ event: 'pagehide', visibility: 'hidden' }), entry({ event: 'mount' })]),
     ).toBe('checked')
   })
+
+  // Swiping the app away records only the departure; the return arrives in a new document. Before the
+  // path was persisted this split one cold-start test across two groups and reported the departure half
+  // as "hændelser, men INTET tjek" — the damning verdict, for a test that had not finished.
+  it('does not report a departure with no return as a failure', () => {
+    expect(
+      verdictFor([
+        entry({ event: 'blur', visibility: 'hidden' }),
+        entry({ event: 'visibilitychange', visibility: 'hidden' }),
+      ]),
+    ).toBe('left-not-returned')
+  })
+
+  // But a return that fired something the loop does not hear is the real finding, and must stay amber.
+  it('still reports a return with no check as the finding', () => {
+    expect(
+      verdictFor([
+        entry({ event: 'visibilitychange', visibility: 'hidden' }),
+        entry({ event: 'pageshow', visibility: 'visible', persisted: true }),
+      ]),
+    ).toBe('events-but-no-check')
+  })
 })
 
 describe('groupByMark', () => {

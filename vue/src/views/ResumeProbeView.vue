@@ -33,6 +33,13 @@ import {
 } from '@/helpers/resumeProbe'
 
 const STORAGE_KEY = 'hej.resumeProbe.v1'
+// The chosen path, persisted separately from the log.
+//
+// Necessary for the **cold-start control to work at all**: swiping the app away ends the document, so an
+// in-memory selection is gone on return and the mount lands under a fresh label — which is exactly what
+// happened on the first real run, splitting one cold-start test across two groups and reporting the
+// departure half as a failure.
+const MARK_KEY = 'hej.resumeProbe.mark.v1'
 
 // A short id for *this* document load, so the log can tell two mounts in one document (the view — and
 // possibly the app shell with it — being created twice) from two mounts in two documents (an ordinary
@@ -75,6 +82,28 @@ function write(next: ProbeEntry[]) {
   }
 }
 
+function readMark(): string {
+  try {
+    return localStorage.getItem(MARK_KEY) ?? UNMARKED
+  } catch {
+    return UNMARKED
+  }
+}
+
+function writeMark(next: string) {
+  try {
+    localStorage.setItem(MARK_KEY, next)
+  } catch {
+    // Then the cold-start control will split across two groups, as it did before this was persisted.
+    // Not worth failing the page over; every other path still works from memory.
+  }
+}
+
+function chooseMark(next: string) {
+  mark.value = next
+  writeMark(next)
+}
+
 function record(event: ProbedEvent, persisted?: boolean) {
   const entry: ProbeEntry = {
     at: Date.now(),
@@ -110,6 +139,9 @@ function listen(targetName: 'window' | 'document', event: BrowserEvent) {
 
 onMounted(() => {
   entries.value = read()
+  // Restored before the mount is recorded, so a cold start's return is filed under the path being
+  // tested rather than under "no path chosen".
+  mark.value = readMark()
 
   // `visibilitychange` is on document; the rest are on window. `freeze`/`resume` are Page Lifecycle
   // events that Chrome fires and Safari does not — their absence is itself a finding, so they are
@@ -191,9 +223,18 @@ const clock = (ms: number) =>
           :key="p"
           :variant="mark === p ? 'default' : 'outline'"
           size="sm"
-          @click="mark = p"
+          @click="chooseMark(p)"
         >
           {{ p }}
+        </Button>
+        <!-- So a tester can stop attributing events to a path once a run is finished, rather than having
+             every later stray event pile into the last one they tapped. -->
+        <Button
+          :variant="mark === UNMARKED ? 'default' : 'outline'"
+          size="sm"
+          @click="chooseMark(UNMARKED)"
+        >
+          (ingen)
         </Button>
       </div>
       <!-- Said out loud, because the page cannot know the difference between "opened and not yet used"
@@ -241,7 +282,9 @@ const clock = (ms: number) =>
             'text-emerald-700': verdictFor(group.entries) === 'checked',
             'text-amber-700': verdictFor(group.entries) === 'events-but-no-check',
             'text-slate-500':
-              verdictFor(group.entries) === 'not-a-resume' || verdictFor(group.entries) === 'none',
+              verdictFor(group.entries) === 'not-a-resume' ||
+              verdictFor(group.entries) === 'none' ||
+              verdictFor(group.entries) === 'left-not-returned',
           }"
         >
           {{ verdictLabel(verdictFor(group.entries)) }}
