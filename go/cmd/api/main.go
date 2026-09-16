@@ -127,6 +127,15 @@ type application struct {
 	// asks every ~60 s, and the answer is identical for everyone with the same permitted
 	// set. Nil is safe — the cache degrades to computing every time.
 	contactsVersions *versionCache
+
+	// checkpointsVersions, handoutsVersions and scansVersions cache the map datasets' versions per
+	// patrol, for the same reason and on the same terms as contactsVersions (task 269, feeding PRD 017's
+	// foreground-sync check). Separate caches rather than one keyed by dataset so each can take its own
+	// TTL later — contacts.go's reference warns that two datasets on one number cannot be tuned apart,
+	// and these will not change at the same rate. Nil is safe: each degrades to computing every time.
+	checkpointsVersions *versionCache
+	handoutsVersions    *versionCache
+	scansVersions       *versionCache
 }
 
 // @title        Hej Nathejk API
@@ -486,6 +495,12 @@ func run(logger *slog.Logger) error {
 		// "without too much delay" — while collapsing several hundred devices' polls into
 		// a handful of queries per minute.
 		contactsVersions: newVersionCache(5 * time.Second),
+
+		// The map datasets get their own caches (task 269). Same 5 s bound as contacts for now; PRD 017
+		// will give each its own served poll interval.
+		checkpointsVersions: newVersionCache(5 * time.Second),
+		handoutsVersions:    newVersionCache(5 * time.Second),
+		scansVersions:       newVersionCache(5 * time.Second),
 
 		pins: pinStoreFor(cfg),
 		sms:  sms.LogSender{Logger: logger},
