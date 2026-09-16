@@ -73,20 +73,24 @@ const arrows = computed(() => {
       :key="arrow.id"
       type="button"
       class="pointer-events-auto absolute flex h-12 w-12 -translate-x-1/2 -translate-y-1/2
-             flex-col items-center justify-center gap-0.5 rounded-full bg-white/95 shadow-md
-             ring-1 ring-slate-900/10"
+             items-center justify-center"
       :style="{ left: `${arrow.x}px`, top: `${arrow.y}px` }"
       :aria-label="arrow.label"
       @click="emit('select', arrow.id)"
     >
-      <!-- The chevron carries the direction and is hidden from assistive tech: the button's label already
-           says "mod nordøst", which is the usable form of the same fact. -->
+      <!-- Just the arrow now (task 279): no white disc, no distance label. Doubled in size (h-4 → h-8)
+           and thickened (stroke-width 3), in red. The white drop-shadow is not a background — it is a thin
+           halo that keeps a red chevron legible on both base layers now that the disc no longer provides
+           the contrast: red would otherwise vanish against the pink roads on the topo map and darken into
+           the aerial. The 48 px button stays as the tap target even though the visible arrow is smaller,
+           so the touch area does not shrink below the guideline. Distance stays in the aria-label — a
+           screen-reader user has no other source for it — it is only removed from the visual. -->
       <ChevronUp
-        class="h-4 w-4 text-orange-600"
+        class="h-8 w-8 text-red-600 drop-shadow-[0_0_2px_white]"
+        :stroke-width="3"
         :style="{ transform: `rotate(${arrow.bearing}deg)` }"
         aria-hidden="true"
       />
-      <span class="text-[10px] font-medium leading-none text-slate-700">{{ arrow.distance }}</span>
     </button>
   </div>
 </template>
