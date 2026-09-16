@@ -3,7 +3,7 @@
 **Status:** draft
 **Author:** agent session (Zed / Claude)
 **Created:** 2026-09-15
-**Last updated:** 2026-09-15 (§11.1 → `leaflet-rotate`; §11.2 → true north; §11.3 → cone whenever heading known; §11.4 → request after location grant)
+**Last updated:** 2026-09-15 (§11.1 → `leaflet-rotate`; §11.2 → true north; §11.3 → cone whenever heading known; §11.4 → request after location grant; §11.5 → independent of follow)
 **Approved:**
 **Shipped:**
 **Target users:** participant (patrol member on the map)
@@ -335,9 +335,17 @@ the map can actually rotate.
    an implementation detail for the permission task, not a further product
    decision.
 
-5. **Does heading-up force follow-position on?** A heading-up map centred nowhere
-   near the patrol is disorienting. Options: heading-up implies following, or they
-   stay independent and the user can pan away. Leaning towards independent (matches
-   the locate button) but worth confirming.
+5. **Does heading-up force follow-position on?** **Resolved (2026-09-15): no.**
+   The two stay independent toggles. Heading-up rotates the map; the locate button
+   controls whether the map re-centres on the patrol — and either can be on without
+   the other. This matches how the locate button already behaves and keeps each
+   button meaning exactly one thing, which is easier to reason about with a thumb
+   at 02:00 than a button that silently switches another on.
+
+   The cost is that a patrol can rotate the map while panned away from themselves,
+   looking at a heading-up view of somewhere they are not standing. That is a
+   legitimate thing to want (reading the route ahead, turned to match the
+   direction of travel), not a bug to design out. If it proves confusing in use,
+   the lighter fix is a hint, not coupling the toggles.
 6. **Smoothing constant and update rate.** A number somebody has felt on a device,
    not guessed. Belongs in the spike's output.
