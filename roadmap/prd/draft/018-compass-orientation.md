@@ -3,7 +3,7 @@
 **Status:** draft
 **Author:** agent session (Zed / Claude)
 **Created:** 2026-09-15
-**Last updated:** 2026-09-15 (§11.1 spike → `leaflet-rotate`; §11.2 resolved → true north)
+**Last updated:** 2026-09-15 (§11.1 → `leaflet-rotate`; §11.2 → true north; §11.3 → cone whenever heading known; §11.4 → request after location grant)
 **Approved:**
 **Shipped:**
 **Target users:** participant (patrol member on the map)
@@ -74,23 +74,29 @@ dot gains a **heading indicator** showing which way the device is pointing.
 - As a **patrol member on an old phone with no compass**, I want the control to be
   absent or plainly disabled rather than there-but-broken.
 
-**Happy path.** A patrol taps the orientation button. On iOS the first tap
-raises the system's motion-sensor permission prompt; they allow it. The map
-rotates so their heading is up, and the blue dot grows a translucent cone
-pointing up (they are, by definition, facing up now). They walk; the map turns
-under them. They tap the button again; the map animates back to north-up and the
-cone disappears. Next time they open the map, it is heading-up again.
+**Happy path.** During the location-permission step, once the patrol grants
+location, the app asks for motion-sensor access too (iOS; §11.4). With that
+granted, the blue position dot grows a translucent cone showing which way they are
+facing — on the still-north-up map it swings around the dot as they turn. They tap
+the new orientation button; the map rotates so their heading is up (the cone now
+points up by construction) and turns under them as they walk. A second tap returns
+to north-up; the cone stays, now swinging again. Next time they open the map, it
+is heading-up.
 
 **Edge cases.**
 
 - **No sensor / desktop.** The button is not shown (or shown disabled with a
-  clear reason). Nothing else changes.
-- **Permission denied** (iOS). The button reflects the blocked state, like the
-  locate button does for geolocation, and the map stays north-up.
+  clear reason), and no cone appears. Nothing else changes.
+- **Location declined.** No compass prompt at all (§11.4): with no position the
+  orientation feature has little to align, and a second prompt for someone who
+  just declined the first is exactly the pestering to avoid. The button is absent.
+- **Motion permission denied** (iOS). The button reflects the blocked state, like
+  the locate button does for geolocation, no cone appears, and the map stays
+  north-up.
 - **Compass noise / no calibration.** Raw compass heading jitters and can be tens
-  of degrees off before the figure-8 calibration. The map must not judder — the
-  heading is smoothed, and a rotating map that lags reality slightly is far better
-  than one that shakes.
+  of degrees off before the figure-8 calibration. Neither the map nor the cone may
+  judder — the heading is smoothed, and lagging reality slightly is far better than
+  shaking.
 - **Heading-up + following position** interact: both want to control the
   viewport. They compose (recentre on the patrol *and* rotate to heading), and
   the locate button and orientation button stay independent toggles.
@@ -107,16 +113,20 @@ cone disappears. Next time they open the map, it is heading-up again.
 ### Functional
 
 - [ ] A third button in the top-right control stack toggles orientation.
-- [ ] It is shown only when the device can supply a compass heading.
-- [ ] On iOS the first activation requests motion-sensor permission from within
-      the tap (the platform requires a user gesture); denial is reflected and
-      non-fatal.
+- [ ] It is shown only when the device can supply a compass heading (which, per
+      §11.4, means location is granted and motion permission is available).
+- [ ] Motion-sensor permission is requested **after location is granted, and only
+      then** (§11.4); on iOS this fires from a user gesture, since the platform
+      requires one. Denial is reflected and non-fatal.
+- [ ] The position dot shows a heading indicator (a cone/beam) **whenever a
+      heading is known** — in both north-up and heading-up mode (§11.3).
 - [ ] Heading-up mode rotates the map so the device heading is towards the top.
-- [ ] The rotation is smoothed so a noisy compass does not judder the map.
-- [ ] The position dot shows a heading indicator (a cone/beam) in heading-up mode.
-- [ ] North-up is restored on a second tap, with the indicator removed.
+- [ ] The rotation and the cone are smoothed so a noisy compass does not judder.
+- [ ] North-up is restored on a second tap; the cone remains (a heading is still
+      known), now free to swing rather than pinned up.
 - [ ] The mode is persisted (localStorage, `hej.map.*`), like the base layer.
-- [ ] The compass listener runs only while the map is visible and the mode is on.
+- [ ] The compass listener runs only while the map is visible and a heading is
+      wanted (the cone is shown or the map is heading-up).
 - [ ] The edge arrows' accessible compass word stays correct on a rotated map.
 
 ### Non-Functional
@@ -142,10 +152,10 @@ cone disappears. Next time they open the map, it is heading-up again.
   `Navigation` for the active state). Active/`aria-pressed` uses the same
   blue-when-on treatment as the locate button.
 - The heading indicator is a translucent wedge on the position `CircleMarker`,
-  widening outward, centred on the device heading. In heading-up mode it points
-  up by construction; the value is that it exists at all and confirms the map is
-  tracking. (Whether to also show it in north-up mode when a heading is known is
-  §11.)
+  widening outward, centred on the device heading. It is shown **whenever a
+  heading is known** (§11.3), not only when the map is rotated: on a north-up map
+  it swings around the dot as the patrol turns, and in heading-up mode it points
+  up by construction. Either way it confirms the app has a fix on their facing.
 - Rotation animates when toggled (a short ease) and tracks continuously while on.
 
 ## 8. Technical Considerations
@@ -221,7 +231,10 @@ the map can actually rotate.
       through `EventMap`.
 - [ ] Task: the third control button, following `LocateButton`'s pattern (shown
       only when a heading is available; blocked state on denial).
-- [ ] Task: heading indicator on the position marker.
+- [ ] Task: heading indicator (a cone/beam) on the position marker, shown
+      **whenever a heading is known** — north-up or heading-up (§11.3).
+- [ ] Task: request motion permission **after location is granted, and only
+      then** (§11.4), on iOS from the first user gesture the constraint allows.
 - [ ] Task: persist the mode (`hej.map.orientation`).
 - [ ] Task: fold the map bearing into the edge arrows' compass label so it stays
       correct when rotated.
@@ -298,13 +311,30 @@ the map can actually rotate.
      is not worth the weight.
 
 3. **Show the heading indicator only in heading-up mode, or whenever a heading is
-   known?** The request says heading-up. But a north-up map with a "you are facing
-   this way" cone is useful too and is most of the same code. Cheap to offer;
-   worth deciding.
-4. **What triggers the iOS permission prompt?** The orientation button's first tap
-   is the natural user gesture. Confirm we are happy to spend the prompt there
-   rather than during onboarding — the map is where the feature lives, so probably
-   yes.
+   known?** **Resolved (2026-09-15): whenever a heading is known.** The cone is
+   shown on the position dot in both modes — on a north-up map it swings around the
+   dot as the patrol turns, in heading-up mode it points up. It is most of the same
+   code either way, and "you are facing this way" is useful even when the map has
+   not been rotated. The listener therefore runs whenever the cone is wanted, not
+   only in heading-up mode (§6).
+
+4. **What triggers the motion-sensor permission, and when?** **Resolved
+   (2026-09-15): request it right after location is granted, and only then** — not
+   as a standalone prompt and not for users who declined location, for whom the
+   orientation feature has little to align and a second prompt would just pester.
+
+   One iOS mechanism caveat the implementation must respect:
+   `DeviceOrientationEvent.requestPermission()` needs a **user gesture**, and a
+   geolocation success callback is async, so the activation from the tap that
+   granted location may have lapsed by the time we know it was granted. So "after
+   location is granted" is the *gate*, but the actual iOS prompt fires from the
+   first user gesture available once that gate is open — in practice the first
+   interaction with the map/orientation control after location is on. On Android
+   no gesture is required, so listening can start as soon as the gate opens. Either
+   way: no location grant → no compass prompt. The exact gesture to hang it on is
+   an implementation detail for the permission task, not a further product
+   decision.
+
 5. **Does heading-up force follow-position on?** A heading-up map centred nowhere
    near the patrol is disorienting. Options: heading-up implies following, or they
    stay independent and the user can pan away. Leaning towards independent (matches
