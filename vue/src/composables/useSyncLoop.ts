@@ -66,6 +66,34 @@ export interface SyncLoopOptions {
 }
 
 /**
+ * What a check turned out to be, for a caller that has to say something about it.
+ *
+ * The loop itself does not care — it checks and moves on — but a user who tapped a refresh button is
+ * owed an answer, including in the boring case. `'unchanged'` is that case, and it is the *common*
+ * one: a control that stays silent when nothing changed reads as broken and gets tapped again.
+ */
+export type SyncStatus =
+  /** At least one dataset was refetched. */
+  | 'refreshed'
+  /** The check succeeded and everything we hold is current. */
+  | 'unchanged'
+  /** We could not ask: no signal, or the request never completed. */
+  | 'offline'
+  /** We asked and the server failed. Different from `offline` because "try again with signal" is
+   * advice, and giving it to someone who has signal is a lie they will act on. */
+  | 'error'
+  /** The session is gone; the loop has stopped. */
+  | 'unauthenticated'
+  /** Nothing ran — a check was already in flight, or nobody is signed in. */
+  | 'skipped'
+
+export interface SyncOutcome {
+  status: SyncStatus
+  /** Which datasets were actually refetched. Empty unless `status` is `'refreshed'`. */
+  refreshed: SyncDataset[]
+}
+
+/**
  * A dataset's refresh, keyed by the name the server uses.
  *
  * A `Record` over the `SyncDataset` union rather than a lookup by string, so a dataset the server can
@@ -113,6 +141,12 @@ export function useSyncLoop(options: SyncLoopOptions = {}) {
   // app's life. The existing auth handling owns the redirect; this only stops the traffic.
   let unauthenticated = false
 
+  // The last completed check's result, plus a counter so a caller can tell "nothing changed" from
+  // "the check never ran" — two answers a refresh button must not confuse, since the second is not
+  // something to reassure anybody about.
+  let outcome: SyncOutcome = { status: 'skipped', refreshed: [] }
+  let completed = 0
+
   const loop = useFreshnessLoop({
     // No point asking on behalf of nobody. Also covers the moment between app start and a restored
     // session, where a check would 401 and then permanently disable itself.
@@ -125,9 +159,20 @@ export function useSyncLoop(options: SyncLoopOptions = {}) {
       try {
         response = await fetchWrapper.get<SyncResponse>('/api/sync')
       } catch (err) {
-        if (err instanceof HttpError && err.status === 401) unauthenticated = true
-        // Everything else is a non-event: offline, a hiccup, a 500. The cached copies stay and the
-        // panes' own staleness affordances say so (PRD 009). Nothing to report here.
+        if (err instanceof HttpError && err.status === 401) {
+          unauthenticated = true
+          outcome = { status: 'unauthenticated', refreshed: [] }
+        } else {
+          // A non-event for the loop: offline, a hiccup, a 500. The cached copies stay and the panes'
+          // own staleness affordances say so (PRD 009). The two are kept apart only because the
+          // refresh control says one of them out loud, and "no signal" is the wrong thing to tell
+          // someone whose signal is fine.
+          outcome = {
+            status: err instanceof HttpError ? 'error' : 'offline',
+            refreshed: [],
+          }
+        }
+        completed += 1
         return
       }
 
@@ -145,6 +190,7 @@ export function useSyncLoop(options: SyncLoopOptions = {}) {
       const unavailable = new Set(response.unavailable ?? [])
 
       const names = Object.keys(versions) as SyncDataset[]
+      const refreshed: SyncDataset[] = []
       await Promise.all(
         names.map(async (name) => {
           const version = versions[name]
@@ -156,18 +202,70 @@ export function useSyncLoop(options: SyncLoopOptions = {}) {
           // build *does* know must keep working.
           if (!refresh) return
           try {
-            await refresh(version)
+            if (await refresh(version)) refreshed.push(name)
           } catch {
             // Contained on purpose. Every store promises not to throw, so reaching this is a bug
             // rather than a network condition — but one dataset's bug must not freeze the other four.
           }
         }),
       )
+
+      outcome = {
+        status: refreshed.length > 0 ? 'refreshed' : 'unchanged',
+        refreshed,
+      }
+      completed += 1
     },
   })
 
-  return {
-    stop: loop.stop,
-    check: (checkOptions?: CheckOptions) => loop.check(checkOptions),
+  /**
+   * Run a check now, on a user's behalf, and report what happened.
+   *
+   * Forced, so the debounce does not swallow a tap the user can see they made. The overlap guard still
+   * applies, and a check dropped by it reports `'skipped'` rather than borrowing the previous check's
+   * answer — telling someone "everything is up to date" on the strength of a check that never ran is
+   * exactly the kind of confident wrong answer this feature is meant to remove.
+   */
+  async function refreshNow(): Promise<SyncOutcome> {
+    // Answered without a check, because the loop is gated off and would otherwise report `'skipped'` —
+    // i.e. "already refreshing" — to somebody whose session has expired. Wrong, and wrong in the
+    // direction that keeps them tapping.
+    if (unauthenticated) return { status: 'unauthenticated', refreshed: [] }
+
+    const before = completed
+    await loop.check({ force: true })
+    if (completed === before) return { status: 'skipped', refreshed: [] }
+    return outcome
   }
+
+  const api = {
+    stop: () => {
+      active = null
+      loop.stop()
+    },
+    check: (checkOptions?: CheckOptions) => loop.check(checkOptions),
+    refreshNow,
+  }
+
+  // Registered so a control anywhere in the app can reach *this* loop rather than starting a second
+  // one. A module-level reference rather than provide/inject because the loop is a singleton by
+  // design (PRD 017 §6: "exactly one app-level loop"), and injection would let a stray provider
+  // create a second silently.
+  active = api
+
+  return api
+}
+
+let active: { refreshNow(): Promise<SyncOutcome> } | null = null
+
+/**
+ * Run the app's sync check on a user's behalf.
+ *
+ * For the manual refresh control (task 282). Answers `'skipped'` when no loop is running — which is
+ * the honest answer, and better than starting one on the spot: a loop created by a button press would
+ * live outside the app's lifecycle and never be stopped.
+ */
+export async function refreshNow(): Promise<SyncOutcome> {
+  if (!active) return { status: 'skipped', refreshed: [] }
+  return await active.refreshNow()
 }

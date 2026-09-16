@@ -8,6 +8,7 @@ import {
   DrawerTitle,
 } from '@/components/ui/drawer'
 import { Badge } from '@/components/ui/badge'
+import SyncRefreshButton from '@/components/SyncRefreshButton.vue'
 import type { Scan } from '@/stores/scans.store'
 import type { Handout } from '@/stores/handouts.store'
 import { verdictBadge } from './scanVerdict'
@@ -68,7 +69,14 @@ function pick(scan: Scan) {
   <Drawer :open="props.open" @update:open="onOpenChange">
     <DrawerContent class="pb-[var(--sab)]">
       <DrawerHeader class="pb-2">
-        <DrawerTitle>Din patrulje</DrawerTitle>
+        <!-- The map route is full-bleed, so it has no app bar to carry the app's refresh control
+             (PRD 017 §7, task 282). It goes here rather than into the floating map controls because
+             this is the surface whose content it refreshes — the drawer is where a patrol looks for
+             the scan they just made. -->
+        <div class="flex items-center justify-between gap-2">
+          <DrawerTitle>Din patrulje</DrawerTitle>
+          <SyncRefreshButton />
+        </div>
       </DrawerHeader>
 
       <div class="max-h-[60vh] overflow-y-auto pb-2">

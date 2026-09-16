@@ -14,6 +14,7 @@ import BottomNav from '@/components/BottomNav.vue'
 import PortraitNudge from '@/components/PortraitNudge.vue'
 import UpdatePrompt from '@/components/UpdatePrompt.vue'
 import OfflineNotice from '@/components/OfflineNotice.vue'
+import SyncRefreshButton from '@/components/SyncRefreshButton.vue'
 import UserMenu from '@/components/UserMenu.vue'
 import LayoutDebug from '@/components/LayoutDebug.vue'
 import { APP_NAME } from '@/config/brand'
@@ -191,9 +192,16 @@ const DevPanel = import.meta.env.DEV
       style="padding-top: calc(var(--sat) + 0.75rem)"
     >
       <span class="font-nathejk text-lg tracking-wide">{{ APP_NAME }}</span>
-      <!-- Profile + sign-out (PRD 003). Owns signOut() — there is exactly one
-           sign-out action in the app. -->
-      <UserMenu />
+      <div class="flex items-center gap-1">
+        <!-- One manual refresh for every pane that reads synced data (PRD 017 §7, task 282), rather
+             than one per view. The app bar is where a user looks for "is this current?", and a
+             per-pane copy would be three integrations of the same tap with three chances to drift.
+             The map has its own, in the drawer, because that route is full-bleed and has no header. -->
+        <SyncRefreshButton />
+        <!-- Profile + sign-out (PRD 003). Owns signOut() — there is exactly one
+             sign-out action in the app. -->
+        <UserMenu />
+      </div>
     </header>
 
     <!-- In flow, so it never covers the map or collides with UpdatePrompt. On a
