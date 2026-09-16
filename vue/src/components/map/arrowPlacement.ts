@@ -28,8 +28,18 @@ export type { KeepOutZone }
 /** Half the arrow's rendered size, so geometry can keep it fully on screen. */
 export const ARROW_RADIUS = 26
 
-/** Extra clearance between the arrow and the viewport edge, so it hugs the edge without sitting half off. */
-const EDGE_MARGIN = 8
+// How far the arrow's *centre* sits from the viewport edge.
+//
+// The rendered arrow is a 48 px circle, so its visible radius is 24 px; the geometry radius above is 26,
+// leaving 2 px of safety. The gap the eye sees between the circle and the edge is therefore `EDGE_INSET - 24`.
+//
+// Tuned to **6 px** (task 277). The first hug shipped at a 34 px inset — a 10 px gap — which, for an arrow
+// pinned to the top or bottom edge, read as too much air between it and the edge it is meant to be on. The
+// point is exactly on the line from the viewport centre to the post, so a smaller inset slides the arrow down
+// that same line closer to where it truly crosses the edge — "closer to its ideal line" — while keeping a
+// little space rather than sitting flush.
+const EDGE_MARGIN = 4
+export const EDGE_INSET = ARROW_RADIUS + EDGE_MARGIN
 
 export interface Arrow {
   id: string
@@ -130,7 +140,7 @@ export function computeArrows(input: ArrowInput): Arrow[] {
       target,
       size.width,
       size.height,
-      ARROW_RADIUS + EDGE_MARGIN,
+      EDGE_INSET,
     )
     if (!edge) continue
 
@@ -172,7 +182,7 @@ function slideClear(
   size: { width: number; height: number },
   zones: KeepOutZone[],
 ): Point {
-  const inset = ARROW_RADIUS + EDGE_MARGIN
+  const inset = EDGE_INSET
   const near = 0.5
   const onHorizontalEdge =
     Math.abs(p.y - inset) < near || Math.abs(p.y - (size.height - inset)) < near

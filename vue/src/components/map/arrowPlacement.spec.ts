@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   ARROW_RADIUS,
+  EDGE_INSET,
   computeArrows,
   type ArrowInput,
 } from '@/components/map/arrowPlacement'
@@ -155,16 +156,16 @@ describe('computeArrows', () => {
     }
   })
 
-  // The bug reported in task 276, as a test. An arrow leaving the top edge where nothing floats must **hug the
-  // edge** — the first version pushed it 112 px inward for controls that were not there. "Just inside the
-  // viewport" is a near-side within a few px of the edge.
+  // The bug reported in task 276, as a test, tightened in task 277. An arrow leaving the top edge where
+  // nothing floats must sit **on** the edge inset — not a control-band inside it. Asserting the exact inset
+  // rather than a loose bound pins "closer to the edge": the arrow's centre is EDGE_INSET from the top, which
+  // is a ~6 px visible gap.
   it('hugs the edge where no control floats', () => {
     // Due north exits the top edge, at the horizontal centre — far from the top-right stack.
     const [arrow] = computeArrows(input({ keepOut: ZONES, targets: [cp('n', 57, 9)] }))
 
     expect(arrow).toBeDefined()
-    // The arrow's centre is within a radius-plus-small-margin of the top edge, not a control-band inside it.
-    expect(arrow.y).toBeLessThanOrEqual(ARROW_RADIUS + 12)
+    expect(arrow.y).toBeCloseTo(EDGE_INSET, 5)
   })
 
   // Task 264's rule, preserved through the fix: an arrow that would sit under the top-right stack slides along
