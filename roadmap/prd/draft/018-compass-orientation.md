@@ -3,7 +3,7 @@
 **Status:** draft
 **Author:** agent session (Zed / Claude)
 **Created:** 2026-09-15
-**Last updated:** 2026-09-15
+**Last updated:** 2026-09-15 (rotation spike run — §11.1 resolved: `leaflet-rotate`, subject to a device check)
 **Approved:**
 **Shipped:**
 **Target users:** participant (patrol member on the map)
@@ -210,7 +210,9 @@ Sequenced so the risky decision is settled first and nothing else starts until
 the map can actually rotate.
 
 - [ ] Task: spike — rotate a Leaflet 1.9 map on iOS 16.4 and Chrome 111, decide
-      route 1 vs 3 (§11.1). Nothing else proceeds until this lands.
+      route 1 vs 3 (§11.1). **Code-level spike done 2026-09-15 — `leaflet-rotate`
+      chosen; the remaining piece is the on-device rendering/smoothness proof.**
+      Nothing else proceeds until that lands.
 - [ ] Task: `orientation.store.ts` — compass heading + iOS permission, smoothed,
       injectable, never throws.
 - [ ] Task: map rotation wired to the smoothed heading, with the toggle plumbed
@@ -225,11 +227,48 @@ the map can actually rotate.
 
 ## 11. Open Questions
 
-1. **How do we rotate the map — `leaflet-rotate` or a CSS wrapper?** The one that
-   gates everything. `leaflet-rotate` is the least code and keeps the arrows'
-   projection working, but it patches Leaflet internals and its maintenance is
-   uncertain against our pinned 1.9. A spike decides it, and the answer shapes
-   every task below.
+1. **How do we rotate the map — `leaflet-rotate` or a CSS wrapper?** **Resolved by the
+   spike (2026-09-15): `leaflet-rotate`, pending one on-device confirmation.**
+
+   What the spike established, at code level, against our pinned Leaflet:
+
+   - **Version fit.** `leaflet-rotate@0.2.8` declares `peerDependencies:
+     { leaflet: ^1.9.3 }`; we run `^1.9.4`. Clean match. (Last published 2023-07;
+     it targets exactly the Leaflet 1.9 line we are pinned to, so "unmaintained"
+     matters less than it would for a fast-moving base.)
+   - **API.** Adds `map.setBearing(deg)` / `map.getBearing()` and a `rotate: true`
+     map option — exactly the toggle this feature needs.
+   - **The arrows keep working, which was the real worry.** The plugin overrides
+     `layerPointToContainerPoint` (and its inverse) to apply the bearing, and
+     Leaflet computes `latLngToContainerPoint` through that — so `EdgeArrows`'
+     `project()` becomes rotation-aware for free. Confirmed in the plugin source,
+     not assumed. Only the arrows' *compass word* still needs `+ mapBearing`
+     (§8), because screen-up is no longer north.
+   - **Types.** Ships none, and `@types/leaflet` has no rotation API, so it needs a
+     small module-augmentation shim (`setBearing`/`getBearing`, the `rotate`
+     option). Written during the spike; type-check passed clean.
+   - **Build.** Vite bundles its ESM against Leaflet 1.9 without complaint. Size:
+     ~21 KB min / ~6 KB gzip, and in the real integration it sits inside the
+     already-lazy `leaflet` chunk (150 KB → ~171 KB), so the app shell is
+     unaffected — provided it is imported from within `EventMap` (the lazy chunk),
+     **not** the app entry. The spike proved this the hard way: importing it from
+     `main.ts` pulled all of Leaflet into the entry bundle, which is the mistake
+     the real code must avoid.
+
+   **What the spike could not answer — the remaining device check.** It ran in the
+   toolchain, not on glass, so it says nothing about *rendering*: whether rotated
+   square tiles show gaps/corners at the viewport edges, whether rotation is smooth
+   at 60 fps on an iPhone (Safari 16.4) and a mid-range Android (Chrome 111), and
+   whether the plugin's touch-rotate gesture fights our pan/zoom handlers. Those
+   are the things that would send us to route 3 (the oversized CSS-rotated
+   wrapper), and they can only be judged on a device. So the first implementation
+   task stays a **thin on-device proof** before the rest proceeds — the code-level
+   risk is now retired, the rendering risk is not.
+
+   The spike was run and then fully reverted (plugin uninstalled, shim and probe
+   removed); the tree is unchanged. Re-adding it belongs to the first task once
+   this PRD is approved.
+
 2. **True north or magnetic north?** iOS `webkitCompassHeading` is true-north
    compensated. Android's absolute orientation is magnetic and needs a declination
    (~3–4° E in Denmark) we would have to hardcode or ignore. Is ignoring a few
