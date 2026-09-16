@@ -1,8 +1,10 @@
 # 265 — Server-side on-time verdict for all three schemes
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-09-15
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-15
 
 ## Description
 
@@ -47,3 +49,7 @@ The `internal/scans` mock must be able to produce every verdict state, for dev s
 ## Progress Log
 
 - 2026-09-15 — Task created from PRD 016 phase 4.
+- 2026-09-15 — Picked up. The scan projection already carries `scheme`, `relativeCheckgroupId` and the
+  window on each row (tasks 252–254), so the verdict is a pure function over the patrol's scans. Computing
+  it in `internal/scans` (which already assembles the registrations) rather than in SQL: the `relative`
+  case needs the anchoring scan at *another* checkgroup, which is easiest over the in-memory set.
