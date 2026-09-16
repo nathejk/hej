@@ -6,10 +6,12 @@ import LayerSwitcher from '@/components/map/LayerSwitcher.vue'
 import LocateButton from '@/components/map/LocateButton.vue'
 import ScanList from '@/components/map/ScanList.vue'
 import EdgeArrows from '@/components/map/EdgeArrows.vue'
+import { drawerHandle } from '@/components/map/drawerHandle'
 import { arrowKeepOutZones } from '@/config/map'
 import { useLocationStore } from '@/stores/location.store'
 import { useScansStore } from '@/stores/scans.store'
 import { useCheckpointsStore } from '@/stores/checkpoints.store'
+import { useHandoutsStore } from '@/stores/handouts.store'
 import { useAppStore } from '@/stores/app.store'
 import {
   BASE_LAYER_STORAGE_KEY,
@@ -29,6 +31,7 @@ const EventMap = defineAsyncComponent(() => import('@/components/map/EventMap.vu
 const location = useLocationStore()
 const scans = useScansStore()
 const checkpoints = useCheckpointsStore()
+const handouts = useHandoutsStore()
 const app = useAppStore()
 
 const mapRef = ref<{
@@ -107,6 +110,10 @@ const scannedCheckpointIds = computed(() =>
 // at a post, so the client cannot work it out (task 275). All of the line's posts get an arrow: the patrol
 // chooses which to walk to when they arrive.
 const arrowTargets = computed(() => checkpoints.nextLine)
+
+// The bottom handle's visibility and label. Both are decided by a pure helper (see drawerHandle) so the
+// rule the first cut got wrong — it must show for a patrol with handouts but no scans — is unit-tested.
+const handle = computed(() => drawerHandle(scans.scans.length, handouts.handouts.length))
 
 function onSelectCheckpoint(id: string) {
   // Tapping an arrow means the user wants to look elsewhere — same reasoning as picking from the list.
@@ -206,6 +213,10 @@ onMounted(async () => {
   // at 02:00, that is the difference between a usable map and an empty one.
   checkpoints.hydrate()
   void checkpoints.fetch()
+  // Handouts follow the same cache-then-refresh pattern, for the same reason: the drawer should list the
+  // patrol's sheets even before the network answers.
+  handouts.hydrate()
+  void handouts.fetch()
 })
 
 onBeforeUnmount(() => {
@@ -306,10 +317,10 @@ onBeforeUnmount(() => {
       </p>
     </div>
 
-    <!-- Registrations handle, bottom-centre, above the nav. Hidden when the user
-         has no patrol (the BFF returns an empty list for personnel roles). -->
+    <!-- Overview handle, bottom-centre, above the nav. Shown when the patrol has registrations or
+         handouts; hidden for personnel roles and before the race, where the drawer would be empty. -->
     <div
-      v-if="scans.hasAny"
+      v-if="handle.visible"
       class="absolute inset-x-0 bottom-3 z-10 flex justify-center"
     >
       <button
@@ -318,13 +329,14 @@ onBeforeUnmount(() => {
         @click="listOpen = true"
       >
         <List class="h-4 w-4" aria-hidden="true" />
-        Registreringer ({{ scans.scans.length }})
+        {{ handle.label }}
       </button>
     </div>
 
     <ScanList
       :open="listOpen"
       :scans="scans.scans"
+      :handouts="handouts.handouts"
       @close="listOpen = false"
       @select="onSelectScan"
     />
