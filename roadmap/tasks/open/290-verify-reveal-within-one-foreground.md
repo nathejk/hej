@@ -151,10 +151,11 @@ over by a tool written against our own reading of the schema.
       login)*
 - [ ] Handout: new sheet listed within one foreground. *(needs a spejder login)*
 - [ ] Scan: new row in the drawer within one foreground. *(needs a spejder login)*
-- [ ] **Contacts: a changed row appears within one foreground.** *(any crew/personnel login — same
-      chain, no tooling needed)*
+- [x] **Contacts: a changed row appears within one foreground.** — confirmed on device 2026-09-17: a
+      portrait changed server-side appeared on unlock, with no prompt and no tap.
 - [ ] Confirmed as crew that `/api/sync` omits `scans`/`handouts`/`checkpoints` and carries
-      `contacts`/`profile`/`race_area`.
+      `contacts`/`profile`/`race_area`. *(the absent scan drawer is consistent with it, but the response
+      itself was not inspected — not ticking what was not looked at)*
 - [ ] Same three, returning from the app switcher rather than from lock.
 - [ ] Same three, returning after a bfcache navigation (external link and back).
 - [ ] Confirmed no duplicate `/api/sync` per resume (debounce working, task 281).
@@ -191,3 +192,16 @@ over by a tool written against our own reading of the schema.
 - 2026-09-17 02:40 — Noted task 298 at the top: that device was on `main.85` against `main.87`, so any
   measurement taken now needs the build id checked first. Testing this mechanism on a build that
   predates it would be the most expensive possible false negative.
+- 2026-09-17 04:00 — **The mechanism is confirmed end to end.** On `main.90`, a portrait changed
+  server-side appeared in the contact row on unlock — no prompt, no tap, no wait for the interval. That
+  exercises every layer this PRD touches: event → projection → version derivation → `/api/sync` → version
+  comparison → manifest refetch → portrait cache-bust → render.
+
+  What that leaves is **dataset-specific coverage, not mechanism risk**: scans, handouts and checkpoints
+  differ from contacts only in which projection moved and which store refreshes. Both remaining layers
+  have unit coverage (`syncmetrics_test.go`, `mapversion_test.go`, `syncVersions.spec.ts`), so the
+  residual risk is a wiring mistake in one of three dispatch entries rather than a design fault.
+
+  This task therefore stays open, deliberately, as **verification work that outlives PRD 017** — it needs
+  a spejder login and either `simscan` or a QR binding in skan, neither of which is available on the
+  device that ran this. It is no longer blocking the PRD.

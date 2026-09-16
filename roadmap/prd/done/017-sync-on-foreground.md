@@ -1,11 +1,11 @@
 # PRD 017 — One sync check on foreground, for every dataset the device holds
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed / Claude)
 **Created:** 2026-09-15
-**Last updated:** 2026-09-16
+**Last updated:** 2026-09-17
 **Approved:** 2026-09-16
-**Shipped:**
+**Shipped:** 2026-09-17
 **Target users:** participant (all roles — patrol members, crew, personnel)
 
 <!--
@@ -26,11 +26,10 @@ datasets whose answer differs.
 Today this exists for **contacts alone**. This PRD generalises it to every cached
 dataset, in **one** request rather than one per dataset.
 
-**State of play.** Half the mechanism is already in the repo: PRD 016 has shipped,
-and task 269 landed `go/cmd/api/mapversion.go` — cached, per-patrol version
-derivations for scans, handouts and revealed checkpoints, each with a
-changes-when-data-changes test. What is missing is the endpoint that multiplexes
-them, versions for profile and race area, and the client loop that consumes them.
+**Shipped 2026-09-17.** Confirmed end to end on an installed iOS PWA: a portrait changed
+server-side appeared in the contact row on unlock, with no prompt, no tap, and no wait for the
+interval — exercising event → projection → version → `/api/sync` → comparison → refetch → render.
+See §12 for the two verification tasks that deliberately outlive this document.
 
 ## 2. Problem & Motivation
 
@@ -505,3 +504,36 @@ is a Phase 1 device check rather than a decision to be argued.
   one into the other would blur that. `interval_seconds` appearing in both is
   accepted duplication, and the sync response is the one that wins, because the
   02:00 lever must take effect on the next check without a config refetch.
+
+## 12. Outstanding after shipping
+
+This PRD moves to `done/` with **two tasks still open**, which departs from the board's usual rule
+that every derived task lands first (`roadmap/prd/README.md`). Recorded here rather than done quietly,
+because the exception is the point: both are *verification* rather than work, and neither can be
+finished by anyone at a desk.
+
+- **Task 290** — the patrol-scoped half of the on-device check: a scan, a handout and a reveal
+  appearing within one foreground. The mechanism itself is confirmed (see §1), and these three differ
+  from the confirmed contacts case only in which projection moved and which store refreshes. It needs a
+  spejder login plus `cmd/simscan` or a QR binding in skan.
+- **Task 296** — reading the instrumentation after a real event: the unchanged ratio outside the first
+  hour, and a per-dataset judgement of churn. **This cannot happen until an event runs**, and holding a
+  shipped PRD open for a season to wait for it would make the board less honest, not more.
+
+Everything in §10 is otherwise done, including the three things that were not in the original plan:
+task 294 (a changed race area is a user-visible fact, not a refresh), task 295 (the version cache's
+key space stopped matching its own justification), and task 298 (the app never re-checked for a new
+build while open — which also meant no way to ship a fix mid-event).
+
+### What the device measurements changed about this PRD
+
+Worth keeping, because in three places the measurement contradicted the plan:
+
+1. **§11's first open question resolved itself as "already correct".** `visibilitychange` proved
+   sufficient across ten resumes on iOS 18.7 — including bfcache restores and a 32-minute suspension —
+   so the loop's listeners never needed widening. The concern was real; the answer was only knowable by
+   measuring, which is why `/genoptag` stays in the app.
+2. **§9's cost claim was wrong.** A check is *comparable* to a position report (0.92×), not "a small
+   fraction" as first drafted. Corrected in place rather than rounded toward the original wording.
+3. **The probe found a bug this PRD did not own** (task 298), and that bug had been quietly
+   undermining every device measurement taken for it.
