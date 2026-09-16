@@ -1,10 +1,10 @@
 # 281 — Debounce in useFreshnessLoop, with a manual-refresh override
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-09-16
-**Picked up by:**
-**Started:**
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-16
 **Completed:**
 
 ## Description
@@ -42,3 +42,9 @@ reaching for `Date.now()` directly, so tests can advance time deterministically.
 ## Progress Log
 
 - 2026-09-16 10:00 — Task created from PRD 017 phase 1.
+- 2026-09-16 10:20 — Picked up. Plan: add `now()` to `FreshnessTarget` so the window is
+  testable without a real clock; add `debounceSeconds` to the spec; track
+  `lastCheckedAt` and skip a non-forced check inside the window. `check` grows an
+  options argument (`{ force }`) rather than a second exported function, so the manual
+  refresh in task 282 uses the same seam. Mount check is inherently unaffected since
+  nothing precedes it.
