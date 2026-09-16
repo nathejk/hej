@@ -3,7 +3,7 @@
 **Status:** draft
 **Author:** agent session (Zed / Claude)
 **Created:** 2026-09-15
-**Last updated:** 2026-09-15 (rotation spike run — §11.1 resolved: `leaflet-rotate`, subject to a device check)
+**Last updated:** 2026-09-15 (§11.1 spike → `leaflet-rotate`; §11.2 resolved → true north)
 **Approved:**
 **Shipped:**
 **Target users:** participant (patrol member on the map)
@@ -174,10 +174,11 @@ rendering), so there is no endpoint and nothing to annotate.
   `deviceorientation` event (true-north-referenced, 0 = north, already
   compensated) and requires `DeviceOrientationEvent.requestPermission()` from a
   user gesture. Chrome/Android uses `deviceorientationabsolute` (or `alpha` on
-  `deviceorientation`) and needs the alpha→heading conversion and a magnetic
-  declination it does not supply. This belongs in a **`orientation.store.ts`**
-  browser-capability store, next to `location.store`, degrading gracefully and
-  never throwing (the store convention).
+  `deviceorientation`), which is **magnetic**, so it needs Denmark's declination
+  (~+3° E) added to reach true north — see §11.2, which settles that we align to
+  **true north** because the tiles are drawn to it. This belongs in an
+  **`orientation.store.ts`** browser-capability store, next to `location.store`,
+  degrading gracefully and never throwing (the store convention).
 - **Smoothing.** Compass output is noisy; feed it through a low-pass /
   shortest-arc filter before it drives rotation, and rotate the map on an
   animation frame, not on every sensor event.
@@ -214,6 +215,7 @@ the map can actually rotate.
       chosen; the remaining piece is the on-device rendering/smoothness proof.**
       Nothing else proceeds until that lands.
 - [ ] Task: `orientation.store.ts` — compass heading + iOS permission, smoothed,
+      **normalised to true north** (§11.2: iOS as given, Android + declination),
       injectable, never throws.
 - [ ] Task: map rotation wired to the smoothed heading, with the toggle plumbed
       through `EventMap`.
@@ -269,11 +271,32 @@ the map can actually rotate.
    removed); the tree is unchanged. Re-adding it belongs to the first task once
    this PRD is approved.
 
-2. **True north or magnetic north?** iOS `webkitCompassHeading` is true-north
-   compensated. Android's absolute orientation is magnetic and needs a declination
-   (~3–4° E in Denmark) we would have to hardcode or ignore. Is ignoring a few
-   degrees acceptable? For lining a map up to terrain, almost certainly yes — but
-   it should be a decision, not an accident.
+2. **True north or magnetic north?** **Resolved (2026-09-15): true north.**
+
+   The map is the deciding fact. The Dataforsyningen tiles are Web Mercator
+   (EPSG:3857), whose vertical axis runs along the meridians, so map-up *is*
+   geographic (true) north — there is no meaningful grid convergence. Aligning the
+   map to the terrain means rotating it by the device heading measured in the
+   **same** frame the map is drawn to, so the heading must be true-north. Feed it a
+   magnetic heading and the whole map lands rotated wrong by the local declination
+   (~+3° E in Denmark today) — which is precisely the skew a patrol would see
+   between an on-screen street and the real one they are lining it up against.
+
+   Declination is a **systematic, correctable** bias, unlike the ±5–15° of
+   calibration/interference noise a phone compass also carries. That noise is real
+   and un-fixable in software, but it is not a reason to leave a known constant
+   uncorrected: the two are added errors, and we remove the one we can.
+
+   So, true north everywhere:
+
+   - **iOS** `webkitCompassHeading` is intended to be true-north-referenced (Apple
+     compensates using location), so it is used as given — to be confirmed on the
+     device pass rather than trusted from the docs.
+   - **Android** `deviceorientationabsolute` / `alpha` is magnetic, so Denmark's
+     declination (~+3° E) is added to reach true north. A single hardcoded constant
+     is enough at this precision over one country; a location-derived value (WMM)
+     is not worth the weight.
+
 3. **Show the heading indicator only in heading-up mode, or whenever a heading is
    known?** The request says heading-up. But a north-up map with a "you are facing
    this way" cone is useful too and is most of the same code. Cheap to offer;
