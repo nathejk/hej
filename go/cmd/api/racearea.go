@@ -45,6 +45,15 @@ type raceAreaResponse struct {
 	// from "428 km² from 2 points" without exposing where any of them are.
 	PositionedCount int `json:"positioned_count"`
 	TotalCount      int `json:"total_count"`
+	// Version is this area's opaque sync version — the same value `/api/sync` reports for `race_area`
+	// (task 294).
+	//
+	// Served here so a client that downloads tiles can record the version of **the area it actually
+	// downloaded**. Taking the version from the last sync check instead would be a race: the two calls
+	// are seconds apart, and if the area moved in between, the device would store a version newer than
+	// its tiles and then never be told about that change. One field on a response the downloader already
+	// makes removes the race entirely.
+	Version string `json:"version"`
 }
 
 // raceAreaHandler serves the region the offline tile cache is scoped to. Runs behind
@@ -62,7 +71,7 @@ type raceAreaResponse struct {
 // misread. It is a normal state early in the year, before checkpoints have positions.
 //
 // @Summary      Race area for offline map caching
-// @Description  The convex hull of this year's checkpoints plus a 3 km buffer, as a polygon with its bounding box and area. Scopes the client's offline tile cache. Individual checkpoint positions are never returned. 404 when no area can be derived yet (no checkpoints, none positioned, or an implausible result).
+// @Description  The convex hull of this year's checkpoints plus a 3 km buffer, as a polygon with its bounding box and area. Scopes the client's offline tile cache. Individual checkpoint positions are never returned. 404 when no area can be derived yet (no checkpoints, none positioned, or an implausible result). `version` is this area's opaque sync version, the same value /sync reports for `race_area`: a client that caches tiles should store it and compare, so it can tell the user when the event's area has moved beyond what they downloaded.
 // @Tags         map
 // @Produce      json
 // @Success      200  {object}  raceAreaResponse
@@ -102,6 +111,10 @@ func (app *application) raceAreaHandler(w http.ResponseWriter, r *http.Request) 
 		BufferKm:        checkpoint.BufferKm,
 		PositionedCount: area.PositionedCount,
 		TotalCount:      area.TotalCount,
+		// Hashed from the same `area` that is being returned, not re-read through
+		// `raceAreaVersionFor` — which would consult a 5 s cache and could hand back the version of a
+		// *different* area than the one in this response. The point of the field is that the two agree.
+		Version: raceAreaVersion(area, true),
 	}
 	if err := app.WriteJSON(w, http.StatusOK, resp, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)

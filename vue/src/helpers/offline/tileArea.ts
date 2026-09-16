@@ -148,6 +148,13 @@ export interface RaceArea {
   south_west: LatLng
   north_east: LatLng
   area_km2: number
+  /**
+   * This area's opaque sync version — the same value `/api/sync` reports for `race_area` (task 294).
+   *
+   * Optional so a client running against an older BFF keeps working: absent simply means the device
+   * records no version, and `tileAreaIsStale` then makes no claim either way.
+   */
+  version?: string
 }
 
 /**

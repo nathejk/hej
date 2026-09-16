@@ -98,6 +98,7 @@ interface Row {
   canClear: boolean
   canCancel: boolean
   problem: 'quota' | 'offline' | 'no-area' | 'error' | null
+  updateAvailable: boolean
 }
 
 const rows = computed<Row[]>(() =>
@@ -129,6 +130,9 @@ const rows = computed<Row[]>(() =>
       canSync: Boolean(offline.handlers[dataset.id]?.sync),
       canCancel: Boolean(offline.handlers[dataset.id]?.cancel) && status.state === 'syncing',
       problem: status.problem,
+      // Only worth saying while nothing is running: during a download it is already being fixed, and a
+      // "more is available" line beside a progress bar reads as though the running download is short.
+      updateAvailable: status.updateAvailable && status.state !== 'syncing',
       // Never offered for unrecoverable data. `offline.store.clear` refuses it too — belt and
       // braces, because this is the one button in the app whose bug is unrecoverable data loss.
       canClear: Boolean(offline.handlers[dataset.id]?.clear) && !dataset.unrecoverable,
@@ -226,8 +230,17 @@ const trackUnrecoverable = computed(() => offlineDataset('track').unrecoverable)
             <!-- Our bug, not theirs. Says so plainly and points at the one thing that helps us: the
                  diagnostic page, which now carries the failure. -->
             <p v-else-if="row.problem === 'error'" class="mt-1 text-xs text-amber-800">
-              Der gik noget galt i appen. Sig det til Nathejk — detaljerne står under „Se detaljer om din
-              gemte rute“.
+              Der gik noget galt i appen. Sig det til Nathejk — detaljerne står under ‚Se detaljer om din
+              gemte rute‛.
+            </p>
+
+            <!-- Not a problem, and deliberately not worded as one: what is on the phone still works, and
+                 the only thing wrong is that the event has grown past it. Says what to do and what it
+                 costs, because the alternative — re-downloading a few hundred megabytes on the user's
+                 behalf — is exactly what this screen exists to keep as their decision (task 294). -->
+            <p v-if="row.updateAvailable" class="mt-1 text-xs text-slate-600">
+              Løbsområdet er blevet større, siden du hentede kortet. Det, du har, virker stadig — hent igen,
+              hvis du vil have det nye med. Brug helst wi-fi.
             </p>
 
             <div v-if="row.canSync || row.canClear || row.canCancel" class="mt-2 flex gap-2">

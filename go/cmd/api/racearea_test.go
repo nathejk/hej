@@ -57,7 +57,35 @@ func getRaceArea(t *testing.T, app *application, authed bool) (*http.Response, s
 	return resp, string(body)
 }
 
-// The 2026 checkpoints, so the fixture exercises a realistic hull.
+// The version travels with the area (task 294), so a client that downloads tiles can record the version
+// of the area it actually got. It must be the version *of this response*, which is why the handler
+// hashes the area it is returning rather than asking the 5 s-cached derivation.
+func TestRaceArea_CarriesItsOwnVersion(t *testing.T) {
+	area := areaFixture()
+	app := raceAreaApp(t, fakeRaceAreas{area: area, ok: true}, "2026")
+
+	resp, body := getRaceArea(t, app, true)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var got raceAreaResponse
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Version == "" {
+		t.Fatal("no version on the race-area response")
+	}
+	if want := raceAreaVersion(area, true); got.Version != want {
+		t.Errorf("version = %q, want %q — it must describe the area in this response", got.Version, want)
+	}
+
+	// And `/api/sync` must agree, or a client comparing the two would refetch forever.
+	if sync, _ := app.raceAreaVersionFor(users.User{ID: "u1"}); sync != got.Version {
+		t.Errorf("race-area version %q disagrees with /api/sync's %q", got.Version, sync)
+	}
+}
+
 var testCheckpoints = []checkpoint.Point{
 	{Lat: 55.716595, Lng: 12.264819},
 	{Lat: 55.852480717942505, Lng: 12.19563961029053},

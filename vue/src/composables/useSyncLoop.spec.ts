@@ -11,6 +11,8 @@ import { useHandoutsStore } from '@/stores/handouts.store'
 import { useProfileStore } from '@/stores/profile.store'
 import { useScansStore } from '@/stores/scans.store'
 import { useSessionStore } from '@/stores/session.store'
+import { useOfflineStore } from '@/stores/offline.store'
+import { rememberTileAreaVersion } from '@/helpers/offline/tileAreaVersion'
 
 // A scriptable browser and clock. Same seam as `useFreshnessLoop.spec.ts`; this file is about what the
 // loop does with an *answer*, not about when it asks.
@@ -75,6 +77,21 @@ async function flush() {
 let getMock: ReturnType<typeof vi.fn>
 let refreshed: Record<string, string[]>
 
+// The tile-area version lives in `localStorage`, which a node run does not have (see vitest.config.ts on
+// why the environment stays `node`). Stubbed as a global rather than injected, so the loop exercises the
+// same read path it uses in production.
+function stubLocalStorage() {
+  const backing = new Map<string, string>()
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (k: string) => backing.get(k) ?? null,
+      setItem: (k: string, v: string) => void backing.set(k, v),
+      removeItem: (k: string) => void backing.delete(k),
+    },
+  })
+}
+
 // Every store is stubbed at its `refreshIfVersionDiffers` boundary: this file is about dispatch, and
 // the stores have their own tests for what a refresh does (task 287).
 function stubStores() {
@@ -92,6 +109,7 @@ function stubStores() {
 
 beforeEach(() => {
   setActivePinia(createPinia())
+  stubLocalStorage()
   getMock = vi.fn()
   fetchWrapper.get = getMock as never
   const session = useSessionStore()
@@ -248,6 +266,44 @@ describe('useSyncLoop dispatch', () => {
     await flush()
 
     expect(getMock).toHaveBeenCalledTimes(1)
+    loop.stop()
+  })
+})
+
+describe('useSyncLoop and the race area', () => {
+  // The race area has nothing to refresh, so the only thing a changed version can do is tell the user
+  // their downloaded map no longer covers the event (task 294). It must never trigger a download.
+  it('reports a stale tile area when the version moved past what was downloaded', async () => {
+    rememberTileAreaVersion('r-old')
+    getMock.mockResolvedValue({ versions: { race_area: 'r-new' }, unavailable: [] })
+    const target = fakeTarget()
+    const loop = useSyncLoop({ target })
+    await flush()
+
+    expect(useOfflineStore().statuses.tiles.updateAvailable).toBe(true)
+    loop.stop()
+  })
+
+  it('reports nothing when the downloaded area is current', async () => {
+    rememberTileAreaVersion('r-1')
+    getMock.mockResolvedValue({ versions: { race_area: 'r-1' }, unavailable: [] })
+    const target = fakeTarget()
+    const loop = useSyncLoop({ target })
+    await flush()
+
+    expect(useOfflineStore().statuses.tiles.updateAvailable).toBe(false)
+    loop.stop()
+  })
+
+  // Nobody who never downloaded a map should be told their map is out of date — including every device
+  // that downloaded tiles before this version was recorded at all.
+  it('claims nothing when no tiles were ever downloaded', async () => {
+    getMock.mockResolvedValue({ versions: { race_area: 'r-new' }, unavailable: [] })
+    const target = fakeTarget()
+    const loop = useSyncLoop({ target })
+    await flush()
+
+    expect(useOfflineStore().statuses.tiles.updateAvailable).toBe(false)
     loop.stop()
   })
 })

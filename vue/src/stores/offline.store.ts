@@ -102,6 +102,16 @@ export interface OfflineDatasetStatus {
    * nothing.
    */
   problem: 'quota' | 'offline' | 'no-area' | 'error' | null
+  /**
+   * True when the server has more of this dataset than the device holds, and fetching it is the user's
+   * call (task 294).
+   *
+   * Deliberately **not** a `problem`: nothing has failed, nothing is broken, and what the device holds is
+   * still correct as far as it goes. It is also not `stale`, which says a copy may be old — this says the
+   * event itself has grown past it. Only the tiles use it, because tiles are the one dataset the app will
+   * not refetch on the user's behalf: a few hundred megabytes stays a decision somebody makes.
+   */
+  updateAvailable: boolean
 }
 
 /** What a dataset owner reports. Everything optional: report what you know. */
@@ -153,6 +163,7 @@ function unknownStatus(): OfflineDatasetStatus {
     expiresAt: null,
     progress: null,
     problem: null,
+    updateAvailable: false,
   }
 }
 

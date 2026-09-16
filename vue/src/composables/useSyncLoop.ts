@@ -6,9 +6,11 @@ import {
   type FreshnessTarget,
 } from '@/composables/useFreshnessLoop'
 import { reportDirectory } from '@/helpers/offline/reporters'
+import { heldTileAreaVersion, tileAreaIsStale } from '@/helpers/offline/tileAreaVersion'
 import { useCheckpointsStore } from '@/stores/checkpoints.store'
 import { useContactsStore } from '@/stores/contacts.store'
 import { useHandoutsStore } from '@/stores/handouts.store'
+import { useOfflineStore } from '@/stores/offline.store'
 import { useProfileStore } from '@/stores/profile.store'
 import { useScansStore } from '@/stores/scans.store'
 import { useSessionStore } from '@/stores/session.store'
@@ -115,10 +117,17 @@ function dispatchTable(): Dispatch {
     scans: (version) => useScansStore().refreshIfVersionDiffers(version),
     handouts: (version) => useHandoutsStore().refreshIfVersionDiffers(version),
     checkpoints: (version) => useCheckpointsStore().refreshIfVersionDiffers(version),
-    // The race area has no cached copy on the client: it is fetched on demand when a bulk tile
-    // download starts. Nothing to refresh, so the version is accepted and ignored here — task 294
-    // turns it into what it actually means, "more map is available to download".
-    race_area: async () => false,
+    // The race area has no cached copy to refresh: it is fetched on demand when a bulk tile download
+    // starts. So a changed version is not a refetch but a *fact about the tiles* — the event's area has
+    // moved beyond what this device downloaded — and it is reported to the readiness surface for the user
+    // to act on. Never a silent re-download: a few hundred megabytes stays somebody's decision (task 294).
+    race_area: async (version) => {
+      const stale = tileAreaIsStale(heldTileAreaVersion(), version)
+      useOfflineStore().report('tiles', { updateAvailable: stale })
+      // Always false: nothing was refreshed, and saying otherwise would make the manual refresh control
+      // claim it fetched something when all it did was notice.
+      return false
+    },
   }
 }
 

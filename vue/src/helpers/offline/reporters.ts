@@ -18,6 +18,7 @@
 
 import { PORTRAIT_CACHE_NAME, TILE_CACHE_NAME } from '@/config/cache'
 import type { CacheStorageLike } from '@/helpers/offline/eviction'
+import { forgetTileAreaVersion, rememberTileAreaVersion } from '@/helpers/offline/tileAreaVersion'
 import { measureCache, measureShell } from '@/helpers/offline/measure'
 import { countPoints, countPending } from '@/helpers/trackDb'
 import { useContactsStore } from '@/stores/contacts.store'
@@ -249,6 +250,16 @@ export async function registerOfflineDatasets(caches: CachesApi | undefined) {
           // Both tiers complete: this is the one moment tiles may honestly claim to be complete, and it
           // is why `reportCaches` never sets it — browsing produces some of the map, never all of it.
           offline.report('tiles', { state: 'synced', complete: true, problem: null })
+
+          // And this is the one moment the device knows which area its tiles cover, so it records that
+          // area's version (task 294). Recorded only on a complete run: a partial download does not cover
+          // the area it was told about, so claiming its version would suppress the very notice the user
+          // needs — they would be told nothing when the area later moved, having never had all of it.
+          //
+          // The version comes from the race-area response itself rather than from the last sync check, so
+          // it describes the area actually downloaded even if the event's area moved seconds later.
+          rememberTileAreaVersion(area.version ?? '')
+          offline.report('tiles', { updateAvailable: false })
         } finally {
           controller = null
         }
@@ -257,6 +268,11 @@ export async function registerOfflineDatasets(caches: CachesApi | undefined) {
       clear: async () => {
         const cache = await caches.open(TILE_CACHE_NAME)
         for (const key of await cache.keys()) await cache.delete(key)
+        // The tiles are gone, so the version they were downloaded for describes nothing. Left behind, it
+        // would be compared against the next sync check and could announce that a map the user no longer
+        // has is out of date.
+        forgetTileAreaVersion()
+        offline.report('tiles', { updateAvailable: false })
         await reportCaches(caches)
       },
     })
