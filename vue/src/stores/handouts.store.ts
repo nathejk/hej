@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { fetchWrapper } from '@/helpers'
 import { profileKey, type ScopedStorage } from '@/helpers/profileStorage'
 import { useSessionStore } from '@/stores/session.store'
+import { versionedRefresh } from '@/stores/syncVersions'
 
 // handouts.store holds the map sheets this patrol has been handed (PRD 016).
 //
@@ -70,6 +71,16 @@ interface StoredPayload {
   schema: number
   syncedAt: number
   handouts: StoredHandout[]
+  /**
+   * The sync version of the stored copy (PRD 017), or absent on a copy written before versions
+   * existed.
+   *
+   * Persisted with the payload rather than kept in memory, and the reason is the cold start: without
+   * it, every launch would refetch every dataset before the sync check could say "unchanged", which
+   * is the cost this whole design exists to remove. Read as '' when missing, which reads as "nothing
+   * held" and simply refetches once.
+   */
+  version?: string
 }
 
 // `localStorage` is absent in a node test run and *throws on access* — not on use, on access — in some
@@ -115,6 +126,8 @@ export const useHandoutsStore = defineStore('handouts', {
     error: '',
     /** When the held copy was fetched, epoch ms. Zero when nothing has ever synced. */
     syncedAt: 0,
+    /** The version of the copy we hold, from `/api/sync`. Opaque: compared for equality only. */
+    version: '',
     storage: browserStorage() as ScopedStorage | null,
   }),
 
@@ -146,6 +159,7 @@ export const useHandoutsStore = defineStore('handouts', {
         stillHeld: h.stillHeld,
       }))
       this.syncedAt = stored.syncedAt
+      this.version = stored.version ?? ''
       this.loaded = true
     },
 
@@ -155,8 +169,11 @@ export const useHandoutsStore = defineStore('handouts', {
      * Never throws. An empty list is a normal answer — a patrol before its first handout, and every
      * personnel user without a patrol — and is stored as such, so the drawer knows the difference between
      * "nothing handed out" and "never synced".
+     *
+     * Returns whether it succeeded, so a versioned caller knows whether it may record the version it
+     * fetched against (`syncVersions.ts`).
      */
-    async fetch() {
+    async fetch(): Promise<boolean> {
       this.loading = true
       try {
         const data = await fetchWrapper.get<{ handouts: HandoutResponse[] | null }>(
@@ -178,6 +195,7 @@ export const useHandoutsStore = defineStore('handouts', {
         writeStored(this.storage, this.storageKey, {
           schema: SCHEMA,
           syncedAt: this.syncedAt,
+          version: this.version,
           handouts: this.handouts.map((h) => ({
             name: h.name,
             format: h.format,
@@ -186,13 +204,38 @@ export const useHandoutsStore = defineStore('handouts', {
             stillHeld: h.stillHeld,
           })),
         })
+        return true
       } catch {
         // The cached copy stays. Danish, and specific: "we could not refresh" is a different thing from
         // "you have no sheets".
         this.error = 'Kunne ikke opdatere kort.'
+        return false
       } finally {
         this.loading = false
       }
+    },
+
+    /**
+     * Refetch the sheets when the server's version differs from ours (PRD 017).
+     *
+     * The dataset this matters most for: a patrol handed Kort 3 at a post must see its sheet — and
+     * through it, its checkpoints — without restarting the app.
+     *
+     * The version is stored *before* `fetch` writes the payload, so the two land in storage together;
+     * a version written afterwards would need a second write and could be interrupted between them,
+     * leaving a copy labelled with a version it does not have.
+     */
+    async refreshIfVersionDiffers(version: string): Promise<boolean> {
+      const previous = this.version
+      this.version = version
+      const refreshed = await versionedRefresh(previous, version, () => this.fetch())
+      if (!refreshed) {
+        // Either nothing to do (same version) or the fetch failed. In the failure case the held copy
+        // is still the old one, so the old version has to go back — otherwise we would hold stale
+        // sheets labelled as current and never ask again.
+        this.version = previous
+      }
+      return refreshed
     },
   },
 })

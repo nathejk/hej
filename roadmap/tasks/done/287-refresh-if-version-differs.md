@@ -1,11 +1,11 @@
 # 287 — Uniform refreshIfVersionDiffers across the stores
 
-**Status:** doing
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-16
 **Picked up by:** agent session (Zed / Claude)
 **Started:** 2026-09-16
-**Completed:**
+**Completed:** 2026-09-16
 
 ## Description
 
@@ -35,23 +35,23 @@ persisted alongside the cached payload, not kept in memory only.
 
 ## Acceptance Criteria
 
-- [ ] `refreshIfVersionDiffers(version)` on all six stores, same signature and
+- [x] `refreshIfVersionDiffers(version)` on all six stores, same signature and
       semantics. **Five stores** — see the log for why `race_area` has no store to refresh
       and moved to task 294.
-- [ ] Returns whether it refetched, so the loop can report/log.
-- [ ] Same version → no request at all.
-- [ ] Different version → payload refetched and **replaced** wholesale; held version
+- [x] Returns whether it refetched, so the loop can report/log.
+- [x] Same version → no request at all.
+- [x] Different version → payload refetched and **replaced** wholesale; held version
       updated.
-- [ ] Nothing held → fetches outright (a first sync is not a special case for callers).
-- [ ] A failed refetch keeps the cached copy and records staleness; does not throw.
-- [ ] The held version is persisted with the payload and survives a reload. **Where the
+- [x] Nothing held → fetches outright (a first sync is not a special case for callers).
+- [x] A failed refetch keeps the cached copy and records staleness; does not throw.
+- [x] The held version is persisted with the payload and survives a reload. **Where the
       payload itself is persisted** — see the log: scans and profile are deliberately
       memory-only stores and stay that way.
-- [ ] `contacts.store.ts`'s `refreshIfStale` is expressed in terms of the new method
+- [x] `contacts.store.ts`'s `refreshIfStale` is expressed in terms of the new method
       (or removed if task 288 leaves no callers).
-- [ ] Per-store tests: no-request-on-same, replace-on-differ, fetch-when-empty,
+- [x] Per-store tests: no-request-on-same, replace-on-differ, fetch-when-empty,
       failure-keeps-copy, version-survives-reload.
-- [ ] `npm run type-check` and the unit suite green.
+- [x] `npm run type-check` and the unit suite green.
 
 ## Progress Log
 
@@ -70,3 +70,27 @@ persisted alongside the cached payload, not kept in memory only.
     enforces it). Their held version therefore lives in memory too and a cold start
     refetches once — which is exactly what they already do today, so this costs nothing
     and breaking the no-cache rule to "fix" it would cost a lot.
+- 2026-09-16 13:15 — **The interesting failure mode, and why there is a shared
+  `syncVersions.ts` rather than five copies of three lines:** recording the new version
+  after a *failed* refetch would leave the device holding old data labelled as current, and
+  it would never ask again. That is the client-side twin of the wrongly-stable server
+  version the BFF's tests guard against, and it is just as silent. So `fetch()` now returns
+  a success boolean on all five stores and the version is only recorded when data actually
+  arrived. Every store has a test for it.
+- 2026-09-16 13:20 — For the two persisted stores the version is set **before** `fetch`
+  writes, so version and payload land in storage in one write, and rolled back if the fetch
+  fails. A version written afterwards would need a second write and could be interrupted
+  between the two, leaving a stored copy labelled with a version it does not have.
+- 2026-09-16 13:25 — Contacts is the odd one out in a good way: the manifest carries its
+  own `version`, so the version handed to it is only ever *compared*, and what gets stored
+  is what the payload delivered. It cannot hold a version whose data never arrived. Test
+  pins that (`holds the version the payload delivered, not the one it was given`).
+  `refreshIfStale` is kept, now documented as the pre-PRD-017 path, until task 292 retires
+  the endpoint it depends on — an installed PWA may still be running an older bundle.
+- 2026-09-16 13:30 — Existing specs asserted `fetch()` "resolves to undefined" as a way of
+  saying "never throws". Updated to assert the boolean instead, with a comment on what it
+  is for, rather than deleting the assertions — the property they check still matters.
+- 2026-09-16 13:35 — Completed. New `vue/src/stores/syncVersions.ts` (the contract, a
+  `SyncDataset` union so a dispatch typo is a type error, and `versionedRefresh`), five
+  stores updated, `syncVersions.spec.ts` with 20 tests. `npm run type-check` clean; full
+  suite 691 passed (56 files). Task 294 opened for the race-area consumer.

@@ -409,9 +409,13 @@ export const useContactsStore = defineStore('contacts', {
     /**
      * Asks whether our copy is current, and refetches only if not.
      *
-     * This is the cheap call the freshness loop makes (task 162): a few hundred bytes against
-     * a version endpoint the BFF answers from a short-lived cache. Returns true when a
-     * refetch happened, so a caller can log or report it.
+     * The **pre-PRD-017 path**: it asks `/api/contacts/version` itself, which costs a request per
+     * dataset. Superseded by `refreshIfVersionDiffers`, which is handed the version by the multiplexed
+     * `/api/sync` check and so costs nothing when nothing changed.
+     *
+     * Kept while `/api/contacts/version` still exists (task 292 retires it), because an installed PWA
+     * can be running an older cached bundle: the endpoint and this method go together, and removing
+     * either early breaks freshness for exactly the users least likely to have updated.
      */
     async refreshIfStale(): Promise<boolean> {
       this.hydrate()
@@ -437,6 +441,40 @@ export const useContactsStore = defineStore('contacts', {
           return false
         }
         this.error = 'Kunne ikke opdatere kontakter.'
+        return false
+      }
+
+      await this.fetch()
+      return true
+    },
+
+    /**
+     * Refetch the directory when the server's version differs from ours (PRD 017).
+     *
+     * Where `refreshIfStale` above asks for the version itself, this is handed it — so the common
+     * case (nothing changed) costs **no request at all**, rather than a small one per dataset per
+     * foreground.
+     *
+     * This store is the one that already held a version, and it holds it for a second reason: the
+     * manifest carries its own `version` field, which `fetch` records. So the version this method is
+     * given is only ever *compared*; what gets stored is what the payload actually delivered. That
+     * removes the failure mode the other stores need care about — there is no way to end up holding a
+     * version whose data never arrived.
+     *
+     * Portrait versions ride inside the manifest, so a new photo moves the contacts version and
+     * refetches the directory to learn one thumbnail changed. Accepted at ~100–150 entries of
+     * metadata, and the manifest carries no images: faces still arrive per row (PRD 009 §7).
+     */
+    async refreshIfVersionDiffers(version: string): Promise<boolean> {
+      this.hydrate()
+
+      // A role without the pane must not be nudged into asking for it again on every foreground.
+      if (this.forbidden) return false
+
+      if (this.version && this.version === version) {
+        // Current. Deliberately does not touch `syncedAt`: "we checked" and "we refetched" are
+        // different facts, and the pane shows the second one.
+        this.error = ''
         return false
       }
 

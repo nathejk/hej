@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { fetchWrapper } from '@/helpers'
+import { versionedRefresh } from '@/stores/syncVersions'
 
 export type ScanKind = 'checkpoint' | 'bandit'
 
@@ -56,12 +57,25 @@ interface ScanResponse {
 // and bandit catches. The BFF returns them newest-first and returns an empty list
 // (not a 404) for users without a patrol — personnel roles — so an empty list is a
 // normal state that simply hides the UI, not an error.
+//
+// # Kept in memory only, version included
+//
+// Nothing here is written to storage, so the held sync version (PRD 017) lives in memory too and a
+// cold start refetches once. That is exactly what this store already did — the drawer's rows came
+// from a fetch on mount every time — so the version costs nothing and buys the thing that was
+// missing: a refetch when a scan actually arrives, rather than only when the view is remounted.
 export const useScansStore = defineStore('scans', {
   state: () => ({
     scans: [] as Scan[],
     loading: false,
     loaded: false,
     error: '',
+    /**
+     * The version of the copy we hold, from `/api/sync`. Empty when nothing has been fetched.
+     *
+     * Opaque: compared for equality, never parsed.
+     */
+    version: '',
   }),
   getters: {
     /** Only the registrations we can put on the map. */
@@ -70,8 +84,9 @@ export const useScansStore = defineStore('scans', {
   },
   actions: {
     // fetch loads the patrol's registrations. Never throws: the map must stay
-    // usable when this fails.
-    async fetch() {
+    // usable when this fails. Returns whether it succeeded, so a caller that holds a version knows
+    // whether it may record it (see `syncVersions.ts`).
+    async fetch(): Promise<boolean> {
       this.loading = true
       try {
         const data = await fetchWrapper.get<{ scans: ScanResponse[] | null }>('/api/patrol/scans')
@@ -92,11 +107,28 @@ export const useScansStore = defineStore('scans', {
         }))
         this.error = ''
         this.loaded = true
+        return true
       } catch {
         this.error = 'Kunne ikke hente registreringer.'
+        return false
       } finally {
         this.loading = false
       }
+    },
+
+    /**
+     * Refetch the registrations when the server's version differs from ours (PRD 017).
+     *
+     * Replaces the list wholesale — `fetch` already does, and it matters here: a scan whose verdict
+     * was recomputed (a `relative` window whose anchor has now been scanned) changes a row that
+     * merging would leave alone.
+     */
+    async refreshIfVersionDiffers(version: string): Promise<boolean> {
+      const refreshed = await versionedRefresh(this.version, version, () => this.fetch())
+      // Only on success: recording it after a failed fetch would label old data as current and stop
+      // us ever asking again.
+      if (refreshed) this.version = version
+      return refreshed
     },
   },
 })

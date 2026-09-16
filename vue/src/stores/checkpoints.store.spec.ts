@@ -108,7 +108,9 @@ describe('checkpoints.store', () => {
     await store.fetch()
 
     getMock = () => Promise.reject(new Error('offline'))
-    await expect(store.fetch()).resolves.toBeUndefined()
+    // Reports failure rather than throwing: the map must stay usable, and a versioned caller needs to
+    // know not to record the version it fetched against (task 287).
+    await expect(store.fetch()).resolves.toBe(false)
 
     expect(store.checkpoints).toHaveLength(1)
     expect(store.error).not.toBe('')
@@ -216,7 +218,7 @@ describe('checkpoints.store', () => {
       removeItem: () => {},
     }
 
-    await expect(store.fetch()).resolves.toBeUndefined()
+    await expect(store.fetch()).resolves.toBe(true)
     expect(store.checkpoints).toHaveLength(1)
   })
 

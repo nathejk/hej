@@ -4,6 +4,8 @@ import { fetchWrapper } from '@/helpers'
 import { profileKey, type ScopedStorage } from '@/helpers/profileStorage'
 import { useSessionStore } from '@/stores/session.store'
 
+import { versionedRefresh } from '@/stores/syncVersions'
+
 // checkpoints.store holds the checkpoints this patrol has earned sight of (PRD 016).
 //
 // # What this data is, and why the client does no filtering
@@ -74,6 +76,14 @@ interface StoredPayload {
   syncedAt: number
   checkpoints: Checkpoint[]
   nextCheckgroup: string
+  /**
+   * The sync version of the stored copy (PRD 017), or absent on a copy written before versions
+   * existed.
+   *
+   * Persisted with the payload so a cold start does not refetch a map it already holds — which is the
+   * cost this design exists to remove. Read as '' when missing, which reads as "nothing held".
+   */
+  version?: string
 }
 
 // `localStorage` is absent in a node test run and *throws on access* — not on use, on access — in some
@@ -128,6 +138,8 @@ export const useCheckpointsStore = defineStore('checkpoints', {
     error: '',
     /** When the held copy was fetched, epoch ms. Zero when nothing has ever synced. */
     syncedAt: 0,
+    /** The version of the copy we hold, from `/api/sync`. Opaque: compared for equality only. */
+    version: '',
     storage: browserStorage() as ScopedStorage | null,
   }),
 
@@ -172,6 +184,7 @@ export const useCheckpointsStore = defineStore('checkpoints', {
       this.checkpoints = stored.checkpoints
       this.nextCheckgroup = stored.nextCheckgroup ?? ''
       this.syncedAt = stored.syncedAt
+      this.version = stored.version ?? ''
       this.loaded = true
     },
 
@@ -181,8 +194,11 @@ export const useCheckpointsStore = defineStore('checkpoints', {
      * Never throws. An empty list is a normal answer — a patrol before its first handout, and every
      * personnel user without a patrol — and is stored as such, so the map knows the difference between
      * "nothing revealed" and "never synced".
+     *
+     * Returns whether it succeeded, so a versioned caller knows whether it may record the version it
+     * fetched against (`syncVersions.ts`).
      */
-    async fetch() {
+    async fetch(): Promise<boolean> {
       this.loading = true
       try {
         const data = await fetchWrapper.get<{
@@ -210,16 +226,36 @@ export const useCheckpointsStore = defineStore('checkpoints', {
         writeStored(this.storage, this.storageKey, {
           schema: SCHEMA,
           syncedAt: this.syncedAt,
+          version: this.version,
           checkpoints: this.checkpoints,
           nextCheckgroup: this.nextCheckgroup,
         })
+        return true
       } catch {
         // The cached copy stays. Danish, and specific: "we could not refresh" is a different thing
         // from "you have no posts", and the map is still useful in the first case.
         this.error = 'Kunne ikke opdatere poster.'
+        return false
       } finally {
         this.loading = false
       }
+    },
+
+    /**
+     * Refetch the revealed posts when the server's version differs from ours (PRD 017).
+     *
+     * A reveal that arrives on the next cold start arrives after it mattered — this is the call that
+     * makes new posts appear while the map is open. Note that the version also moves when only
+     * `next_checkgroup` changes: the arrow moving from one line to the next is a change the patrol
+     * must see, even though no post did.
+     */
+    async refreshIfVersionDiffers(version: string): Promise<boolean> {
+      const previous = this.version
+      // Set before fetching so the version and the payload reach storage in one write.
+      this.version = version
+      const refreshed = await versionedRefresh(previous, version, () => this.fetch())
+      if (!refreshed) this.version = previous
+      return refreshed
     },
   },
 })

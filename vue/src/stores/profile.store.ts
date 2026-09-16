@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { fetchWrapper, HttpError } from '@/helpers'
 import type { Role } from '@/config/roles'
+import { versionedRefresh } from '@/stores/syncVersions'
 
 // The caller's own details, as returned by GET /api/me/profile (task 094).
 export interface ProfileDetails {
@@ -101,7 +102,9 @@ export function contactCheckFailure(err: unknown): ContactCheckFailure | null {
 // Shared in-flight fetch, so concurrent `ensureLoaded()` callers await one request and all of
 // them see the result. Module-level rather than state: it is a promise, not data, and putting a
 // promise in a Pinia store means Vue wraps it in a reactive proxy.
-let inFlight: Promise<void> | null = null
+// Typed as the fetch's own return (a success boolean since task 287) rather than void, so a second
+// caller awaiting an in-flight load gets the same answer the first one did.
+let inFlight: Promise<boolean> | null = null
 
 // profile.store owns the signed-in user's own details (PRD 003).
 //
@@ -130,6 +133,16 @@ export const useProfileStore = defineStore('profile', {
     // the response carries `Cache-Control: private, max-age=3600`, so after replacing a
     // portrait the browser would keep showing the old face for an hour.
     photoVersion: 0,
+    /**
+     * The sync version of the details we hold, from `/api/sync` (PRD 017). Opaque: compared for
+     * equality only.
+     *
+     * In memory only, like everything else in this store. That is not an oversight to be tidied up
+     * later: PRD 005 §11 forbids persisting `confirmation_required`, because a stored copy would let a
+     * reinstall skip the confirmation step or re-ask a member who already confirmed, possibly
+     * mid-event. The cost is one refetch per cold start, which this store already pays.
+     */
+    syncVersion: '',
   }),
   getters: {
     /**
@@ -162,7 +175,7 @@ export const useProfileStore = defineStore('profile', {
     // fetch loads the details. Never throws: the page renders its error state
     // instead, and the user menu that also reads this store must not be taken down
     // by a failed request — sign-out has to keep working offline.
-    async fetch() {
+    async fetch(): Promise<boolean> {
       this.loading = true
       try {
         const data = await fetchWrapper.get<ProfileResponse>('/api/me/profile')
@@ -183,11 +196,29 @@ export const useProfileStore = defineStore('profile', {
         this.verifiedAt = data.verified_at ?? null
         this.error = ''
         this.loaded = true
+        return true
       } catch {
         this.error = 'Kunne ikke hente dine oplysninger.'
+        return false
       } finally {
         this.loading = false
       }
+    },
+
+    /**
+     * Refetch the profile when the server's version differs from ours (PRD 017).
+     *
+     * The dataset most likely to be changed *elsewhere*: a member confirms their guardian number on
+     * another device, an organizer corrects an address, check-in settles the contact number. Each of
+     * those changes what this app must show and none of them originates here.
+     *
+     * Named `syncVersion` rather than `version` to keep it clear of `photoVersion`, which is a local
+     * cache-buster counter and not a server fact.
+     */
+    async refreshIfVersionDiffers(version: string): Promise<boolean> {
+      const refreshed = await versionedRefresh(this.syncVersion, version, () => this.fetch())
+      if (refreshed) this.syncVersion = version
+      return refreshed
     },
 
     // ensureLoaded fetches once. Used by the user menu, which mounts on every page
