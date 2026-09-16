@@ -91,8 +91,73 @@ func TestNoneAndUnknownSchemeHaveNoVerdict(t *testing.T) {
 	}
 }
 
+// A relative window measures from the patrol's own arrival at the previous line, so "time spent" is the gap
+// between the two — a fact about their walk, and the number the drawer prints as "På tid: 45 min.".
+func TestRelativeWindowReportsTimeSpent(t *testing.T) {
+	const anchor = int64(10000)
+	const durMin = 60 // window [10000, 13600]
+
+	// 45 minutes after the anchor: comfortably inside, and the elapsed time is what matters.
+	v := verdictFor(anchor+45*60, SchemeRelative, 0, 0, durMin, anchor, true)
+	if v == nil || !v.OnTime {
+		t.Fatalf("want an on-time verdict, got %+v", v)
+	}
+	if v.SpentSeconds == nil {
+		t.Fatal("a relative window must report how long the leg took")
+	}
+	if *v.SpentSeconds != 45*60 {
+		t.Errorf("SpentSeconds = %d, want %d", *v.SpentSeconds, 45*60)
+	}
+}
+
+// Reported whether or not they were on time: the elapsed time is a fact either way, and the client decides
+// what to show.
+func TestRelativeWindowReportsTimeSpentEvenWhenLate(t *testing.T) {
+	const anchor = int64(10000)
+
+	v := verdictFor(anchor+90*60, SchemeRelative, 0, 0, 60, anchor, true)
+	if v == nil || v.OnTime {
+		t.Fatalf("want a late verdict, got %+v", v)
+	}
+	if v.SpentSeconds == nil || *v.SpentSeconds != 90*60 {
+		t.Errorf("want 90 minutes spent, got %+v", v.SpentSeconds)
+	}
+	// And the lateness is still measured from the window's close, not from the anchor.
+	if v.DeltaSeconds != 30*60 {
+		t.Errorf("DeltaSeconds = %d, want %d", v.DeltaSeconds, 30*60)
+	}
+}
+
+// A fixed window is an absolute clock time set by organizers, so the gap from it measures nothing about the
+// patrol — two patrols arriving together would get different numbers depending on when the post opened.
+// Reporting one would invite the drawer to print a duration that means nothing.
+func TestFixedWindowReportsNoTimeSpent(t *testing.T) {
+	v := verdictFor(1500, SchemeFixed, 1000, 2000, 0, 0, false)
+	if v == nil {
+		t.Fatal("want a verdict")
+	}
+	if v.SpentSeconds != nil {
+		t.Errorf("a fixed window must not report time spent, got %d", *v.SpentSeconds)
+	}
+}
+
+// A scan before its own anchor is a clock or ordering anomaly. Clamped at zero, because a negative duration
+// renders as nonsense rather than as the anomaly it is.
+func TestTimeSpentIsNeverNegative(t *testing.T) {
+	const anchor = int64(10000)
+
+	v := verdictFor(anchor-60, SchemeRelative, 0, 0, 60, anchor, true)
+	if v == nil {
+		t.Fatal("want a verdict")
+	}
+	if v.SpentSeconds == nil || *v.SpentSeconds != 0 {
+		t.Errorf("want a clamped zero, got %+v", v.SpentSeconds)
+	}
+}
+
 // End to end through ByPatrol: a relative window must anchor on the patrol's *own* scan at the named
-// checkgroup, resolved from the same set of rows. This is the wiring the pure test cannot exercise.
+// checkgroup, resolved from the same set of rows — and the elapsed time is derived from that same pair.
+// This is the wiring the pure tests cannot exercise.
 func TestByPatrolResolvesRelativeAnchorFromOwnScans(t *testing.T) {
 	// The patrol scans checkgroup "cg-start" at uts 5000, then a relative post in "cg-leg1" that opens
 	// at the cg-start scan and lasts 60 min = [5000, 8600]. A scan at 6000 is on time.
@@ -120,6 +185,10 @@ func TestByPatrolResolvesRelativeAnchorFromOwnScans(t *testing.T) {
 	}
 	if !leg.Verdict.OnTime {
 		t.Errorf("scan inside the anchored window must be on time, got %+v", leg.Verdict)
+	}
+	// The leg ran 5000 → 6000, so 1000 seconds were spent — derived from the patrol's own two scans.
+	if leg.Verdict.SpentSeconds == nil || *leg.Verdict.SpentSeconds != 1000 {
+		t.Errorf("want 1000 seconds spent, got %+v", leg.Verdict.SpentSeconds)
 	}
 }
 

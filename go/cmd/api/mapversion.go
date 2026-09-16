@@ -180,6 +180,15 @@ func scansVersion(ss []scans.Scan) string {
 			io.WriteString(h, strconv.FormatBool(v.OnTime))
 			io.WriteString(h, ":")
 			io.WriteString(h, strconv.Itoa(v.DeltaSeconds))
+			io.WriteString(h, ":")
+			// Part of the payload, so it has to be part of the hash — the elapsed time can change while the
+			// verdict does not (a corrected anchor scan), and a version that missed that would strand a
+			// device on a stale duration.
+			if v.SpentSeconds != nil {
+				io.WriteString(h, strconv.Itoa(*v.SpentSeconds))
+			} else {
+				io.WriteString(h, "\x00nospent")
+			}
 		} else {
 			io.WriteString(h, "\x00none")
 		}

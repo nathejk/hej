@@ -39,6 +39,20 @@ type Verdict struct {
 	// when late (after it closed). The magnitude is what the drawer shows as "12 min for sent" — a number a
 	// patrol can act on, unlike a bare verdict.
 	DeltaSeconds int
+
+	// SpentSeconds is how long the leg took: the gap between the patrol's scan at the anchoring checkgroup
+	// and this one.
+	//
+	// **Only set for a `relative` window**, and nil otherwise, because it is only meaningful there. A
+	// relative window opens at the patrol's own arrival at the previous line, so the distance from that
+	// instant to this one is exactly "how long this leg took them" — a fact about their walk. A `fixed`
+	// window is an absolute clock time set by organizers, and the gap from it measures nothing about the
+	// patrol: two patrols arriving together would get different numbers depending on when the post opened.
+	// Reporting a figure there would invite the drawer to render a duration that means nothing.
+	//
+	// Reported whether or not they were on time, because the elapsed time is a fact either way and the
+	// client decides what to show.
+	SpentSeconds *int
 }
 
 // windowFor resolves a checkpoint's open window to absolute instants, or reports that there is none.
@@ -86,13 +100,25 @@ func verdictFor(
 		return nil
 	}
 
+	// Only a relative window measures from the patrol's own arrival, so only there does "time spent" mean
+	// anything. Clamped at zero: a scan before its own anchor is a clock or ordering anomaly, and a
+	// negative duration would render as nonsense rather than as the anomaly it is.
+	var spent *int
+	if scheme == SchemeRelative && hasAnchor {
+		s := int(scanUts - anchorUts)
+		if s < 0 {
+			s = 0
+		}
+		spent = &s
+	}
+
 	switch {
 	case scanUts < from:
-		return &Verdict{OnTime: false, DeltaSeconds: int(scanUts - from)} // negative: early
+		return &Verdict{OnTime: false, DeltaSeconds: int(scanUts - from), SpentSeconds: spent} // negative: early
 	case scanUts > until:
-		return &Verdict{OnTime: false, DeltaSeconds: int(scanUts - until)} // positive: late
+		return &Verdict{OnTime: false, DeltaSeconds: int(scanUts - until), SpentSeconds: spent} // positive: late
 	default:
 		// Inclusive on both ends, matching HQ.
-		return &Verdict{OnTime: true, DeltaSeconds: 0}
+		return &Verdict{OnTime: true, DeltaSeconds: 0, SpentSeconds: spent}
 	}
 }

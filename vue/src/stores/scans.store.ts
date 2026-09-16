@@ -29,6 +29,14 @@ export interface Scan {
    */
   onTime: boolean | null
   deltaSeconds: number | null
+  /**
+   * How long the leg took: from the patrol's arrival at the previous line to this scan.
+   *
+   * Null unless the post's window is `relative`, because only there does it measure anything about the
+   * patrol — a fixed window is an absolute clock time, so the gap from it says more about the organizers'
+   * schedule than about the walk. The drawer prints it as "På tid: 45 min.".
+   */
+  spentSeconds: number | null
 }
 
 interface ScanResponse {
@@ -41,6 +49,7 @@ interface ScanResponse {
   scanned_at: string
   on_time?: boolean | null
   delta_seconds?: number | null
+  spent_seconds?: number | null
 }
 
 // scans.store holds the signed-in user's patrol registrations: checkpoint scans
@@ -79,6 +88,7 @@ export const useScansStore = defineStore('scans', {
           // collapses a missing field and an explicit null to the same "no verdict".
           onTime: s.on_time ?? null,
           deltaSeconds: s.delta_seconds ?? null,
+          spentSeconds: s.spent_seconds ?? null,
         }))
         this.error = ''
         this.loaded = true

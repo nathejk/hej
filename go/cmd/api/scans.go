@@ -29,6 +29,11 @@ type scanResponse struct {
 	// sent"; the sign lets it tell early from late.
 	OnTime       *bool `json:"on_time"`
 	DeltaSeconds *int  `json:"delta_seconds"`
+	// SpentSeconds is how long the leg took — the gap between the patrol's arrival at the previous line and
+	// this scan. Null unless the post's window is `relative`, because only there does it measure anything
+	// about the patrol: a fixed window is an absolute clock time, so the gap from it says more about the
+	// organizers' schedule than about the walk.
+	SpentSeconds *int `json:"spent_seconds"`
 }
 
 type scansResponse struct {
@@ -44,7 +49,7 @@ type scansResponse struct {
 // registrations UI on an empty list.
 //
 // @Summary      Patrol registrations
-// @Description  Returns the signed-in user's patrol's checkpoint scans and bandit catches, newest first. Users without a patrol get an empty list. lat/lng are null when the registration has no position. checkpoint_id names the post the scan happened at, or is empty when the personnel rota could not place it. on_time and delta_seconds carry the server-computed on-time verdict; both are null together when there is no window to judge against (bandit catch, unattributed scan, post with no window, or a relative window whose anchoring scan has not happened). delta_seconds is signed: negative early, positive late.
+// @Description  Returns the signed-in user's patrol's checkpoint scans and bandit catches, newest first. Users without a patrol get an empty list. lat/lng are null when the registration has no position. checkpoint_id names the post the scan happened at, or is empty when the personnel rota could not place it. on_time and delta_seconds carry the server-computed on-time verdict; both are null together when there is no window to judge against (bandit catch, unattributed scan, post with no window, or a relative window whose anchoring scan has not happened). delta_seconds is signed: negative early, positive late. spent_seconds is how long the leg took (arrival at the previous line to this scan) and is set only for posts with a relative window, where alone it measures something about the patrol.
 // @Tags         patrol
 // @Produce      json
 // @Success      200  {object}  scansResponse
@@ -83,6 +88,10 @@ func (app *application) listPatrolScansHandler(w http.ResponseWriter, r *http.Re
 			delta := v.DeltaSeconds
 			resp.OnTime = &onTime
 			resp.DeltaSeconds = &delta
+			if v.SpentSeconds != nil {
+				spent := *v.SpentSeconds
+				resp.SpentSeconds = &spent
+			}
 		}
 		out = append(out, resp)
 	}

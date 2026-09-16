@@ -37,15 +37,37 @@ export function deltaText(deltaSeconds: number): string {
 }
 
 /**
+ * Render a duration as whole minutes, in the drawer's format.
+ *
+ * Minutes because that is the unit a patrol thinks in, and `min.` abbreviated because the badge is narrow.
+ */
+export function minutesText(seconds: number): string {
+  return `${Math.round(Math.abs(seconds) / 60)} min.`
+}
+
+/**
  * The badge for a scan, or null when none should show.
  *
  * Only checkpoint scans can carry a verdict; a bandit catch keeps its own styling and never gets one. A
- * checkpoint scan shows "på tid" when on time and the late text otherwise. A null onTime (no window / no
+ * checkpoint scan shows "På tid" when on time and the late text otherwise. A null onTime (no window / no
  * anchor / unattributed) yields no badge.
+ *
+ * When the post's window is `relative` the BFF also reports how long the leg took, and an on-time badge
+ * carries it: "På tid: 45 min.". That number is the actual answer to "how did we do" on a relative leg —
+ * a bare "På tid" tells a patrol only that they beat a deadline they cannot see, whereas the elapsed time
+ * is something they can compare against the next leg. It is appended rather than replacing the verdict,
+ * because "45 min." alone would not say whether that was good enough.
  */
-export function verdictBadge(scan: Pick<Scan, 'kind' | 'onTime' | 'deltaSeconds'>): VerdictBadge | null {
+export function verdictBadge(
+  scan: Pick<Scan, 'kind' | 'onTime' | 'deltaSeconds' | 'spentSeconds'>,
+): VerdictBadge | null {
   if (scan.kind !== 'checkpoint' || scan.onTime === null) return null
-  if (scan.onTime) return { text: 'på tid', tone: 'success' }
+  if (scan.onTime) {
+    // Only a relative window reports a duration, so this is also what distinguishes the two on-time forms.
+    const text =
+      scan.spentSeconds === null ? 'På tid' : `På tid: ${minutesText(scan.spentSeconds)}`
+    return { text, tone: 'success' }
+  }
   // Outside the window: late or early, distinguished by the sign of the server's delta.
   return { text: deltaText(scan.deltaSeconds ?? 0), tone: 'warning' }
 }
