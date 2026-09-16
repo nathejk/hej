@@ -1,51 +1,82 @@
 import { getCurrentScope, onScopeDispose } from 'vue'
 
-// The shared freshness loop: "has this dataset changed?", asked at the moments worth asking
-// (PRD 009 §6, task 190).
+// The shared freshness loop: "has anything changed?", asked at the moments worth asking
+// (PRD 009 §6, PRD 017).
 //
-// Extracted from the contacts loop (task 162), which shipped first out of necessity and turned out
-// to contain nothing contacts-specific except *what* to check. This file is the convention; the
-// per-dataset wrapper supplies the check.
+// This file owns *when* to check. What to check, and what to do with the answer, belongs to
+// `useSyncLoop` — which is the app's only consumer, by design.
 //
-// ────────────────────────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────────────────────
 // THE CONVENTION, for the next dataset that needs to stay current during an event
-// ────────────────────────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────────────────────
 //
-// 1. **A separate, cheap version endpoint** — not a poll of the payload. It returns a small opaque
-//    version for *the caller's permitted set only*, answered from a projection read, and is
-//    `ETag`-able. `GET /api/contacts/version` is the reference. Sizing matters: a few hundred
-//    devices ask every 60 s while the app is open, which is this API's only continuous during-race
-//    traffic and lands on the same BFF as position reporting.
+// **The short version: add a key to `/api/sync`. Do not add a loop.**
+//
+// An earlier version of this comment said the opposite — "a separate, cheap version endpoint" per
+// dataset, `GET /api/contacts/version` as the reference, and "add another value rather than reusing
+// this one" for the interval. That advice was written when there was one dataset and it was right
+// about *what* a version is. Followed a second time, it produced two loops polling the same directory
+// on the same triggers, and a third dataset fetched once on mount and never again. PRD 017 replaced
+// the multiplicity, and kept every other property intact.
+//
+// 1. **One multiplexed check for every dataset the caller holds.** `GET /api/sync` returns a small
+//    opaque version per dataset, from a projection read or a short-lived cache, and is `ETag`-able.
+//    A new dataset is a new key there plus a `refreshIfVersionDiffers` on its store — see
+//    `stores/syncVersions.ts` for that contract. Sizing is why: a few hundred devices check on every
+//    foreground plus an interval, on a mobile link where the round-trip count dominates the payload
+//    size, and it lands on the same BFF as position reporting. Six endpoints would be six round trips
+//    to learn that nothing changed.
 //
 // 2. **The version travels in the JSON body**, not in a header. Deliberate: `fetchWrapper` does not
 //    expose response headers, so a header-only version would force every consumer to bypass it.
 //    ETags stay on the response for the browser's own conditional requests.
 //
-// 3. **Three trigger points, and no more** — foreground (which includes mount), an interval while
-//    visible, and `online`. Anything else is either a duplicate of these or a background timer on a
-//    phone in a pocket.
+// 3. **Versions are opaque.** Compare for equality; never parse one, order two, or read a timestamp
+//    out of one. How they are derived is the server's business and it is free to change.
 //
-// 4. **The interval is served, not built in.** `contactsPollSeconds` comes from `/api/config`. The
-//    reason is load, not tidiness: if a few hundred devices cost more than expected, the interval
-//    has to be widenable *during* an event without shipping a release. Follow the naming and add
-//    another value rather than reusing this one — two datasets polling on one number cannot be
-//    tuned apart, and they will not have the same cost.
+// 4. **Absence and unavailability are different answers.** A dataset the caller may not hold is
+//    *absent* from the response, and the client must not ask for it — that is how a spejder's device
+//    learns it has no directory, replacing a client-side role table that could disagree with the BFF
+//    and collect a 403 per foreground. A dataset the server could not derive is named in
+//    `unavailable`, which means "unchanged, ask again". Reading the second as the first would make a
+//    device stop asking, permanently, over a transient error.
 //
-// 5. **Zero disables the interval and nothing else.** Foreground and reconnect checks keep running,
-//    so an operator reducing load at 02:00 cannot accidentally turn "poll less" into "stop
+// 5. **Four trigger points, and no more** — foreground (which includes mount), an interval while
+//    visible, `online`, and an explicit user request (the manual refresh control). Anything else is
+//    either a duplicate of these or a background timer on a phone in a pocket.
+//
+// 6. **Repetition is debounced; a user request is not.** Unlock, glance at the map, lock, unlock is
+//    the normal rhythm of this app, and each of those foregrounds is a completed, non-overlapping,
+//    entirely redundant check. A forced check skips the debounce only — the overlap guard and
+//    `enabled` still apply, because forcing means "do not tell me it is too soon", not "fetch data
+//    this user may not hold".
+//
+// 7. **The interval and the debounce are served, not built in** — in the `/api/sync` response itself,
+//    not only in `/api/config`. The reason is load, and response time: if a few hundred devices cost
+//    more than expected, an operator has to be able to widen the interval *during* an event and have
+//    it take effect on the next check, on a device that may not be reloaded for hours. Hence
+//    `setIntervalSeconds` below, which restarts the timer rather than leaving it on the old period.
+//
+// 8. **Zero disables the interval and nothing else.** Foreground, reconnect and manual checks keep
+//    running, so an operator reducing load at 02:00 cannot accidentally turn "poll less" into "stop
 //    updating". This is the distinction they would get wrong, so it is the one with its own test.
 //
-// 6. **Metadata propagates ahead of images.** A corrected phone number arriving a minute before the
+// 9. **Metadata propagates ahead of images.** A corrected phone number arriving a minute before the
 //    new portrait is fine; the reverse is not.
 //
-// 7. **Push is not an option for invalidation.** iOS 16.4+ requires *every* web push to raise a
-//    user-visible notification — `public/push-sw.js` always calls `showNotification` — so using it
-//    here would either buzz every crew member's phone over a corrected phone number or get the
-//    permission revoked. There is no silent data push on our baseline.
+// 10. **Push is not an option for invalidation.** iOS 16.4+ requires *every* web push to raise a
+//     user-visible notification — `public/push-sw.js` always calls `showNotification` — so using it
+//     here would either buzz every crew member's phone over a corrected phone number or get the
+//     permission revoked. There is no silent data push on our baseline.
 //
-// 8. **Replace, do not merge, when the answer changes** (PRD 009 §6, task 191). A dataset small
-//    enough for one payload should be replaced wholesale, so a field the server stops sending stops
-//    existing on the device. A delta needs explicit tombstones or the server's purge is decorative.
+// 11. **Replace, do not merge, when the answer changes** (PRD 009 §6, task 191). A dataset small
+//     enough for one payload is replaced wholesale, so a field the server stops sending stops
+//     existing on the device. A delta needs explicit tombstones or the server's purge is decorative.
+//
+// 12. **No traffic while hidden, and never two loops.** A phone in a pocket has nobody reading
+//     anything, so the timer stops entirely rather than lengthening. And there is exactly one
+//     app-level loop: a second one alongside it doubles the traffic this design exists to remove,
+//     which is precisely what happened before PRD 017.
 
 /**
  * The browser surface this loop needs, as an argument rather than a global.

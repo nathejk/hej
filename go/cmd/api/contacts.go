@@ -457,11 +457,12 @@ type contactsVersionResponse struct {
 	// not expose response headers, so a header-only version would force every consumer to bypass
 	// it. The ETag is still set, for the browser's own conditional requests.
 	//
-	// This endpoint is the **reference implementation** of that convention. A second dataset
-	// needing during-event freshness should copy the shape — small opaque version, scoped to the
-	// caller's permitted set, answered from a projection read, ETag-able, cached briefly — and get
-	// its own served poll interval rather than sharing `contacts_poll_seconds`. Two datasets on one
-	// number cannot be tuned apart, and they will not cost the same.
+	// This endpoint **was** the reference implementation of that convention, and is superseded by
+	// `GET /api/sync` (PRD 017, sync.go), which answers the same question for every dataset the caller
+	// holds in one request instead of one per dataset. A new dataset needing during-event freshness adds
+	// a key there — do not copy this endpoint. It survives one release while installed clients may still
+	// be running an older bundle; task 292 retires it. `contactsVersionFor` stays either way, because
+	// `/api/sync` composes it.
 	Version string `json:"version"`
 }
 
