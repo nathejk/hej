@@ -1,10 +1,10 @@
 # PRD 017 — One sync check on foreground, for every dataset the device holds
 
-**Status:** draft
+**Status:** doing
 **Author:** agent session (Zed / Claude)
 **Created:** 2026-09-15
-**Last updated:** 2026-09-15
-**Approved:**
+**Last updated:** 2026-09-16
+**Approved:** 2026-09-16
 **Shipped:**
 **Target users:** participant (all roles — patrol members, crew, personnel)
 
@@ -26,6 +26,12 @@ datasets whose answer differs.
 Today this exists for **contacts alone**. This PRD generalises it to every cached
 dataset, in **one** request rather than one per dataset.
 
+**State of play.** Half the mechanism is already in the repo: PRD 016 has shipped,
+and task 269 landed `go/cmd/api/mapversion.go` — cached, per-patrol version
+derivations for scans, handouts and revealed checkpoints, each with a
+changes-when-data-changes test. What is missing is the endpoint that multiplexes
+them, versions for profile and race area, and the client loop that consumes them.
+
 ## 2. Problem & Motivation
 
 - **What problem does this solve?**
@@ -37,9 +43,9 @@ dataset, in **one** request rather than one per dataset.
     never again for as long as the view is mounted. A patrol that scans a post and
     looks at the map sees the old list.
   - **The datasets that change most are the ones that never refresh.** PRD 016
-    adds map handouts and revealed checkpoints, which change *during* the race and
-    are the whole basis of what the map may draw. A patrol handed a new sheet at a
-    post must see its checkpoints appear. A reveal that arrives on the next cold
+    shipped map handouts and revealed checkpoints, which change *during* the race
+    and are the whole basis of what the map may draw. A patrol handed a new sheet at
+    a post must see its checkpoints appear. A reveal that arrives on the next cold
     start arrives after it mattered.
   - **Corrected data stays invisible.** Phone numbers are corrected during the
     event — that is why the contacts loop was built in the first place. People add
@@ -52,14 +58,19 @@ dataset, in **one** request rather than one per dataset.
     size. The convention was written when there was one dataset; honouring its
     *intent* at six means multiplexing the check.
 
-- **Why now?** PRD 016 is the tipping point: it adds two datasets whose freshness
-  is not a nicety but the mechanism by which the map becomes useful at all. Doing
-  it as two more bespoke loops would leave four half-followed conventions to
-  unify later, mid-season.
+- **Why now?** PRD 016 was the tipping point and it has shipped. It brought two
+  datasets whose freshness is the mechanism by which the map becomes useful at all,
+  and it brought their version derivations (task 269) *for this PRD* — cheap,
+  cached, tested, and currently served from no endpoint. Everything below is now
+  the last mile: leaving those versions unconsumed means three datasets that change
+  during the race and refresh on cold start only.
 
 - **Evidence.**
   - `vue/src/composables/useFreshnessLoop.ts` — the convention, written to be
     reused, reused for one dataset.
+  - `go/cmd/api/mapversion.go` — three finished `*VersionFor` derivations whose own
+    header says they feed "PRD 017's foreground-sync check", with nothing calling
+    them.
   - `go/cmd/api/contacts.go` — the version endpoint's own comment: any other pane
     needing during-event freshness "should copy the shape".
   - `vue/src/views/MapsView.vue` — `void scans.fetch()` on mount, and nothing
@@ -94,6 +105,12 @@ dataset, in **one** request rather than one per dataset.
   existing loop stops entirely when hidden and should keep doing so.
 - **Not** bulk portrait prefetching. Faces still arrive with the rows that display
   them (PRD 009 §7 reasoning stands).
+- **Not** every cached thing on the device — only server-owned datasets the user
+  *reads*. Vehicles (PRD 010) are excluded because they are a form the user
+  themselves writes, and a background replace mid-registration would fight the
+  user; favourites and notification state are device-local and have no server
+  version to compare against. Either can be given a key later without changing the
+  shape.
 - **Not** changing what any dataset contains or who may see it. This PRD moves
   bytes at better moments; it grants nothing.
 
@@ -107,6 +124,8 @@ dataset, in **one** request rather than one per dataset.
   app, so I do not call a number that has already been fixed.
 - As **any user**, I want a photo somebody added to show up, so the directory
   looks maintained rather than abandoned.
+- As **any user**, I want a way to force a refresh when I think the app is behind,
+  so I do not have to guess whether what I am looking at is current.
 
 **Happy path.** A patrol scans in at Post 4 and is handed Kort 3. The scanner's
 event reaches the BFF. Two minutes later a patrol member unlocks the phone; the
@@ -125,9 +144,13 @@ not touched.
   skipped. The current loop guards *overlapping* checks but not repeated ones, and
   this is the map's normal rhythm rather than an edge case.
 - **Offline foreground** — no request; the cached copy stays and the offline
-  notice already explains the situation. The reconnect trigger picks it up.
-- **One dataset fails** — the others still apply. The failed one keeps its cached
-  copy and records staleness rather than blanking the UI.
+  notice already explains the situation. The reconnect trigger picks it up. A manual
+  refresh while offline must say so rather than appear to succeed.
+- **One dataset fails** — two distinct failures. A *payload* refetch failing leaves
+  the cached copy and records staleness rather than blanking the UI. A *version
+  derivation* failing on the server omits its version and marks the dataset
+  unavailable, so the check still answers for the other five and the device retries
+  next foreground. Neither may fail the whole check.
 - **A dataset the user has no business holding** — a spejder has no contacts pane.
   It is absent from the response by role, so the device never learns a version for
   something it may not fetch, and never asks.
@@ -141,7 +164,8 @@ not touched.
 - **Clock skew** — versions are opaque and server-issued, so nothing here depends
   on the device clock. The manifest's `expiresAt` stays server-issued for the same
   reason.
-- **Return from bfcache or the iOS app switcher** — see §11.1. `visibilitychange`
+- **Return from bfcache or the iOS app switcher** — see §11 *Decided*.
+  `visibilitychange`
   is not reliably the only signal, and the current loop listens to nothing else.
 
 ## 6. Requirements
@@ -150,22 +174,31 @@ not touched.
 
 - [ ] A single endpoint returns, for the calling user, a small opaque version per
       dataset that user holds.
-- [ ] The client checks it on **foreground**, on **reconnect**, and on an
-      **interval while visible** — the three trigger points and no more.
+- [ ] The client checks it on **foreground**, on **reconnect**, on an **interval
+      while visible**, and on an explicit **user request** — four trigger points and
+      no more.
 - [ ] Mounting counts as foregrounding (existing behaviour).
+- [ ] A **manual refresh** control is available on the panes that hold synced data.
+      It bypasses the debounce (the user has asked, and a control that visibly does
+      nothing is worse than the request), but not the overlap guard.
 - [ ] The client compares each version with what it holds and refetches only the
       datasets that differ.
 - [ ] Datasets covered at ship: contacts manifest (incl. portrait versions), own
       profile, patrol scans, patrol map handouts, revealed checkpoints, race area.
 - [ ] A dataset absent from the response is one the user may not hold; the client
       must not request it.
+- [ ] A dataset whose version could not be derived is reported as **unavailable**,
+      distinctly from absent. The client keeps its cached copy, does not refetch, and
+      keeps asking on the next check — a transient projection error must never be
+      read as "you may not hold this", or a device stops asking for something it is
+      entitled to and nothing ever tells it otherwise.
 - [ ] Refetched datasets **replace** the cached copy wholesale.
 - [ ] Metadata propagates ahead of images: a corrected number may arrive before
       the new portrait; never the reverse.
 - [ ] Checks are debounced — a check within N seconds of the previous one is
-      skipped, N served rather than compiled in.
+      skipped, N served rather than compiled in. A manual refresh is exempt.
 - [ ] The interval is served; zero disables the **interval only**, leaving
-      foreground and reconnect checks running.
+      foreground, reconnect and manual checks running.
 - [ ] A per-dataset failure is isolated and recorded; the loop continues.
 - [ ] Exactly one app-level loop. Per-pane loops for these datasets are removed
       rather than left running alongside it.
@@ -204,9 +237,14 @@ right, not like syncing.
 - **No spinner on a foreground check.** A check is expected to find nothing; a
   progress indicator on every unlock would be noise. Panes may keep their existing
   subtle refreshing state while a *payload* is refetched.
-- **No toast when something changes.** The screen updating is the feedback. The
-  one case worth considering is a new scan arriving while the drawer is open
-  (§11.5).
+- **A manual refresh is the exception, and it must show something.** The whole
+  value of the control is that a user who suspects the app is behind can settle the
+  question, so it acknowledges the tap even when the answer is "nothing changed" —
+  otherwise it reads as broken and gets tapped repeatedly. Prefer a standard
+  shadcn-vue control; pull-to-refresh alone is not enough, because it collides with
+  a scrolling list and does not exist on the map.
+- **No toast when something changes.** The screen updating is the feedback. A new
+  scan arriving while the drawer is open just grows the list — no notice.
 - **Staleness stays where it already is.** `OfflineNotice` and the panes' "last
   synced" affordances (PRD 009) are the honest place to say a copy is old. Do not
   add a second vocabulary for the same fact.
@@ -228,6 +266,7 @@ multiplicity:
 GET /api/sync
 { "versions": { "contacts": "a1b2", "profile": "c3d4", "scans": "e5f6",
                 "handouts": "…", "checkpoints": "…", "race_area": "…" },
+  "unavailable": [],
   "interval_seconds": 60 }
 ```
 
@@ -236,11 +275,23 @@ GET /api/sync
   than today's arrangement, where the client's own role table decides and a
   disagreement with the BFF produces a 403 per foreground until `forbidden`
   sticks.
+- **`unavailable` exists so absence can stay meaningful.** Each `*VersionFor`
+  returns an error, and one failing projection read must not 500 the check for the
+  other five. But dropping its key would say "you may not hold this", which is a
+  lie the client cannot recover from — it would stop asking. So a failed derivation
+  is named, and the client treats it as "unchanged, ask again". Normally empty; if
+  it is not, that is a server fault worth logging as one.
 - **`interval_seconds` is served in the response**, not only in `/api/config`.
   The reason is the 02:00 lever: an operator shedding load wants it to take effect
   on the next check, on every device, without a config refetch. Zero keeps meaning
   "drop the timer, keep the event-driven checks" — the distinction an operator
   would get wrong, and therefore the one with its own test.
+- **One interval serves every dataset's cadence, which is a property of
+  multiplexing rather than a compromise.** The strictest requirement sets it — scans
+  should surface inside a minute — and contacts, portraits and the rest get
+  their looser "within a few minutes" for free, because the check is one request for
+  all of them and costs the same whether one dataset changed or none did. Hence 60 s
+  (§11).
 - **The per-dataset interval knob is lost**, and that is the honest cost of
   multiplexing: `contactsPollSeconds` could be widened for contacts alone.
   Accepted, because one endpoint has one cost to tune, and a dataset that
@@ -249,14 +300,18 @@ GET /api/sync
 ### Frontend (Vue 3 / TS)
 
 - `useFreshnessLoop` keeps its role and gains **debounce** (a minimum gap between
-  checks). It currently guards overlap but not repetition, and
-  unlock-check-lock-unlock is how the map is actually used.
+  checks) with an override for a user-requested check. It currently guards overlap
+  but not repetition, and unlock-check-lock-unlock is how the map is actually used.
+- The loop's returned `check` is what the manual refresh calls, so the control is a
+  button wired to the existing seam rather than a second path to the same endpoint.
 - New `composables/useSyncLoop.ts`: one app-level loop whose `check` fetches
   `/api/sync` and dispatches per-dataset refreshes. Registered once in `App.vue`,
   beside the existing app-level concerns.
 - Each store gains a uniform `refreshIfVersionDiffers(version)`. The contacts
   store's `refreshIfStale` is the model, minus its private version request — the
-  sync response now provides that.
+  sync response now provides that. All six stores exist today
+  (`contacts`, `profile`, `scans`, `handouts`, `checkpoints`, plus the race-area
+  cache), so this is a uniform addition rather than new state.
 - `useContactsFreshness` and `useQuietPrefetch` **collapse into the sync loop**.
   Two loops checking the same dataset on the same triggers is exactly the
   duplication this PRD exists to prevent; leaving them would double contacts
@@ -269,10 +324,14 @@ GET /api/sync
 - `GET /api/sync` in a new `sync.go`, behind `requireAuth`, with **OpenAPI
   annotations** (repo rule).
 - It composes existing version derivations and must not become a place where
-  payloads get built. Each contributing dataset exposes a `Version(viewer)` that
-  is a projection read or a cached hash — `contactsVersionFor` plus its
-  `versionCache` is the pattern to follow, including keying the cache by
-  *permitted set* rather than by user, so devices sharing a role share the work.
+  payloads get built. Three of the six already exist: `checkpointsVersionFor`,
+  `handoutsVersionFor` and `scansVersionFor` in `mapversion.go` (task 269), each
+  cached per patrol on a 5 s TTL, alongside `contactsVersionFor`. Only **profile**
+  and **race area** still need one, and `mapversion.go`'s header documents the rules
+  they must follow — projection read or cached hash, keyed by *permitted set* rather
+  than by user, nothing time-varying in the hash.
+- Composition is failure-tolerant: a derivation returning an error contributes to
+  `unavailable` rather than failing the response (§6, and the shape above).
 - Datasets are assembled by role and patrol, so the response is the authoritative
   answer to "what may this caller hold".
 - `/api/contacts/version` stays for one release while the client transitions, then
@@ -291,23 +350,30 @@ GET /api/sync
 - **A wrongly-stable version is silent.** The failure mode is not an error but a
   device that quietly never updates — the hardest kind to notice during an event.
   Every version needs a test that it *changes* when its data changes, not merely
-  that it is stable.
+  that it is stable. Done for the three map datasets; owed for profile and race
+  area.
 - **A wrongly-unstable version is expensive**: one that changes on every request
   makes every device refetch every payload every minute. `contacts.go` already
   documents this trap (the expiry is deliberately not part of the hash); the same
   discipline applies to each new version.
-- **Coupling to PRD 016.** Three of the six datasets do not exist yet. Sequenced
-  in §10 so the mechanism ships with what exists and gains keys as PRD 016 lands.
+- **The version caches' 5 s TTL is part of the latency budget.** A version may be
+  served up to 5 s stale, and the debounce adds its own gap on top, so a change can
+  take ~10 s to reach a device that foregrounds at the wrong moment. Accounted for
+  in §9 rather than treated as a bug.
 - **Ordering.** Independent refetches can apply out of order relative to one
   another; nothing may assume that, say, checkpoints and handouts are mutually
   consistent within a single check.
 
 ## 9. Success Metrics
 
-- Median staleness of a change reaching a foregrounded device: under one interval
-  tick; under 5 s for a device foregrounding after the change.
+- Median staleness of a change reaching a foregrounded device: scans inside one
+  minute; contacts, portraits and profile inside a few minutes. Under 10 s for a
+  device foregrounding after the change — the version caches' 5 s TTL plus the
+  debounce, not a round-trip budget.
 - ≥ 95 % of `/api/sync` calls report nothing changed, at a small fraction of a
-  position report's cost.
+  position report's cost. **Measured outside the first hour of the race**: photos are
+  added heavily early on, every one of them moves the contacts version, and a
+  depressed ratio then is the system working rather than a fault (§11).
 - `/api/sync` p95 well inside the BFF's other read endpoints, at expected device
   count.
 - Zero reports of a device holding a stale copy for a whole event — the silent
@@ -316,31 +382,37 @@ GET /api/sync
 
 ## 10. Rollout / Task Breakdown
 
-Phase 1 ships value with today's datasets and no dependency on PRD 016; later
-phases add keys.
+PRD 016 has shipped and task 269 landed the map datasets' version derivations, so
+there is no longer a phase gated on another PRD. What remains is one coherent piece
+of work plus cleanup.
 
 **Phase 1 — the mechanism**
-- [ ] Task: debounce in `useFreshnessLoop` (minimum gap between checks)
-- [ ] Task: `GET /api/sync` composing contacts, profile, scans and race-area
-      versions + OpenAPI annotations
-- [ ] Task: `Version(viewer)` for profile, scans and race area, each with a
-      changes-when-data-changes test
-- [ ] Task: cached version derivation keyed by permitted set (follow
-      `versionCache`)
+- [ ] Task: **device check on iOS/iPadOS home-screen PWA and bfcache** — which
+      events actually fire on return (§11 *Decided*). A blocker, not a question: it decides
+      what the loop listens to, and every other task assumes an answer.
+- [ ] Task: debounce in `useFreshnessLoop` (minimum gap between checks), with the
+      manual-refresh override
+- [ ] Task: manual refresh control on the panes holding synced data, wired to the
+      loop's `check`, acknowledging a nothing-changed answer
+- [ ] Task: `Version(viewer)` for **profile** and **race area**, each with a
+      changes-when-data-changes test, following `mapversion.go`
+- [ ] Task: `GET /api/sync` composing the four existing versions
+      (`contactsVersionFor`, `scansVersionFor`, `handoutsVersionFor`,
+      `checkpointsVersionFor`) plus the two new ones, with `unavailable` handling and
+      OpenAPI annotations
+- [ ] Task: rewrite the convention comment in `useFreshnessLoop.ts` to describe the
+      multiplexed check — in this phase, not later: its §1 and §4 become actively
+      misleading the moment `useSyncLoop` lands
 - [ ] Task: `useSyncLoop` at app level, dispatching per-dataset refreshes
 - [ ] Task: uniform `refreshIfVersionDiffers` across the stores
 - [ ] Task: collapse `useContactsFreshness` and `useQuietPrefetch` into the sync
       loop; remove `MapsView`'s mount-time scan fetch
 - [ ] Task: served `interval_seconds`, incl. the zero-disables-the-interval test
+- [ ] Task: verify on device that a reveal appears within one foreground
 - [ ] Task: load test at expected device count; record the numbers in this PRD
 
-**Phase 2 — PRD 016's datasets**
-- [ ] Task: add `handouts` and `checkpoints` keys once PRD 016 phase 2 lands
-- [ ] Task: verify on device that a reveal appears within one foreground
-
-**Phase 3 — cleanup**
-- [ ] Task: retire `/api/contacts/version` and rewrite the convention comment in
-      `useFreshnessLoop.ts` to describe the multiplexed check
+**Phase 2 — cleanup**
+- [ ] Task: retire `/api/contacts/version` once no client calls it
 - [ ] Task: instrument the unchanged/changed ratio and review after the first
       event
 
@@ -350,38 +422,57 @@ shed without a release.
 
 ## 11. Open Questions
 
-1. **Is `visibilitychange` enough on our baseline?** "In focus" is what was asked
-   for, and the current loop listens only to `visibilitychange` and `online`.
-   Returning to a home-screen PWA from the iOS app switcher, and a bfcache
-   restore, do not reliably present the same way. Candidates to add: `pageshow`
-   (with `persisted`), `focus`, and `resume`. Needs a device check on iOS/iPadOS
-   before phase 1 is called done — this is the difference between the feature
-   working and appearing to work.
-2. **What is the debounce, and the interval?** Proposal: debounce 5 s, interval
-   60 s (matching today's contacts poll). Both served; both deserve a number
-   somebody has thought about rather than inherited.
-3. **One key per dataset, or a single app-wide version?** A single version is one
-   comparison, but it refetches everything when anything changes — including the
-   largest payload on the device. This PRD assumes per-dataset keys for that
-   reason; worth confirming, since a single version is markedly simpler.
-4. **Should the response carry more than versions?** A tiny "event state" — race
-   started/ended, an active SOS, a new update post — would let one request drive
-   more of the app. Attractive, and exactly how a small endpoint becomes a large
-   one. Deliberately excluded here.
-5. **Does a new scan arriving while the drawer is open deserve a notice?** The
-   list simply growing may be enough; a patrol that just scanned in might
-   appreciate the confirmation. A UX call, not a technical one.
-6. **What about the user's own writes?** A profile confirmation or a photo upload
-   already knows it changed something. Should a write force the next check, or
-   update its store directly and let the loop confirm? The latter is simpler and
-   avoids a write racing its own refetch.
-7. **Do photos need their own key?** Portrait versions ride inside the contacts
-   manifest today, so a new photo changes the contacts version and refetches the
-   whole directory to learn one thumbnail changed. Acceptable at current size, and
-   the first thing to revisit if the unchanged ratio disappoints.
-8. **`/api/config` overlap.** Runtime config is already fetched on load and is now
-   partly duplicated by `interval_seconds`. Does config fold into the sync
-   response, or stay separate because it is public and unauthenticated? Leaning
-   strongly to separate — `/api/config`'s contract says everything it carries is
-   public by definition, while `/api/sync` is per-caller — but the duplication
-   should be a decision rather than an accident.
+**None open.** The questions this PRD was drafted with are answered below, and the
+one genuine unknown left — which events fire on return to a home-screen PWA on iOS —
+is a Phase 1 device check rather than a decision to be argued.
+
+### Decided
+
+- **Interval 60 s, debounce 5 s, both served.** Set by the strictest dataset: scans
+  should surface inside a minute. Contacts, portraits and profile only need "within a
+  few minutes" and get better than that for free, because one multiplexed check
+  covers them all at the same cost. The debounce compounds with the 5 s version-cache
+  TTL (§8), so the worst case for a badly-timed foreground is ~10 s — acceptable
+  precisely because a user who suspects the app is behind has a refresh control and
+  does not have to wait for a tick.
+- **A manual refresh control ships with the mechanism.** It is what makes the timing
+  question low-stakes: the interval decides how fresh the app is when nobody is
+  asking, and the button decides how fresh it is when somebody is. It bypasses the
+  debounce, not the overlap guard, and it acknowledges the tap even when nothing
+  changed (§7).
+- **`visibilitychange` alone is not assumed sufficient.** "In focus" is what was
+  asked for, and the current loop listens only to `visibilitychange` and `online`;
+  returning to a home-screen PWA from the iOS app switcher, and a bfcache restore,
+  do not reliably present the same way. This is the difference between the feature
+  working and appearing to work, so it is Phase 1's first task rather than an open
+  question — candidates `pageshow` (with `persisted`), `focus`, `resume`, chosen by
+  device check.
+- **One key per dataset, not a single app-wide version.** A single version is one
+  comparison, but it refetches everything when anything changes — including the
+  contacts manifest, the largest payload on the device. Per-dataset keys, as §6
+  requires. A dataset that later needs its own cadence can also be given its own
+  interval on the same shape.
+- **No separate photo key; portrait versions stay inside the contacts manifest.**
+  With ~100–150 entries and photos arriving heavily in the first hour, the contacts
+  version will churn early in the race — but the manifest is metadata only
+  (`id`, `name`, `population`, `phone`, `crewFunction`, `stillInRace`,
+  `portraitVersion`, groups), so a refetch is tens of kilobytes before compression
+  and, critically, **refetches no images**: portraits still arrive per row, lazily
+  (PRD 009 §7). Splitting the key would save a small payload at the cost of a second
+  version to keep honest. Revisit only if the unchanged ratio outside the first hour
+  disappoints — the expected early-race dip is written into §9 so it is not
+  misdiagnosed as a wrongly-unstable version.
+- **The response carries versions and `interval_seconds`, nothing else.** An "event
+  state" payload — race started/ended, active SOS, a new update post — is attractive
+  and is exactly how a small endpoint becomes a large one. Excluded; a future PRD can
+  argue for it on its own terms.
+- **A new scan arriving while the drawer is open just grows the list.** No notice,
+  no toast. The row appearing is the confirmation.
+- **A write updates its own store directly and lets the loop confirm.** A profile
+  confirmation or photo upload already knows what it changed; forcing an immediate
+  check would race the write against its own refetch for no user-visible gain.
+- **`/api/config` stays separate.** Its contract is that everything it carries is
+  public by definition, while `/api/sync` is per-caller and authenticated; folding
+  one into the other would blur that. `interval_seconds` appearing in both is
+  accepted duplication, and the sync response is the one that wins, because the
+  02:00 lever must take effect on the next check without a config refetch.
