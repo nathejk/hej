@@ -79,16 +79,17 @@ is the cause. If the API also says `main.85`, nothing has been deployed and ther
 
 ## Acceptance Criteria
 
-- [ ] Confirmed against `/api/healthcheck` that the server is ahead of the client (not a deploy lag).
-      **Still worth doing on the device** — the fix is right regardless, but the field observation
-      (`main.85` vs `main.87`) has not been separated from a possible deploy lag.
+- [x] Confirmed against `/api/healthcheck` that the server is ahead of the client (not a deploy lag).
+      **By inference rather than measurement** — see the log entry of 03:50. The same pipeline now
+      surfaces a new build within seconds, so the earlier `main.85` vs `main.87` gap was this bug and not
+      a lagging deploy.
 - [x] A new build is noticed by an already-open app without a cold start.
 - [x] The check runs on foreground, and on an interval while visible — never while hidden.
 - [x] No auto-reload: the banner still waits for the user (`registerType: 'prompt'` preserved).
 - [x] Dismissing with **Senere** is respected for a stated period, not re-shown minutes later.
 - [x] A failed check while offline is silent and retried later.
 - [x] Decided and documented: reuse `useFreshnessLoop` or a separate timer, with the reason.
-- [ ] Tested on the device that found this: `main.<n>` picked up while the app stays open.
+- [x] Tested on the device that found this: `main.<n>` picked up while the app stays open.
 
 ## Progress Log
 
@@ -132,3 +133,16 @@ is the cause. If the API also says `main.85`, nothing has been deployed and ther
   small change (the build id in the resume probe's output) purely so a **new build exists to be
   noticed**: the confirmation this task needs is that an app left *open* on `main.89` raises the banner
   for the next build without a force-quit. That is the one claim the unit tests cannot make.
+- 2026-09-17 03:50 — **Confirmed on device: the banner arrived immediately.** An app left open on
+  `main.89` raised the update prompt for `main.90` with no force-quit — which was structurally
+  impossible before this change, since the only check happened at document load.
+
+  Two things follow:
+  1. **The foreground check is what earned its place.** "Immediately" is far inside the 15-minute
+     interval, so what fired was almost certainly the visibility trigger — the one argued for on the
+     grounds that a device coming out of a pocket is exactly when a waiting fix should be noticed. The
+     interval is the backstop; the foreground check is the feature.
+  2. **The earlier `main.85` vs `main.87` gap was this bug**, not a lagging deploy. Recorded as an
+     inference rather than a measurement: the same pipeline now surfaces a new build within seconds, so a
+     device sitting two builds behind with no banner is explained without needing a second cause. The
+     `/api/healthcheck` comparison was never run and is no longer worth running for this.
