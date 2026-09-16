@@ -37,6 +37,11 @@ type Scan struct {
 	Lng *float64
 
 	ScannedAt time.Time
+
+	// Verdict is the on-time judgement for this scan, or nil when there is nothing to judge against —
+	// see verdict.go. Nil for bandit catches, unattributed scans, `none` windows and `relative` windows
+	// whose anchoring scan has not happened yet. The API omits the fields when this is nil.
+	Verdict *Verdict
 }
 
 // Source returns a patrol's registrations. Callers pass the patrol id resolved

@@ -13,6 +13,11 @@ import (
 // view, and one registration deliberately has no position so clients keep
 // handling the nullable case.
 //
+// The scans deliberately span every on-time state the drawer must render (task 270): on time
+// (delta 0), late (positive delta), early (negative delta), a `none`-scheme post with no verdict, and a
+// bandit catch that never carries one. A verdict here is a literal, not computed — the mock stands in for
+// the projection, and the projection is where verdictFor runs.
+//
 // The fixture keys off users.Mock*PatrolID rather than repeating the ids: a
 // drifting literal here would present as "this patrol has no registrations",
 // which is indistinguishable from the real empty state.
@@ -23,15 +28,16 @@ func NewMockSource() Source {
 
 	m := &mockSource{byPatrol: map[string][]Scan{
 		users.MockSpejderPatrolID: {
-			{ID: "scan-1042-1", Kind: KindCheckpoint, Label: "Post 1 – Silkeborg Sønderskov", Lat: pos(56.1382), Lng: pos(9.5521), ScannedAt: evening(18, 40)},
-			{ID: "scan-1042-2", Kind: KindCheckpoint, Label: "Post 2 – Kløvermarken", Lat: pos(56.1804), Lng: pos(9.4812), ScannedAt: evening(20, 5)},
-			{ID: "scan-1042-3", Kind: KindCheckpoint, Label: "Post 3 – Ans Bro", Lat: pos(56.2311), Lng: pos(9.5216), ScannedAt: evening(21, 14)},
-			// Registered by hand at the post, hence no position.
-			{ID: "scan-1042-4", Kind: KindCheckpoint, Label: "Post 4 – Gjern Bakker", ScannedAt: evening(22, 47)},
+			{ID: "scan-1042-1", Kind: KindCheckpoint, Label: "Post 1 – Silkeborg Sønderskov", CheckpointID: "cp-1", Lat: pos(56.1382), Lng: pos(9.5521), ScannedAt: evening(18, 40), Verdict: &Verdict{OnTime: true, DeltaSeconds: 0}},
+			{ID: "scan-1042-2", Kind: KindCheckpoint, Label: "Post 2 – Kløvermarken", CheckpointID: "cp-2", Lat: pos(56.1804), Lng: pos(9.4812), ScannedAt: evening(20, 5), Verdict: &Verdict{OnTime: false, DeltaSeconds: 12 * 60}},
+			{ID: "scan-1042-3", Kind: KindCheckpoint, Label: "Post 3 – Ans Bro", CheckpointID: "cp-3", Lat: pos(56.2311), Lng: pos(9.5216), ScannedAt: evening(21, 14), Verdict: &Verdict{OnTime: false, DeltaSeconds: -5 * 60}},
+			// Registered by hand at the post, hence no position. A `none`-scheme post: no window, no verdict.
+			{ID: "scan-1042-4", Kind: KindCheckpoint, Label: "Post 4 – Gjern Bakker", CheckpointID: "cp-4", ScannedAt: evening(22, 47)},
+			// Bandit catches never carry a verdict.
 			{ID: "scan-1042-5", Kind: KindBandit, Label: "Bandit: Sorte Sofie", Lat: pos(56.2609), Lng: pos(9.4103), ScannedAt: evening(23, 32)},
 		},
 		users.MockBanditPatrolID: {
-			{ID: "scan-9001-1", Kind: KindCheckpoint, Label: "Post 2 – Kløvermarken", Lat: pos(56.1804), Lng: pos(9.4812), ScannedAt: evening(19, 22)},
+			{ID: "scan-9001-1", Kind: KindCheckpoint, Label: "Post 2 – Kløvermarken", CheckpointID: "cp-2", Lat: pos(56.1804), Lng: pos(9.4812), ScannedAt: evening(19, 22), Verdict: &Verdict{OnTime: true, DeltaSeconds: 0}},
 			{ID: "scan-9001-2", Kind: KindBandit, Label: "Bandit: Grå Greve", Lat: pos(56.0748), Lng: pos(9.3364), ScannedAt: evening(21, 58)},
 		},
 	}}

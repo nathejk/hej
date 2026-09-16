@@ -25,6 +25,16 @@ type ProjectedScan struct {
 	CheckpointName string
 	Lat            *float64
 	Lng            *float64
+
+	// The attributed checkpoint's group, its window and the group's scheme — carried through so the
+	// verdict is a pure function over the patrol's own scans (task 265). Zero and "" when the scan could
+	// not be attributed to a post, which is exactly when there is no verdict to compute.
+	CheckgroupID         string
+	Scheme               string
+	RelativeCheckgroupID string
+	OpenFromUts          int64
+	OpenUntilUts         int64
+	OpenDurationMinutes  int
 }
 
 // NewProjectionSource returns a Source backed by the scan projection.
@@ -83,8 +93,23 @@ func (s projectionSource) ByPatrol(patrolID string) []Scan {
 		return nil
 	}
 
+	// First pass: the earliest attributed scan the patrol has at each checkgroup. A `relative` window
+	// opens at the patrol's *own* scan at another group (task 265), so the anchor can only come from the
+	// same set of rows. Earliest, not latest, because the window opens the first time the patrol reaches
+	// the anchoring group — a later re-scan there must not push the window forward.
+	anchorByCheckgroup := make(map[string]int64, len(rows))
+	for _, r := range rows {
+		if r.CheckgroupID == "" {
+			continue
+		}
+		if prev, seen := anchorByCheckgroup[r.CheckgroupID]; !seen || r.Uts < prev {
+			anchorByCheckgroup[r.CheckgroupID] = r.Uts
+		}
+	}
+
 	out := make([]Scan, 0, len(rows))
 	for _, r := range rows {
+		anchorUts, hasAnchor := anchorByCheckgroup[r.RelativeCheckgroupID]
 		out = append(out, Scan{
 			// The event carries no scan id, so the projection's key becomes ours. Stable across
 			// replays, which matters because the client uses it as a list key.
@@ -95,6 +120,9 @@ func (s projectionSource) ByPatrol(patrolID string) []Scan {
 			Lat:          r.Lat,
 			Lng:          r.Lng,
 			ScannedAt:    time.Unix(r.Uts, 0).UTC(),
+			Verdict: verdictFor(
+				r.Uts, r.Scheme, r.OpenFromUts, r.OpenUntilUts, r.OpenDurationMinutes, anchorUts, hasAnchor,
+			),
 		})
 	}
 	return out

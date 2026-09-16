@@ -1,10 +1,11 @@
 # 265 — Server-side on-time verdict for all three schemes
 
-**Status:** doing
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-15
 **Picked up by:** agent session (Zed / Claude)
 **Started:** 2026-09-15
+**Completed:** 2026-09-16
 
 ## Description
 
@@ -38,13 +39,13 @@ The `internal/scans` mock must be able to produce every verdict state, for dev s
 
 ## Acceptance Criteria
 
-- [ ] Verdict computed in the BFF; nothing about it derived client-side.
-- [ ] `fixed`, `relative` and `none` each tested, incl. exact boundary instants (inclusive).
-- [ ] `relative` with no anchoring scan yields no verdict (test).
-- [ ] No grace margin applied; a comment records why, with the hq reference.
-- [ ] `delta_seconds` signed, so early and late are distinguishable.
-- [ ] `/api/patrol/scans` change is additive; OpenAPI annotations updated.
-- [ ] An unattributable scan is listed with no checkpoint and no verdict (task 254).
+- [x] Verdict computed in the BFF; nothing about it derived client-side.
+- [x] `fixed`, `relative` and `none` each tested, incl. exact boundary instants (inclusive).
+- [x] `relative` with no anchoring scan yields no verdict (test).
+- [x] No grace margin applied; a comment records why, with the hq reference.
+- [x] `delta_seconds` signed, so early and late are distinguishable.
+- [x] `/api/patrol/scans` change is additive; OpenAPI annotations updated.
+- [x] An unattributable scan is listed with no checkpoint and no verdict (task 254).
 
 ## Progress Log
 
@@ -53,3 +54,13 @@ The `internal/scans` mock must be able to produce every verdict state, for dev s
   window on each row (tasks 252–254), so the verdict is a pure function over the patrol's scans. Computing
   it in `internal/scans` (which already assembles the registrations) rather than in SQL: the `relative`
   case needs the anchoring scan at *another* checkgroup, which is easiest over the in-memory set.
+- 2026-09-16 — Wired the verdict end to end. `internal/scans/verdict.go` holds the pure rule
+  (`windowFor`/`verdictFor`, scheme consts, inclusive bounds, no grace). `ProjectedScan` widened with
+  `CheckgroupID/Scheme/RelativeCheckgroupID/OpenFromUts/OpenUntilUts/OpenDurationMinutes`; `Scan` gained
+  `Verdict *Verdict`. `projectionSource.ByPatrol` now does two passes — build the earliest scan per
+  checkgroup, then resolve each `relative` window's anchor from that map. Anchor is the *earliest* scan at
+  the group so a re-scan can't re-open a missed window (tested). `projectionAdapter.ByTeam` passes the new
+  columns through. `scanResponse` gained nullable `on_time`/`delta_seconds` (both null together when no
+  window); OpenAPI `@Description` updated. Mock now seeds on-time/late/early/none/bandit so task 270 has
+  every state. Tests: `verdict_test.go` (fixed/relative/none, boundaries, no-anchor→nil, earliest-anchor,
+  signed delta) + endpoint test. All four Go gates green.

@@ -58,12 +58,18 @@ func (a projectionAdapter) ByTeam(year, teamID string) ([]scans.ProjectedScan, e
 	out := make([]scans.ProjectedScan, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, scans.ProjectedScan{
-			QrID:           r.QrID,
-			Uts:            r.Uts,
-			CheckpointID:   r.CheckpointID,
-			CheckpointName: r.CheckpointName,
-			Lat:            r.Lat,
-			Lng:            r.Lng,
+			QrID:                 r.QrID,
+			Uts:                  r.Uts,
+			CheckpointID:         r.CheckpointID,
+			CheckpointName:       r.CheckpointName,
+			Lat:                  r.Lat,
+			Lng:                  r.Lng,
+			CheckgroupID:         r.CheckgroupID,
+			Scheme:               r.Scheme,
+			RelativeCheckgroupID: r.RelativeCheckgroupID,
+			OpenFromUts:          r.OpenFromUts,
+			OpenUntilUts:         r.OpenUntilUts,
+			OpenDurationMinutes:  r.OpenDuration,
 		})
 	}
 	return out, nil

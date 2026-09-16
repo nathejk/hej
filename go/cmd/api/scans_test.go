@@ -95,6 +95,49 @@ func TestPatrolScans_ReturnsSeededScansNewestFirst(t *testing.T) {
 	}
 }
 
+// The verdict fields (task 265) are additive and travel per scan: present when there is a window to
+// judge against, both null together when there is not. The mock seeds every state, so the endpoint
+// response must show at least one verdicted scan and at least one without (the bandit catch / none post).
+func TestPatrolScans_CarriesOnTimeVerdict(t *testing.T) {
+	app := newTestApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	cookies := authedCookies(t, app, srv, "30000001", "+4530000001")
+	resp := getWithCookies(t, srv.URL+"/api/patrol/scans", cookies)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body := decodeScans(t, resp)
+
+	var withVerdict, withoutVerdict, late int
+	for _, s := range body.Scans {
+		// The two fields must never split: a verdict is a pair, and a client that saw one without the
+		// other could not tell early from late from on time.
+		if (s.OnTime == nil) != (s.DeltaSeconds == nil) {
+			t.Errorf("scan %s: on_time and delta_seconds must be null together, got %v/%v", s.ID, s.OnTime, s.DeltaSeconds)
+		}
+		if s.OnTime == nil {
+			withoutVerdict++
+			continue
+		}
+		withVerdict++
+		if !*s.OnTime && *s.DeltaSeconds > 0 {
+			late++
+		}
+	}
+
+	if withVerdict == 0 {
+		t.Error("expected at least one scan with an on-time verdict")
+	}
+	if withoutVerdict == 0 {
+		t.Error("expected at least one scan without a verdict (bandit catch / none post)")
+	}
+	if late == 0 {
+		t.Error("expected at least one late scan with a positive delta")
+	}
+}
+
 func TestPatrolScans_UserWithoutPatrolGetsEmptyList(t *testing.T) {
 	app := newTestApp(t)
 	srv := httptest.NewServer(app.routes())
