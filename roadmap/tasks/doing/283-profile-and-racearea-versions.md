@@ -1,10 +1,10 @@
 # 283 — Version derivations for profile and race area
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-09-16
-**Picked up by:**
-**Started:**
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-16
 **Completed:**
 
 ## Description
@@ -49,3 +49,9 @@ it.
 
 - 2026-09-16 10:00 — Task created from PRD 017 phase 1. Sibling of task 269, which did
   the other three.
+- 2026-09-16 11:10 — Picked up. Plan: new `syncversion.go` next to `mapversion.go`.
+  Profile hashes the `users.User` fields `/me/profile` exposes plus the `person.Person`
+  facts the derived flags read (`PortraitRef`, `PhoneParent`, verification, member
+  status) — one `Users.Get` and one `People.Get`, both single-row projection reads.
+  Race area hashes the hull the payload carries and is keyed on the event year alone,
+  since every device in the event shares it.
