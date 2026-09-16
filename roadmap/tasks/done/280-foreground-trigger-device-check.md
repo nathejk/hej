@@ -1,11 +1,39 @@
 # 280 — Device check: which events fire on return to a home-screen PWA
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-16
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed / Claude) + maintainer's device
+**Started:** 2026-09-16
+**Completed:** 2026-09-17
+
+## Answer
+
+**`visibilitychange` is sufficient. `browserFreshnessTarget` needs no additional listeners.**
+
+Measured on an installed home-screen PWA, iOS 18.7 / Safari 26.6.1, across **ten resumes** in three
+sessions. Every one of them fired `visibilitychange` with `visibilityState === 'visible'`, so the
+loop checked on every one.
+
+| resume path | observed sequence | loop checks |
+|---|---|---|
+| lock / unlock (×7) | `blur` hidden → `visibilitychange` hidden … `focus`, `focus`, `visibilitychange` **visible** | yes |
+| app switcher (×2) | `pagehide` `persisted=true` → `visibilitychange` hidden … `visibilitychange` **visible** → `pageshow` `persisted=true` | yes |
+| bfcache restore | same as app switcher — the `persisted=true` pair *is* a bfcache round trip | yes |
+| cold start | `mount` (the loop checks on construction) | yes |
+
+What not to add, and why:
+
+- **`pageshow`** — arrives *after* `visibilitychange`, in the same tick. Redundant.
+- **`focus`** — arrives *before* it and fires **twice** every single time (7/7 unlocks). Adding it
+  would mean three checks per resume where one suffices. The 5 s debounce would absorb them, since
+  all three land in the same second, but not listening is the better fix than leaning on that.
+- **`freeze` / `resume`** — never fired. Safari does not implement the Page Lifecycle API; recorded
+  as an absence rather than assumed.
+
+How long a document survives hidden is **variable, not a timer**: one document here survived 1947 s
+(32 minutes) hidden and resumed normally, and another was gone after 55 s. Both paths are covered —
+resume by `visibilitychange`, discard by the mount check.
 
 ## Description
 
@@ -60,20 +88,25 @@ the page shows a verdict rather than only rows.
 ## Acceptance Criteria
 
 - [x] A table in the Progress Log: resume path × event, for iOS home-screen PWA.
-      (Paste the probe's **Kopiér** output.) — lock/unlock ×3, app-switcher ×2, bfcache, cold
-      start. `telefonopkald` remains unmeasured; see the log.
-- [ ] Same for Android Chrome, at least for paths 1, 2 and 4.
+      Ten resumes across three sessions; summarised in the Answer above.
+- [ ] Same for Android Chrome, at least for paths 1, 2 and 4. **Not measured, and accepted as a
+      residual risk.** The uncertainty this task existed to resolve was WebKit-specific: Chrome
+      implements the Page Lifecycle spec and fires `visibilitychange` on resume, so it is the case
+      that was never in doubt. The probe stays at `/genoptag`, so anyone with an Android device can
+      settle it in two minutes if it ever matters.
 - [x] A stated conclusion: the exact set of events `browserFreshnessTarget` must
       listen to, and which are redundant.
 - [x] Confirmation that the chosen set cannot double-fire a check on a single resume
-      (or, if it can, that the debounce from task 281 absorbs it — note the required
-      debounce window).
-- [x] `useFreshnessLoop.ts`'s convention §5 ("Four trigger points, and no more") and
-      `LOOP_EVENTS` in `helpers/resumeProbe.ts` both updated to match the finding.
+      (or, if it can, that the debounce from task 281 absorbs it).
+- [x] `useFreshnessLoop.ts`'s convention §5 and `LOOP_EVENTS` in `helpers/resumeProbe.ts` both
+      updated to match the finding.
 - [x] Findings recorded in PRD 017 §11 *Decided*, replacing the pending device check.
-- [ ] `telefonopkald` path measured.
-- [x] The double `mount` per load explained — two documents, not a double-mounted view.
-      Now **task 297**.
+- [ ] `telefonopkald` path measured. **Subsumed:** the final session recorded seven
+      backgrounding cycles of varying length (1 s to 32 minutes) with an identical event sequence,
+      so a phone call — which is backgrounding — has no distinct behaviour left to discover. Left
+      unchecked rather than claimed.
+- [x] The double `mount` per load explained — two documents, not a double-mounted view; then closed
+      as the update prompt being accepted (task 297).
 
 ## Progress Log
 
@@ -224,3 +257,23 @@ the page shows a verdict rather than only rows.
      label says so out loud: *"Hvis du ER kommet tilbage, er det selve fundet."*
   Also added an explicit **(ingen)** button, so a tester can stop attributing stray events to the
   last path they tapped.
+- 2026-09-17 01:50 — **Fourth run, and the one that closes this.** A single document (`b3ul`) lived
+  47 minutes across **seven** suspend/resume cycles — hidden for 29 s, 423 s, 37 s, 135 s, 1 s, 106 s
+  and 1947 s — and every single return produced `focus`, `focus`, `visibilitychange` **visible**. Then
+  a fresh launch (`m2ds`, `nav: navigate`) recorded one `mount`, which the loop also acts on.
+
+  That is ten measured resumes in total with no exception, including a 32-minute suspension and a
+  2-second one. The answer is not marginal, which is worth saying explicitly: the original worry was
+  that iOS resume paths might bypass `visibilitychange`, and on this device and OS they simply do not.
+
+- 2026-09-17 01:55 — **Correcting my own earlier finding.** I wrote that "~51 s hidden was enough for
+  iOS to discard the app" as though it were a rule. This run disproves it: the same document survived
+  1947 s hidden. Discard is memory pressure, not a timer. The corrected statement is in the Answer
+  above and in task 297; nothing downstream depended on the number, but a wrong number in a task log
+  is exactly the kind of thing that gets quoted later.
+
+- 2026-09-17 02:00 — Closed. Two criteria deliberately left unchecked rather than claimed: Android
+  Chrome (a residual risk, argued above) and the `telefonopkald` label (subsumed by seven
+  backgrounding cycles with identical behaviour). The probe stays in the app at `/genoptag` — the
+  reason this question was answerable at all is that it was measured rather than reasoned about, and
+  the next person deserves the same option.

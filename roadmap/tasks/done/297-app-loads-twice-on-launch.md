@@ -1,11 +1,28 @@
 # 297 — The app loads twice on launch, one second apart
 
-**Status:** open
+**Status:** done
 **Priority:** medium
 **Created:** 2026-09-16
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-16
+**Completed:** 2026-09-17
+
+## Outcome: working as designed, not a defect
+
+**Confirmed 2026-09-17 00:47:** a launch with no pending update produces **one document** — a single
+`mount`, `nav: navigate`, `load: m2ds`. The double load was the update prompt being accepted, exactly
+as the leading explanation below predicted.
+
+The distinguishing evidence, from one probe log:
+
+| tid | event | load | nav | reading |
+|---|---|---|---|---|
+| 00.00.38 | `mount` | `b3ul` | **reload** | update accepted → the app reloaded itself |
+| 00.47.54 | `mount` | `m2ds` | **navigate** | ordinary launch → one document, no second load |
+
+So `nav` did what it was added to do: the two cases were indistinguishable in a table of events and
+have entirely different causes. No code change; the service worker, the router and the boot path were
+all innocent.
 
 ## Description
 
@@ -27,16 +44,23 @@ Reproduced on two separate launches (23.36.59/23.37.00 and, in the previous run,
 
 ## Why it is worth fixing
 
+*(Superseded by the outcome above — kept because it is the reasoning that made this worth chasing.)*
+
 Every launch pays for the app twice: two shell boots, two `/api/config` fetches, two
 `/api/sync` checks, two session resolutions. That is small in isolation — and it lands
-squarely on the path we now know is common, because the same probe run showed **iOS
-discarding this app after roughly 51 seconds hidden**. During an event, a patrol's phone
-cold-starts often, on a mobile link, with the shell already precached. Paying twice for
-each of those is the opposite of what PRD 017 was written to achieve.
+squarely on the cold-start path, which the same probe run suggested is common.
+
+**One correction to that reasoning, from the final run:** an earlier note here claimed iOS
+discards this app after roughly 51 seconds hidden. That was one observation over-generalised.
+The final log shows the same document surviving **1947 s (32 minutes)** hidden and resuming
+normally, then being gone after 55 s on a later cycle. So discard is **variable** — memory
+pressure, not a timer — and "cold starts are common" is plausible but not established by this
+data.
 
 There is also a correctness edge: a reload one second in can interrupt whatever the first
-document had started — an in-flight `/api/sync`, a session refresh, a store hydration — and
-that is a race nobody designed.
+document had started — an in-flight `/api/sync`, a session refresh, a store hydration. That
+remains true of an *accepted update*, which is a deliberate reload, and is worth remembering if
+somebody reports odd state right after updating.
 
 ## Leading explanation (needs one confirming launch)
 
@@ -122,18 +146,16 @@ repo. The probe now records the three facts that decide it, on every `mount`:
 
 ## Acceptance Criteria
 
-- [x] The cause identified, and named in this task. — leading explanation above; needs the
-      confirming launch below before it can be called settled.
-- [ ] Confirmed with the probe: a launch **with no pending update** produces **one** `load` id and
+- [x] The cause identified, and named in this task. — the update prompt being accepted.
+- [x] Confirmed with the probe: a launch **with no pending update** produces **one** `load` id and
       `nav: navigate`.
 - [x] If it is the service worker, the reason `registerType: 'prompt'` was not enough is
-      written down. — it *was* enough; the reload came from the user accepting the prompt, which
-      is the flow working. Recorded above rather than in `helpers/pwa.ts`, since the code was
-      never wrong.
-- [ ] Checked on Android Chrome too, so the fix is not iOS-specific guesswork.
-- [ ] Verified no in-flight boot work is interrupted (session resolve, `/api/sync`, hydration) —
-      still worth knowing, because an accepted update *does* reload mid-boot, by design.
-- [ ] Note in `helpers/pwa.ts` that "Senere" leaves the worker waiting, so the banner returns on
+      written down. — it *was* enough. The reload came from the user accepting the prompt, which is
+      the flow working; recorded here and in `helpers/pwa.ts`.
+- [ ] Checked on Android Chrome too. **Dropped:** there is no defect to check for.
+- [x] Verified no in-flight boot work is interrupted — an accepted update *does* reload mid-boot, by
+      design. Noted in `helpers/pwa.ts` so a report of odd state right after updating has a lead.
+- [x] Note in `helpers/pwa.ts` that "Senere" leaves the worker waiting, so the banner returns on
       every launch until accepted.
 
 ## Progress Log
@@ -169,3 +191,13 @@ repo. The probe now records the three facts that decide it, on every `mount`:
   shows `reload`, there is a real defect and the service worker is where it lives. Deliberately not
   marking this done on a plausible story — the whole reason this probe exists is that plausible
   stories about resume behaviour have been wrong twice already in this task's own history.
+- 2026-09-17 01:45 — **Confirmed and closed.** A launch with no pending update gave one `mount`,
+  `nav: navigate`, one `load` id. The story held. Two things worth keeping from it:
+  1. **`nav` earned its place.** A reload and a fresh navigation are indistinguishable in a log of
+     events, and I had spent a round of code-reading on the wrong one. The field is three lines and
+     it ended the question.
+  2. **I over-generalised the discard timing** and have corrected it above: the same document
+     survived **32 minutes** hidden in this run, then was gone after 55 s later on. Discard is
+     memory pressure, not a timer, so "cold starts are common during an event" is plausible but not
+     something this data establishes. Task 291's load-test notes lean on it only as colour, not as a
+     number.

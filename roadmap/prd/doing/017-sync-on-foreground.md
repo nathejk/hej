@@ -405,9 +405,8 @@ there is no longer a phase gated on another PRD. What remains is one coherent pi
 of work plus cleanup.
 
 **Phase 1 — the mechanism**
-- [ ] Task 280: **device check on iOS/iPadOS home-screen PWA and bfcache** — which
-      events actually fire on return (§11 *Decided*). A blocker, not a question: it decides
-      what the loop listens to, and every other task assumes an answer. **Needs a device.**
+- [x] Task 280: device check on iOS/iPadOS home-screen PWA and bfcache — **`visibilitychange` is
+      sufficient**, measured over ten resumes; no change to the loop's listeners.
 - [x] Task 281: debounce in `useFreshnessLoop`, with the manual-refresh override
 - [x] Task 282: manual refresh control, wired to the loop's `check`
 - [x] Task 283: `Version(viewer)` for **profile** and **race area**
@@ -438,6 +437,9 @@ of work plus cleanup.
       space of "role combinations", which stopped being true when tasks 269/283 keyed caches by
       patrol and by **user** — a slow leak on the endpoint every device calls on every
       foreground.
+- [x] Task 297: the app appeared to load twice on launch. Traced to the update prompt being
+      accepted — not a defect. Closed with the probe recording Navigation Timing so the question is
+      answerable rather than arguable.
 
 No feature flag. The mechanism is a strict improvement over "fetch once on
 mount", and the lever that matters — the interval — is served, so load can be
@@ -464,15 +466,16 @@ is a Phase 1 device check rather than a decision to be argued.
   debounce, not the overlap guard, and it acknowledges the tap even when nothing
   changed (§7).
 - **`visibilitychange` is sufficient, and this is now measured** (task 280, iOS 18.7 / Safari
-  26.6.1, installed home-screen PWA, 2026-09-16). It fires with `visibilityState === 'visible'`
-  on lock/unlock return, on app-switcher return, and on a bfcache restore — so the loop hears
-  every resume path that matters, and no listener needed adding. `pageshow` and `focus` arrive
-  alongside or before it and add no coverage; `focus` fired *twice* on one unlock, so adding
-  either would mean two or three checks per resume instead of one. `freeze`/`resume` never fired
-  on Safari at all. A device killed while locked returns as a cold start, where the mount-time
-  check covers it. The original concern was real and the answer turned out to be "already
-  correct" — which is only knowable by measuring, and the probe at `/genoptag` is kept so it
-  stays knowable.
+  26.6.1, installed home-screen PWA, **ten resumes** across three sessions, 2026-09-16/17). Every
+  one fired `visibilitychange` with `visibilityState === 'visible'` — lock/unlock (×7, from 1 s to
+  32 minutes hidden), app-switcher return (×2), and bfcache restore (the `pagehide`/`pageshow`
+  `persisted=true` pair). A cold start is covered by the mount check. So no listener needed adding.
+  `pageshow` arrives *after* it and `focus` arrives *before* it and fires **twice every time**, so
+  either would mean two or three checks per resume instead of one; `freeze`/`resume` never fired on
+  Safari at all. The original concern was real and the answer turned out to be "already correct" —
+  which is only knowable by measuring, and the probe at `/genoptag` is kept so it stays knowable.
+  Not measured on Android Chrome: that engine implements the Page Lifecycle spec and was never the
+  doubtful case.
 - **One key per dataset, not a single app-wide version.** A single version is one
   comparison, but it refetches everything when anything changes — including the
   contacts manifest, the largest payload on the device. Per-dataset keys, as §6
