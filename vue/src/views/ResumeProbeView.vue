@@ -21,11 +21,13 @@ import { Button } from '@/components/ui/button'
 import {
   LOOP_EVENTS,
   PROBED_EVENTS,
+  UNMARKED,
   groupByMark,
   toMarkdown,
   verdictFor,
   verdictLabel,
   wouldCheck,
+  type BrowserEvent,
   type ProbeEntry,
   type ProbedEvent,
 } from '@/helpers/resumeProbe'
@@ -43,7 +45,10 @@ const PATHS = [
 ]
 
 const entries = ref<ProbeEntry[]>([])
-const mark = ref<string>(PATHS[0])
+// Deliberately not pre-selected. Starting on the first path meant that merely opening the page filed its
+// mount under "lås / lås op" and reported a failed lock/unlock test nobody had run — which is how this
+// page's first real use produced a false alarm.
+const mark = ref<string>(UNMARKED)
 const copied = ref(false)
 
 function read(): ProbeEntry[] {
@@ -82,7 +87,7 @@ function record(event: ProbedEvent, persisted?: boolean) {
 
 const listeners: (() => void)[] = []
 
-function listen(targetName: 'window' | 'document', event: ProbedEvent) {
+function listen(targetName: 'window' | 'document', event: BrowserEvent) {
   const target: EventTarget = targetName === 'window' ? window : document
   const handler = (e: Event) => {
     // `persisted` is the whole point of pageshow/pagehide here: it distinguishes a bfcache restore
@@ -109,9 +114,10 @@ onMounted(() => {
     listen('window', event)
   }
 
-  // A mount is a resume too — and on the cold-start control it is the *only* signal, which is exactly
-  // what makes it the control.
-  record('pageshow', false)
+  // The page starting, recorded as `mount` rather than as a synthetic `pageshow`. It has to be
+  // distinguishable from a real `pageshow`, or a genuine one on resume would produce a second
+  // identical-looking row and the log could not say which was which.
+  record('mount')
 })
 
 onBeforeUnmount(() => listeners.forEach((off) => off()))
@@ -184,6 +190,11 @@ const clock = (ms: number) =>
           {{ p }}
         </Button>
       </div>
+      <!-- Said out loud, because the page cannot know the difference between "opened and not yet used"
+           and "a path that recorded nothing" unless the tester has picked one. -->
+      <p v-if="mark === UNMARKED" class="mt-2 text-sm text-amber-800">
+        Vælg en vej ovenfor, før du forlader appen — ellers ved siden ikke hvad den måler.
+      </p>
       <!-- The external link is here rather than in the instructions because the bfcache path needs a
            real cross-document navigation to come back from, and typing a URL into an installed PWA is
            not possible. -->
@@ -220,7 +231,12 @@ const clock = (ms: number) =>
              reading a table. -->
         <p
           class="mt-0.5 text-xs"
-          :class="verdictFor(group.entries) === 'checked' ? 'text-emerald-700' : 'text-amber-700'"
+          :class="{
+            'text-emerald-700': verdictFor(group.entries) === 'checked',
+            'text-amber-700': verdictFor(group.entries) === 'events-but-no-check',
+            'text-slate-500':
+              verdictFor(group.entries) === 'not-a-resume' || verdictFor(group.entries) === 'none',
+          }"
         >
           {{ verdictLabel(verdictFor(group.entries)) }}
         </p>

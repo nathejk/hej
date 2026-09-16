@@ -29,7 +29,17 @@ export const PROBED_EVENTS = [
   'offline',
 ] as const
 
-export type ProbedEvent = (typeof PROBED_EVENTS)[number]
+export type BrowserEvent = (typeof PROBED_EVENTS)[number]
+
+/**
+ * `'mount'` is not a browser event — it is the probe recording that the page itself started.
+ *
+ * It has to be distinguishable from a real `pageshow`, and the first version of this file got that
+ * wrong: it recorded the mount *as* a `pageshow`, so a genuine `pageshow` on resume produced a second
+ * identical-looking row with no way to tell which was which. That corrupts the one measurement this
+ * page exists to take.
+ */
+export type ProbedEvent = BrowserEvent | 'mount'
 
 /**
  * The events the app's freshness loop actually reacts to today.
@@ -38,8 +48,13 @@ export type ProbedEvent = (typeof PROBED_EVENTS)[number]
  * it: this is the *claim under test*. If someone widens the loop's listeners, this list should be
  * updated as a decision — a probe that silently tracked the implementation could never disagree with
  * it, and disagreeing is its entire job.
+ *
+ * `'mount'` is in it because `useFreshnessLoop` checks on construction when the document is visible —
+ * "mounting counts as foregrounding" (PRD 017 §6). Leaving it out made the cold-start control report
+ * itself as a failure, which is the most misleading thing this page could have done: the control is
+ * what tells you whether to trust the other four rows.
  */
-export const LOOP_EVENTS: ProbedEvent[] = ['visibilitychange', 'online']
+export const LOOP_EVENTS: ProbedEvent[] = ['visibilitychange', 'online', 'mount']
 
 export interface ProbeEntry {
   /** Epoch ms. Persisted, so entries survive the app being killed while hidden. */
@@ -67,29 +82,46 @@ export function wouldCheck(entry: ProbeEntry): boolean {
 }
 
 /**
- * The verdict for one labelled run: did anything the loop hears fire?
+ * The verdict for one labelled run.
  *
- * `'none'` is the finding that would make PRD 017 a silent failure on this resume path, and therefore
- * the one worth naming rather than leaving a reader to scan a table for it.
+ * `'events-but-no-check'` is the finding that would make PRD 017 a silent failure on that resume path,
+ * and therefore the one worth naming rather than leaving a reader to scan a table for it.
+ *
+ * `'not-a-resume'` exists because of a false alarm this page produced on its first real use: opening it
+ * records a `mount` and nothing else, and the verdict then read "hændelser, men INTET tjek" — which looks
+ * exactly like the damning finding while meaning only "you have opened the page". A diagnostic that
+ * cries wolf on first sight is worse than no diagnostic.
  */
-export type Verdict = 'checked' | 'events-but-no-check' | 'none'
+export type Verdict = 'checked' | 'events-but-no-check' | 'none' | 'not-a-resume'
 
 export function verdictFor(entries: ProbeEntry[]): Verdict {
+  if (entries.length === 0) return 'none'
+  // Only the page starting. Nothing has been left and returned to, so there is nothing to judge — even
+  // though a mount *does* trigger a check and would otherwise report a cheerful, meaningless green.
+  if (entries.every((e) => e.event === 'mount')) return 'not-a-resume'
   if (entries.some(wouldCheck)) return 'checked'
-  return entries.length > 0 ? 'events-but-no-check' : 'none'
+  return 'events-but-no-check'
 }
 
 /** Groups the log by the tester's marks, so each resume path gets its own verdict. */
 export function groupByMark(entries: ProbeEntry[]): { mark: string; entries: ProbeEntry[] }[] {
   const groups: { mark: string; entries: ProbeEntry[] }[] = []
   for (const entry of entries) {
-    const mark = entry.mark ?? 'ikke markeret'
+    const mark = entry.mark ?? UNMARKED
     const last = groups[groups.length - 1]
     if (last && last.mark === mark) last.entries.push(entry)
     else groups.push({ mark, entries: [entry] })
   }
   return groups
 }
+
+/**
+ * The label for entries recorded before the tester picked a path.
+ *
+ * The page now starts here rather than on the first path, so opening it cannot file a mount under
+ * "lås / lås op" and invent a failed lock/unlock test that nobody ran.
+ */
+export const UNMARKED = 'ingen vej valgt'
 
 const clock = (ms: number) =>
   new Date(ms).toLocaleTimeString('da-DK', {
@@ -137,6 +169,8 @@ export function verdictLabel(verdict: Verdict): string {
       return 'loopet ville have tjekket'
     case 'events-but-no-check':
       return 'hændelser, men INTET tjek — loopet hører dem ikke'
+    case 'not-a-resume':
+      return 'siden blev åbnet — ingen genoptagelse målt endnu'
     case 'none':
       return 'ingen hændelser'
   }

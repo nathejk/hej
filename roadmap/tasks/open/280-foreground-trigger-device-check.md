@@ -100,3 +100,37 @@ the page shows a verdict rather than only rows.
   - `npm run build` verified: it lands as its own lazy chunk.
 - Still needs a phone. Everything above is scaffolding for the measurement, not the
   measurement.
+- 2026-09-16 23:15 — **First real use on an installed iOS PWA, and it caught two bugs in the
+  probe rather than in the app.** iOS 18.7, Safari 26.6.1, `standalone=true`,
+  `iosStandalone=true` — so the setup was valid. The log contained one row:
+
+  | tid | gap | event | visibility | persisted | loop? |
+  |---|---|---|---|---|---|
+  | 23.13.53 |  | `pageshow` | visible | false | nej |
+
+  filed under **lås / lås op** with the verdict "hændelser, men INTET tjek". That reads exactly
+  like the damning finding this page exists to catch, and it means nothing of the kind — it is the
+  page opening. **No resume was measured.** Two defects, both mine:
+
+  1. **The mount was recorded as a synthetic `pageshow`.** So it is indistinguishable from a real
+     `pageshow` fired by iOS on resume; a log containing both could not say which was which,
+     corrupting the one measurement the page exists to take. Now recorded as its own `mount`
+     pseudo-event.
+  2. **`mount` was not in `LOOP_EVENTS`, so it reported `loop? nej` — which is wrong.**
+     `useFreshnessLoop` checks on construction when the document is visible ("mounting counts as
+     foregrounding", PRD 017 §6). The consequence was worse than a wrong cell: the **cold-start
+     control** would have reported itself as a failure, and the control is what tells you whether
+     to trust the other four rows.
+
+  Plus the cause of the false label: the path selector **defaulted to the first path**, so merely
+  opening the page filed its mount under "lås / lås op" and invented a failed lock/unlock test
+  nobody had run. It now starts on "ingen vej valgt", says so in amber, and a group containing
+  only mounts gets the neutral verdict "siden blev åbnet — ingen genoptagelse målt endnu".
+
+  A diagnostic that cries wolf on first sight is worse than no diagnostic — exactly the
+  confident-wrong-answer failure this task's own log claimed to be guarding against.
+- 2026-09-16 23:20 — One genuine data point survives from that run: on a **cold start** in an
+  installed iOS 18.7 PWA, `pageshow` fires with `persisted=false` while already `visible`, and no
+  `visibilitychange` accompanies it. Consistent with the loop's mount-time check being the only
+  thing that refreshes a cold start — which it does. Not evidence about any of the five resume
+  paths.

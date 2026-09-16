@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   LOOP_EVENTS,
+  UNMARKED,
   groupByMark,
   toMarkdown,
   verdictFor,
@@ -41,7 +42,15 @@ describe('wouldCheck', () => {
   // Deliberately duplicated from `browserFreshnessTarget` rather than imported: the probe has to be
   // able to *disagree* with the implementation, so this pins the claim rather than tracking it.
   it('states the loop’s listeners as data', () => {
-    expect(LOOP_EVENTS).toEqual(['visibilitychange', 'online'])
+    expect(LOOP_EVENTS).toEqual(['visibilitychange', 'online', 'mount'])
+  })
+
+  // `useFreshnessLoop` checks on construction when the document is visible — "mounting counts as
+  // foregrounding" (PRD 017 §6). Leaving `mount` out of LOOP_EVENTS made the cold-start control report
+  // itself as a failure, which is the most misleading thing this page could do: the control is what tells
+  // you whether to trust the other four rows.
+  it('counts a mount, because the loop checks on construction', () => {
+    expect(wouldCheck(entry({ event: 'mount' }))).toBe(true)
   })
 })
 
@@ -66,6 +75,21 @@ describe('verdictFor', () => {
 
   it('reports an empty run as none', () => {
     expect(verdictFor([])).toBe('none')
+  })
+
+  // The false alarm this page produced on its first real use: opening it records a mount and nothing
+  // else, and the verdict read "hændelser, men INTET tjek" — which looks exactly like the damning finding
+  // while meaning only "you have opened the page".
+  it('does not report a bare mount as a resume measurement', () => {
+    expect(verdictFor([entry({ event: 'mount' })])).toBe('not-a-resume')
+  })
+
+  // But a mount alongside real events is a cold start, which is a resume path in its own right — the
+  // control case — and there the loop genuinely does check.
+  it('reports a cold start as checked', () => {
+    expect(
+      verdictFor([entry({ event: 'pagehide', visibility: 'hidden' }), entry({ event: 'mount' })]),
+    ).toBe('checked')
   })
 })
 
@@ -92,7 +116,7 @@ describe('groupByMark', () => {
   })
 
   it('labels unmarked entries rather than dropping them', () => {
-    expect(groupByMark([entry()])[0].mark).toBe('ikke markeret')
+    expect(groupByMark([entry()])[0].mark).toBe(UNMARKED)
   })
 })
 
