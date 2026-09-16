@@ -21,6 +21,8 @@ import type { Scan } from '@/stores/scans.store'
 import type { Checkpoint } from '@/stores/checkpoints.store'
 import {
   checkpointMarkerStyle,
+  checkpointState,
+  type CheckpointState,
   checkpointPopupHtml,
 } from '@/components/map/checkpointPresentation'
 
@@ -41,6 +43,14 @@ const props = defineProps<{
   checkpoints: Checkpoint[]
   /** Ids of checkpoints the patrol has already scanned, so the map doubles as a progress view. */
   scannedCheckpointIds: string[]
+  /**
+   * Checkgroups the patrol has cleared — those holding at least one scanned post.
+   *
+   * Passed in rather than derived here because it needs the checkpoint lookup the view already holds, and
+   * because a post in a cleared line renders differently from one still ahead: reaching either post in a
+   * postlinje clears it, so the other one no longer needs walking to.
+   */
+  clearedCheckgroups: string[]
 }>()
 
 const emit = defineEmits<{
@@ -190,14 +200,14 @@ const timeFormat = new Intl.DateTimeFormat('da-DK', {
 //
 // What the marker *says* — the colours, the glyphs, the popup text — lives in `checkpointPresentation.ts`,
 // so those decisions can be tested in node. This function is only the Leaflet call.
-function checkpointIcon(visited: boolean): L.DivIcon {
-  const style = checkpointMarkerStyle(visited)
+function checkpointIcon(state: CheckpointState): L.DivIcon {
+  const style = checkpointMarkerStyle(state)
   return L.divIcon({
     className: '',
     html:
       `<span style="display:flex;align-items:center;justify-content:center;` +
-      `width:30px;height:30px;background:${style.background};color:#fff;` +
-      `border:2px solid #fff;box-shadow:0 1px 4px rgb(0 0 0 / .45);font-size:16px;` +
+      `width:30px;height:30px;background:${style.background};color:${style.foreground};` +
+      `border:2px solid ${style.border};box-shadow:0 1px 4px rgb(0 0 0 / .45);font-size:16px;` +
       // A rounded square with one pointed corner: a pin, without an image asset.
       `line-height:1;border-radius:9999px 9999px 2px 9999px;transform:rotate(45deg)">` +
       `<span style="transform:rotate(-45deg)">${style.glyph}</span></span>`,
@@ -216,16 +226,17 @@ function renderCheckpoints() {
   checkpointMarkers.clear()
 
   const scanned = new Set(props.scannedCheckpointIds)
+  const cleared = new Set(props.clearedCheckgroups)
 
   for (const cp of props.checkpoints) {
-    const visited = scanned.has(cp.id)
+    const state = checkpointState(cp, scanned, cleared)
     const marker = L.marker([cp.lat, cp.lng], {
-      icon: checkpointIcon(visited),
+      icon: checkpointIcon(state),
       title: cp.name,
       // Below the scan markers: where a patrol has scanned the post it is standing at, the registration
       // is the newer fact and should be the one on top.
       zIndexOffset: -100,
-    }).bindPopup(checkpointPopupHtml(cp, visited))
+    }).bindPopup(checkpointPopupHtml(cp, state))
     marker.addTo(checkpointLayer)
     checkpointMarkers.set(cp.id, marker)
   }
@@ -437,6 +448,9 @@ watch(() => props.scans, renderScans, { deep: true })
 // post turns its pin from a flag into a tick without the checkpoint list itself changing at all.
 watch(() => props.checkpoints, renderCheckpoints, { deep: true })
 watch(() => props.scannedCheckpointIds, renderCheckpoints, { deep: true })
+// A new scan can clear a line without touching either list above — the other post in the postlinje changes
+// appearance because of a scan at its sibling — so this is watched separately rather than assumed.
+watch(() => props.clearedCheckgroups, renderCheckpoints, { deep: true })
 watch(
   () => props.following,
   (following) => {

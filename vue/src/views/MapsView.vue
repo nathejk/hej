@@ -7,6 +7,7 @@ import LocateButton from '@/components/map/LocateButton.vue'
 import ScanList from '@/components/map/ScanList.vue'
 import EdgeArrows from '@/components/map/EdgeArrows.vue'
 import { drawerHandle } from '@/components/map/drawerHandle'
+import { clearedCheckgroupsFor } from '@/components/map/checkpointPresentation'
 import { arrowKeepOutZones } from '@/config/map'
 import { useLocationStore } from '@/stores/location.store'
 import { useScansStore } from '@/stores/scans.store'
@@ -101,6 +102,13 @@ const missingToken = computed(
 // cannot disagree, and there is no third piece of state to keep in step.
 const scannedCheckpointIds = computed(() =>
   scans.scans.map((s) => s.checkpointId).filter((id): id is string => Boolean(id)),
+)
+
+// The postlinjer the patrol has cleared. Reaching either post in a line clears it, so the *other* post in
+// that line stops being somewhere they need to walk to — and must stop looking like it (task: subtler
+// "cleared" marker). Derived from the scans and the revealed set, so it cannot disagree with the markers.
+const clearedCheckgroups = computed(() =>
+  [...clearedCheckgroupsFor(scannedCheckpointIds.value, checkpoints.byId)],
 )
 
 // The posts the arrows point at: every revealed post in the line the patrol is heading for.
@@ -238,6 +246,7 @@ onBeforeUnmount(() => {
       :scans="scans.scans"
       :checkpoints="checkpoints.checkpoints"
       :scanned-checkpoint-ids="scannedCheckpointIds"
+      :cleared-checkgroups="clearedCheckgroups"
       @user-interacted="location.setFollowing(false)"
       @tile-error="tileError = true"
       @tiles-ok="tileError = false"

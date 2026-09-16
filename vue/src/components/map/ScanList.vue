@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Flag, Skull, MapPinOff, Map } from '@lucide/vue'
+import { Flag, Skull, MapPinOff, Map, Smartphone } from '@lucide/vue'
 import {
   Drawer,
   DrawerContent,
@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import type { Scan } from '@/stores/scans.store'
 import type { Handout } from '@/stores/handouts.store'
 import { verdictBadge } from './scanVerdict'
+import { scanVariant } from './scanAppearance'
 import { handoutStatus, handoutSticker } from './handoutPresentation'
 
 // The patrol's registrations and the map sheets it has been handed, in one Drawer — the same primitive the
@@ -24,6 +25,7 @@ const emit = defineEmits<{ close: []; select: [id: string] }>()
 const scanRows = computed(() =>
   props.scans.map((scan) => ({
     scan,
+    variant: scanVariant(scan),
     badge: verdictBadge(scan),
     positioned: scan.lat !== null && scan.lng !== null,
   })),
@@ -88,12 +90,18 @@ function pick(scan: Scan) {
             >
               <span
                 class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
-                :class="row.scan.kind === 'bandit'
-                  ? 'bg-red-100 text-red-700'
-                  : 'bg-emerald-600 text-white ring-2 ring-emerald-600/20'"
+                :class="{
+                  'bg-red-100 text-red-700': row.variant === 'bandit',
+                  'bg-emerald-600 text-white ring-2 ring-emerald-600/20': row.variant === 'checkpoint',
+                  'bg-slate-100 text-slate-500': row.variant === 'plain',
+                }"
               >
-                <Skull v-if="row.scan.kind === 'bandit'" class="h-4 w-4" aria-hidden="true" />
-                <Flag v-else class="h-4 w-4" aria-hidden="true" />
+                <Skull v-if="row.variant === 'bandit'" class="h-4 w-4" aria-hidden="true" />
+                <Flag v-else-if="row.variant === 'checkpoint'" class="h-4 w-4" aria-hidden="true" />
+                <!-- Neither a catch nor a placeable post visit: a bare registration from a device.
+                     Lucide's Smartphone (the catalogue's nearest thing to a handheld) and a grey,
+                     unemphasised treatment, so it reads as "this happened" and not as progress. -->
+                <Smartphone v-else class="h-4 w-4" aria-hidden="true" />
               </span>
 
               <span class="min-w-0 flex-1">

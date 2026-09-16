@@ -12,14 +12,32 @@ import type { Checkpoint } from '@/stores/checkpoints.store'
 // EventMap keeps the Leaflet call; this file keeps the judgement.
 
 /**
+ * Which of the three things a checkpoint currently is, to the patrol looking at it.
+ *
+ * - `visited` — the patrol scanned *this* post.
+ * - `cleared` — the patrol scanned another post in the same postlinje, so this one no longer needs
+ *   visiting. A line holds an A and a B and reaching either clears it (PRD 016 §11.12).
+ * - `ahead` — still to do.
+ */
+export type CheckpointState = 'visited' | 'cleared' | 'ahead'
+
+/**
  * Marker appearance for a checkpoint.
  *
- * Two states only: a post still ahead, and one already reached. There is deliberately no third state for
- * "revealed but not yet reachable" — a patrol cannot act on that distinction, and the map is read at night
- * while walking.
+ * Three states, which is a **deliberate change** from the two this file shipped with. The original comment
+ * argued against a third state on the grounds that "a patrol cannot act on that distinction" — and that was
+ * right about the state it was refusing (revealed-but-not-yet-reachable). `cleared` is the opposite case:
+ * it is precisely actionable, because it means *you do not have to walk there*. Leaving it looking identical
+ * to a post still ahead sends patrols to a post they have already finished with, at night, on foot.
+ *
+ * `cleared` is deliberately quieter than `visited`: an outline rather than a fill. The patrol did not go
+ * there, and a marker that shouted the same as a real visit would overstate what happened.
  */
 export interface CheckpointMarkerStyle {
   background: string
+  /** Glyph and border colour. Separate from the fill so `cleared` can be an outline. */
+  foreground: string
+  border: string
   /** An HTML entity, so the marker needs no icon font and no image asset through Vite. */
   glyph: string
   label: string
@@ -34,18 +52,78 @@ export interface CheckpointMarkerStyle {
 // no pair that reads the same at a glance.
 const AHEAD: CheckpointMarkerStyle = {
   background: '#ea580c',
+  foreground: '#ffffff',
+  border: '#ffffff',
   glyph: '&#9873;', // flag
   label: 'Post',
 }
 
 const VISITED: CheckpointMarkerStyle = {
   background: '#047857',
+  foreground: '#ffffff',
+  border: '#ffffff',
   glyph: '&#10003;', // tick
   label: 'Besøgt post',
 }
 
-export function checkpointMarkerStyle(visited: boolean): CheckpointMarkerStyle {
-  return visited ? VISITED : AHEAD
+// Inverted rather than a different hue: white fill, green edge, green tick. It shares the tick with
+// `visited` on purpose — both mean "done with" — while the inversion carries "but you were not there".
+// A third colour would have implied a third kind of thing.
+const CLEARED: CheckpointMarkerStyle = {
+  background: '#ffffff',
+  foreground: '#047857',
+  border: '#047857',
+  glyph: '&#10003;', // tick
+  label: 'Klaret post',
+}
+
+export function checkpointMarkerStyle(state: CheckpointState): CheckpointMarkerStyle {
+  switch (state) {
+    case 'visited':
+      return VISITED
+    case 'cleared':
+      return CLEARED
+    default:
+      return AHEAD
+  }
+}
+
+/**
+ * Work out which state a checkpoint is in.
+ *
+ * `visited` wins over `cleared`: a post the patrol actually scanned is a visit, even though scanning it is
+ * also what cleared its line. Checking that first is what stops every visited post rendering as merely
+ * cleared.
+ */
+export function checkpointState(
+  cp: Pick<Checkpoint, 'id' | 'checkgroup'>,
+  scannedIds: ReadonlySet<string>,
+  clearedCheckgroups: ReadonlySet<string>,
+): CheckpointState {
+  if (scannedIds.has(cp.id)) return 'visited'
+  if (cp.checkgroup !== '' && clearedCheckgroups.has(cp.checkgroup)) return 'cleared'
+  return 'ahead'
+}
+
+/**
+ * The checkgroups a patrol has cleared: those containing at least one scanned post.
+ *
+ * Derived from the scans rather than stored, so it cannot disagree with the markers. Takes a lookup rather
+ * than the checkpoint list, because the caller already holds one (`checkpoints.byId`) and building a second
+ * would be a second thing to keep in step.
+ */
+export function clearedCheckgroupsFor(
+  scannedIds: readonly string[],
+  byId: ReadonlyMap<string, Pick<Checkpoint, 'checkgroup'>>,
+): Set<string> {
+  const out = new Set<string>()
+  for (const id of scannedIds) {
+    const cp = byId.get(id)
+    // A scan whose post is not in the revealed set tells us nothing we can place. Skipped rather than
+    // guessed: it is the same honest-absence rule the rest of this feature follows.
+    if (cp && cp.checkgroup !== '') out.add(cp.checkgroup)
+  }
+  return out
 }
 
 const clockFormat = new Intl.DateTimeFormat('da-DK', { hour: '2-digit', minute: '2-digit' })
@@ -86,17 +164,22 @@ export function escapeHtml(value: string): string {
  * The marker's popup, in Danish.
  *
  * Name first, because that is what a patrol is trying to match against the paper in their hand; then the
- * window, if there is one; then "Besøgt" when they have already been.
+ * window, if there is one; then what the post is to them now.
+ *
+ * The `cleared` line says why it needs no visit rather than just labelling it, because "Klaret" alone next
+ * to a post they have never been to invites exactly the wrong guess — that the app has muddled them up.
  */
-export function checkpointPopupHtml(cp: Checkpoint, visited: boolean): string {
+export function checkpointPopupHtml(cp: Checkpoint, state: CheckpointState): string {
   const parts = [`<strong>${escapeHtml(cp.name)}</strong>`]
 
   const window = checkpointWindowText(cp)
   if (window) {
     parts.push(`Åben ${window}`)
   }
-  if (visited) {
+  if (state === 'visited') {
     parts.push('Besøgt')
+  } else if (state === 'cleared') {
+    parts.push('Klaret – postlinjen er taget')
   }
   return parts.join('<br>')
 }
