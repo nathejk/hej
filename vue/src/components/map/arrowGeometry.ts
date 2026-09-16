@@ -50,23 +50,26 @@ export function distanceMetres(from: LatLng, to: LatLng): number {
 }
 
 /**
- * Initial bearing in degrees, clockwise from true north.
+ * The angle, clockwise from straight up, that points from one screen point at another.
  *
- * The *initial* bearing: over a few kilometres the difference from the final one is far below what an arrow
- * on a phone screen can express, so the distinction is not worth carrying.
+ * This is what an edge arrow's chevron rotates by so it points at the checkpoint's on-screen location
+ * (task 278). Unlike `bearingDegrees` — a fact about the ground that never moves — this is a fact about the
+ * *screen*, so it changes on every pan and zoom, which is the point: the arrow must keep aiming at where the
+ * post actually is as the map slides beneath it.
  *
- * Normalised into [0, 360) so callers never have to think about negative angles — which is exactly the sort
- * of thing that turns a north-west arrow into a south-east one.
+ * Clockwise from up, because the chevron graphic points up at rotation 0. `atan2(dx, -dy)`: rotating "up"
+ * (0, -1) clockwise by θ gives (sin θ, -cos θ), so a target at (dx, dy) is reached at θ = atan2(dx, -dy).
+ *
+ * On the north-up map this app uses, up is north, so the result doubles as a compass bearing — which is why
+ * the accessible label can be derived from the same number and never disagree with the chevron.
+ *
+ * Two coincident points have no direction; returns 0 (up) rather than a NaN that would blank the transform.
  */
-export function bearingDegrees(from: LatLng, to: LatLng): number {
-  const lat1 = toRad(from.lat)
-  const lat2 = toRad(to.lat)
-  const dLng = toRad(to.lng - from.lng)
-
-  const y = Math.sin(dLng) * Math.cos(lat2)
-  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
-
-  return (toDeg(Math.atan2(y, x)) + 360) % 360
+export function screenBearingDegrees(from: Point, to: Point): number {
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  if (dx === 0 && dy === 0) return 0
+  return (toDeg(Math.atan2(dx, -dy)) + 360) % 360
 }
 
 /**

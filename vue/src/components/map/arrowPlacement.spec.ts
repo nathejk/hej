@@ -171,9 +171,11 @@ describe('computeArrows', () => {
   // Task 264's rule, preserved through the fix: an arrow that would sit under the top-right stack slides along
   // the edge to clear it, rather than being pushed into mid-air.
   it('slides an arrow along the edge to clear the top-right controls', () => {
-    // A post up and well to the right exits near the top-right corner, under the control stack.
+    // A post up and to the right whose edge crossing lands on the right edge *within* the control stack's
+    // band (verified: exits the right edge at y ≈ 94, inside the 0–167 stack) — so the slide is exercised for
+    // real, not merely satisfied by an arrow that happened to land clear.
     const stack = ZONES[0]
-    const [arrow] = computeArrows(input({ keepOut: ZONES, targets: [cp('ne', 57, 12)] }))
+    const [arrow] = computeArrows(input({ keepOut: ZONES, targets: [cp('ne', 56.9, 9.5)] }))
 
     expect(arrow).toBeDefined()
     // Cleared the stack: either left of it along the top edge, or below it down the right edge.
@@ -184,7 +186,7 @@ describe('computeArrows', () => {
 
   // And having cleared it, the arrow still hugs the edge — sliding is *along* the edge, not inward.
   it('still hugs the edge after sliding past a control', () => {
-    const [arrow] = computeArrows(input({ keepOut: ZONES, targets: [cp('ne', 57, 12)] }))
+    const [arrow] = computeArrows(input({ keepOut: ZONES, targets: [cp('ne', 56.9, 9.5)] }))
 
     expect(arrow).toBeDefined()
     const nearTop = arrow.y <= ARROW_RADIUS + 12
@@ -201,13 +203,16 @@ describe('computeArrows', () => {
     expect(withZones[0].y).toBeCloseTo(without[0].y, 6)
   })
 
-  // Sliding keeps the bearing and distance untouched — they are facts about the ground, not the screen.
-  it('does not change bearing or distance when it slides an arrow', () => {
-    const [slid] = computeArrows(input({ keepOut: ZONES, targets: [cp('ne', 57, 12)] }))
-    const [free] = computeArrows(input({ targets: [cp('ne', 57, 12)] }))
+  // Sliding to clear a control keeps the **distance** (a ground fact) but **re-aims the bearing**: the arrow
+  // now points at the checkpoint from its new spot on the edge, not from where it would have been (task 278).
+  it('keeps the distance but re-aims the bearing when it slides an arrow', () => {
+    const [slid] = computeArrows(input({ keepOut: ZONES, targets: [cp('ne', 56.9, 9.5)] }))
+    const [free] = computeArrows(input({ targets: [cp('ne', 56.9, 9.5)] }))
 
-    expect(slid.bearing).toBeCloseTo(free.bearing, 6)
     expect(slid.distance).toBe(free.distance)
+    // The slid arrow sits at a different point, so its screen direction to the same post differs.
+    expect(slid.x !== free.x || slid.y !== free.y).toBe(true)
+    expect(slid.bearing).not.toBeCloseTo(free.bearing, 2)
   })
 
   // Every arrow stays on screen even with the zones applied, from all directions.
@@ -255,24 +260,22 @@ describe('computeArrows', () => {
     expect(far[0].distance).toMatch(/^\d+,\d km$/)
   })
 
-  // The bearing is the ground direction, not a screen angle: it must not change when the map is panned or the
-  // window reshaped, only when the patrol or the target moves.
-  it('reports a ground bearing that does not depend on the viewport', () => {
+  // The chevron points at the checkpoint's on-screen location, measured from the arrow. Verified with a fixed
+  // projection that places the post at a known point, so the expected screen angle is unambiguous (task 278).
+  it('points the chevron at the checkpoint on screen', () => {
     const here = { lat: 56, lng: 9, accuracy: 10 }
-    const wideSize = { width: 1200, height: 400 }
 
-    const wide = computeArrows(
-      input({
-        targets: [cp('a', 56.5, 9)],
-        viewportSize: () => wideSize,
-        project: projectionAround(here, wideSize),
-      }),
+    // Post projected far above the centre → chevron points up (0°), whatever its lat/lng.
+    const up = computeArrows(
+      input({ position: here, project: () => ({ x: W / 2, y: -1000 }), targets: [cp('a', 56.5, 9)] }),
     )
-    const tall = computeArrows(input({ targets: [cp('a', 56.5, 9)] }))
+    expect(up[0].bearing).toBeCloseTo(0, 0)
 
-    expect(wide).toHaveLength(1)
-    expect(tall).toHaveLength(1)
-    expect(wide[0].bearing).toBeCloseTo(tall[0].bearing, 6)
+    // Post projected far to the right → chevron points right (90°).
+    const right = computeArrows(
+      input({ position: here, project: () => ({ x: 3000, y: H / 2 }), targets: [cp('a', 56, 9.5)] }),
+    )
+    expect(right[0].bearing).toBeCloseTo(90, 0)
   })
 })
 
@@ -455,15 +458,17 @@ describe('computeArrows, panning and zooming', () => {
     }
   })
 
-  // The bearing and the distance are facts about the ground: dragging the map must not change either.
-  it('does not change the bearing or distance when the map is panned', () => {
+  // Panning keeps the **distance** (a ground fact) but **re-aims the bearing** so the chevron keeps pointing at
+  // the checkpoint as the map slides beneath it (task 278). The label's distance is unchanged; its compass word
+  // tracks the bearing.
+  it('keeps the distance but re-aims the bearing when the map is panned', () => {
     const still = computeArrows(input({ targets: [cp('a', 56.5, 9.2)] }))
+    // Pan far enough sideways that the post's screen direction from the arrow clearly changes.
     const panned = computeArrows(
-      input({ project: pannedProjection(400, -250), targets: [cp('a', 56.5, 9.2)] }),
+      input({ project: pannedProjection(700, 0), targets: [cp('a', 56.5, 9.2)] }),
     )
 
-    expect(panned[0].bearing).toBeCloseTo(still[0].bearing, 6)
     expect(panned[0].distance).toBe(still[0].distance)
-    expect(panned[0].label).toBe(still[0].label)
+    expect(panned[0].bearing).not.toBeCloseTo(still[0].bearing, 1)
   })
 })

@@ -1,10 +1,10 @@
 import {
-  bearingDegrees,
   compassDanish,
   distanceMetres,
   edgeIntersection,
   formatDistance,
   isInside,
+  screenBearingDegrees,
   type Point,
 } from '@/components/map/arrowGeometry'
 import type { KeepOutZone } from '@/config/map'
@@ -99,10 +99,12 @@ export interface ArrowInput {
  * When the map *is* following the patrol the centre and the patrol coincide, which is the case the original
  * geometry was tuned for, so nothing is lost there.
  *
- * # What stays measured from the patrol
+ * # What is measured from where
  *
- * The **bearing** and the **distance**: those are facts about the ground, not about the screen. The chevron
- * means "walk this way" and the label says how far, and neither may change because somebody dragged the map.
+ * **Placement** is measured from the viewport centre (see below). The **chevron's rotation** is the
+ * screen-space direction from the arrow to the checkpoint's projected position, so it re-aims on every pan
+ * and zoom to keep pointing at the post (task 278). Only the **distance** is a ground fact, measured
+ * patrol-to-post, and so is the one thing here that a pan does not change.
  *
  * # Why it returns an empty list rather than throwing
  *
@@ -144,14 +146,22 @@ export function computeArrows(input: ArrowInput): Arrow[] {
     )
     if (!edge) continue
 
-    // From the patrol, not from the centre: this is the direction to walk and the distance to walk it.
-    const bearing = bearingDegrees(here, cp)
+    const placed = slideClear(edge, size, keepOut)
+
+    // The chevron points at the checkpoint's on-screen location, measured from where the arrow ended up.
+    // Recomputed here — and this whole function re-runs on every map move — so it re-aims as the map pans and
+    // zooms beneath it (task 278). Measured from `placed`, not the centre, so that an arrow which slid along
+    // the edge to clear a control still points at the post from its new spot.
+    const bearing = screenBearingDegrees(placed, target)
+
+    // Distance is a ground fact — patrol to post — so, unlike the bearing, it does not change on a pan.
     const distance = formatDistance(distanceMetres(here, cp))
 
     out.push({
       id: cp.id,
       name: cp.name,
-      ...slideClear(edge, size, keepOut),
+      x: placed.x,
+      y: placed.y,
       bearing,
       distance,
       label: `${cp.name}, ${distance} mod ${compassDanish(bearing)}`,

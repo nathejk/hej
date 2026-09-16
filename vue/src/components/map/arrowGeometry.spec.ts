@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  bearingDegrees,
   compassDanish,
   distanceMetres,
   edgeIntersection,
   formatDistance,
   isInside,
+  screenBearingDegrees,
 } from '@/components/map/arrowGeometry'
 
 describe('distanceMetres', () => {
@@ -46,51 +46,6 @@ describe('distanceMetres', () => {
 
     expect(d).toBeGreaterThan(5_000)
     expect(d).toBeLessThan(7_000)
-  })
-})
-
-describe('bearingDegrees', () => {
-  // The four cardinals, because a bearing off by 90° is the failure that walks a patrol the wrong way while
-  // looking entirely reasonable on screen.
-  //
-  // North and south are exact: a meridian *is* a great circle. East and west are not, and that is geodesy
-  // rather than a bug — a parallel is not a great circle, so the shortest path due "east" sets off slightly
-  // north of 90° and curves. At 56°N over one degree of longitude that is about 0.4°, which is far below
-  // what an arrow on a phone can express. My first version of this test asserted 90° to two decimals and
-  // failed; the tolerance is the thing that was wrong.
-  it('points north, east, south and west correctly', () => {
-    const here = { lat: 56, lng: 9 }
-
-    expect(bearingDegrees(here, { lat: 57, lng: 9 })).toBeCloseTo(0, 6)
-    expect(bearingDegrees(here, { lat: 55, lng: 9 })).toBeCloseTo(180, 6)
-
-    expect(bearingDegrees(here, { lat: 56, lng: 10 })).toBeGreaterThan(89)
-    expect(bearingDegrees(here, { lat: 56, lng: 10 })).toBeLessThanOrEqual(90)
-    expect(bearingDegrees(here, { lat: 56, lng: 8 })).toBeGreaterThanOrEqual(270)
-    expect(bearingDegrees(here, { lat: 56, lng: 8 })).toBeLessThan(271)
-  })
-
-  // Normalised into [0, 360). A negative angle leaking out is how a north-west arrow becomes a south-east
-  // one.
-  it('never returns a negative angle', () => {
-    const here = { lat: 56, lng: 9 }
-
-    for (const to of [
-      { lat: 56.5, lng: 8.5 },
-      { lat: 55.5, lng: 8.5 },
-      { lat: 56, lng: 8.999 },
-    ]) {
-      const b = bearingDegrees(here, to)
-      expect(b).toBeGreaterThanOrEqual(0)
-      expect(b).toBeLessThan(360)
-    }
-  })
-
-  it('is roughly north-east for a point up and to the right', () => {
-    const b = bearingDegrees({ lat: 56, lng: 9 }, { lat: 56.5, lng: 9.5 })
-
-    expect(b).toBeGreaterThan(20)
-    expect(b).toBeLessThan(70)
   })
 })
 
@@ -207,5 +162,47 @@ describe('isInside', () => {
     expect(isInside({ x: 50, y: 50 }, 100, 100, 10)).toBe(true)
     expect(isInside({ x: 90, y: 90 }, 100, 100, 10)).toBe(true)
     expect(isInside({ x: 91, y: 50 }, 100, 100, 10)).toBe(false)
+  })
+})
+
+describe('screenBearingDegrees', () => {
+  const centre = { x: 200, y: 400 }
+
+  // The four screen directions. The chevron points up at 0°, so "up" must be 0 and it must run clockwise —
+  // getting this wrong points every arrow the wrong way.
+  it('points up, right, down and left as 0/90/180/270', () => {
+    expect(screenBearingDegrees(centre, { x: 200, y: 0 })).toBeCloseTo(0, 5) // up
+    expect(screenBearingDegrees(centre, { x: 900, y: 400 })).toBeCloseTo(90, 5) // right
+    expect(screenBearingDegrees(centre, { x: 200, y: 900 })).toBeCloseTo(180, 5) // down
+    expect(screenBearingDegrees(centre, { x: -900, y: 400 })).toBeCloseTo(270, 5) // left
+  })
+
+  it('is 45° up-and-to-the-right', () => {
+    expect(screenBearingDegrees(centre, { x: 300, y: 300 })).toBeCloseTo(45, 5)
+  })
+
+  it('never returns a negative angle', () => {
+    for (const to of [
+      { x: 100, y: 100 },
+      { x: 100, y: 900 },
+      { x: 300, y: 100 },
+    ]) {
+      const b = screenBearingDegrees(centre, to)
+      expect(b).toBeGreaterThanOrEqual(0)
+      expect(b).toBeLessThan(360)
+    }
+  })
+
+  // Coincident points have no direction; 0 rather than a NaN that would blank the CSS transform and leave a
+  // chevron pointing at its default.
+  it('returns 0 for coincident points', () => {
+    expect(screenBearingDegrees(centre, { ...centre })).toBe(0)
+  })
+
+  // On a north-up map, up is north — so the screen bearing doubles as a compass bearing, which is what lets
+  // the accessible label be derived from the same number as the chevron.
+  it('agrees with the compass on a north-up map', () => {
+    expect(compassDanish(screenBearingDegrees(centre, { x: 200, y: 0 }))).toBe('nord')
+    expect(compassDanish(screenBearingDegrees(centre, { x: 900, y: 400 }))).toBe('øst')
   })
 })

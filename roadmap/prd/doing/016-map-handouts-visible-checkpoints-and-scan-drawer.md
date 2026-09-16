@@ -755,6 +755,16 @@ next person to wonder should not have to go and look again.
     space — they are conditional, and reserving for them is what floated the left of the top
     edge.
 
+15. **The arrow's rotation points at the checkpoint on screen, and re-aims on every map move.**
+    *Corrected by the product owner 2026-09-15 (task 278), reversing part of the task-274
+    decision.* Task 274 kept the chevron's rotation as the geographic bearing from the patrol — a
+    ground fact, deliberately viewport-independent — on a "walk this way" reading. But an edge
+    arrow is an off-screen indicator, and its job is to point at where the post *is*; a rotation
+    that does not track the map is the bug. Rotation is now the screen-space direction from the
+    arrow to the checkpoint's projected position, recomputed on every pan and zoom (and after a
+    slide). The **distance** stays patrol-to-post — a ground fact that a pan does not change — and
+    on the north-up map the screen bearing doubles as the compass word, so chevron and label agree.
+
 ### Consequences worth carrying forward
 
 - **The postmandskab rota is load-bearing for this feature.** Scan → checkpoint
