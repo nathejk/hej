@@ -175,6 +175,7 @@ const groups = computed(() => groupByMark(entries.value))
 
 // This document's own identity, shown on screen so the two-loads question can be read at a glance
 // rather than only in a pasted table.
+const buildId = __BUILD_ID__
 const thisLoad = {
   load: LOAD_ID,
   nav: navigationType(),
@@ -187,6 +188,11 @@ const thisLoad = {
 
 const platform = computed(() =>
   [
+    // First, because two rounds of this measurement were confused by not knowing which build produced
+    // the log — once by a device sitting on a stale build for hours (task 298), once by a probe fix that
+    // had not reached the device yet. A pasted table that cannot identify its own build is a table
+    // somebody will misread later.
+    `build ${__BUILD_ID__}`,
     navigator.userAgent,
     `standalone=${window.matchMedia('(display-mode: standalone)').matches}`,
     // iOS Safari's own flag, which is how an installed iOS PWA actually identifies itself.
@@ -346,6 +352,8 @@ const clock = (ms: number) =>
       <!-- The evidence for task 297: two documents a second apart could be a reload or a second
            navigation, and those have entirely different causes. `nav` says which. -->
       <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 font-mono text-xs text-slate-700">
+        <dt class="text-slate-500">build</dt>
+        <dd>{{ buildId }}</dd>
         <dt class="text-slate-500">load</dt>
         <dd>{{ thisLoad.load }}</dd>
         <dt class="text-slate-500">nav</dt>

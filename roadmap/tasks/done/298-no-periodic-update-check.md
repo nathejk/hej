@@ -128,3 +128,7 @@ is the cause. If the API also says `main.85`, nothing has been deployed and ther
   device-confirmation criteria open: the fix is right on its own terms, but nobody has yet watched an
   open app pick up a build, and the original `main.85`/`main.87` observation has not been separated from
   a possible deploy lag.
+- 2026-09-17 03:40 — Device force-quit, updated, now on `main.89` — which contains this fix. Pushed a
+  small change (the build id in the resume probe's output) purely so a **new build exists to be
+  noticed**: the confirmation this task needs is that an app left *open* on `main.89` raises the banner
+  for the next build without a force-quit. That is the one claim the unit tests cannot make.
