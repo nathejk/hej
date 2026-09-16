@@ -1,10 +1,10 @@
 # 286 — useSyncLoop: one app-level loop dispatching per-dataset refreshes
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-09-16
-**Picked up by:**
-**Started:**
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-16
 **Completed:**
 
 ## Description
@@ -52,3 +52,8 @@ Depends on task 287 for the uniform `refreshIfVersionDiffers` on each store.
 ## Progress Log
 
 - 2026-09-16 10:00 — Task created from PRD 017 phase 1.
+- 2026-09-16 14:00 — Picked up. Plan: `useSyncLoop` wraps `useFreshnessLoop`, fetches
+  `/api/sync`, and dispatches through a table keyed by the `SyncDataset` union from task
+  287 — so a dataset the server reports and the client forgets to handle is a type error
+  rather than a dataset that silently never refreshes. Registered in `App.vue`; task 288
+  removes the two loops it replaces.
