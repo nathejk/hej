@@ -499,12 +499,33 @@ func (app *application) contactsVersionFor(viewer users.User) (string, error) {
 	return version, nil
 }
 
-// versionCache is a tiny TTL cache keyed by permitted role set.
+// versionCache is a tiny TTL cache for "did this change?" versions, keyed by whatever set the
+// dataset's answer is shared across.
 //
-// Hand-rolled rather than pulling in a dependency: it holds at most a handful of short
-// strings, and the whole implementation is shorter than the configuration a library would
-// need. Not an LRU because the key space is bounded by the number of role combinations,
-// which is fixed by the access matrix.
+// Hand-rolled rather than pulling in a dependency: it holds short strings, and the whole
+// implementation is shorter than the configuration a library would need.
+//
+// # The key space, per cache, and why the bound holds
+//
+// This used to claim the key space was "bounded by the number of role combinations, fixed by the
+// access matrix". That was true while this cache had one user, and stopped being true when tasks 269
+// and 283 added four more (task 295):
+//
+//	contactsVersions     permitted role set        3-4 for a whole event
+//	checkpointsVersions  patrol + started-state    hundreds
+//	handoutsVersions     patrol                    hundreds
+//	scansVersions        patrol                    hundreds
+//	profileVersions      user id                   thousands
+//
+// Expiry is not removal, so with a per-user key the map grew one entry per user who ever
+// foregrounded the app and never shrank — a slow leak on the endpoint every device calls on every
+// foreground. So `put` now sweeps expired entries once the map is big enough to be worth sweeping,
+// which bounds it by the number of distinct callers **within one TTL**: the working set rather than
+// the historical one.
+//
+// Still not an LRU, and the reason matters: a sweep drops only entries that have *expired*, so it can
+// never evict an answer that is still being served. Correctness does not depend on the threshold, only
+// memory does — which is what makes it safe to pick a number without agonising over it.
 type versionCache struct {
 	ttl time.Duration
 
@@ -513,6 +534,13 @@ type versionCache struct {
 	// now is injectable so tests can expire entries without sleeping.
 	now func() time.Time
 }
+
+// versionCacheSweepAt is the size at which `put` sweeps expired entries.
+//
+// Comfortably above the live working set of the widest key space (patrols, or users foregrounding
+// within one 5 s TTL) so a sweep is rare, and far below anything that matters for memory. Nothing is
+// correct or incorrect because of this number.
+const versionCacheSweepAt = 512
 
 type versionCacheEntry struct {
 	version string
@@ -542,7 +570,24 @@ func (c *versionCache) put(key, version string) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// Before inserting, so a cache that only ever grows through this path cannot outrun the sweep.
+	if len(c.entries) >= versionCacheSweepAt {
+		c.sweepExpiredLocked()
+	}
 	c.entries[key] = versionCacheEntry{version: version, expires: c.now().Add(c.ttl)}
+}
+
+// sweepExpiredLocked drops entries past their TTL. Caller holds the lock.
+//
+// Deleting during a range over a Go map is defined and safe — an entry deleted before it is reached is
+// simply not produced — so this needs no second pass or key slice.
+func (c *versionCache) sweepExpiredLocked() {
+	now := c.now()
+	for key, entry := range c.entries {
+		if now.After(entry.expires) {
+			delete(c.entries, key)
+		}
+	}
 }
 
 // @Summary      A directory member's portrait
