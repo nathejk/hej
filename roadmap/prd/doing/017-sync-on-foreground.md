@@ -369,18 +369,31 @@ GET /api/sync
 
 ## 9. Success Metrics
 
+**Measured in task 291 (2026-09-17), in process, 400 devices / 100 patrols, production 5 s cache
+TTLs.** In process means no TLS, no Traefik, no network and no MySQL — these are a floor for the
+endpoint's own work, not a forecast for a deployment. Task 296 reads the real numbers from an event.
+
 - Median staleness of a change reaching a foregrounded device: scans inside one
   minute; contacts, portraits and profile inside a few minutes. Under 10 s for a
   device foregrounding after the change — the version caches' 5 s TTL plus the
   debounce, not a round-trip budget.
-- ≥ 95 % of `/api/sync` calls report nothing changed, at a small fraction of a
-  position report's cost. **Measured outside the first hour of the race**: photos are
-  added heavily early on, every one of them moves the contacts version, and a
+- ≥ 95 % of `/api/sync` calls report nothing changed. **Measured: 100 %** in a steady-state run of
+  2,000 checks where every device held an ETag. Measured **outside the first hour of the race** in
+  production: photos are added heavily early on, every one of them moves the contacts version, and a
   depressed ratio then is the system working rather than a fault (§11).
-  *Instrumented in task 293: the BFF logs `unchangedRatio` from the `304` rate, plus
-  per-dataset `churnRatio`, every five minutes. Task 296 reads them after the first event.*
-- `/api/sync` p95 well inside the BFF's other read endpoints, at expected device
-  count.
+  *Instrumented in task 293: the BFF logs `unchangedRatio` from the `304` rate, plus per-dataset
+  `churnRatio`, every five minutes.*
+- Cost per check, and the comparison this PRD asked for: **7 µs** mean handler time steady,
+  **16 µs** with cold caches, a **282-byte** response. Against one position report on the same BFF:
+  **0.92×**. So a check costs *about the same as* a position report — **not "a small fraction", as
+  an earlier draft of this section claimed.** Both are microseconds of server work, so the practical
+  conclusion stands, but the honest figure is comparable: this feature adds roughly one position
+  report's worth of load per device per interval.
+- `/api/sync` p95 well inside the BFF's other read endpoints. **Confirmed**, and by a wide margin:
+  expected event load is 6.7 req/s (400 devices ÷ 60 s) against a sustained 16,555 req/s — about
+  2,500× headroom. The thundering-herd case (all devices at once, cold caches) needs no single-flight
+  protection: six projection reads are simply not expensive enough for the TTL to be load-bearing at
+  this scale. It earns its place by collapsing *query* load, not by protecting the handler.
 - Zero reports of a device holding a stale copy for a whole event — the silent
   failure this PRD's tests exist to prevent.
 - No measurable battery regression from the interval on the baseline device.
@@ -407,7 +420,7 @@ of work plus cleanup.
 - [x] Task 289: served `interval_seconds`, incl. the zero-disables-the-interval test
 - [ ] Task 290: verify on device that a reveal appears within one foreground. **Needs a
       device and a server-side handout trigger.**
-- [ ] Task 291: load test at expected device count; record the numbers in §9
+- [x] Task 291: load test at expected device count; numbers recorded in §9
 
 **Phase 2 — cleanup**
 - [ ] Task 292: retire `/api/contacts/version` once no client calls it. **No client does
