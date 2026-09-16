@@ -38,6 +38,45 @@ There is also a correctness edge: a reload one second in can interrupt whatever 
 document had started — an in-flight `/api/sync`, a session refresh, a store hydration — and
 that is a race nobody designed.
 
+## Leading explanation (needs one confirming launch)
+
+**Measured 2026-09-17 00:00, installed iOS PWA:** one mount, `nav: reload`, `path: /genoptag`,
+`sw: true`.
+
+`nav: reload` means the document really was reloaded rather than freshly navigated to — so
+candidate 1's paper reasoning was incomplete, but not in the way it looked. The missing piece is
+not in the code, it is in the **circumstances of the test**: this whole probing session ran while
+new builds were being pushed every few minutes. Every launch therefore found a waiting service
+worker, showed *"En ny version er tilgængelig"*, and the tester — who was deliberately chasing the
+newest build — tapped **Genindlæs**. That calls `applyUpdate()` → `messageSkipWaiting()` →
+`controlling` with `isUpdate` → `location.reload()`, which is exactly the observed
+`nav: reload`, and exactly what the update flow is designed to do.
+
+It also explains the **two mounts a second apart**: mount #1 is the launch, and mount #2 is the
+reload after tapping a banner that appears at the top of the screen immediately. One second is a
+very plausible reaction time for somebody watching for that banner.
+
+And it explains why *this* run shows only one mount: the log was cleared after the launch, so only
+the reload's mount survived.
+
+So the likely answer is **not a defect** — it is the update prompt working, amplified by a test
+session that produced a new build every few minutes. An event does not look like that.
+
+### The one measurement that settles it
+
+Launch the app **with no new build pending and no banner shown**. Expected: exactly one `mount`,
+`nav: navigate`. If that is what happens, this task closes as "working as designed".
+
+**If a launch with no pending update still reports `nav: reload`, it is a real defect** and the
+service-worker path is where to look, because nothing else in the app reloads.
+
+### A related thing worth checking while there
+
+With `registerType: 'prompt'`, tapping **Senere** leaves the worker waiting indefinitely — so the
+banner returns on every subsequent launch until the user accepts it. That is arguably correct, but
+it means "banner on every launch" is a state a participant can get stuck in, and it would look
+exactly like this bug to anybody investigating later. Worth a note in `helpers/pwa.ts` either way.
+
 ## Candidate causes, in the order worth checking
 
 **All in-app causes are now eliminated by reading the code and the built output (2026-09-16):**
@@ -83,13 +122,19 @@ repo. The probe now records the three facts that decide it, on every `mount`:
 
 ## Acceptance Criteria
 
-- [ ] The cause identified, and named in this task.
-- [ ] Confirmed with the probe: a launch produces **one** `load` id, not two.
-- [ ] If it is the service worker, the reason `registerType: 'prompt'` was not enough is
-      written down — that assumption is stated in `helpers/pwa.ts` and would otherwise mislead
-      the next reader.
+- [x] The cause identified, and named in this task. — leading explanation above; needs the
+      confirming launch below before it can be called settled.
+- [ ] Confirmed with the probe: a launch **with no pending update** produces **one** `load` id and
+      `nav: navigate`.
+- [x] If it is the service worker, the reason `registerType: 'prompt'` was not enough is
+      written down. — it *was* enough; the reload came from the user accepting the prompt, which
+      is the flow working. Recorded above rather than in `helpers/pwa.ts`, since the code was
+      never wrong.
 - [ ] Checked on Android Chrome too, so the fix is not iOS-specific guesswork.
-- [ ] Verified no in-flight boot work is interrupted (session resolve, `/api/sync`, hydration).
+- [ ] Verified no in-flight boot work is interrupted (session resolve, `/api/sync`, hydration) —
+      still worth knowing, because an accepted update *does* reload mid-boot, by design.
+- [ ] Note in `helpers/pwa.ts` that "Senere" leaves the worker waiting, so the banner returns on
+      every launch until accepted.
 
 ## Progress Log
 
@@ -109,3 +154,18 @@ repo. The probe now records the three facts that decide it, on every `mount`:
 - 2026-09-17 00:10 — Blocked on one launch of the app on a device. Note the eliminations above are
   claims about *this* repo at this commit; if `nav` comes back `reload`, candidate 1 is where the
   mistake is.
+- 2026-09-17 00:15 — **Measured: `nav: reload`, `sw: true`, one mount.** So the document was
+  reloaded — and re-reading the update path with that in hand, `applyUpdate()` has exactly one
+  caller (`UpdatePrompt`'s **Genindlæs** button; no watcher, no auto-apply, verified in
+  `UpdatePrompt.vue` and `app.store.ts`). The eliminations were right about the code; what they
+  missed was the **test conditions**: builds were being pushed every few minutes throughout this
+  session, so every launch found a waiting worker, showed the update banner, and got accepted.
+  That produces precisely this `reload`, and the earlier 1-second double mounts are a launch
+  followed by a tap on a banner that appears immediately.
+
+  Recorded as a *leading explanation* rather than a conclusion, because the distinguishing
+  measurement has not been taken: a launch with **no pending update**. If that shows `nav:
+  navigate` and a single mount, this is the update flow working and the task closes; if it still
+  shows `reload`, there is a real defect and the service worker is where it lives. Deliberately not
+  marking this done on a plausible story — the whole reason this probe exists is that plausible
+  stories about resume behaviour have been wrong twice already in this task's own history.
