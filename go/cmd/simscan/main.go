@@ -28,6 +28,14 @@
 // The attribution join is `scanner was on a registered shift at that post at that moment`, so all three are
 // required — and the shift's window is what makes the scan land on the post rather than nowhere.
 //
+// # One scanner is on at most one post at a time
+//
+// The attribution join matches *any* shift covering the scan's instant, so if the same scanner has two
+// overlapping shifts, every scan in the overlap attributes to **both** posts — appearing twice in the
+// patrol's list, once per post, each with its own verdict. Re-running this command for a second post
+// therefore needs the first shift re-timed out of the way (-close-shift-checkpoint), and the command
+// refuses a re-time that would not actually end the overlap.
+//
 // # The scan's timestamp is the publish time, not a field
 //
 // `scan`'s projector takes `uts` from `msg.Time()`, not from the body (there is no time in `qr.scanned`).
@@ -83,9 +91,23 @@ func run() error {
 
 	// Off by default, because it rewrites a *real* post's advertised hours — see the warning in dryRun.
 	fixWindow := flag.Bool("fix-window", false,
-		"Also republish the checkpoint's open window around now, so the scan reads as \"p\u00e5 tid\"")
+		"Also republish the checkpoint's open window, relative to now (see -window-before/-window-after)")
 	windowBefore := flag.Duration("window-before", 30*time.Minute, "How far before now the post's window opens")
-	windowAfter := flag.Duration("window-after", 2*time.Hour, "How far after now the post's window closes")
+	windowAfter := flag.Duration("window-after", 2*time.Hour,
+		"How far after now the post's window closes. NEGATIVE puts the close in the past, i.e. the "+
+			"patrol arrives late by that much")
+
+	// A checkgroup whose scheme is `none` yields **no verdict at all**, whatever the times say, so a post
+	// in such a group cannot show a badge until its group is given a scheme.
+	checkgroupID := flag.String("checkgroup", "", "Optional: checkgroup id to re-scheme (needed if it is `none`)")
+	scheme := flag.String("scheme", "", "Optional: scheme to set on -checkgroup (fixed|relative|none)")
+
+	// Re-timing a prior shift, because one scanner on two posts at once double-attributes every scan in
+	// the overlap — see the invariant note in the package doc.
+	closeCheckpoint := flag.String("close-shift-checkpoint", "",
+		"Optional: checkpoint id of an earlier shift for this scanner, to re-time so it stops overlapping")
+	closeStart := flag.String("close-shift-start", "", "New start for that shift (RFC3339)")
+	closeEnd := flag.String("close-shift-end", "", "New end for that shift (RFC3339)")
 
 	lat := flag.String("lat", "", "Optional scan latitude")
 	lng := flag.String("lng", "", "Optional scan longitude")
@@ -107,15 +129,53 @@ func run() error {
 	var window *types.TimeRange
 	if *fixWindow {
 		window = &types.TimeRange{Start: now.Add(-*windowBefore), End: now.Add(*windowAfter)}
+		if !window.End.After(window.Start) {
+			return fmt.Errorf("window would be inverted (%s → %s): an inverted window matches nothing, "+
+				"so no scan could ever be on time. Widen -window-before",
+				window.Start.Format(time.RFC3339), window.End.Format(time.RFC3339))
+		}
+	}
+
+	var reshift *shiftRetime
+	if *closeCheckpoint != "" {
+		if *closeStart == "" || *closeEnd == "" {
+			return errors.New("-close-shift-checkpoint needs both -close-shift-start and -close-shift-end")
+		}
+		s, err := time.Parse(time.RFC3339, *closeStart)
+		if err != nil {
+			return fmt.Errorf("-close-shift-start: %w", err)
+		}
+		e, err := time.Parse(time.RFC3339, *closeEnd)
+		if err != nil {
+			return fmt.Errorf("-close-shift-end: %w", err)
+		}
+		// The whole point is to stop the overlap, so refuse a re-time that does not achieve it.
+		if !e.Before(shift.Start) {
+			return fmt.Errorf("re-timed shift ends %s, which is not before the new shift starts %s: "+
+				"they would still overlap and double-attribute every scan in between",
+				e.Format(time.RFC3339), shift.Start.Format(time.RFC3339))
+		}
+		reshift = &shiftRetime{checkpointID: *closeCheckpoint, window: types.TimeRange{Start: s, End: e}}
+	}
+
+	if (*checkgroupID == "") != (*scheme == "") {
+		return errors.New("-checkgroup and -scheme must be given together")
 	}
 
 	events := storyFor(*year, *checkpointID, *teamID, *teamNumber,
-		*scannerID, *scannerName, *scannerPhone, shift, window, *lat, *lng)
+		*scannerID, *scannerName, *scannerPhone, shift, window,
+		*checkgroupID, *scheme, reshift, *lat, *lng)
 
 	if !*confirm {
 		return dryRun(*year, events, shift, window)
 	}
 	return publish(*dsn, *year, events)
+}
+
+// shiftRetime re-times an existing shift for the same scanner at another post.
+type shiftRetime struct {
+	checkpointID string
+	window       types.TimeRange
 }
 
 // storyFor builds the three-part story. Split out from publishing so the dry run shows precisely the bodies
@@ -125,12 +185,11 @@ func storyFor(
 	scannerID, scannerName, scannerPhone string,
 	shift types.TimeRange,
 	window *types.TimeRange,
+	checkgroupID, scheme string,
+	reshift *shiftRetime,
 	lat, lng string,
 ) []event {
-	// A stable shift id derived from the pair it describes: re-running updates the same shift (the
-	// projector upserts on it) instead of stacking overlapping ones, which would attribute the same scan
-	// several times over.
-	shiftID := fmt.Sprintf("test-shift-%s-%s", scannerID, checkpointID)
+	shiftID := shiftIDFor(scannerID, checkpointID)
 
 	scan := messages.NathejkQrScanned{
 		// Legibly fake, and it is only an identifier here: the projector takes the team from the body,
@@ -188,24 +247,56 @@ func storyFor(
 		},
 	}
 
-	// The window goes first when asked for, so the post's hours are already right by the time the scan
-	// lands. Ordering is cosmetic — the verdict is computed on read, joining the scan to whatever the
-	// checkpoint's window says at query time — but reading the output in causal order is worth something.
-	//
-	// A **patch**: only FixedTimeRange is set, so the post's name, address and position are left alone
-	// (nil means unchanged, and the projector only writes the columns present). Setting more here would
-	// overwrite real organizer data with defaults.
+	// Prepended in reverse, so the final order reads causally: re-time the old shift, set the group's
+	// scheme, set the post's window, then the crew/shift/scan story.
 	if window != nil {
 		out = append([]event{{
 			subject: fmt.Sprintf("NATHEJK.%s.checkpoint.%s.updated", year, checkpointID),
-			what:    "REWRITES THE REAL POST'S OPEN HOURS to span now, so the verdict reads \"på tid\"",
+			what:    "REWRITES THE REAL POST'S OPEN HOURS to the `window` shown above",
 			body: messages.NathejkCheckpointUpdated{
 				CheckpointID:   types.CheckpointID(checkpointID),
 				FixedTimeRange: window,
 			},
 		}}, out...)
 	}
+
+	// A patch, like the checkpoint one: only Scheme is set, so the group's name, showOnMap and mandatory
+	// flags are left alone. Needed because a `none` group yields no verdict however the times fall.
+	if checkgroupID != "" {
+		s := types.CheckgroupScheme(scheme)
+		out = append([]event{{
+			subject: fmt.Sprintf("NATHEJK.%s.checkgroup.%s.updated", year, checkgroupID),
+			what:    fmt.Sprintf("REWRITES THE REAL LINE'S SCHEME to %q, for every post in it", scheme),
+			body: messages.NathejkCheckgroupUpdated{
+				CheckgroupID: types.CheckgroupID(checkgroupID),
+				Scheme:       &s,
+			},
+		}}, out...)
+	}
+
+	// First of all: stop the earlier shift overlapping this one. `timespecified` sets both bounds, which
+	// is why the caller has to supply the start it wants preserved — the event carries no "leave the
+	// start alone" option, and an earlier scan still has to fall inside the re-timed window or it loses
+	// its attribution.
+	if reshift != nil {
+		out = append([]event{{
+			subject: fmt.Sprintf("NATHEJK.%s.checkpersonnel.%s.timespecified", year,
+				shiftIDFor(scannerID, reshift.checkpointID)),
+			what: "re-times the scanner's earlier shift so it stops overlapping (one scanner on two " +
+				"posts at once double-attributes every scan in the overlap)",
+			body: messages.NathejkCheckpersonnelTimeSpecified{
+				Start: reshift.window.Start,
+				End:   reshift.window.End,
+			},
+		}}, out...)
+	}
 	return out
+}
+
+// shiftIDFor is the deterministic shift id: stable per (scanner, post), so re-running updates the same
+// shift rather than stacking overlapping ones.
+func shiftIDFor(scannerID, checkpointID string) string {
+	return fmt.Sprintf("test-shift-%s-%s", scannerID, checkpointID)
 }
 
 // dryRun prints what would be published, and what publishing cannot undo.
