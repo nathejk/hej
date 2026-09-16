@@ -1,11 +1,11 @@
 # PRD 016 — Map handouts, visible checkpoints, and the scan drawer
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed / Claude)
 **Created:** 2026-09-15
-**Last updated:** 2026-09-15 (approved; §6/§8 amended in implementation — see §11.12)
+**Last updated:** 2026-09-16 (shipped; §6/§8 amended in implementation — see §11.12)
 **Approved:** 2026-09-15
-**Shipped:**
+**Shipped:** 2026-09-16
 **Target users:** participant (patrol member)
 
 <!--
@@ -158,27 +158,27 @@ drawer.
 
 **Map handouts**
 
-- [ ] The BFF exposes the map sheets handed out to the signed-in user's patrol,
+- [x] The BFF exposes the map sheets handed out to the signed-in user's patrol,
       in handout order, each with: the **QR sticker number**, the sheet name, its
       format, when it was handed over, and whether the patrol still holds it.
-- [ ] Handouts are scoped to sheets in the **patrol map set(s)** — matched on the
+- [x] Handouts are scoped to sheets in the **patrol map set(s)** — matched on the
       set's `teamType` being `patrulje` (**not** `spejder`, which HQ refuses to
       store; §11.1), **never on the set's name** (kort-events.md §2). Collect *all*
       matching sets; there is no "the" patrol set.
-- [ ] A `skitse` — no QR code, so never in a QR binding — is listed as a handout
+- [x] A `skitse` — no QR code, so never in a QR binding — is listed as a handout
       when the patrol reaches the checkgroup named by its `handoutCheckgroupId`
       (§11.2).
-- [ ] A handout whose sheet is unknown (`mapId == ""`) is still listed, labelled
+- [x] A handout whose sheet is unknown (`mapId == ""`) is still listed, labelled
       **"Ukendt kort"** — the same wording HQ's patrol page uses, because a patrol
       and an organizer discussing the same sheet over the phone should be reading
       the same words.
-- [ ] The frontend lists them; empty is a normal, silent state ("Ingen kort
+- [x] The frontend lists them; empty is a normal, silent state ("Ingen kort
       udleveret").
-- [ ] Handouts are part of the offline cached payload (PRD 009).
+- [x] Handouts are part of the offline cached payload (PRD 009).
 
 **Visible checkpoints**
 
-- [ ] The BFF computes the patrol's revealed checkpoint set as the union of:
+- [x] The BFF computes the patrol's revealed checkpoint set as the union of:
       1. the `checkpointIds` of every sheet **ever handed to the patrol** whose
          reveal rule is the QR rule (`handoutCheckgroupId == ""`);
       2. the `checkpointIds` of every sheet whose `handoutCheckgroupId` names a
@@ -187,46 +187,51 @@ drawer.
       Rules 1–3 do not nest and none can be derived from another
       (kort-events.md §1). Revealing is **monotonic**: nothing already revealed is
       ever withdrawn, including when a sheet changes hands (§11.4).
-- [ ] Ids are resolved against our own checkpoint projection; unresolvable ids are
+- [x] Ids are resolved against our own checkpoint projection; unresolvable ids are
       dropped silently.
-- [ ] Only positioned, non-deleted checkpoints are returned, each with id, name,
+- [x] Only positioned, non-deleted checkpoints are returned, each with id, name,
       checkgroup, sort order, and its window when known.
-- [ ] The frontend plots them, visually distinct from the patrol's own scan
+- [x] The frontend plots them, visually distinct from the patrol's own scan
       markers, and legible on both topo and aerial base layers.
-- [ ] A marker tap shows the name and, when known, the window.
+- [x] A marker tap shows the name and, when known, the window.
 
 **Next-checkpoint arrows**
 
-- [ ] When a revealed checkpoint that is *next* for the patrol lies outside the
-      viewport, an arrow is drawn at the viewport edge in its direction, with
-      distance.
-- [ ] "Next" is a **line** — a checkgroup — not a post, and not a set of lines (§11.12,
+- [x] When a revealed checkpoint that is *next* for the patrol lies outside the
+      viewport, an arrow is drawn at the viewport edge in its direction.
+      **Amended in implementation (task 279):** the distance is *not* drawn. The
+      arrow shipped bigger, thicker, red and label-less, because at a glance while
+      walking the direction is the whole message and the numeral was noise. The
+      distance is still exposed in the arrow's accessible label — a screen-reader
+      user has no other source for it — so the non-functional accessibility
+      requirement below is unchanged.
+- [x] "Next" is a **line** — a checkgroup — not a post, and not a set of lines (§11.12,
       §11.13). The BFF names it as `next_checkgroup`, because deciding it needs route order
       across checkgroups *and* whether the patrol has started, neither of which the client
       can honestly hold.
-- [ ] **Every revealed post in that line gets an arrow.** A postlinje holds several posts —
+- [x] **Every revealed post in that line gets an arrow.** A postlinje holds several posts —
       an A and a B — and the patrol chooses which to walk to when they arrive; the app must
       not nominate one for them.
-- [ ] A line is behind the patrol once they have been scanned at it **or at any later
+- [x] A line is behind the patrol once they have been scanned at it **or at any later
       line**, so an unattributed scan cannot point them backwards.
-- [ ] Having **started** retires the first line: departing is recorded at check-in, not as
+- [x] Having **started** retires the first line: departing is recorded at check-in, not as
       a scan at a post, so nothing else ever will.
-- [ ] Arrows update on pan, zoom and position change; an arrow disappears when
+- [x] Arrows update on pan, zoom and position change; an arrow disappears when
       its checkpoint enters the viewport.
-- [ ] Tapping an arrow pans the map to that checkpoint.
-- [ ] No own position ⇒ no arrows.
+- [x] Tapping an arrow pans the map to that checkpoint.
+- [x] No own position ⇒ no arrows.
 
 **Scan drawer**
 
-- [ ] The drawer lists **all** registrations, newest first, as today.
-- [ ] Checkpoint scans are emphasised relative to other registrations.
-- [ ] Each checkpoint scan carries an on-time verdict — inside the window, or
+- [x] The drawer lists **all** registrations, newest first, as today.
+- [x] Checkpoint scans are emphasised relative to other registrations.
+- [x] Each checkpoint scan carries an on-time verdict — inside the window, or
       late/early with the delta — or nothing when the checkpoint has no window.
       The window is the window: the current model carries **no grace minutes**
       (§11.6).
-- [ ] The verdict comes from the BFF, not the client.
-- [ ] Handed-out sheets appear as their own section in the drawer.
-- [ ] Tapping a positioned row pans the map (existing behaviour, preserved).
+- [x] The verdict comes from the BFF, not the client.
+- [x] Handed-out sheets appear as their own section in the drawer.
+- [x] Tapping a positioned row pans the map (existing behaviour, preserved).
 
 ### Non-Functional
 
@@ -536,44 +541,44 @@ Sequenced so the reveal rule is built and tested before anything renders it, and
 so the projections land in dependency order.
 
 **Phase 1 — consume the upstream facts**
-- [ ] Task: vendor `roadmap/api/kort-events.md` from hq and mirror the
+- [x] Task: vendor `roadmap/api/kort-events.md` from hq and mirror the
       `kort`/`kortsaet` message shapes locally (no import of hq)
-- [ ] Task: `kort` + `kortsaet` projection (patch vs whole-record semantics,
+- [x] Task: `kort` + `kortsaet` projection (patch vs whole-record semantics,
       sorted events, sheet-before-set tolerance)
 - **`maphandout`** projection from `qr.registered`, incl. the additive
       `mapId` field, keyed `(year, qrId, teamId)` as history
-- [ ] Task: widen `checkpoint` with `checkgroupId`, sort order and window
-- [ ] Task: `checkgroup` projection incl. `scheme`, `relativeCheckgroupId` and
+- [x] Task: widen `checkpoint` with `checkgroupId`, sort order and window
+- [x] Task: `checkgroup` projection incl. `scheme`, `relativeCheckgroupId` and
       `sortOrder` (not `showOnMap`)
-- [ ] Task: `checkpersonnel` + `scan` projections; retire the `internal/scans`
+- [x] Task: `checkpersonnel` + `scan` projections; retire the `internal/scans`
       mock as the production source
 
 **Phase 2 — the reveal rule**
-- [ ] Task: the reveal rule in `internal/reveal` implementing rules 1–3, over
+- [x] Task: the reveal rule in `internal/reveal` implementing rules 1–3, over
       bounded projection reads
-- [ ] Task: resolve `checkpointIds` and dangling `handoutCheckgroupId` on read
-- [ ] Task: synthesise `skitse` handouts from `handoutCheckgroupId` reach
-- [ ] Task: regression test — an un-revealed checkpoint never leaves the BFF
-- [ ] Task: `GET /api/checkpoints` + OpenAPI annotations
-- [ ] Task: boot-time aggregate log of sheets/sets/revealed counts, plus an
+- [x] Task: resolve `checkpointIds` and dangling `handoutCheckgroupId` on read
+- [x] Task: synthesise `skitse` handouts from `handoutCheckgroupId` reach
+- [x] Task: regression test — an un-revealed checkpoint never leaves the BFF
+- [x] Task: `GET /api/checkpoints` + OpenAPI annotations
+- [x] Task: boot-time aggregate log of sheets/sets/revealed counts, plus an
       unattributed-scan count (the rota failure mode)
 
 **Phase 3 — map rendering**
-- [ ] Task: `checkpoints.store.ts` with offline caching
-- [ ] Task: checkpoint markers on `EventMap.vue`, incl. scanned/"done" state
-- [ ] Task: edge arrows (bearing, distance, tap-to-pan, ≤ 3)
-- [ ] Task: arrow overlay collision rules against existing map controls
+- [x] Task: `checkpoints.store.ts` with offline caching
+- [x] Task: checkpoint markers on `EventMap.vue`, incl. scanned/"done" state
+- [x] Task: edge arrows (bearing, distance, tap-to-pan, ≤ 3)
+- [x] Task: arrow overlay collision rules against existing map controls
 
 **Phase 4 — verdicts and drawer**
-- [ ] Task: server-side on-time verdict for all three schemes (`fixed`,
+- [x] Task: server-side on-time verdict for all three schemes (`fixed`,
       `relative`, `none`); extend `/api/patrol/scans`
-- [ ] Task: emphasise checkpoint scans and render verdict badges in `ScanList.vue`
-- [ ] Task: `GET /api/patrol/handouts` (successor-team fields projected out) +
+- [x] Task: emphasise checkpoint scans and render verdict badges in `ScanList.vue`
+- [x] Task: `GET /api/patrol/handouts` (successor-team fields projected out) +
       OpenAPI annotations
-- [ ] Task: "Kort udleveret" drawer section, offline-cached
-- [ ] Task: cheap version derivations for handouts, checkpoints and scans, for
+- [x] Task: "Kort udleveret" drawer section, offline-cached
+- [x] Task: cheap version derivations for handouts, checkpoints and scans, for
       PRD 017's sync check
-- [ ] Task: dev-simulation fixtures covering every verdict and reveal state
+- [x] Task: dev-simulation fixtures covering every verdict and reveal state
       (PRD 014)
 
 No feature flag: each surface ships behind "empty hides the section", which is
@@ -774,4 +779,25 @@ next person to wonder should not have to go and look again.
   metric.
 - **`showOnMap` remains an open question for *HQ*, not for us.** Worth asking
   what it is for; nothing here waits on the answer.
+- **Freshness is still owed — PRD 017 is the other half of shipping this.** Every
+  dataset here now exposes a cheap `Version(viewer)` (task 269) and nothing consumes
+  it: the client still fetches on mount. So a patrol handed a new sheet sees the
+  reveal only after a cold start. 016 is complete as specified, but the feature is
+  not *finished* for a participant until 017 lands.
+- **A bandit catch is an inference, not a fact from the stream.** Checked and
+  recorded under task 271: `qr.scanned` carries no role or kind, and there is no
+  "caught" event — a post visit and a bandit catch are the same physical act. The
+  BFF now classifies by resolving the scanner against the year's `RoleBandit`
+  people, and every uncertain case stays a checkpoint scan. If HQ ever marks this
+  upstream, prefer their classification and delete ours.
+- **The dev fixture world is now the shared source of truth for these states.**
+  `internal/mapfixture` (task 270) both backs the no-database dev fallback and
+  supplies the reveal regression test, so the states a developer can look at are
+  the states the security test guards. Its checkpoint ids are deliberately in step
+  with the `internal/scans` mock — change one and change the other.
+- **The on-time verdict deliberately has no grace period.** It matches HQ's live
+  `scansByCheckgroup` exactly (§11.6): inclusive bounds, no `minusMinutes` /
+  `plusMinutes`. If HQ reintroduces grace, this has to move with it — the app and
+  the organizers' screens disagreeing about who was on time is the failure worth
+  avoiding, and it would be invisible from either side alone.
 
