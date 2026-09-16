@@ -136,6 +136,14 @@ type application struct {
 	checkpointsVersions *versionCache
 	handoutsVersions    *versionCache
 	scansVersions       *versionCache
+
+	// profileVersions and raceAreaVersions cache the remaining two sync datasets (task 283). Their
+	// keys sit at the two extremes of the same rule: profile is keyed by *user*, because its permitted
+	// set is one person and there is nothing to share; race area is keyed by *event year*, because
+	// every device in the event holds the identical hull and keying it per user would multiply one
+	// answer by the device count. Nil is safe for both.
+	profileVersions  *versionCache
+	raceAreaVersions *versionCache
 }
 
 // @title        Hej Nathejk API
@@ -501,6 +509,8 @@ func run(logger *slog.Logger) error {
 		checkpointsVersions: newVersionCache(5 * time.Second),
 		handoutsVersions:    newVersionCache(5 * time.Second),
 		scansVersions:       newVersionCache(5 * time.Second),
+		profileVersions:     newVersionCache(5 * time.Second),
+		raceAreaVersions:    newVersionCache(5 * time.Second),
 
 		pins: pinStoreFor(cfg),
 		sms:  sms.LogSender{Logger: logger},
