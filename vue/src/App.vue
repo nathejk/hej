@@ -9,6 +9,7 @@ import { useOnboardingStore } from '@/stores/onboarding.store'
 import { useOfflineStore } from '@/stores/offline.store'
 import { registerOfflineDatasets } from '@/helpers/offline/reporters'
 import { useSyncLoop } from '@/composables/useSyncLoop'
+import { useUpdateCheck } from '@/composables/useUpdateCheck'
 import { logEvent } from '@/helpers/trackDb'
 import BottomNav from '@/components/BottomNav.vue'
 import PortraitNudge from '@/components/PortraitNudge.vue'
@@ -40,6 +41,14 @@ const offline = useOfflineStore()
 // What it must *not* become is one loop per dataset again: the whole point is that six datasets cost
 // one request, and a second loop alongside this one doubles the traffic it was built to remove.
 useSyncLoop()
+
+// Ask periodically whether a new *build* is waiting (task 298). Separate from the sync loop above, and
+// the separation is the point: that one keeps data current, this one keeps the app current, and they run
+// at very different cadences. Before this existed the app checked once per document load — which on iOS
+// can be hours — so a fix could not reach a device that stayed open.
+//
+// It only makes `UpdatePrompt` appear; it never reloads. See `useUpdateCheck`.
+useUpdateCheck()
 const route = useRoute()
 
 // Connectivity (task 090). The browser events are a hint, not the truth —

@@ -109,7 +109,14 @@ export interface FreshnessTarget {
 }
 
 export interface FreshnessLoopSpec {
-  /** The check itself. Must not throw: a failed check keeps the cached copy and records why. */
+  /**
+   * The check itself. Must not throw: a failed check keeps the cached copy and records why.
+   *
+   * The loop nonetheless contains a rejection rather than trusting that (see `check` below). The
+   * contract stands — a consumer that throws has a bug — but the *symptom* of breaking it used to be an
+   * unhandled promise rejection surfacing far from the cause, since every trigger calls this as
+   * `void check()`.
+   */
   check: () => Promise<void> | void
   /** Seconds between checks while visible. Zero or less disables the interval only. */
   intervalSeconds: number
@@ -208,6 +215,12 @@ export function useFreshnessLoop(spec: FreshnessLoopSpec) {
     checking = true
     try {
       await spec.check()
+    } catch (err) {
+      // Contained, and logged rather than swallowed. Consumers promise not to throw, so reaching here is
+      // a bug in one of them — but every trigger invokes this as `void check()`, so an escaping rejection
+      // becomes an *unhandled* one, reported with no stack that names the loop and no clue which dataset
+      // caused it. Better a named error at the point of failure, with the loop still alive.
+      console.error('freshness check threw; the loop continues', err)
     } finally {
       checking = false
     }

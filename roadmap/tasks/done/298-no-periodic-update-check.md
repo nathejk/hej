@@ -1,11 +1,11 @@
 # 298 — The app never re-checks for a new build while it stays open
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-17
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed / Claude)
+**Started:** 2026-09-17
+**Completed:** 2026-09-17
 
 ## Description
 
@@ -80,12 +80,14 @@ is the cause. If the API also says `main.85`, nothing has been deployed and ther
 ## Acceptance Criteria
 
 - [ ] Confirmed against `/api/healthcheck` that the server is ahead of the client (not a deploy lag).
-- [ ] A new build is noticed by an already-open app without a cold start.
-- [ ] The check runs on foreground, and on an interval while visible — never while hidden.
-- [ ] No auto-reload: the banner still waits for the user (`registerType: 'prompt'` preserved).
-- [ ] Dismissing with **Senere** is respected for a stated period, not re-shown minutes later.
-- [ ] A failed check while offline is silent and retried later.
-- [ ] Decided and documented: reuse `useFreshnessLoop` or a separate timer, with the reason.
+      **Still worth doing on the device** — the fix is right regardless, but the field observation
+      (`main.85` vs `main.87`) has not been separated from a possible deploy lag.
+- [x] A new build is noticed by an already-open app without a cold start.
+- [x] The check runs on foreground, and on an interval while visible — never while hidden.
+- [x] No auto-reload: the banner still waits for the user (`registerType: 'prompt'` preserved).
+- [x] Dismissing with **Senere** is respected for a stated period, not re-shown minutes later.
+- [x] A failed check while offline is silent and retried later.
+- [x] Decided and documented: reuse `useFreshnessLoop` or a separate timer, with the reason.
 - [ ] Tested on the device that found this: `main.<n>` picked up while the app stays open.
 
 ## Progress Log
@@ -93,3 +95,36 @@ is the cause. If the API also says `main.85`, nothing has been deployed and ther
 - 2026-09-17 02:30 — Task created. Found on a device running `main.85` against `main.87`, with no
   banner. Cause identified by reading `helpers/pwa.ts`: `registerSW` checks once per document load and
   nothing ever checks again, which task 280's measurements show can mean hours.
+- 2026-09-17 03:00 — Implemented. `helpers/pwa.ts` captures the registration via `onRegisteredSW` and
+  exposes `checkForUpdate()`; the new `useUpdateCheck` composable decides when to call it.
+- 2026-09-17 03:05 — **Reused `useFreshnessLoop` rather than adding a timer**, which was the main design
+  decision here. It is the same question at a different cadence — "has something changed?", asked at the
+  moments worth asking — and the composable already owns every answer this needed: foreground, interval
+  while visible, reconnect, stop when hidden, debounce. A private timer would have re-derived all of it
+  and made this the third thing polling on its own schedule, which is what PRD 017 spent its effort
+  removing. It is also the **fourth** consumer of that convention, which is the first real evidence it
+  generalises rather than merely being reusable in principle.
+- 2026-09-17 03:10 — 15 minutes, debounce 60 s. Deliberately **not** served from `/api/config`, unlike
+  PRD 017's interval: that lever exists so an operator can shed load mid-event, whereas this one
+  addresses "we cannot ship a fix at all", and a remote switch whose only effect is to reinstate the bug
+  is not a lever worth having. The cost is a conditional request for one small file — a few hundred
+  devices at 15 minutes is well under one request per second.
+- 2026-09-17 03:15 — It only makes the banner appear; it never activates or reloads. `registerType:
+  'prompt'` stays, because reloading the app under a patrol mid-navigation would be worse than the bug
+  being fixed. "Senere" still sticks for the session: `updateAvailable` latches true, and `UpdatePrompt`
+  only clears `dismissed` on a false→true transition, so a dismissed banner does not return every 15
+  minutes.
+- 2026-09-17 03:20 — **A test found a second, latent bug.** The "survives a failing check" case produced
+  an *unhandled promise rejection*: `useFreshnessLoop` awaited `spec.check()` in a `try/finally` with no
+  `catch`, and every trigger calls it as `void check()`. Nothing in production hits it today (all four
+  consumers catch internally, and the spec's contract says a check must not throw) — but the symptom of
+  breaking that contract would have been an unhandled rejection with no stack naming the loop and no clue
+  which dataset caused it. The loop now contains and logs it, and stays alive. Contract unchanged; the
+  failure mode is just no longer silent-and-remote.
+- 2026-09-17 03:25 — `virtual:pwa-register` does not exist under vitest (the PWA plugin is not in that
+  pipeline), so the spec mocks `@/helpers/pwa` at the module seam. Every test injects its own `check`
+  anyway — this file is about *when* the question is asked, which was the entire defect.
+- 2026-09-17 03:30 — 59 files / 740 tests green, type-check clean, production build clean. Left the two
+  device-confirmation criteria open: the fix is right on its own terms, but nobody has yet watched an
+  open app pick up a build, and the original `main.85`/`main.87` observation has not been separated from
+  a possible deploy lag.

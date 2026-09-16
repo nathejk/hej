@@ -3,15 +3,17 @@ import { registerSW } from 'virtual:pwa-register'
 // Holds the vite-plugin-pwa reload function once the service worker registers.
 let reloadWithNewVersion: ((reloadPage?: boolean) => Promise<void>) | undefined
 
+// The registration itself, so the app can ask again whether a new build exists (task 298).
+let registration: ServiceWorkerRegistration | undefined
+
 // initPwa registers the service worker. `onNeedRefresh` fires when a new build
 // is waiting; the app turns this into an update prompt (task 020).
 //
-// **Known gap (task 298): this checks for a new build once per document load and never again.**
-// `registerSW` triggers an update check at registration; nothing here calls `registration.update()`
-// afterwards. On iOS an installed PWA's document survives for hours across suspend/resume (task 280
-// measured 47 minutes and a 32-minute suspension on one document), so a device can sit on a stale build
-// indefinitely — which also means there is currently no way to ship a fix to already-open apps during
-// an event. Do not treat the banner's absence as "no update available" until that is fixed.
+// **`registerSW` checks for a new build once, at registration.** That is per *document*, and on iOS an
+// installed PWA's document survives for hours across suspend/resume — task 280 measured 47 minutes on
+// one document, including a 32-minute suspension. So registration alone left devices sitting on stale
+// builds indefinitely, with no way to ship a fix to an already-open app during an event (task 298).
+// `checkForUpdate` below is how the app asks again; `useUpdateCheck` decides when.
 //
 // Note what `registerType: 'prompt'` means for a user who taps "Senere": the waiting worker stays
 // waiting, so `onNeedRefresh` fires again on the next launch and the banner comes back — every launch,
@@ -23,10 +25,33 @@ export function initPwa(onNeedRefresh: () => void) {
   reloadWithNewVersion = registerSW({
     immediate: true,
     onNeedRefresh,
+    onRegisteredSW(_url, r) {
+      registration = r
+    },
     onOfflineReady() {
       // Shell cached; nothing to surface for the skeleton.
     },
   })
+}
+
+/**
+ * Ask the browser whether a new build is waiting.
+ *
+ * A conditional request for one small file (`sw.js`), so it is cheap enough to run on a schedule. If a
+ * new worker is found, the plugin's own `waiting` handling fires `onNeedRefresh` and the banner appears —
+ * this does **not** activate anything or reload: `registerType: 'prompt'` is deliberate, and a fix must
+ * never reload the app under someone mid-task, least of all mid-event.
+ *
+ * Never throws. A failed check is a non-event — offline, or the worker not registered yet — and the next
+ * one will do the job.
+ */
+export async function checkForUpdate(): Promise<void> {
+  if (!registration) return
+  try {
+    await registration.update()
+  } catch {
+    // Offline, or the registration is gone. Nothing to report and nothing to do.
+  }
 }
 
 // applyUpdate activates the waiting service worker and reloads into the new
