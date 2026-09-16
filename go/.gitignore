@@ -2,5 +2,13 @@
 #   go tool swag init -g cmd/api/main.go -o cmd/api/docs
 cmd/api/docs/
 
+# Compiled command binaries. `go build ./cmd/<name>/` drops the executable here
+# named after the package, which is easy to commit by accident — one did get
+# committed once, at ~9 MB. Anchored per command rather than a blanket rule so a
+# real source file can never be masked by it.
+/api
+/seed
+/simscan
+
 # Built SPA bundle copied in for prod (dev uses go/www placeholder).
 # (The prod Docker stage populates the web root; nothing to commit here.)
