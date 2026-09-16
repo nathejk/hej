@@ -13,6 +13,30 @@ type Projection interface {
 	ByTeam(year, teamID string) ([]ProjectedScan, error)
 }
 
+// Banditter reports which of the year's people are banditter, so a scan can be classified.
+//
+// # Why this seam exists at all
+//
+// Nothing upstream says a scan was a bandit catch. `qr.scanned` carries the scanner's id, phone and
+// position — and no role, no kind, no flag (checked against the contract for task 271). Physically the two
+// cases are the same act: someone scans the patrol's code. The only way to tell them apart is to ask who
+// the scanner *was*, which is a fact this repo already holds — the person projection classifies a senior as
+// `RoleBandit`.
+//
+// # Why a set rather than a lookup per scan
+//
+// One read per request instead of one per registration. A patrol's list is short but the map refetches it,
+// and the year's banditter are a few dozen rows — so fetching the set once and testing membership is both
+// cheaper and simpler than N indexed reads.
+//
+// Declared here, like Projection, so `internal/scans` keeps owning the shape it needs and depends on
+// nothing under nathejk/table. The concrete adapter lives in cmd/api.
+type Banditter interface {
+	// BanditIDs returns the person ids of the year's banditter. An empty set is a normal answer — before
+	// the seniors are classified, and in any year with no banditter.
+	BanditIDs(year string) (map[string]bool, error)
+}
+
 // ProjectedScan is one scan as the projection reports it.
 //
 // A near-copy of the projection's own row type. The duplication is deliberate: it is the seam that lets
@@ -25,6 +49,12 @@ type ProjectedScan struct {
 	CheckpointName string
 	Lat            *float64
 	Lng            *float64
+
+	// ScannerID is the person who scanned the patrol's code.
+	//
+	// The only handle on *what kind* of registration this is: the event says nothing about the scanner's
+	// role, and a post visit and a bandit catch are physically identical acts (task 271).
+	ScannerID string
 
 	// The attributed checkpoint's group, its window and the group's scheme — carried through so the
 	// verdict is a pure function over the patrol's own scans (task 265). Zero and "" when the scan could
@@ -51,14 +81,15 @@ type ProjectedScan struct {
 // But an unreported database error would make a broken projection look exactly like a patrol that has
 // not scanned anything yet — so failures go to the `report` sink instead of being swallowed. Nil report
 // is allowed; tests use it.
-func NewProjectionSource(p Projection, year string, report func(error)) Source {
-	return projectionSource{p: p, year: year, report: report}
+func NewProjectionSource(p Projection, year string, banditter Banditter, report func(error)) Source {
+	return projectionSource{p: p, year: year, banditter: banditter, report: report}
 }
 
 type projectionSource struct {
-	p      Projection
-	year   string
-	report func(error)
+	p         Projection
+	year      string
+	banditter Banditter
+	report    func(error)
 }
 
 // ByPatrol returns the patrol's registrations, newest first.
@@ -72,14 +103,14 @@ type projectionSource struct {
 // projection's fallback rather than hidden. The scan happened; a patrol whose registration vanished
 // because a shift was never recorded would reasonably conclude the app had lost it.
 //
-// # Kind is always KindCheckpoint here, and that is a known gap
+// # How a bandit catch is told apart from a post visit
 //
-// `KindBandit` exists in this package and the mock produces it, but nothing on the stream tells us a scan
-// was a bandit catch: `qr.scanned` carries the scanner, and the two cases are physically identical —
-// someone scans the patrol's code. Classifying the scanner as a bandit needs a role or team lookup we do
-// not do yet. Rather than guess — labelling a post visit "Bandit taget" in front of a patrol that was not
-// caught would be worse than labelling it plainly, and it would look like data rather than a bug — every
-// real scan is reported as a checkpoint scan. **Task 271** closes this.
+// By asking who scanned. Nothing on the stream distinguishes them — `qr.scanned` carries the scanner's id
+// and no role, and the two are the same physical act — so the scanner is resolved against the year's
+// banditter (see Banditter). A scanner we cannot classify stays a **checkpoint** scan: labelling a post
+// visit "Bandit taget" in front of a patrol that was not caught would be worse than labelling it plainly,
+// and the failure would be invisible to us because it looks like data rather than a bug. So every
+// uncertainty resolves towards the dull answer (task 271).
 func (s projectionSource) ByPatrol(patrolID string) []Scan {
 	if patrolID == "" {
 		return nil
@@ -107,15 +138,30 @@ func (s projectionSource) ByPatrol(patrolID string) []Scan {
 		}
 	}
 
+	// The year's banditter, once. A failure here must not fail the list: the registrations are the point,
+	// and the classification is a label on them. Reported, then treated as "no banditter known", which
+	// leaves every scan a checkpoint visit — the safe direction.
+	banditIDs := map[string]bool{}
+	if s.banditter != nil {
+		if ids, err := s.banditter.BanditIDs(s.year); err != nil {
+			if s.report != nil {
+				s.report(err)
+			}
+		} else {
+			banditIDs = ids
+		}
+	}
+
 	out := make([]Scan, 0, len(rows))
 	for _, r := range rows {
 		anchorUts, hasAnchor := anchorByCheckgroup[r.RelativeCheckgroupID]
+		kind := kindFor(r, banditIDs)
 		out = append(out, Scan{
 			// The event carries no scan id, so the projection's key becomes ours. Stable across
 			// replays, which matters because the client uses it as a list key.
 			ID:           r.QrID + "-" + time.Unix(r.Uts, 0).UTC().Format("20060102150405"),
-			Kind:         KindCheckpoint,
-			Label:        label(r),
+			Kind:         kind,
+			Label:        label(r, kind),
 			CheckpointID: r.CheckpointID,
 			Lat:          r.Lat,
 			Lng:          r.Lng,
@@ -128,14 +174,34 @@ func (s projectionSource) ByPatrol(patrolID string) []Scan {
 	return out
 }
 
+// kindFor classifies a registration from who scanned it.
+//
+// A bandit catch only when the scanner is *known* to be a bandit. An empty scanner id, a scanner absent
+// from the person projection, a failed lookup and a year with no classified banditter all yield
+// KindCheckpoint — because the cost of the two mistakes is not symmetric. Missing a catch understates what
+// happened; inventing one tells a patrol they were caught when they were not, which they would act on.
+func kindFor(r ProjectedScan, banditIDs map[string]bool) Kind {
+	if r.ScannerID != "" && banditIDs[r.ScannerID] {
+		return KindBandit
+	}
+	return KindCheckpoint
+}
+
 // label names the registration for display.
 //
 // An unattributed scan gets "Registrering" rather than a blank or a fabricated post name. Blank would
 // read as a rendering bug; a guessed name would be a lie about where the patrol was. "Registrering" is
 // true, and it is the honest way to say "this happened, we cannot say where".
-func label(r ProjectedScan) string {
+//
+// A bandit catch with no post name is "Bandit" instead — also true, and more use than "Registrering" next
+// to the drawer's skull. We know the scanner was a bandit but not *which* one: the scan event carries an id,
+// and naming the individual would tell a patrol who caught them, which is not this app's business.
+func label(r ProjectedScan, kind Kind) string {
 	if r.CheckpointName != "" {
 		return r.CheckpointName
+	}
+	if kind == KindBandit {
+		return "Bandit"
 	}
 	return "Registrering"
 }

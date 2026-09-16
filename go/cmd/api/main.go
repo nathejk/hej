@@ -481,7 +481,7 @@ func run(logger *slog.Logger) error {
 	app := &application{
 		JsonApi: bff.JsonApi{Logger: logger},
 		config:  cfg,
-		models: data.NewModels(directory, scanSourceFor(scanProjection, cfg.eventYear, logger),
+		models: data.NewModels(directory, scanSourceFor(scanProjection, peopleOrNil(persons), cfg.eventYear, logger),
 			raceAreasOrNil(checkpoints), peopleOrNil(persons), vehiclesOrNil(vehicles),
 			data.WithMapReads(mapReadsFor(mapReads, ev != nil, logger))),
 		commands: commands.New(publisherFor(ev)),

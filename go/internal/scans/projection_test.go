@@ -27,7 +27,7 @@ func TestProjectionSourceMapsRows(t *testing.T) {
 			Lat: f(56.1382), Lng: f(9.5521)},
 	}}
 
-	got := NewProjectionSource(p, "2026", nil).ByPatrol("team-9")
+	got := NewProjectionSource(p, "2026", nil, nil).ByPatrol("team-9")
 
 	if len(got) != 1 {
 		t.Fatalf("want 1 registration, got %d", len(got))
@@ -51,7 +51,7 @@ func TestProjectionSourceMapsRows(t *testing.T) {
 func TestUnattributedScanIsLabelledHonestly(t *testing.T) {
 	p := &stubProjection{rows: []ProjectedScan{{QrID: "qr-2", Uts: 1750009999}}}
 
-	got := NewProjectionSource(p, "2026", nil).ByPatrol("team-9")
+	got := NewProjectionSource(p, "2026", nil, nil).ByPatrol("team-9")
 
 	if len(got) != 1 {
 		t.Fatalf("an unattributed scan must still be listed, got %d", len(got))
@@ -65,7 +65,7 @@ func TestUnattributedScanIsLabelledHonestly(t *testing.T) {
 // scan id, so it is derived from the projection's key.
 func TestRegistrationIDIsStable(t *testing.T) {
 	p := &stubProjection{rows: []ProjectedScan{{QrID: "qr-1", Uts: 1750000500}}}
-	src := NewProjectionSource(p, "2026", nil)
+	src := NewProjectionSource(p, "2026", nil, nil)
 
 	first := src.ByPatrol("team-9")
 	second := src.ByPatrol("team-9")
@@ -83,7 +83,7 @@ func TestRegistrationIDIsStable(t *testing.T) {
 func TestNoPatrolDoesNotQuery(t *testing.T) {
 	p := &stubProjection{}
 
-	got := NewProjectionSource(p, "2026", nil).ByPatrol("")
+	got := NewProjectionSource(p, "2026", nil, nil).ByPatrol("")
 
 	if got != nil {
 		t.Errorf("want no registrations, got %v", got)
@@ -100,7 +100,7 @@ func TestFailureIsReportedNotSwallowed(t *testing.T) {
 	p := &stubProjection{err: errors.New("database is down")}
 
 	var reported error
-	got := NewProjectionSource(p, "2026", func(err error) { reported = err }).ByPatrol("team-9")
+	got := NewProjectionSource(p, "2026", nil, func(err error) { reported = err }).ByPatrol("team-9")
 
 	if got != nil {
 		t.Errorf("want no registrations on failure, got %v", got)
@@ -114,7 +114,7 @@ func TestNilReportIsAllowed(t *testing.T) {
 	p := &stubProjection{err: errors.New("database is down")}
 
 	// Must not panic: tests and the no-database mode construct the source without a sink.
-	if got := NewProjectionSource(p, "2026", nil).ByPatrol("team-9"); got != nil {
+	if got := NewProjectionSource(p, "2026", nil, nil).ByPatrol("team-9"); got != nil {
 		t.Errorf("want no registrations, got %v", got)
 	}
 }

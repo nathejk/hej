@@ -104,7 +104,7 @@ func TestByPatrolResolvesRelativeAnchorFromOwnScans(t *testing.T) {
 			CheckgroupID: "cg-start", Scheme: SchemeNone},
 	}}
 
-	got := NewProjectionSource(p, "2026", nil).ByPatrol("team-9")
+	got := NewProjectionSource(p, "2026", nil, nil).ByPatrol("team-9")
 
 	var leg *Scan
 	for i := range got {
@@ -131,7 +131,7 @@ func TestByPatrolRelativeWithoutAnchorScanHasNoVerdict(t *testing.T) {
 			OpenDurationMinutes: 60},
 	}}
 
-	got := NewProjectionSource(p, "2026", nil).ByPatrol("team-9")
+	got := NewProjectionSource(p, "2026", nil, nil).ByPatrol("team-9")
 
 	if len(got) != 1 {
 		t.Fatalf("want 1 scan, got %d", len(got))
@@ -157,7 +157,7 @@ func TestByPatrolRelativeAnchorIsEarliestScan(t *testing.T) {
 			CheckgroupID: "cg-start", Scheme: SchemeNone},
 	}}
 
-	got := NewProjectionSource(p, "2026", nil).ByPatrol("team-9")
+	got := NewProjectionSource(p, "2026", nil, nil).ByPatrol("team-9")
 
 	var leg *Scan
 	for i := range got {
