@@ -450,13 +450,16 @@ is a Phase 1 device check rather than a decision to be argued.
   asking, and the button decides how fresh it is when somebody is. It bypasses the
   debounce, not the overlap guard, and it acknowledges the tap even when nothing
   changed (§7).
-- **`visibilitychange` alone is not assumed sufficient.** "In focus" is what was
-  asked for, and the current loop listens only to `visibilitychange` and `online`;
-  returning to a home-screen PWA from the iOS app switcher, and a bfcache restore,
-  do not reliably present the same way. This is the difference between the feature
-  working and appearing to work, so it is Phase 1's first task rather than an open
-  question — candidates `pageshow` (with `persisted`), `focus`, `resume`, chosen by
-  device check.
+- **`visibilitychange` is sufficient, and this is now measured** (task 280, iOS 18.7 / Safari
+  26.6.1, installed home-screen PWA, 2026-09-16). It fires with `visibilityState === 'visible'`
+  on lock/unlock return, on app-switcher return, and on a bfcache restore — so the loop hears
+  every resume path that matters, and no listener needed adding. `pageshow` and `focus` arrive
+  alongside or before it and add no coverage; `focus` fired *twice* on one unlock, so adding
+  either would mean two or three checks per resume instead of one. `freeze`/`resume` never fired
+  on Safari at all. A device killed while locked returns as a cold start, where the mount-time
+  check covers it. The original concern was real and the answer turned out to be "already
+  correct" — which is only knowable by measuring, and the probe at `/genoptag` is kept so it
+  stays knowable.
 - **One key per dataset, not a single app-wide version.** A single version is one
   comparison, but it refetches everything when anything changes — including the
   contacts manifest, the largest payload on the device. Per-dataset keys, as §6

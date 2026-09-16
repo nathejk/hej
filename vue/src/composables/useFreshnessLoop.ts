@@ -45,6 +45,15 @@ import { getCurrentScope, onScopeDispose } from 'vue'
 //    visible, `online`, and an explicit user request (the manual refresh control). Anything else is
 //    either a duplicate of these or a background timer on a phone in a pocket.
 //
+//    **`visibilitychange` is enough, and that is measured rather than assumed** (task 280, iOS 18.7 /
+//    Safari 26.6.1, installed home-screen PWA). It fires with `visibilityState === 'visible'` on
+//    lock/unlock return, on app-switcher return, and on a bfcache restore — the three paths that
+//    matter. `pageshow` and `focus` add no coverage: they arrive alongside or *before* it, and `focus`
+//    fired twice on a single unlock, so listening to them would mean two or three checks per resume
+//    instead of one. `freeze`/`resume` never fired at all on Safari. A phone killed while locked comes
+//    back as a cold start, where the mount check covers it. So the short list is evidence; re-measure
+//    with `/genoptag` before adding to it.
+//
 // 6. **Repetition is debounced; a user request is not.** Unlock, glance at the map, lock, unlock is
 //    the normal rhythm of this app, and each of those foregrounds is a completed, non-overlapping,
 //    entirely redundant check. A forced check skips the debounce only — the overlap guard and

@@ -34,6 +34,11 @@ import {
 
 const STORAGE_KEY = 'hej.resumeProbe.v1'
 
+// A short id for *this* document load, so the log can tell two mounts in one document (the view — and
+// possibly the app shell with it — being created twice) from two mounts in two documents (an ordinary
+// reload). Minted at module load, which is once per document.
+const LOAD_ID = Math.random().toString(36).slice(2, 6)
+
 // The paths from task 280, in the order a tester should walk them. The last one is the control: a cold
 // start must show up as such, or the log cannot be trusted for the others.
 const PATHS = [
@@ -76,6 +81,7 @@ function record(event: ProbedEvent, persisted?: boolean) {
     event,
     visibility: typeof document === 'undefined' ? 'unknown' : document.visibilityState,
     mark: mark.value,
+    load: LOAD_ID,
   }
   if (persisted !== undefined) entry.persisted = persisted
   const next = [...entries.value, entry]
@@ -247,7 +253,8 @@ const clock = (ms: number) =>
               <th class="py-1 pr-2 font-medium">event</th>
               <th class="py-1 pr-2 font-medium">vis.</th>
               <th class="py-1 pr-2 font-medium">bfcache</th>
-              <th class="py-1 font-medium">loop</th>
+              <th class="py-1 pr-2 font-medium">loop</th>
+              <th class="py-1 font-medium">load</th>
             </tr>
           </thead>
           <tbody>
@@ -258,9 +265,10 @@ const clock = (ms: number) =>
               <td class="py-1 pr-2 text-slate-500">
                 {{ entry.persisted === undefined ? '—' : entry.persisted }}
               </td>
-              <td class="py-1" :class="wouldCheck(entry) ? 'font-semibold text-emerald-700' : 'text-slate-400'">
+              <td class="py-1 pr-2" :class="wouldCheck(entry) ? 'font-semibold text-emerald-700' : 'text-slate-400'">
                 {{ wouldCheck(entry) ? 'ja' : 'nej' }}
               </td>
+              <td class="py-1 font-mono text-slate-400">{{ entry.load ?? '—' }}</td>
             </tr>
           </tbody>
         </table>

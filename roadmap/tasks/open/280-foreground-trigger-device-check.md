@@ -59,17 +59,19 @@ the page shows a verdict rather than only rows.
 
 ## Acceptance Criteria
 
-- [ ] A table in the Progress Log: resume path × event, for iOS home-screen PWA.
-      (Paste the probe's **Kopiér** output.)
+- [x] A table in the Progress Log: resume path × event, for iOS home-screen PWA.
+      (Paste the probe's **Kopiér** output.) — three of five paths measured; see the log.
 - [ ] Same for Android Chrome, at least for paths 1, 2 and 4.
-- [ ] A stated conclusion: the exact set of events `browserFreshnessTarget` must
+- [x] A stated conclusion: the exact set of events `browserFreshnessTarget` must
       listen to, and which are redundant.
-- [ ] Confirmation that the chosen set cannot double-fire a check on a single resume
+- [x] Confirmation that the chosen set cannot double-fire a check on a single resume
       (or, if it can, that the debounce from task 281 absorbs it — note the required
       debounce window).
-- [ ] `useFreshnessLoop.ts`'s convention §5 ("Four trigger points, and no more") and
+- [x] `useFreshnessLoop.ts`'s convention §5 ("Four trigger points, and no more") and
       `LOOP_EVENTS` in `helpers/resumeProbe.ts` both updated to match the finding.
-- [ ] Findings recorded in PRD 017 §11 *Decided*, replacing the pending device check.
+- [x] Findings recorded in PRD 017 §11 *Decided*, replacing the pending device check.
+- [ ] `telefonopkald` path measured.
+- [ ] The double `mount` per load explained (see the log — `load` column added to answer it).
 
 ## Progress Log
 
@@ -134,3 +136,54 @@ the page shows a verdict rather than only rows.
   `visibilitychange` accompanies it. Consistent with the loop's mount-time check being the only
   thing that refreshes a cold start — which it does. Not evidence about any of the five resume
   paths.
+- 2026-09-16 23:26 — **Measured, on the fixed probe. iOS 18.7 / Safari 26.6.1, installed
+  home-screen PWA (`standalone=true`, `iosStandalone=true`).**
+
+  **app-skifter** — loopet ville have tjekket
+
+  | tid | gap | event | visibility | persisted | loop? |
+  |---|---|---|---|---|---|
+  | 23.25.00 |  | `pagehide` | visible | true | nej |
+  | 23.25.00 | 0s | `visibilitychange` | hidden |  | nej |
+  | 23.25.12 | 12s | `visibilitychange` | visible |  | **ja** |
+  | 23.25.12 | 0s | `pageshow` | visible | true | nej |
+
+  **lås / lås op** — loopet ville have tjekket
+
+  | tid | gap | event | visibility | persisted | loop? |
+  |---|---|---|---|---|---|
+  | 23.25.38 |  | `blur` | hidden |  | nej |
+  | 23.25.38 | 0s | `visibilitychange` | hidden |  | nej |
+  | 23.25.41 | 3s | `focus` | visible |  | nej |
+  | 23.25.41 | 0s | `focus` | visible |  | nej |
+  | 23.25.41 | 0s | `visibilitychange` | visible |  | **ja** |
+
+  Plus an earlier lock (23.23.34) where the app was **gone on return**: only the leaving half was
+  recorded, and the next entries are `mount` under a reset path label — i.e. the app was killed or
+  reloaded while locked, after ~51 s hidden, and came back as a cold start.
+
+- 2026-09-16 23:30 — **CONCLUSION: `visibilitychange` is sufficient. No change to
+  `browserFreshnessTarget`.**
+  - It fires with `visibilityState === 'visible'` on **lock/unlock return**, on **app-switcher
+    return**, and on a **bfcache restore** — the `pagehide`/`pageshow` pair in the app-switcher run
+    both carry `persisted=true`, so that path *was* a bfcache restore and `visibilitychange` still
+    led it.
+  - **`pageshow` is redundant**: it arrived *after* `visibilitychange` in the same tick.
+  - **`focus` is worse than redundant**: it arrived *before* `visibilitychange` and fired **twice**
+    on one unlock. Listening to it would mean two or three checks per resume. The 5 s debounce
+    (task 281) would absorb them — all three events landed in the same second — but the right fix
+    is not to listen, not to lean on the debounce.
+  - **`freeze`/`resume` never fired.** Safari does not implement the Page Lifecycle API; their
+    absence is recorded rather than assumed.
+  - **A device killed while locked** returns as a cold start, where the mount-time check covers it.
+    Worth knowing how aggressive that is: **~51 s hidden was enough** for this app to be discarded.
+  - So the original concern was real and the answer is "already correct". That is only knowable by
+    measuring, which is why `/genoptag` stays in the app.
+- 2026-09-16 23:35 — Two things still open, both minor:
+  1. **`telefonopkald` not measured.** Expected to behave like the app switcher, but expected is not
+     measured.
+  2. **Two `mount` rows one second apart, on every load.** The log cannot yet say whether that is
+     one document mounting the view twice — which would mean the shell, and with it `useSyncLoop`,
+     may be created twice, quietly breaking PRD 017 §6's "exactly one app-level loop" — or simply
+     two document loads a second apart. Added a `load` column (a per-document random id) so the
+     next run answers it: **same id twice = a real problem; two ids = an ordinary reload.**

@@ -53,6 +53,12 @@ export type ProbedEvent = BrowserEvent | 'mount'
  * "mounting counts as foregrounding" (PRD 017 §6). Leaving it out made the cold-start control report
  * itself as a failure, which is the most misleading thing this page could have done: the control is
  * what tells you whether to trust the other four rows.
+ *
+ * **Measured on iOS 18.7 (Safari 26.6.1), installed home-screen PWA, 2026-09-16 (task 280): this list
+ * is sufficient.** `visibilitychange` → `visible` fires on lock/unlock return, on app-switcher return
+ * and on a bfcache restore. `focus` and `pageshow` add no coverage and would multiply checks per resume
+ * — `focus` fired *twice* before `visibilitychange` on one unlock. `freeze`/`resume` never fired at all.
+ * So do not add to this list without measuring again; the reason it is short is evidence, not oversight.
  */
 export const LOOP_EVENTS: ProbedEvent[] = ['visibilitychange', 'online', 'mount']
 
@@ -66,6 +72,15 @@ export interface ProbeEntry {
   persisted?: boolean
   /** A tester's label for the path being exercised ("app switcher", "cold start", …). */
   mark?: string
+  /**
+   * Which document load recorded this, as a short random id minted once per module load.
+   *
+   * Added after the first real run showed two `mount` rows a second apart, which the log could not
+   * explain: two mounts in *one* document would mean the view (and possibly the app shell, and with it
+   * the sync loop) is being created twice — the "exactly one app-level loop" rule quietly broken. Two
+   * mounts in *two* documents is just a reload. Same id means the first; different ids mean the second.
+   */
+  load?: string
 }
 
 /**
@@ -145,15 +160,16 @@ export function toMarkdown(entries: ProbeEntry[], platform: string): string {
   for (const group of groupByMark(entries)) {
     lines.push(`**${group.mark}** — ${verdictLabel(verdictFor(group.entries))}`)
     lines.push('')
-    lines.push('| tid | gap | event | visibility | persisted | loop? |')
-    lines.push('|---|---|---|---|---|---|')
+    lines.push('| tid | gap | event | visibility | persisted | loop? | load |')
+    lines.push('|---|---|---|---|---|---|---|')
     let previous: number | null = null
     for (const entry of group.entries) {
       const gap = previous === null ? '' : `${Math.round((entry.at - previous) / 1000)}s`
       previous = entry.at
       lines.push(
         `| ${clock(entry.at)} | ${gap} | \`${entry.event}\` | ${entry.visibility} | ` +
-          `${entry.persisted === undefined ? '' : entry.persisted} | ${wouldCheck(entry) ? '**ja**' : 'nej'} |`,
+          `${entry.persisted === undefined ? '' : entry.persisted} | ${wouldCheck(entry) ? '**ja**' : 'nej'} | ` +
+          `${entry.load ?? ''} |`,
       )
     }
     lines.push('')
