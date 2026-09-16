@@ -185,9 +185,9 @@ not touched.
       datasets that differ.
 - [x] Datasets covered at ship: contacts manifest (incl. portrait versions), own
       profile, patrol scans, patrol map handouts, revealed checkpoints, race area.
-      **Five of the six refresh a cached copy; `race_area` has none to refresh** — it is
-      fetched on demand when a bulk tile download starts, so its version is reported and
-      consumed by task 294 instead.
+      **Five refresh a cached copy; `race_area` has none** — it is fetched on demand when a
+      bulk tile download starts, so a change in it is surfaced as "more map available to
+      download" instead (task 294).
 - [ ] A dataset absent from the response is one the user may not hold; the client
       must not request it.
 - [ ] A dataset whose version could not be derived is reported as **unavailable**,
@@ -377,6 +377,8 @@ GET /api/sync
   position report's cost. **Measured outside the first hour of the race**: photos are
   added heavily early on, every one of them moves the contacts version, and a
   depressed ratio then is the system working rather than a fault (§11).
+  *Instrumented in task 293: the BFF logs `unchangedRatio` from the `304` rate, plus
+  per-dataset `churnRatio`, every five minutes. Task 296 reads them after the first event.*
 - `/api/sync` p95 well inside the BFF's other read endpoints, at expected device
   count.
 - Zero reports of a device holding a stale copy for a whole event — the silent
@@ -408,14 +410,21 @@ of work plus cleanup.
 - [ ] Task 291: load test at expected device count; record the numbers in §9
 
 **Phase 2 — cleanup**
-- [ ] Task 292: retire `/api/contacts/version` once no client calls it
-- [ ] Task 293: instrument the unchanged/changed ratio and review after the first event
+- [ ] Task 292: retire `/api/contacts/version` once no client calls it. **No client does
+      as of task 288**; it waits for a release to have shipped, so installed PWAs on an older
+      bundle keep working.
+- [x] Task 293: instrument the unchanged/changed ratio
+- [ ] Task 296: review those numbers after the first event
 
 **Opened during implementation**
-- [ ] Task 294: tell a user when their downloaded map area no longer matches the event. The
+- [x] Task 294: tell a user when their downloaded map area no longer matches the event. The
       `race_area` version has no store to refresh — the area is fetched on demand when a bulk
       tile download starts — so what a change in it means is a user-visible fact rather than a
-      refresh, and belongs in its own task.
+      refresh, and belonged in its own task.
+- [x] Task 295: bound the version cache. Its doc comment justified never evicting by a key
+      space of "role combinations", which stopped being true when tasks 269/283 keyed caches by
+      patrol and by **user** — a slow leak on the endpoint every device calls on every
+      foreground.
 
 No feature flag. The mechanism is a strict improvement over "fetch once on
 mount", and the lever that matters — the interval — is served, so load can be
