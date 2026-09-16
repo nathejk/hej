@@ -94,6 +94,15 @@ const router = createRouter({
       name: 'track-status',
       component: () => import('@/views/TrackStatusView.vue'),
     },
+    // Diagnostic page for the foreground-resume signals (task 280, PRD 017). Same reasoning
+    // as `/sporing` above and the same shape: a measurement that can only be taken on a real
+    // installed app, rendered as text to paste into a task log. Reached from the tracking
+    // diagnostic, so the two field tools sit together and neither takes a nav slot.
+    {
+      path: '/genoptag',
+      name: 'resume-probe',
+      component: () => import('@/views/ResumeProbeView.vue'),
+    },
   ],
 })
 

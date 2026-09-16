@@ -310,5 +310,12 @@ async function copy() {
       class="h-80 w-full rounded-lg border border-slate-300 bg-slate-50 p-2 font-mono text-[10px] leading-tight text-slate-700"
       :value="report"
     ></textarea>
+
+    <!-- The other field measurement that needs a real installed app (task 280): which events fire when
+         the app is resumed. Linked from here because both are device-only diagnostics reached by
+         someone already holding the phone, and neither should take a nav slot. -->
+    <RouterLink :to="{ name: 'resume-probe' }" class="inline-block text-sm text-slate-600 underline">
+      Se genoptagelses-diagnostik
+    </RouterLink>
   </div>
 </template>
