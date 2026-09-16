@@ -9,17 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nathejk/shared-go/types"
-
 	"nathejk.dk/internal/data"
-	"nathejk.dk/internal/reveal"
+	"nathejk.dk/internal/mapfixture"
 	"nathejk.dk/internal/scans"
 	"nathejk.dk/internal/users"
-	"nathejk.dk/nathejk/table/checkgroup"
 	"nathejk.dk/nathejk/table/checkpoint"
-	"nathejk.dk/nathejk/table/kort"
-	"nathejk.dk/nathejk/table/maphandout"
-	"nathejk.dk/nathejk/table/scan"
 )
 
 // This file is one test, and it is the test PRD 016 exists to be safe about.
@@ -44,103 +38,26 @@ import (
 // would not know to look for it. Searching the response body for a coordinate that must never leave is
 // blunt, and it keeps working against code nobody has thought about yet.
 
-// The fixture world: two checkgroups the patrol reaches or holds a sheet for, and one — cg-secret,
-// containing cp-secret — that nothing reveals. cp-secret's coordinates are the string this test hunts for.
+// The fixture world lives in `internal/mapfixture`, not here — it is shared with the dev-simulation
+// fallback (task 270), so the states this test guards are the same ones a developer can look at on a
+// device. cp-secret, in cg-secret, is revealed by nothing; its coordinates are the strings this test hunts.
 const (
-	secretLat = 55.930986
-	secretLng = 12.157753
+	secretLat = mapfixture.SecretLat
+	secretLng = mapfixture.SecretLng
 )
 
-type fixtureSheets struct{ sheets []kort.Sheet }
-
-func (f fixtureSheets) PatrolSheets(string) ([]kort.Sheet, error) { return f.sheets, nil }
-
-type fixtureHandouts struct{ handouts []maphandout.Handout }
-
-func (f fixtureHandouts) ByPatrol(string, types.TeamID) ([]maphandout.Handout, error) {
-	return f.handouts, nil
-}
-
-type fixtureScans struct{ scans []scan.Scan }
-
-func (f fixtureScans) ByTeam(string, string) ([]scan.Scan, error) { return f.scans, nil }
-
-type fixtureCheckgroups struct{ groups []checkgroup.Checkgroup }
-
-func (f fixtureCheckgroups) ByYear(string) ([]checkgroup.Checkgroup, error) { return f.groups, nil }
-
-// fixtureCheckpoints holds every checkpoint in the year, including the one no rule reveals — which is what
-// makes the test meaningful. It honours the bounded contract: it returns only what it was asked for.
-type fixtureCheckpoints struct{ all []checkpoint.Checkpoint }
-
-func (f fixtureCheckpoints) ByIDs(_ string, ids []types.CheckpointID) ([]checkpoint.Checkpoint, error) {
-	want := map[types.CheckpointID]bool{}
-	for _, id := range ids {
-		want[id] = true
-	}
-	out := []checkpoint.Checkpoint{}
-	for _, c := range f.all {
-		if want[c.ID] {
-			out = append(out, c)
-		}
-	}
-	return out, nil
-}
-
-func (f fixtureCheckpoints) ByCheckgroups(_ string, gs []types.CheckgroupID) ([]checkpoint.Checkpoint, error) {
-	want := map[types.CheckgroupID]bool{}
-	for _, g := range gs {
-		want[g] = true
-	}
-	out := []checkpoint.Checkpoint{}
-	for _, c := range f.all {
-		if want[c.Checkgroup] {
-			out = append(out, c)
-		}
-	}
-	return out, nil
-}
-
-func fixtureWorld() []checkpoint.Checkpoint {
-	return []checkpoint.Checkpoint{
-		// Revealed: drawn on the sheet the patrol holds.
-		{ID: "cp-1", Name: "Post 1", Checkgroup: "cg-1", SortOrder: 0, Lat: 55.716595, Lng: 12.264819},
-		// Revealed: same checkgroup as a post the patrol scanned.
-		{ID: "cp-2", Name: "Post 2", Checkgroup: "cg-1", SortOrder: 1, Lat: 55.852480, Lng: 12.195639},
-		// **Not revealed by any rule.** Positioned, real, and the patrol has no business knowing it exists.
-		{ID: "cp-secret", Name: "Post 9", Checkgroup: "cg-secret", SortOrder: 9,
-			Lat: secretLat, Lng: secretLng},
-	}
-}
-
-// revealApp wires the real reveal rule over the fixture world.
+// revealApp wires the real reveal rule over the shared fixture world.
 func revealApp(t *testing.T, year string) *application {
 	t.Helper()
 
-	rule := reveal.New(
-		fixtureSheets{sheets: []kort.Sheet{
-			// The sheet the patrol holds. Note it does *not* list cp-secret.
-			{ID: "kort-1", Name: "Kort 1", CheckpointIDs: []types.CheckpointID{"cp-1"}},
-			// A sheet that does list cp-secret, and that the patrol has never been handed. This is the
-			// interesting one: the reveal rule must not follow it.
-			{ID: "kort-secret", Name: "Kort 9", CheckpointIDs: []types.CheckpointID{"cp-secret"}},
-		}},
-		fixtureHandouts{handouts: []maphandout.Handout{
-			{QrID: "1042", MapID: "kort-1", FirstUts: 1750000000, Current: true},
-		}},
-		fixtureScans{scans: []scan.Scan{
-			{QrID: "1042", Uts: 1750000500, CheckpointID: "cp-1", CheckpointName: "Post 1",
-				CheckgroupID: "cg-1"},
-		}},
-		fixtureCheckpoints{all: fixtureWorld()},
-		fixtureCheckgroups{groups: []checkgroup.Checkgroup{{ID: "cg-1"}, {ID: "cg-secret"}}},
-	)
-
 	// The race area is derived from **every** checkpoint, including the secret one — by design, because the
 	// hull plus a 3 km buffer is what makes it safe to publish. Included here so the test covers that
-	// claim rather than assuming it.
-	points := make([]checkpoint.Point, 0, 3)
-	for _, c := range fixtureWorld() {
+	// claim rather than assuming it. The unsited post is skipped: 0,0 would drag the hull into the Atlantic.
+	points := make([]checkpoint.Point, 0, len(mapfixture.Checkpoints()))
+	for _, c := range mapfixture.Checkpoints() {
+		if c.Lat == 0 && c.Lng == 0 {
+			continue
+		}
 		points = append(points, checkpoint.Point{Lat: c.Lat, Lng: c.Lng})
 	}
 	area, ok := checkpoint.ComputeRaceArea(points, len(points))
@@ -155,7 +72,7 @@ func revealApp(t *testing.T, year string) *application {
 		scans.NewMockSource(),
 		fakeRaceAreas{area: area, ok: true},
 		nil, nil,
-		data.WithMapReads(rule),
+		data.WithMapReads(mapfixture.NewRule()),
 	)
 	return app
 }
@@ -186,10 +103,10 @@ func TestUnrevealedCheckpointNeverLeavesTheBFF(t *testing.T) {
 		strconv.FormatFloat(secretLng, 'f', -1, 64),
 		fmt.Sprintf("%v", secretLat),
 		fmt.Sprintf("%v", secretLng),
-		"55.930", // a truncated latitude is still a position
-		"12.157",
+		"56.051", // a truncated latitude is still a position
+		"9.203",
 		"cp-secret", // and the id alone tells a patrol a post exists
-		"Post 9",
+		"hemmelig",
 	}
 
 	for _, path := range revealSurfaces() {

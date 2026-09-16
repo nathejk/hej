@@ -483,7 +483,7 @@ func run(logger *slog.Logger) error {
 		config:  cfg,
 		models: data.NewModels(directory, scanSourceFor(scanProjection, cfg.eventYear, logger),
 			raceAreasOrNil(checkpoints), peopleOrNil(persons), vehiclesOrNil(vehicles),
-			data.WithMapReads(mapReadsOrNil(mapReads))),
+			data.WithMapReads(mapReadsFor(mapReads, ev != nil, logger))),
 		commands: commands.New(publisherFor(ev)),
 		vehicles: vehicleCommandsOrNil(vehicles),
 		db:       db,

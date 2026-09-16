@@ -205,6 +205,44 @@ Seeded records are recognisable on sight: every name starts with `TEST ` and eve
 number with `+4599`. Note the seeder publishes to the **shared** broker and cannot
 un-publish, which is why it refuses to run against a real event year.
 
+### The map fixture world (PRD 016)
+
+The map is the one feature whose states you mostly **cannot** produce by hand. A relative
+open window needs an anchoring scan at another post; a skitse is handed over at a post and
+has no QR code at all; a sheet reassigned to a successor team needs two teams and a
+re-binding; and the state that matters most — a real, positioned checkpoint that no rule
+reveals, which must therefore never appear — cannot be demonstrated by adding data, only by
+checking that something is absent.
+
+So when the API runs **without a broker** (the no-database mode), `/api/checkpoints` and
+`/api/patrol/handouts` are served from `go/internal/mapfixture` instead of answering 503.
+It fakes the five projections and runs the **real** `reveal.Rule` over them, so what you see
+is what the reveal logic actually does. Log in as the mock spejder (`+4530000001`).
+
+What the fixture patrol (`mock-patrol-1042`) has, and which state each thing exists to show:
+
+| On the map / in the drawer | State it demonstrates |
+|---|---|
+| Post 1 (Silkeborg Sønderskov) | revealed by a QR-bound sheet **and** by a scanned checkgroup; `fixed` window |
+| Post 2 (Kløvermarken) | `relative` window, anchored on the Post 1 scan — a verdict that is only computable because we hold the anchor |
+| Post 3 (Ans Bro) | revealed by a **skitse** handed over at Post 2's line; its handout is *synthesised* (no sticker number) |
+| Post 4 (Gjern Bakker) | revealed by a sheet since **reassigned away** — revealing is monotonic, so it stays revealed; `none` scheme, so no verdict |
+| Post 5 | revealed but **not sited** (no position): drawn nowhere, arrowed at nothing |
+| Post 9 ("hemmelig") | **revealed by nothing.** If this ever appears on the map, that is the bug PRD 016 exists to prevent |
+| "Etape 1", nr. 1042 | a QR-bound sheet still held |
+| "Etape 4", nr. 1055 | **"afleveret"** — and it names no other team, deliberately |
+| "Ukendt kort", nr. 9999 | a code registered before its sheet was recorded: unknown sheet, not no sheet |
+| "Skitse til etape 3" | a synthesised handout, with no sticker number and no gap where one would go |
+
+The verdict badges in the drawer come from `internal/scans`' mock, which covers on time, late
+with a delta, early, no window, an unattributable registration and a bandit catch. Its
+checkpoint ids match the fixture above so scanned posts show as visited — **change one and
+change the other.**
+
+The fixtures cannot reach production. They are chosen by the *absence of eventing*, never by
+a flag, and a broker whose projections failed to build still gets an honest 503 rather than a
+plausible-looking map (see `mapReadsFor` in `cmd/api/mapsource.go`).
+
 ## Tests and checks
 
 The same gates the dev loop runs, from `go/`:

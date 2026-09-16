@@ -33,6 +33,10 @@ func NewMockSource() Source {
 			{ID: "scan-1042-3", Kind: KindCheckpoint, Label: "Post 3 – Ans Bro", CheckpointID: "cp-3", Lat: pos(56.2311), Lng: pos(9.5216), ScannedAt: evening(21, 14), Verdict: &Verdict{OnTime: false, DeltaSeconds: -5 * 60}},
 			// Registered by hand at the post, hence no position. A `none`-scheme post: no window, no verdict.
 			{ID: "scan-1042-4", Kind: KindCheckpoint, Label: "Post 4 – Gjern Bakker", CheckpointID: "cp-4", ScannedAt: evening(22, 47)},
+			// Unattributable: no shift covered the scanner, so there is no checkpoint and no verdict. Listed
+			// anyway — the scan happened, and a patrol whose registration vanished would conclude the app
+			// had lost it. Labelled by the projection's honest fallback rather than a guessed post name.
+			{ID: "scan-1042-6", Kind: KindCheckpoint, Label: "Registrering", Lat: pos(56.2010), Lng: pos(9.4500), ScannedAt: evening(23, 5)},
 			// Bandit catches never carry a verdict.
 			{ID: "scan-1042-5", Kind: KindBandit, Label: "Bandit: Sorte Sofie", Lat: pos(56.2609), Lng: pos(9.4103), ScannedAt: evening(23, 32)},
 		},
