@@ -19,6 +19,16 @@ export interface Scan {
   lat: number | null
   lng: number | null
   scannedAt: Date
+  /**
+   * The on-time verdict, computed server-side (PRD 016 §11.5). Both null together when there is nothing
+   * to judge against: a bandit catch, an unattributed scan, a post with no window, or a relative window
+   * whose anchoring scan has not happened yet. A missing verdict draws no badge — absence is the honest
+   * rendering, and a wrong "for sent" is worse than a missing one.
+   *
+   * deltaSeconds is signed: 0 exactly on time, negative early, positive late.
+   */
+  onTime: boolean | null
+  deltaSeconds: number | null
 }
 
 interface ScanResponse {
@@ -29,6 +39,8 @@ interface ScanResponse {
   lat: number | null
   lng: number | null
   scanned_at: string
+  on_time?: boolean | null
+  delta_seconds?: number | null
 }
 
 // scans.store holds the signed-in user's patrol registrations: checkpoint scans
@@ -63,6 +75,10 @@ export const useScansStore = defineStore('scans', {
           lat: s.lat,
           lng: s.lng,
           scannedAt: new Date(s.scanned_at),
+          // Optional in the response so an older BFF (no verdict) simply draws no badge. `?? null`
+          // collapses a missing field and an explicit null to the same "no verdict".
+          onTime: s.on_time ?? null,
+          deltaSeconds: s.delta_seconds ?? null,
         }))
         this.error = ''
         this.loaded = true
