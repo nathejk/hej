@@ -111,13 +111,19 @@ const selectSheet = `SELECT k.id, k.kortsaetId, k.name, k.format, k.sortOrder,
 // `id` is the tiebreak after sortOrder so two sheets sharing a sort order — easy to produce
 // mid-reorder — come back in a stable order rather than whatever the storage engine feels like. Two
 // consecutive loads disagreeing about the order would look like a bug in the app.
-func (q querier) PatrolSheets(year string) ([]Sheet, error) {
-	query := selectSheet + `
+// patrolSheetsQuery selects the sheets in the year's patrol map set(s).
+//
+// A package-level const rather than an inline string so a test can assert on it directly (the scan
+// package does the same with byTeamQuery): the guarantee that matters here — filter on the team type,
+// never on the set name — is a property of this exact text, and pinning it is how a name comparison
+// slipped in during a later edit gets caught.
+const patrolSheetsQuery = selectSheet + `
 		JOIN kortsaet s ON s.id = k.kortsaetId AND s.year = k.year AND s.deleted = 0
 		WHERE k.year = ? AND k.deleted = 0 AND s.teamType = ?
 		ORDER BY s.sortOrder ASC, k.sortOrder ASC, k.id ASC`
 
-	rows, err := q.db.Query(query, year, string(PatrolTeamType))
+func (q querier) PatrolSheets(year string) ([]Sheet, error) {
+	rows, err := q.db.Query(patrolSheetsQuery, year, string(PatrolTeamType))
 	if err != nil {
 		return nil, err
 	}

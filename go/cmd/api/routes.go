@@ -64,6 +64,10 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodPut, "/api/me/photo", app.requireAuth(app.updatePhotoHandler))
 	router.HandlerFunc(http.MethodGet, "/api/me/photo", app.requireAuth(app.showPhotoHandler))
 	router.HandlerFunc(http.MethodGet, "/api/patrol/scans", app.requireAuth(app.listPatrolScansHandler))
+	// The map sheets this patrol has been handed (PRD 016). Patrol-scoped like the scans and checkpoints
+	// reads: the read behind it takes only the patrol id, so this route cannot be asked for another
+	// team's sheets, and it never names the team a reassigned sheet moved to.
+	router.HandlerFunc(http.MethodGet, "/api/patrol/handouts", app.requireAuth(app.listPatrolHandoutsHandler))
 	// The caller's own vehicles (PRD 010). Session-scoped like the profile and portrait
 	// routes above: no user id in the path, so nobody can read another member's
 	// registrations. Scoped by custodianship rather than by who is driving, so a car lent
