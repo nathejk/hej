@@ -4,6 +4,7 @@ import { Menu } from '@lucide/vue'
 import { useRoute } from 'vue-router'
 import { useSessionStore } from '@/stores/session.store'
 import { visibleDestinations } from '@/config/navigation'
+import { splitNavSlots } from '@/config/navSlots'
 import { showBuildId } from '@/config/runtime'
 
 // MoreMenu is loaded on demand: it pulls in the Reka UI Drawer, which is a
@@ -11,22 +12,19 @@ import { showBuildId } from '@/config/runtime'
 // out of the app-shell bundle matters on mobile data.
 const MoreMenu = defineAsyncComponent(() => import('@/components/MoreMenu.vue'))
 
-// Bottom navigation, filtered by the signed-in role. At most MAX_SLOTS slots:
-// when the role sees more than that, the last slot becomes a "More" (burger)
-// entry that reveals the remaining destinations. Task 012 turns the overflow
-// list into a polished bottom sheet.
-const MAX_SLOTS = 5
+// Bottom navigation, filtered by the signed-in role. The bar/overflow split lives in
+// @/config/navSlots so it can be tested against every role (task 320) — the ordering it
+// encodes is load-bearing now that PRD 019 requires Glimt in the bar for spejdere, and a
+// rule kept inside a component cannot be asserted in a DOM-less test run.
 
 const session = useSessionStore()
 const route = useRoute()
 
 const all = computed(() => visibleDestinations(session.role))
-const hasOverflow = computed(() => all.value.length > MAX_SLOTS)
-// When overflowing: show the first (MAX_SLOTS - 1) items + a "More" slot.
-const primary = computed(() =>
-  hasOverflow.value ? all.value.slice(0, MAX_SLOTS - 1) : all.value,
-)
-const overflow = computed(() => (hasOverflow.value ? all.value.slice(MAX_SLOTS - 1) : []))
+const slots = computed(() => splitNavSlots(all.value))
+const hasOverflow = computed(() => slots.value.hasOverflow)
+const primary = computed(() => slots.value.primary)
+const overflow = computed(() => slots.value.overflow)
 
 const overflowOpen = ref(false)
 // Stays true after the first open so the drawer keeps its close animation

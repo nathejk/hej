@@ -12,6 +12,13 @@ import { allRolesExcept } from '@/config/roles'
 // therefore visible to an account whose function could not be determined — which is
 // fine for the shared content pages below, and is why anything sensitive must gate
 // explicitly rather than relying on being unlisted.
+// **The order of this array is the bottom-bar ordering, and it is a decision (task 320).**
+// `BottomNav` draws the first four visible entries plus "Mere"; everything after that is in the
+// overflow sheet. There is deliberately **no per-role ordering** — one ordered list that gets
+// *filtered* is what makes the outcome checkable for all seven roles at once, and role-gating
+// already produces the right bar for each of them, because a destination a role cannot see costs
+// it no slot. Inserting an entry above `glimt` pushes something out of somebody's bar; the tests
+// in `navSlots.spec.ts` say whose.
 export interface NavDestination {
   name: string
   path: string
@@ -50,9 +57,28 @@ export const destinations: NavDestination[] = [
   // see what was shared with them, and spejdere are the primary audience rather than an exception,
   // which makes this the one destination they get that `contacts` denies them.
   //
-  // Ordering matters here and is not final: `BottomNav` shows five slots and everything beyond that
-  // moves into the `MoreMenu` overflow. Placed above `updates` so a spejder — who has no `contacts`
-  // entry — gets it in the bar, but the per-role ordering is task 320's decision, not this line's.
+  // **Placed here, above `updates`, as task 320's ordering decision.** PRD 019 §7 requires Glimt in
+  // the bar for spejdere, and this position puts it there for every role at once without demoting
+  // anything that was previously in a bar:
+  //
+  //   spejder            Kort · Regler · Glimt · Nyt        + Mere
+  //   bandit / gøgler    Kort · Kontakter · Regler · Glimt  + Mere
+  //   crew / service     Kort · Kontakter · Regler · Glimt  + Mere
+  //
+  // A spejder gets it in third position rather than fourth purely because they have no `contacts`
+  // entry — the same list, filtered. Nothing became unreachable: `schedule`, `faq` and `privacy`
+  // were already in "Mere" for every role before Glimt existed, and so was `sos`.
+  //
+  // **`sos` sitting in the overflow for samarit/guide/postmandskab is not a consequence of this
+  // line** and was deliberately left alone. It has been behind "Mere" since task 011, and whether
+  // an emergency page should be one tap for a medic is an operational question for someone who
+  // knows how the response chain actually works — not something to change as a side effect of
+  // adding a photo feature. Promoting it is cheap when someone wants to (move it up; roles that
+  // cannot see it are unaffected), but it costs those roles the Glimt slot.
+  //
+  // The Team-section moderation view (task 309) must **not** be added to this array: it is
+  // organizer tooling for a handful of accounts and would spend a participant slot. It belongs in
+  // the router as a non-destination route, reached from the feed, like `/glimt/hold/:number`.
   { name: 'glimt', path: '/glimt', label: 'Glimt', icon: Camera },
   { name: 'updates', path: '/updates', label: 'Nyt', icon: Megaphone },
   { name: 'schedule', path: '/schedule', label: 'Program', icon: CalendarDays },

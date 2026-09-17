@@ -718,8 +718,13 @@ public page reveals — have been answered and moved to §0. What remains:
 6. **`nathejk` scope for spejdere:** should a spejder be able to post to all 1000+ members,
    or only to their own group and public? With no approval queue anywhere, this is the widest
    *internal* unmoderated reach in the system.
-7. **Nav placement per role.** With `MAX_SLOTS = 5`, which existing destination moves into
-   `MoreMenu` for a spejder so Glimt can be in the bar?
+7. ~~**Nav placement per role.** With `MAX_SLOTS = 5`, which existing destination moves into
+   `MoreMenu` for a spejder so Glimt can be in the bar?~~ **Resolved (task 320): none.** Placing
+   `glimt` above `updates` in the single ordered `destinations` array puts it in the bar for all
+   seven roles at once, because role-gating already frees the slot — a spejder has no `contacts`
+   entry, so Glimt lands third for them and fourth for everyone else. `schedule`, `faq`, `privacy`
+   and `sos` were all already behind "Mere". No per-role ordering was introduced; the outcome is
+   pinned by `vue/src/config/navSlots.spec.ts`.
 8. **Storage ceiling.** What is the per-member and total budget, and what happens when it is
    reached mid-event — reject, or evict oldest? Rejecting a photo in a field is a bad
    experience; deleting someone's memory is worse. 30 s video makes this urgent rather than
