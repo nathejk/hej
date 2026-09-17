@@ -8,15 +8,18 @@ import {
   GLIMT_MEDIA_CACHE_MAX_AGE_SECONDS,
   GLIMT_MEDIA_CACHE_MAX_ENTRIES,
   GLIMT_MEDIA_CACHE_NAME,
+  GLIMT_MEDIA_URL_PATTERN,
   GLIMT_THUMB_CACHE_MAX_ENTRIES,
   GLIMT_THUMB_CACHE_NAME,
+  GLIMT_THUMB_URL_PATTERN,
   PORTRAIT_CACHE_MAX_AGE_SECONDS,
   PORTRAIT_CACHE_MAX_ENTRIES,
   PORTRAIT_CACHE_NAME,
+  PORTRAIT_URL_PATTERN,
   TILE_CACHE_MAX_AGE_SECONDS,
   TILE_CACHE_MAX_ENTRIES,
   TILE_CACHE_NAME,
-  TILE_HOST,
+  TILE_URL_PATTERN,
 } from './src/config/cache'
 
 // https://vite.dev/config/
@@ -143,7 +146,11 @@ export default defineConfig({
             // Host match rather than a path match: the three base layers live on three
             // different WMS endpoints of the same host, and a fourth may be added
             // (`topo_skaermkort`, PRD 002 §11).
-            urlPattern: new RegExp(`^https://${TILE_HOST.replace(/\./g, '\\.')}/`),
+            //
+            // The matcher itself lives in src/config/cache.ts so a test can run it against the
+            // patrol-lookup URLs (task 170). Safe to import here: `urlPattern` is evaluated at
+            // build time, unlike the function bodies below.
+            urlPattern: TILE_URL_PATTERN,
             // CacheFirst, not StaleWhileRevalidate. Raster topographic maps change on a
             // scale of years, and the service sends no cache-control, etag or expires
             // header, so there is nothing to revalidate against — SWR would re-download
@@ -208,8 +215,11 @@ export default defineConfig({
             // for everything else: an HTTP cache cannot be measured for the readiness view,
             // cannot be evicted in a priority order, and cannot be purged after the event. A
             // named Cache API bucket can be all three.
-            urlPattern: ({ url, sameOrigin }: { url: URL; sameOrigin: boolean }) =>
-              sameOrigin && /^\/api\/contacts\/people\/[^/]+\/photo$/.test(url.pathname),
+            // `people`, anchored — **not** `contacts/.*\/photo`. The patrol lookup serves minors'
+            // faces from `/api/contacts/patrols/{n}/photo/{id}` and must never be cached, so this
+            // matcher lives in src/config/cache.ts with that reasoning next to it and a test that
+            // runs it against those URLs (task 170).
+            urlPattern: PORTRAIT_URL_PATTERN,
             // CacheFirst is safe *because* the URL carries a content hash (`?v=`): a changed
             // portrait is a different URL, so there is nothing to revalidate. The old entry then
             // ages out rather than being replaced, which the entry cap absorbs.
@@ -236,7 +246,7 @@ export default defineConfig({
             // full-size media on the same path. Workbox matches on the whole URL, so this route must
             // come **before** the full-media route below — the first matching route wins, and a
             // pattern without the parameter would swallow both.
-            urlPattern: /\/api\/glimt\/items\/[^/]+\/media\/\d+\?.*variant=thumb/,
+            urlPattern: GLIMT_THUMB_URL_PATTERN,
             // CacheFirst. The bytes are immutable by construction: a different image is a different
             // content hash, so a URL's content can only change if the *glimt* changes, and a glimt's
             // media list is written once. The BFF says so too — `immutable` with a content-hash ETag
@@ -267,7 +277,7 @@ export default defineConfig({
             // event. Sharing a cache with the thumbnails would let twenty opened photographs evict
             // several hundred grid tiles — the cheap, numerous, load-bearing things pushed out by
             // the expensive, rare ones.
-            urlPattern: /\/api\/glimt\/items\/[^/]+\/media\/\d+/,
+            urlPattern: GLIMT_MEDIA_URL_PATTERN,
             handler: 'CacheFirst',
             options: {
               cacheName: GLIMT_MEDIA_CACHE_NAME,

@@ -208,3 +208,70 @@ export const GLIMT_MEDIA_CACHE_MAX_ENTRIES = 200
  * opened again to run the purge.
  */
 export const GLIMT_MEDIA_CACHE_MAX_AGE_SECONDS = 14 * 24 * 60 * 60
+
+// ---------------------------------------------------------------------------
+// Which URLs each runtime cache claims.
+//
+// # Why these are values here rather than literals in vite.config.ts
+//
+// PRD 007's single most important invariant is that **no spejder record is ever written to a
+// device** (task 170). The patrol lookup is the only path by which a spejder's details are
+// reachable, and it stays uncached by three separate means: `Cache-Control: no-store` from the BFF,
+// never being declared a sync dataset, and **not being matched by any rule below**.
+//
+// That third one used to rest on nobody noticing: the rules lived as literals inside the build
+// config, where no test could reach them, so the invariant held only because the existing patterns
+// happen not to match. A well-meant `/^\/api\//` rule, or loosening the portrait matcher from
+// `people` to `contacts/.*`, would have silently begun caching ~557 minors' faces on every crew
+// device with nothing failing.
+//
+// Exported as values so `patrolLookupNeverCached.spec.ts` can run the **real** matchers against the
+// **real** lookup URLs, rather than grepping for a string. A grep proves the current spelling; this
+// proves the behaviour.
+//
+// # Safe to reference from `urlPattern`, unlike a function body
+//
+// Workbox's generateSW *stringifies* function bodies into `sw.js`, so an identifier from module
+// scope becomes an undefined free variable in the worker — see the note on
+// TILE_CACHE_KEY_IGNORED_PARAMS. `urlPattern` is different: it is evaluated at build time and its
+// value inlined, so importing these is safe. `PORTRAIT_URL_PATTERN` is itself a function and is
+// stringified, which is fine because its body closes over nothing but its own parameters. Keep it
+// that way.
+
+/** Dataforsyningen map tiles, by host — the layers live on several endpoints of one host. */
+export const TILE_URL_PATTERN = new RegExp(`^https://${TILE_HOST.replace(/\./g, '\\.')}/`)
+
+/**
+ * Directory portrait thumbnails.
+ *
+ * **`people`, and anchored at both ends.** Both halves are load-bearing: the patrol lookup serves
+ * faces from `/api/contacts/patrols/{number}/photo/{personId}`, so a matcher spelled
+ * `/api/contacts/.*\/photo` — or one without the `$` — would claim minors' portraits from the one
+ * endpoint that must never be cached. This is the rule most likely to be widened by somebody
+ * reasonably thinking the two photo endpoints are the same thing. They are not.
+ */
+export const PORTRAIT_URL_PATTERN = ({ url, sameOrigin }: { url: URL; sameOrigin: boolean }) =>
+  sameOrigin && /^\/api\/contacts\/people\/[^/]+\/photo$/.test(url.pathname)
+
+/** Glimt grid thumbnails. Must be registered before the full-media rule — first match wins. */
+export const GLIMT_THUMB_URL_PATTERN = /\/api\/glimt\/items\/[^/]+\/media\/\d+\?.*variant=thumb/
+
+/** Glimt full-size media, as the viewer opens them. */
+export const GLIMT_MEDIA_URL_PATTERN = /\/api\/glimt\/items\/[^/]+\/media\/\d+/
+
+/**
+ * Every runtime-caching matcher, for the guard that asserts none of them claims a patrol lookup.
+ *
+ * A list rather than the test importing four names, so that **adding a fifth cache without adding
+ * it here** is the only way to escape the guard — and that is a visible omission in a reviewed
+ * diff, where a new `urlPattern` in the build config is not.
+ */
+export const RUNTIME_CACHE_MATCHERS: Array<{
+  name: string
+  pattern: RegExp | ((ctx: { url: URL; sameOrigin: boolean }) => boolean)
+}> = [
+  { name: 'map tiles', pattern: TILE_URL_PATTERN },
+  { name: 'directory portraits', pattern: PORTRAIT_URL_PATTERN },
+  { name: 'glimt thumbnails', pattern: GLIMT_THUMB_URL_PATTERN },
+  { name: 'glimt media', pattern: GLIMT_MEDIA_URL_PATTERN },
+]
