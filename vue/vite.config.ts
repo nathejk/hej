@@ -116,8 +116,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // Two paths the navigation fallback must **not** answer for, both of which are real
-        // pages served outside this app.
+        // Three path groups the navigation fallback must **not** answer for.
         //
         // `/desktop.html` is the desktop placeholder (task 140): a plain file, not part of this
         // app. Without the exclusion an installed client asking for it would be served
@@ -129,7 +128,14 @@ export default defineConfig({
         // a shared link has no service worker and gets the real page, so the bug is invisible to
         // everyone except **installed members**, who would get the app shell instead of the page
         // they clicked. Prefix rather than exact, so the page can gain siblings.
-        navigateFallbackDenylist: [/^\/desktop\.html$/, /^\/offentligt\//],
+        //
+        // **`/api/` is never a navigation destination**, and leaving it out cost a real bug
+        // (task 318, found on a device 2026-09-17): tapping *Gem* in the viewer downloaded a 14 kB
+        // file called `nathejk-….jpg.html`. Safari treats an `<a download>` click as a navigation,
+        // the fallback answered it with index.html, and the member got the app shell renamed as a
+        // photograph. Anything under `/api/` that a browser navigates to should get the API's own
+        // answer — bytes, or a JSON 404 — never the shell.
+        navigateFallbackDenylist: [/^\/desktop\.html$/, /^\/offentligt\//, /^\/api\//],
         // Pull in custom push / notificationclick handlers (public/push-sw.js).
         importScripts: ['push-sw.js'],
         // Map tiles are cached as they are browsed (PRD 002 §11.2, task 087).

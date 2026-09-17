@@ -63,13 +63,59 @@ Video is muted by default and never autoplays with sound.
   duplicated state invites them to drift in the one way that matters — which item you land on.
   It is deliberately not a Pinia store, so a viewer left open cannot reappear over the next page.
 
-- 2026-09-17 — **Blocked on hardware for the last criterion.** The save path is a plain anchor
-  `download`, chosen because `showSaveFilePicker` is not on the iOS 16.4 baseline. On iOS Safari
-  this is expected to open the share sheet, where "Save to Photos" lives. That expectation is
-  **unverified and marked as such in the component**, because whether Safari honours `download`
-  or navigates to the image is exactly the kind of thing that cannot be reasoned about from a
-  test suite — Vitest here runs in node with no DOM. Long-press on the image remains the
-  fallback iOS users already know, so the feature is not dependent on this working.
+- 2026-09-17 — **Tested on an iPhone. Both halves failed, and the second one was not a Glimt bug at
+  all.**
 
-  Everything else is done and green. Left in `doing/` rather than closed so the device check is
-  not quietly lost.
+  1. **The save icon was under the status bar**, overlapping the clock. The viewer is an edge-to-edge
+     black surface and its header had no safe-area padding, so it sat inside the notch inset
+     (`--sat` = 59px on this device). Fixed with `padding-top: calc(var(--sat) + 0.5rem)` on the
+     header — `var(--sat)` rather than `env(safe-area-inset-top)`, per the rule in `main.css`.
+
+  2. **Tapping it downloaded a 14 kB file called `nathejk-2026-09-17-team-1.jpg.html`.** The filename
+     is the whole diagnosis: iOS appended `.html` because the response *was* HTML. Safari treats an
+     `<a download>` click as a **navigation**, the service worker's navigation fallback answered it
+     with `index.html`, and the member got the app shell renamed as a photograph.
+
+     `navigateFallbackDenylist` covered `/desktop.html` and `/offentligt/` but **not `/api/`**. This
+     is the second bug from that one array — the first was the public page (task 323) — and both
+     failed the same asymmetric way: never for a developer in a browser tab, always for an installed
+     member. `/api/` is now denied the fallback, which is right on its own merits: a browser that
+     navigates to an API path should get the API's answer, bytes or a JSON 404, never the shell.
+
+- 2026-09-17 — **The anchor was the wrong mechanism regardless, so it is gone.** Even with the
+  fallback fixed, `download` on iOS routes through the download manager into **Files**, not Photos —
+  so the criterion as written could not have been met by an anchor at all. The camera roll is reached
+  through the share sheet, which means the Web Share API.
+
+  *Gem* is now a button that fetches the bytes and hands them to `navigator.share` as a `File`. On
+  iOS 16.4+ that opens the share sheet with *Gem billede*. Both baselines support sharing files
+  (iOS 16.4+, Chrome 111+); where they do not — desktop — it falls back to an **object-URL** anchor,
+  which is the correct behaviour there anyway and still not a navigation the service worker can
+  answer.
+
+  Three details worth keeping:
+
+  - **It refuses to save a non-media response.** If the fetch ever returns something that is not an
+    `image/` or `video/`, saving it under a `.jpg` name would put the app shell in a camera roll
+    again. The guard is cheap and names the exact bug.
+  - **A cancelled share sheet is not an error.** iOS throws `AbortError` when the member dismisses
+    it, and reporting that would accuse them of a mistake they did not make.
+  - **Fetching makes this work for a queued glimt too**, whose bytes exist only as a `blob:` URL.
+    While here: the viewer was using `glimtMediaUrl(glimt.id, …)` unconditionally, so opening a
+    *pending* glimt would have shown a broken image and downloaded the shell — the same bug from the
+    other direction. It now prefers `localUrl`, as the strip already did.
+
+  Guarded by `vue/src/navigationFallback.spec.ts` (renamed from `publicPageNotSwallowed.spec.ts`,
+  since the invariant is broader than the public page): the denylist covers `/api/` in the config
+  **and in the built `sw.js`**, the viewer has no `download` anchor, it goes through
+  `navigator.canShare`/`share`, and it checks the response type. **Verified to fail when either bug is
+  reintroduced.**
+
+  923 Vue tests, `type-check` and `build` clean.
+
+### Still outstanding
+
+- [ ] **Re-test on the device**: does *Gem* now open the share sheet, and does *Gem billede* put the
+      photograph in the camera roll? The mechanism is now the right one, but that is reasoning, not
+      evidence — which is exactly what this task exists to refuse.
+- [ ] Worth checking at the same time: the icon should now clear the status bar.
