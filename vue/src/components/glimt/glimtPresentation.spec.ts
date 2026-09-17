@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  MAX_STRIP_RATIO,
+  MIN_STRIP_RATIO,
   OWN_ATTRIBUTION,
   attributionLine,
   audienceLabel,
@@ -9,6 +11,7 @@ import {
   holdWord,
   mediaAltText,
   relativeTime,
+  stripAspectRatio,
 } from '@/components/glimt/glimtPresentation'
 import type { Glimt } from '@/stores/glimt.store'
 
@@ -163,6 +166,81 @@ describe('relativeTime', () => {
   it('uses the singular for one', () => {
     expect(relativeTime(Date.parse('2026-09-17T21:00:00Z'), now)).toBe('for 1 time')
     expect(relativeTime(Date.parse('2026-09-16T22:00:00Z'), now)).toBe('for 1 dag')
+  })
+})
+
+// The strip's height, and the bug it exists to prevent (reported from a device, 2026-09-18).
+//
+// A carousel is a flex row, so a row is as tall as its tallest child. With a per-item aspect ratio, a
+// glimt containing a 1600×900 landscape *and* a 900×1600 portrait rendered as a portrait-tall box with
+// the landscape floating at the top and a screen of empty card underneath.
+describe('stripAspectRatio', () => {
+  it('takes its shape from the first item, which the author put first', () => {
+    expect(stripAspectRatio([{ width: 1600, height: 1200 }])).toBe('1600 / 1200')
+  })
+
+  // The actual regression. One ratio for the whole strip means the *second* item's shape cannot
+  // stretch the container — and it also means the card does not change height as you swipe, which
+  // would move everything below it in the feed.
+  it('ignores later items, however tall they are', () => {
+    const mixed = [
+      { width: 1600, height: 900 },
+      { width: 900, height: 1600 },
+    ]
+    expect(stripAspectRatio(mixed)).toBe('1600 / 900')
+
+    // And the reverse order gives the portrait's clamped shape, not the landscape's.
+    expect(stripAspectRatio([...mixed].reverse())).toBe('4 / 5')
+  })
+
+  // A 9:16 phone portrait card is nearly a whole screen tall — one glimt per scroll, which makes a
+  // feed unreadable.
+  it('clamps a tall portrait to 4:5', () => {
+    expect(stripAspectRatio([{ width: 900, height: 1600 }])).toBe('4 / 5')
+    expect(stripAspectRatio([{ width: 1080, height: 1920 }])).toBe('4 / 5')
+  })
+
+  it('clamps a panorama to 16:9', () => {
+    expect(stripAspectRatio([{ width: 4000, height: 1000 }])).toBe('16 / 9')
+  })
+
+  it('leaves ordinary shapes alone', () => {
+    // 4:3 landscape and square are both inside the clamps and are respected exactly.
+    expect(stripAspectRatio([{ width: 1600, height: 1200 }])).toBe('1600 / 1200')
+    expect(stripAspectRatio([{ width: 1400, height: 1400 }])).toBe('1400 / 1400')
+  })
+
+  // Worth stating explicitly, because it is the one clamp that bites a common shape: a 3:4 phone
+  // portrait (0.75) is *taller* than 4:5 (0.8), so it is cropped by about 6%. That is deliberate —
+  // it is where Instagram landed, and it keeps a feed scannable — but it means the most ordinary
+  // portrait photograph loses a sliver, and anyone changing MIN_STRIP_RATIO should know that is what
+  // they are changing.
+  it('crops a 3:4 phone portrait, deliberately', () => {
+    expect(stripAspectRatio([{ width: 1200, height: 1600 }])).toBe('4 / 5')
+  })
+
+  it('reserves a neutral shape when dimensions are missing', () => {
+    // A real state — an old row, or an upload whose decode did not report them — and collapsing the
+    // card to nothing would be worse than reserving a plausible box.
+    expect(stripAspectRatio([])).toBe('4 / 3')
+    expect(stripAspectRatio([{ width: 0, height: 0 }])).toBe('4 / 3')
+    expect(stripAspectRatio([{ width: 1600, height: 0 }])).toBe('4 / 3')
+  })
+
+  it('never returns a ratio outside the clamps', () => {
+    // Property-ish: whatever comes in, the card's height stays within a readable band.
+    const shapes = [
+      { width: 1, height: 10000 },
+      { width: 10000, height: 1 },
+      { width: 3, height: 4 },
+      { width: 16, height: 10 },
+    ]
+    for (const shape of shapes) {
+      const [w, h] = stripAspectRatio([shape]).split(' / ').map(Number)
+      const ratio = w / h
+      expect(ratio).toBeGreaterThanOrEqual(MIN_STRIP_RATIO - 0.001)
+      expect(ratio).toBeLessThanOrEqual(MAX_STRIP_RATIO + 0.001)
+    }
   })
 })
 

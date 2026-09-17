@@ -145,6 +145,45 @@ export function relativeTime(createdAt: number, now: number = Date.now()): strin
   return new Date(createdAt).toLocaleDateString('da-DK', { day: 'numeric', month: 'short' })
 }
 
+// The narrowest and widest shapes a media strip may take, as width/height.
+//
+// A phone photograph is often 3:4 or 9:16, and a 9:16 card is nearly a whole screen tall — one glimt
+// per scroll, which makes a feed unreadable. Clamped to 4:5 portrait and 16:9 landscape, which is
+// roughly where Instagram landed and for the same reason.
+export const MIN_STRIP_RATIO = 4 / 5
+export const MAX_STRIP_RATIO = 16 / 9
+
+/**
+ * The single aspect ratio a whole media strip is drawn at, as a CSS `aspect-ratio` value.
+ *
+ * # Why one ratio for the strip rather than one per item
+ *
+ * Because a carousel is a flex row, and a row is as tall as its tallest child. With a per-item ratio,
+ * a glimt containing a 1600×900 landscape *and* a 900×1600 portrait renders a portrait-tall container
+ * with the landscape floating at the top of it and a screen of empty card underneath — which is exactly
+ * what the first version did, and it is unmistakable the moment you look at it.
+ *
+ * Fixing it by making the container fit each slide would be worse: the card would then change height
+ * as you swipe, moving everything below it.
+ *
+ * So the strip gets one shape, taken from the **first** item — the author put it first — and every slide
+ * fills it with `object-cover`. Later items in a different orientation are cropped, which is the
+ * honest trade: a consistent card that crops beats a jumping card that does not.
+ *
+ * Clamped at both ends, so neither a panorama nor a 9:16 phone portrait can set the height of a feed.
+ */
+export function stripAspectRatio(media: Array<{ width: number; height: number }>): string {
+  const first = media[0]
+  // No dimensions is a real state — an old row, or an upload whose decode did not report them — and
+  // 4:3 is a reasonable neutral shape to reserve rather than collapsing the card to nothing.
+  if (!first || first.width <= 0 || first.height <= 0) return '4 / 3'
+
+  const ratio = first.width / first.height
+  if (ratio < MIN_STRIP_RATIO) return '4 / 5'
+  if (ratio > MAX_STRIP_RATIO) return '16 / 9'
+  return `${first.width} / ${first.height}`
+}
+
 /**
  * The alt text for a media item.
  *

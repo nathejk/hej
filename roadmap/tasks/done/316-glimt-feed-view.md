@@ -92,6 +92,36 @@ Accessibility: a list of articles, not a gesture-only tape. Captions are real te
 - 2026-09-18 — ✅ All criteria met. 21 new tests (784 total across 61 files), `type-check` and
   `build` clean. Moving to done.
 
+- 2026-09-18 (later) — 🐞 **Bug reported from a device, fixed.** "The box surrounding the image is way
+  too high." A `GlimtMediaStrip` with mixed orientations rendered a container far taller than the
+  visible photograph, with a screen of empty card underneath.
+
+  Cause: **a carousel is a flex row, and a row is as tall as its tallest child.** Each slide carried
+  its own `aspect-ratio`, so hold 45 — a 1600×900 landscape followed by a 900×1600 portrait — got a
+  portrait-tall box with the landscape floating at the top. Measured against the real fixture data:
+
+  | hold | items | first item | card height before | after |
+  |---|---|---|---|---|
+  | 45 | 2 | 1600×900 | **693px** | 219px |
+  | 43 | 2 | 1600×1200 | 520px | 292px |
+  | 44 | 1 | 1400×1400 | 390px | 390px (single items were never broken) |
+
+  Fixed by giving the **container** one aspect ratio and making every level below it `h-full`, so
+  nothing inside contributes a height. The ratio comes from the *first* item — the author put it
+  first — and is clamped to 4:5–16:9. Sizing the container to each slide instead would have been
+  worse: the card would then change height as you swipe, moving everything below it in the feed.
+
+  Extracted as `stripAspectRatio()` and tested (8 cases), including the reverse-order case that
+  proves a later item cannot stretch the strip. One test I had to correct rather than the code: I
+  claimed 3:4 was inside the clamps, and it is not — 0.75 is taller than 4:5, so an ordinary phone
+  portrait is cropped by ~6%. That is deliberate and now says so out loud, since anyone changing
+  `MIN_STRIP_RATIO` should know that is what they are changing.
+
+  Worth noting the shape of this: the bug was **invisible to every test in the file** and obvious in
+  one screenshot. It is the second thing looking at the output caught in an hour (the first was the
+  fixture's invisible markers, task 327), which is a fair verdict on how much of this feature's
+  correctness the suite can actually speak to.
+
 ### ⚠️ Not verified, and cannot be from here
 
 The suite runs in `node` and mounts nothing, so **nothing about how this looks or feels has been
