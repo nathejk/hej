@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { HttpError, fetchWrapper } from '@/helpers'
+import { HttpError, NetworkError, fetchWrapper } from '@/helpers'
 import { compressImage } from '@/helpers/glimtCompress'
 import {
   countGlimtDrafts,
@@ -70,6 +70,17 @@ export interface GlimtMedia {
    * than rendering a gap.
    */
   hasThumb: boolean
+  /**
+   * A local `blob:` URL, for an item that has not been uploaded yet (task 325).
+   *
+   * Set only on the projection of an outbox draft, where there is no `{id, ordinal}` to fetch from:
+   * the bytes are in IndexedDB and nowhere else. When present it is used in place of the media URL,
+   * which is what lets a queued glimt render as a real card while offline.
+   *
+   * **The caller owns revoking it.** An object URL holds its Blob alive until revoked, and the
+   * queue can hold 50 MB of photographs — see `releasePendingUrls`.
+   */
+  localUrl?: string
 }
 
 export interface Glimt {
@@ -87,6 +98,21 @@ export interface Glimt {
    * entitled to know their post was hidden rather than silently discovering nobody can see it.
    */
   hidden: boolean
+  /**
+   * True for a glimt that is still in the outbox and has never reached the server (task 325).
+   *
+   * PRD 019 §5 requires a queued post to be **visible in the feed**, marked *venter på nettet* — not
+   * merely counted. Before this existed the feed showed "Et glimt venter på nettet" above an empty
+   * state reading "Ingen glimt endnu", which is the app contradicting itself on one screen while a
+   * member stands in a field wondering where their photographs went.
+   *
+   * A pending glimt has a **draft id, not a glimt id**: nothing on the server has this identity yet,
+   * so it must never be used in a media URL, a delete or a report. `glimtActions` offers *Fjern*
+   * rather than *Slet* for exactly that reason.
+   */
+  pending?: boolean
+  /** How many drain attempts have failed, so the card can stop promising and start explaining. */
+  attempts?: number
 }
 
 // The BFF speaks snake_case; mapped at this boundary as the skill requires.
@@ -421,6 +447,18 @@ export const useGlimtStore = defineStore('glimt', {
      * Refreshed by `refreshPending()` after anything that could change it.
      */
     pending: 0,
+    /**
+     * The queued posts themselves, projected so the feed can render them (task 325).
+     *
+     * `pending` above is the count and stays, because the notice uses it and a count needs no Blob
+     * reads. This holds the drafts as `Glimt` with `pending: true` and `blob:` URLs for their media,
+     * which is what PRD 019 §5 actually promises: the entry is *visible*, not just tallied.
+     *
+     * Rebuilt wholesale by `refreshPending()` rather than mutated, and its object URLs are revoked
+     * first — see `releasePendingUrls`. In memory only: the bytes already live in IndexedDB, and a
+     * second copy of a 50 MB queue in localStorage is not a thing to want.
+     */
+    pendingGlimt: [] as Glimt[],
     /** True while a drain is running, so two cannot overlap. */
     draining: false,
     /**
@@ -491,6 +529,22 @@ export const useGlimtStore = defineStore('glimt', {
 
     /** Newest first, as the BFF returns them. Sorted defensively so a stored copy cannot drift. */
     newestFirst: (state): Glimt[] => [...state.glimt].sort((a, b) => b.createdAt - a.createdAt),
+
+    /**
+     * What the feed renders: queued posts first, then everything fetched.
+     *
+     * Queued first regardless of timestamp, and that is deliberate rather than a sort artefact. A
+     * member who has just posted is looking for **their** photograph, and a glimt that has not left
+     * the phone is the one thing on the screen that still needs them — it may need a retry, or
+     * discarding. Interleaving it by `createdAt` would bury it under a hold's afternoon.
+     */
+    feed(state): Glimt[] {
+      const fetched = [...state.glimt].sort((a, b) => b.createdAt - a.createdAt)
+      return [...state.pendingGlimt, ...fetched]
+    },
+
+    /** True when there is nothing to show at all — no copy *and* nothing queued. */
+    isEmpty: (state) => state.glimt.length === 0 && state.pendingGlimt.length === 0,
 
     /** The caller's own glimt, for a "dine glimt" affordance. */
     own: (state): Glimt[] => state.glimt.filter((g) => g.own),
@@ -629,7 +683,16 @@ export const useGlimtStore = defineStore('glimt', {
         this.ownHoldNumber = data.own_number ?? ''
         this.error = ''
         return true
-      } catch {
+      } catch (err) {
+        // **Silent when simply offline.** The shell already shows "Ingen forbindelse — se hvad du har
+        // hentet" at the top of the app, so adding "Kunne ikke hente holdene" underneath tells the
+        // member nothing new and reads as a second, unexplained fault. Seen on a device (2026-09-17):
+        // an offline feed carried the offline banner, a pending notice, *and* this — three bars of
+        // chrome above the content.
+        //
+        // The index is a convenience (it drives one shortcut), so its absence offline is not worth a
+        // message at all. A real failure still gets one.
+        if (err instanceof NetworkError) return false
         this.error = 'Kunne ikke hente holdene.'
         return false
       }
@@ -807,6 +870,95 @@ export const useGlimtStore = defineStore('glimt', {
     /** Refresh the waiting count. */
     async refreshPending() {
       this.pending = await countGlimtDrafts()
+      await this.rebuildPendingGlimt()
+    },
+
+    /**
+     * Project the outbox into renderable glimt (task 325).
+     *
+     * # Why this reads Blobs and `refreshPending` used to only count
+     *
+     * PRD 019 §5 promises a queued post is **visible in the feed**, marked *venter på nettet*. The
+     * first implementation showed a count instead, so an offline post produced "Et glimt venter på
+     * nettet" directly above "Ingen glimt endnu" — the app contradicting itself while a member stands
+     * in a field wondering where their photographs went. Found on a device, 2026-09-17.
+     *
+     * # Object URLs, and who revokes them
+     *
+     * An object URL pins its Blob in memory until revoked, and the queue can legitimately hold tens of
+     * megabytes. So the previous set is revoked *before* the new one is built, on every rebuild, and
+     * the store never accumulates them. A card that is mid-render when this happens re-renders with
+     * the new URL, which is why the whole array is replaced rather than patched.
+     *
+     * # Attribution
+     *
+     * `own: true` and no hold, so the card reads "Dit hold" from `OWN_ATTRIBUTION` without this store
+     * having to know the caller's patrulje. The server freezes the real attribution at creation
+     * (PRD 019 §6); until then there is nothing authoritative to show and guessing would risk
+     * displaying one hold and publishing another.
+     */
+    async rebuildPendingGlimt() {
+      this.releasePendingUrls()
+      if (!outboxAvailable()) {
+        this.pendingGlimt = []
+        return
+      }
+
+      try {
+        const drafts = await listGlimtDrafts()
+        const built: Glimt[] = []
+        // Newest first, matching the feed's order within the queued group.
+        for (const draft of [...drafts].sort((a, b) => b.createdAt - a.createdAt)) {
+          const items = await glimtDraftItems(draft.id)
+          const media: GlimtMedia[] = []
+          for (const item of [...items].sort((a, b) => a.ordinal - b.ordinal)) {
+            // An item whose Blob has been dropped is one the server already has (the outbox frees
+            // the bytes as soon as it holds the refs). Its dimensions came back with the upload, so
+            // it still contributes a slot — without a picture, which is honest: it is on its way.
+            media.push({
+              ordinal: item.ordinal,
+              kind: item.uploaded?.kind ?? 'image',
+              width: item.uploaded?.width ?? 0,
+              height: item.uploaded?.height ?? 0,
+              durationMs: item.uploaded?.durationMs ?? 0,
+              hasThumb: false,
+              localUrl: item.blob ? URL.createObjectURL(item.blob) : undefined,
+            })
+          }
+          built.push({
+            id: draft.id,
+            hold: { number: '', name: '', group: '' },
+            own: true,
+            audience: draft.audience,
+            caption: draft.caption,
+            createdAt: draft.createdAt,
+            media,
+            hidden: false,
+            pending: true,
+            attempts: draft.attempts,
+          })
+        }
+        this.pendingGlimt = built
+      } catch {
+        // A failed read of the outbox must not blank the feed or throw into a foreground handler.
+        // The count is already set, so the notice still tells the member something is waiting.
+        this.pendingGlimt = []
+      }
+    },
+
+    /**
+     * Revoke every object URL the pending projection holds.
+     *
+     * Called before each rebuild and by the feed view on unmount. Not optional: each URL keeps a
+     * photograph alive in memory, and a member who queues several posts in a coverage hole would
+     * otherwise carry all of them until the tab is closed.
+     */
+    releasePendingUrls() {
+      for (const entry of this.pendingGlimt) {
+        for (const item of entry.media) {
+          if (item.localUrl) URL.revokeObjectURL(item.localUrl)
+        }
+      }
     },
 
     /**

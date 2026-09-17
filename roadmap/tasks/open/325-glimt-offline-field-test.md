@@ -37,3 +37,71 @@ Record what actually happened, including anything that behaved differently from 
 ## Progress Log
 
 - 2026-09-17 00:00 — Task created from PRD 019.
+
+- 2026-09-17 — **First device pass, on an installed iPhone. The outbox works; the feed did not show
+  what it held.**
+
+  Reported by the maintainer, with a screenshot. Scenarios 2, 3 and 4 all passed on the first run,
+  which is the substantive result: the queue **survives a force-quit**, **drains when the network
+  returns with the app open**, and **drains on foreground when the network returned while the app was
+  closed**. For code that had never once executed, that is better than expected.
+
+  Scenario 1 failed, and visibly. In airplane mode, posting a glimt with two photographs produced a
+  screen carrying both of these at once:
+
+  > Et glimt venter på nettet.
+  >
+  > **Ingen glimt endnu**
+
+  The post was safe — nothing was lost, and it uploaded on reconnect. But the feed only ever rendered
+  what it had *fetched*, and reported the queue as a bare count above it. So the app contradicted
+  itself on one screen while a member stood in a field wondering where their photographs had gone.
+
+  **This was a requirement miss, not a polish item.** PRD 019 §5 says *"The glimt appears immediately
+  in their own feed"* and *"the **entry** is visibly venter på nettet, never silently dropped."* A
+  counter is not an entry. Task 314 built the outbox and task 316 built the feed, and neither owned
+  the seam between them.
+
+- 2026-09-17 — Fixed. The outbox is now projected into the feed rather than counted beside it:
+
+  - `pendingGlimt` holds the drafts as `Glimt` with `pending: true` and **`blob:` URLs** for their
+    media — a queued item has a *draft* id, so `/api/glimt/items/{id}/media/0` would 404 and its
+    bytes exist only in IndexedDB. `GlimtMedia.localUrl` exists for that, and the strip prefers it.
+  - `feed` returns queued first, then fetched newest-first. **Queued first regardless of timestamp**,
+    deliberately: a member who has just posted is looking for *their* photograph, and it is the one
+    thing on screen that may still need them. Interleaving by `createdAt` would bury it.
+  - `isEmpty` requires both halves empty, which is the specific line that produced the contradiction.
+  - The card shows a **Venter** badge with a cloud-upload glyph. The wording is "Venter", never
+    "Sender" — §5 forbids implying a background upload, because iOS does not run a backgrounded web
+    app.
+  - A queued glimt offers **Send nu** and **Fjern**, and no server action: delete, report, hide and
+    unhide would all address an id the server has never seen. *Fjern* rather than *Slet* because the
+    distinction is real — this discards something nobody else has ever seen. Neither gets a
+    confirmation dialog, for the same reason.
+  - No attribution is shown yet: the server freezes hold number/name/group at creation (§6), so the
+    card falls back to "Dit hold" via `own` rather than this store guessing a patrulje it might then
+    publish differently.
+  - `releasePendingUrls()` revokes the object URLs on rebuild and on unmount. Not optional: each URL
+    pins a photograph in memory, and the queue can hold tens of megabytes.
+
+  Guarded by `vue/src/stores/glimtPendingVisible.spec.ts` (10 tests) and six more in
+  `glimtPresentation.spec.ts`. **Verified to fail when the bug is reintroduced** — reverting `isEmpty`
+  and `feed` trips four of them, including the one whose message quotes the two contradicting strings.
+
+- 2026-09-17 — A second, smaller thing in the same screenshot: **"Kunne ikke hente holdene."** was
+  shown while offline, underneath the shell's own "Ingen forbindelse — se hvad du har hentet". Three
+  bars of chrome above the content, one of which reads as an unexplained second fault.
+
+  `fetchHolds` is now silent on a `NetworkError`. The hold index is a convenience — it drives one
+  shortcut — so its absence offline does not warrant a message when the shell has already said the
+  same thing more clearly. A real failure still gets one.
+
+### Still outstanding on this task
+
+- [ ] **Scenario 5** — force-quit mid-upload, reopen, confirm nothing is re-uploaded and no duplicate
+      glimt appears. Not yet run, and it is the one that exercises `markGlimtItemUploaded`'s reason
+      for existing.
+- [ ] **Re-run scenario 1** against the fix, to confirm the queued glimt now renders with its
+      photographs and the Venter badge.
+- [ ] **Android/Chrome** repeat of all five.
+- [ ] Zero lost media across the runs — nothing lost so far.

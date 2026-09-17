@@ -137,8 +137,12 @@ const single = computed(() => props.glimt.media.length === 1)
 // A thumbnail when one exists, the full item otherwise. `hasThumb` is false for real reasons — task
 // 303 lets a thumbnail fail without failing the upload — and the fallback is what stops a perfectly
 // good photo rendering as a broken tile.
-function srcFor(ordinal: number, hasThumb: boolean) {
-  return glimtMediaUrl(props.glimt.id, ordinal, hasThumb ? 'thumb' : 'full')
+//
+// A queued item has no server identity at all, so it carries its own `blob:` URL and that wins: its
+// bytes are in IndexedDB and `/api/glimt/items/{draftId}/...` would 404 (task 325).
+function srcFor(item: Glimt['media'][number]) {
+  if (item.localUrl) return item.localUrl
+  return glimtMediaUrl(props.glimt.id, item.ordinal, item.hasThumb ? 'thumb' : 'full')
 }
 </script>
 
@@ -157,7 +161,7 @@ function srcFor(ordinal: number, hasThumb: boolean) {
       @click="emit('open', glimt.media[0].ordinal)"
     >
       <img
-        :src="srcFor(glimt.media[0].ordinal, glimt.media[0].hasThumb)"
+        :src="srcFor(glimt.media[0])"
         :alt="mediaAltText(glimt, glimt.media[0].ordinal)"
         loading="lazy"
         decoding="async"
@@ -179,7 +183,7 @@ function srcFor(ordinal: number, hasThumb: boolean) {
           <CarouselItem v-for="item in glimt.media" :key="item.ordinal" class="h-full pl-0">
             <button type="button" class="relative block size-full" @click="emit('open', item.ordinal)">
               <img
-                :src="srcFor(item.ordinal, item.hasThumb)"
+                :src="srcFor(item)"
                 :alt="mediaAltText(glimt, item.ordinal)"
                 loading="lazy"
                 decoding="async"

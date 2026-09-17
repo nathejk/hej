@@ -18,7 +18,7 @@
 // For a spejder opening Glimt before anything exists there is nothing to show and everything to
 // invite. Spejdere have almost nothing in this app that is theirs (PRD 019 §2), so an empty feed
 // that only said "ingen glimt" would waste the one moment this feature has to explain itself.
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Camera, CloudUpload, ShieldCheck, Users, WifiOff } from '@lucide/vue'
 
@@ -69,6 +69,26 @@ const viewer = useOpenGlimt()
 const pending = ref<{ entry: Glimt; key: GlimtAction['key'] } | null>(null)
 const working = ref(false)
 
+/**
+ * Route an overflow action.
+ *
+ * A queued glimt's actions are handled straight through, with no dialog. *Send nu* is not
+ * destructive at all, and *Fjern* discards something **nobody else has ever seen** — which is a much
+ * smaller act than deleting a post that was shared, and does not warrant the same ceremony. The
+ * server actions still go through the confirmation below.
+ */
+function onAction(entry: Glimt, key: GlimtAction['key']) {
+  if (key === 'retry') {
+    glimt.drain()
+    return
+  }
+  if (key === 'discard') {
+    glimt.discardPending(entry.id)
+    return
+  }
+  pending.value = { entry, key }
+}
+
 const confirmCopy = computed(() => {
   if (pending.value?.key === 'delete') {
     return {
@@ -88,12 +108,18 @@ const confirmCopy = computed(() => {
 
 onMounted(() => {
   glimt.hydrate()
-  // How many posts are waiting, so the notice below is honest on a cold start too. The *sending* is
-  // the sync loop's job (task 314) — this only reads the count.
+  // How many posts are waiting, **and the posts themselves**, so a queued glimt renders as a card
+  // (task 325). The *sending* is the sync loop's job (task 314) — this only reads.
   glimt.refreshPending()
   // The browse index, for the "din patrulje" shortcut. Cheap, and it is what tells us whether the
   // caller even has a numbered hold — crew do not.
   if (canBrowseHolds.value) glimt.fetchHolds()
+})
+
+// The pending projection holds `blob:` URLs, each pinning a photograph in memory. The queue can be
+// tens of megabytes, so they are released when the feed goes away.
+onUnmounted(() => {
+  glimt.releasePendingUrls()
 })
 
 function openHold(number: string) {
@@ -178,8 +204,11 @@ async function confirmAction() {
     <!-- The BFF answers 403 for a caller with no feed. Nothing to retry and nothing to apologise
          for, so nothing is drawn. -->
     <template v-if="!glimt.forbidden">
+      <!-- Empty means empty: nothing cached **and** nothing queued. Before task 325 this only
+           consulted the fetched copy, so an offline post produced "Et glimt venter på nettet"
+           directly above "Ingen glimt endnu" — the app contradicting itself on one screen. -->
       <div
-        v-if="!glimt.hasCopy && glimt.hydrated"
+        v-if="glimt.isEmpty && glimt.hydrated"
         class="flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-10 text-center"
       >
         <Camera class="size-8 text-muted-foreground" aria-hidden="true" />
@@ -194,13 +223,15 @@ async function confirmAction() {
         </Button>
       </div>
 
+      <!-- Queued posts first, then the fetched feed — see the `feed` getter for why order is not
+           purely chronological. -->
       <GlimtCard
-        v-for="entry in glimt.newestFirst"
+        v-for="entry in glimt.feed"
         :key="entry.id"
         :glimt="entry"
         @open="(ordinal) => viewer.open(entry, ordinal)"
         @open-hold="openHold"
-        @action="(key) => (pending = { entry, key })"
+        @action="(key) => onAction(entry, key)"
       />
     </template>
 

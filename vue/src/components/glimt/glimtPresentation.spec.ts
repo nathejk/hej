@@ -327,3 +327,44 @@ describe('moderationActions', () => {
     expect(keys).toEqual(['hide', 'delete'])
   })
 })
+
+// A queued glimt's actions (task 325, found on a device 2026-09-17).
+//
+// The server actions are meaningless on something that has never reached the server: its `id` is a
+// **draft id**, so a delete or a report would address a glimt that does not exist. Getting this wrong
+// would produce a 404 on a photograph the member can see in front of them, which is the most
+// confusing failure this screen could offer.
+describe('glimtActions for a queued glimt', () => {
+  const queued = () => glimt({ pending: true, own: true })
+
+  it('offers Send nu and Fjern, and nothing else', () => {
+    expect(glimtActions(queued()).map((a) => a.key)).toEqual(['retry', 'discard'])
+  })
+
+  it('never offers a server action', () => {
+    const keys = glimtActions(queued()).map((a) => a.key)
+    for (const forbidden of ['delete', 'report', 'hide', 'unhide']) {
+      expect(keys, `a queued glimt offered ${forbidden}, whose id would 404`).not.toContain(forbidden)
+    }
+  })
+
+  // Fjern, not Slet. The distinction is real and a member can act on it: this discards something
+  // nobody else has ever seen, which is a smaller thing than deleting a post that was shared.
+  it('says Fjern rather than Slet', () => {
+    const discard = glimtActions(queued()).find((a) => a.key === 'discard')
+    expect(discard?.label).toBe('Fjern')
+    expect(discard?.destructive).toBe(true)
+  })
+
+  it('offers the retry without marking it destructive', () => {
+    const retry = glimtActions(queued()).find((a) => a.key === 'retry')
+    expect(retry?.label).toBe('Send nu')
+    expect(retry?.destructive).toBe(false)
+  })
+
+  // `pending` wins over `own`. Both are true for a queued post — the member wrote it — and reading
+  // `own` first is what produced a Slet on a draft.
+  it('takes precedence over own', () => {
+    expect(glimtActions(glimt({ pending: true, own: true })).map((a) => a.key)).not.toContain('delete')
+  })
+})

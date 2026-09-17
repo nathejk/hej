@@ -90,7 +90,7 @@ export function audienceVariant(audience: Glimt['audience']): 'secondary' | 'def
 
 /** What the overflow menu offers for this glimt. */
 export interface GlimtAction {
-  key: 'delete' | 'report' | 'hide' | 'unhide'
+  key: 'delete' | 'report' | 'hide' | 'unhide' | 'discard' | 'retry'
   label: string
   /** Destructive actions get the red styling shadcn's dropdown provides. */
   destructive: boolean
@@ -111,6 +111,19 @@ export interface GlimtAction {
  * for anyone who needs it.
  */
 export function glimtActions(glimt: Glimt): GlimtAction[] {
+  // A queued glimt has never reached the server, so none of the server actions apply: there is
+  // nothing to delete, nothing to report, and its id is a draft id that would 404 (task 325).
+  //
+  // *Fjern* rather than *Slet*, because the distinction is real and a member can act on it — this
+  // discards something that was never shared, which is a smaller thing than deleting a post other
+  // people may have seen. *Send nu* is offered alongside because the honest answer to "why is it
+  // still waiting?" is sometimes "try again now", and PRD 019 §5 forbids implying background upload.
+  if (glimt.pending) {
+    return [
+      { key: 'retry', label: 'Send nu', destructive: false },
+      { key: 'discard', label: 'Fjern', destructive: true },
+    ]
+  }
   if (glimt.own) {
     return [{ key: 'delete', label: 'Slet', destructive: true }]
   }

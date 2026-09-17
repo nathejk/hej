@@ -23,7 +23,7 @@
 // mechanism. It lives in the same overflow menu as everything else rather than behind a long-press,
 // and `glimtActions()` decides what is offered so the rule is testable without mounting this.
 import { computed } from 'vue'
-import { EllipsisVertical } from '@lucide/vue'
+import { CloudUpload, EllipsisVertical } from '@lucide/vue'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -72,8 +72,11 @@ const attribution = computed(() =>
 
 // Crew have no hold number, so there is no collection to link to — and neither has a glimt whose
 // hold was never numbered. The line then renders as plain text rather than a link that 404s.
+//
+// A queued glimt has no attribution at all yet (the server freezes it at creation), so it never
+// links either.
 const holdLinkable = computed(
-  () => !props.hideHoldLink && props.glimt.hold.number.length > 0,
+  () => !props.hideHoldLink && !props.glimt.pending && props.glimt.hold.number.length > 0,
 )
 
 const actions = computed(() => props.actions ?? glimtActions(props.glimt))
@@ -115,6 +118,14 @@ const actions = computed(() => props.actions ?? glimtActions(props.glimt))
            receive it — so saying so is safe, and an author is entitled to know their post was taken
            down rather than silently discovering nobody can see it. -->
       <Badge v-if="glimt.hidden" variant="destructive" class="shrink-0">Skjult</Badge>
+
+      <!-- Still in the outbox (task 325). PRD 019 §5 requires the entry itself to say so, not just a
+           counter above the feed — and the wording must never imply a background upload, because iOS
+           does not run a backgrounded web app. "Venter" is the honest verb. -->
+      <Badge v-if="glimt.pending" variant="secondary" class="shrink-0 gap-1">
+        <CloudUpload class="size-3" aria-hidden="true" />
+        Venter
+      </Badge>
 
       <DropdownMenu>
         <DropdownMenuTrigger as-child>

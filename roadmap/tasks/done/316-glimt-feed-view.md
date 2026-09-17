@@ -248,3 +248,15 @@ wolf gets deleted.
 
 Its first run flagged its own documentation, which quotes the wrong binding to explain why not to use
 it. Comments are stripped before scanning, as `profileNotCached.spec.ts` already records.
+
+### 2026-09-17 — device pass cleared part of the list above, and found a gap this task half-owned
+
+An installed iPhone confirmed the write path end to end: capture, client compression, upload, create,
+and the feed rendering the result. So of the "not verified, and cannot be from here" list above, the
+basic feed rendering is now confirmed on hardware.
+
+It also found that **the feed did not render queued glimt at all** — an offline post showed
+"Et glimt venter på nettet" above "Ingen glimt endnu". That is logged in full in task 325, which owns
+the fix, but it is noted here because the seam was between this task's feed and task 314's outbox and
+neither claimed it. `newestFirst` was the wrong getter for the view to read; it now reads `feed`,
+which includes the queue.
