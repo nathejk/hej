@@ -80,6 +80,7 @@ import { computed, ref } from 'vue'
 import { Play } from '@lucide/vue'
 
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel'
+import type { CarouselApi } from '@/components/ui/carousel'
 import { cn } from '@/helpers'
 import { glimtMediaUrl, type Glimt } from '@/stores/glimt.store'
 import { mediaAltText, stripAspectRatio } from '@/components/glimt/glimtPresentation'
@@ -95,10 +96,36 @@ const emit = defineEmits<{
 }>()
 
 // Which slide the strip is on, for the dots.
+//
+// # This is driven by `init-api`, and it has to be
+//
+// The obvious spelling — `<Carousel @select="...">` — is what this component had, and **it never
+// fired**: `CarouselEmits` in the shadcn primitive declares exactly one event, `init-api`. A binding
+// for an event a component does not emit is not an error in Vue; it falls through to the root element
+// as a native DOM listener, and a `div` never emits `select`. So `current` sat at 0 for the life of
+// the card and the lit dot never moved, reported from a device on 2026-09-17.
+//
+// Nothing could have caught that except looking: it is a silent no-op at every level — type-check,
+// lint and build are all happy, and the unit suite never mounts a component.
+//
+// So the Embla instance is taken from `init-api` (which is what that event is for) and its own
+// `select` event is subscribed to directly. `reInit` too, because Embla re-initialises when the slide
+// list changes and would otherwise leave the dot pointing at a slide that has moved.
+//
+// No teardown: `embla-carousel-vue` destroys the instance on unmount, and its listeners go with it.
+// Calling `destroy()` here would be a second destroy of something we do not own.
 const current = ref(0)
 
-function onSelect(index: number) {
-  current.value = index
+function onInitApi(api: CarouselApi) {
+  if (!api) return
+  const sync = () => {
+    current.value = api.selectedScrollSnap()
+  }
+  // Called once immediately: `loop` plus `align: 'start'` means the initial snap is not always 0, and
+  // waiting for the first `select` would show the wrong dot until the user swiped.
+  sync()
+  api.on('select', sync)
+  api.on('reInit', sync)
 }
 
 // One ratio for the whole strip, so the card does not change height as you swipe — which would move
@@ -147,7 +174,7 @@ function srcFor(ordinal: number, hasThumb: boolean) {
     <template v-else>
       <!-- `h-full` all the way down: the container owns the height, and anything inside that sized
            itself would put the flex row back in charge of it. -->
-      <Carousel class="size-full" :opts="{ align: 'start', loop: true }" @select="onSelect">
+      <Carousel class="size-full" :opts="{ align: 'start', loop: true }" @init-api="onInitApi">
         <CarouselContent class="-ml-0 h-full">
           <CarouselItem v-for="item in glimt.media" :key="item.ordinal" class="h-full pl-0">
             <button type="button" class="relative block size-full" @click="emit('open', item.ordinal)">
