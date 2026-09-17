@@ -12,6 +12,8 @@ interface RuntimeConfigResponse {
   show_build_id?: boolean
   show_layout_debug?: boolean
   install_gate?: boolean
+  glimt_retention_days?: number
+  glimt_public_retention_days?: number
 }
 
 const token = ref('')
@@ -22,6 +24,15 @@ const showLayout = ref(false)
 // straight past onboarding on a cold, offline first start — which is the one path where
 // nothing else would ever ask them for location or notifications.
 const installGate = ref(true)
+
+// How long a glimt is kept, and how long a public one stays on the public page (PRD 019 §6,
+// task 310). Served rather than built in because the window is per-deployment, and the composer and
+// the privacy page **state the number to the member**: copy that says "90 dage" while the deployment
+// is set to 30 is a promise about somebody's photographs that the service will not keep.
+//
+// Zero means "no limit" in both cases, and the composer says nothing rather than saying "0 dage".
+const glimtRetentionDays = ref(0)
+const glimtPublicRetentionDays = ref(0)
 
 
 // The last token the BFF handed us, remembered so the map still has a key offline
@@ -142,6 +153,20 @@ export const showLayoutDebug = readonly(showLayout)
  */
 export const installGateEnabled = readonly(installGate)
 
+/**
+ * How many days a glimt is kept, or 0 when retention is disabled.
+ *
+ * Read by the composer and the privacy page so both state the deployment's real number. Not
+ * remembered across an offline start, unlike the token and the gate: an absent value makes the copy
+ * omit the sentence, which is honest, whereas a remembered one could state a window that has since
+ * been shortened — and being wrong about how long a child's photograph is kept is worse than being
+ * silent about it.
+ */
+export const glimtRetention = readonly(glimtRetentionDays)
+
+/** How many days a public glimt stays on the public page, or 0 when there is no separate window. */
+export const glimtPublicRetention = readonly(glimtPublicRetentionDays)
+
 // The contacts poll interval used to be served here as `contacts_poll_seconds`. PRD 017 serves the
 // freshness interval in the `/api/sync` response instead, so a change takes effect on the next check
 // rather than waiting for a config refetch — and this value had no readers left once the per-pane loop
@@ -170,6 +195,8 @@ export function loadRuntimeConfig(): Promise<void> {
       // disable the gate — the safe direction for a missing value here is the gate's
       // designed behaviour.
       installGate.value = body.install_gate ?? true
+      glimtRetentionDays.value = body.glimt_retention_days ?? 0
+      glimtPublicRetentionDays.value = body.glimt_public_retention_days ?? 0
       // Deliberately mirrors an unset key too, so clearing it in production
       // eventually clears it on the device rather than living on forever.
       remember(token.value)

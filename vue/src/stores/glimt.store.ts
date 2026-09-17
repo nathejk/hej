@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { HttpError, fetchWrapper } from '@/helpers'
+import { compressImage } from '@/helpers/glimtCompress'
 import { isQuotaExceeded } from '@/helpers/offline/eviction'
 import { browserEvictors } from '@/helpers/offline/evictors'
 import { profileKey } from '@/helpers/profileStorage'
@@ -100,6 +101,27 @@ interface FeedResponse {
   glimt: GlimtResponse[] | null
   /** Server-issued deadline, epoch ms. Absent when retention is configured off. */
   expires_at?: number
+}
+
+/** What an upload returns, and what a create call references. */
+export interface GlimtMediaRef {
+  ref: string
+  thumbRef: string
+  kind: 'image' | 'video'
+  width: number
+  height: number
+  bytes: number
+  durationMs: number
+}
+
+interface StoredMediaResponse {
+  ref: string
+  thumb_ref?: string
+  kind?: string
+  width?: number
+  height?: number
+  bytes?: number
+  duration_ms?: number
 }
 
 const STORAGE_BASE = 'hej.glimt.v1'
@@ -411,6 +433,78 @@ export const useGlimtStore = defineStore('glimt', {
         return false
       } finally {
         this.loading = false
+      }
+    },
+
+    /**
+     * Upload one media item and return what the create call will reference.
+     *
+     * One request per item rather than one big multipart post, matching the BFF (task 303): a glimt
+     * carries up to ten items from a field on one bar of signal, so a failure should cost one item
+     * rather than the whole post.
+     *
+     * Throws on failure, unlike everything else in this store. The composer needs to know *which*
+     * item failed so it can mark that thumbnail and let the member retry or drop it — a swallowed
+     * error would leave a post silently missing a photograph.
+     */
+    async uploadMedia(file: File): Promise<GlimtMediaRef> {
+      const compressed = await compressImage(file)
+      const form = new FormData()
+      // The field is `media`, not `photo`: it carries video too (task 322), and the BFF names it
+      // that way.
+      form.append('media', compressed, file.name || 'glimt.jpg')
+      const stored = await fetchWrapper.postForm<StoredMediaResponse>('/api/glimt/media', form)
+      return {
+        ref: stored.ref,
+        thumbRef: stored.thumb_ref ?? '',
+        kind: stored.kind === 'video' ? 'video' : 'image',
+        width: stored.width ?? 0,
+        height: stored.height ?? 0,
+        bytes: stored.bytes ?? 0,
+        durationMs: stored.duration_ms ?? 0,
+      }
+    },
+
+    /**
+     * Create a glimt from media already uploaded.
+     *
+     * Prepends the new glimt to the local copy on success rather than refetching. The member has
+     * just watched their upload finish; a round trip before their own post appears would read as the
+     * post having failed.
+     */
+    async create(input: {
+      caption: string
+      audience: Glimt['audience']
+      media: GlimtMediaRef[]
+    }): Promise<boolean> {
+      try {
+        const created = await fetchWrapper.post<GlimtResponse>('/api/glimt', {
+          caption: input.caption,
+          audience: input.audience,
+          media: input.media.map((m) => ({
+            ref: m.ref,
+            thumb_ref: m.thumbRef,
+            kind: m.kind,
+            width: m.width,
+            height: m.height,
+            bytes: m.bytes,
+            duration_ms: m.durationMs,
+          })),
+        })
+        this.glimt = [toGlimt(created), ...this.glimt]
+        await this.persist()
+        this.error = ''
+        return true
+      } catch (err) {
+        if (err instanceof HttpError && err.status === 503) {
+          // The stream is down. The BFF said so honestly rather than pretending (task 304), so the
+          // client must too — and this is the message that tells a member to keep the photos and
+          // try again rather than to take them a second time.
+          this.error = 'Glimtet kunne ikke deles lige nu. Prøv igen om lidt.'
+          return false
+        }
+        this.error = 'Glimtet kunne ikke deles. Prøv igen.'
+        return false
       }
     },
 

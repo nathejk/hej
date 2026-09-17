@@ -132,5 +132,14 @@ export const fetchWrapper = {
    * obvious at the call site that this is not a JSON request.
    */
   putForm: <T = Json>(url: string, form: FormData) => request<T>('PUT', url, form),
+  /**
+   * POST a multipart body — one Glimt media item (PRD 019).
+   *
+   * POST rather than PUT because each upload creates a *new* object rather than replacing one at a
+   * known address, which is the difference from the portrait: a member has one portrait and many
+   * glimt. Same reasoning as `putForm` for being its own entry point — the call site should say
+   * plainly that this is not JSON.
+   */
+  postForm: <T = Json>(url: string, form: FormData) => request<T>('POST', url, form),
   delete: <T = Json>(url: string) => request<T>('DELETE', url),
 }

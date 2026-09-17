@@ -32,18 +32,22 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import GlimtCard from '@/components/glimt/GlimtCard.vue'
+import GlimtComposer from '@/components/glimt/GlimtComposer.vue'
 import type { GlimtAction } from '@/components/glimt/glimtPresentation'
 import { useGlimtStore, type Glimt } from '@/stores/glimt.store'
 
 const router = useRouter()
 const glimt = useGlimtStore()
 
-// The composer and the hold collection are separate tasks (317 and 326) and register their own
-// routes. Checked rather than assumed, so this view works in a build where they do not exist yet and
-// gains the entry points automatically when they land — instead of throwing on a missing route,
-// which is what `router.push({ name })` does.
-const canCompose = computed(() => router.hasRoute('glimt-new'))
+// The hold collection is a separate task (326) and registers its own route. Checked rather than
+// assumed, so this view works in a build where it does not exist yet and gains the link
+// automatically when it lands — instead of throwing, which is what `router.push({ name })` does on an
+// unregistered name.
 const canBrowseHolds = computed(() => router.hasRoute('glimt-hold'))
+
+// The composer is a drawer rather than a route (PRD 019 §7): the feed stays behind it, so a member
+// who changes their mind is back where they were rather than navigated somewhere and then back.
+const composerOpen = ref(false)
 
 // Both destructive-ish actions get a confirmation, for different reasons: a delete cannot be undone
 // by its author, and a report takes somebody else's photograph off the public feed immediately. A
@@ -76,10 +80,6 @@ function openHold(number: string) {
   if (canBrowseHolds.value) router.push({ name: 'glimt-hold', params: { number } })
 }
 
-function openComposer() {
-  if (canCompose.value) router.push({ name: 'glimt-new' })
-}
-
 async function confirmAction() {
   const current = pending.value
   if (!current || working.value) return
@@ -98,7 +98,7 @@ async function confirmAction() {
   <div class="mx-auto flex w-full max-w-xl flex-col gap-3 p-3">
     <header class="flex items-center justify-between gap-2">
       <h1 class="font-nathejk text-2xl tracking-wide">Glimt</h1>
-      <Button v-if="canCompose" size="lg" class="gap-2" @click="openComposer">
+      <Button size="lg" class="gap-2" @click="composerOpen = true">
         <Camera class="size-5" aria-hidden="true" />
         Del et glimt
       </Button>
@@ -127,7 +127,7 @@ async function confirmAction() {
           Del et øjeblik fra løbet med dit hold, med hele Nathejk — eller offentligt, så forældre
           kan følge med.
         </p>
-        <Button v-if="canCompose" size="lg" class="gap-2" @click="openComposer">
+        <Button size="lg" class="gap-2" @click="composerOpen = true">
           <Camera class="size-5" aria-hidden="true" />
           Del det første glimt
         </Button>
@@ -141,6 +141,8 @@ async function confirmAction() {
         @action="(key) => (pending = { entry, key })"
       />
     </template>
+
+    <GlimtComposer v-model:open="composerOpen" />
 
     <Dialog :open="pending !== null" @update:open="(o) => !o && (pending = null)">
       <DialogContent>
