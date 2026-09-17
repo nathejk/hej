@@ -25,7 +25,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/helpers'
 import { glimtMediaUrl, type Glimt } from '@/stores/glimt.store'
-import { attributionLine, mediaAltText, OWN_ATTRIBUTION } from '@/components/glimt/glimtPresentation'
+import { attributionLine, mediaAltText, ownAttribution } from '@/components/glimt/glimtPresentation'
 
 const props = defineProps<{
   glimt: Glimt | null
@@ -55,7 +55,9 @@ const many = computed(() => items.value.length > 1)
 
 const attribution = computed(() => {
   if (!props.glimt) return ''
-  return props.glimt.own ? OWN_ATTRIBUTION : attributionLine(props.glimt.hold)
+  return props.glimt.own
+    ? ownAttribution(props.glimt.hold.group)
+    : attributionLine(props.glimt.hold)
 })
 
 function step(by: number) {

@@ -36,11 +36,11 @@ import {
 } from '@/components/ui/dropdown-menu'
 import GlimtMediaStrip from '@/components/glimt/GlimtMediaStrip.vue'
 import {
-  OWN_ATTRIBUTION,
   attributionLine,
   audienceLabel,
   audienceVariant,
   glimtActions,
+  ownAttribution,
   relativeTime,
 } from '@/components/glimt/glimtPresentation'
 import type { GlimtAction } from '@/components/glimt/glimtPresentation'
@@ -67,7 +67,7 @@ const emit = defineEmits<{
 }>()
 
 const attribution = computed(() =>
-  props.glimt.own ? OWN_ATTRIBUTION : attributionLine(props.glimt.hold),
+  props.glimt.own ? ownAttribution(props.glimt.hold.group) : attributionLine(props.glimt.hold),
 )
 
 // Crew have no hold number, so there is no collection to link to — and neither has a glimt whose

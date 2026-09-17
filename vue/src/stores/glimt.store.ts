@@ -898,10 +898,10 @@ export const useGlimtStore = defineStore('glimt', {
      *
      * # Attribution
      *
-     * `own: true` and no hold, so the card reads "Dit hold" from `OWN_ATTRIBUTION` without this store
-     * having to know the caller's patrulje. The server freezes the real attribution at creation
+     * `own: true` and no hold, so the card falls back to "Dit glimt" via `ownAttribution` without this
+     * store having to know the caller's patrulje. The server freezes the real attribution at creation
      * (PRD 019 §6); until then there is nothing authoritative to show and guessing would risk
-     * displaying one hold and publishing another.
+     * displaying one unit and publishing another.
      */
     async rebuildPendingGlimt() {
       this.releasePendingUrls()

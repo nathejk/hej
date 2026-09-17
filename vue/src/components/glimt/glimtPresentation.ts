@@ -56,8 +56,40 @@ export function holdWord(group: string): string {
   }
 }
 
-/** How the caller's own attribution reads. Short, and in the second person. */
-export const OWN_ATTRIBUTION = 'Dit hold'
+/**
+ * How the caller's own attribution reads: **their unit, in the second person.**
+ *
+ * # Keyed on the glimt's frozen group, not the viewer's current role
+ *
+ * This was the constant `'Dit hold'` until 2026-09-17. Two things were wrong with it. "Hold" is our
+ * internal word for a unit — a spejder is in a *patrulje* and says so (the same objection that
+ * produced `holdShortcutLabel`) — and `glimtresponse.go` and its test had been documenting for weeks
+ * that the own card reads "Din patrulje", so the Go side and the client disagreed in the record.
+ *
+ * The argument comes from the glimt, not the session: PRD 019 §6 freezes `authorGroup` at creation
+ * precisely so a glimt keeps saying what it said. A member who was out as a bandit and is now crew
+ * should still see "Din klan" on the glimt they posted then — reading their *current* role would
+ * relabel history, which is the thing the freeze exists to prevent.
+ *
+ * Falls back to "Dit glimt" when the group is unknown, which is a real state rather than a fault: a
+ * **queued** glimt has no frozen attribution yet, because nothing has reached the server to freeze it.
+ * It reads correctly next to the *Venter* badge, and it never guesses a unit it might then publish
+ * differently.
+ */
+export function ownAttribution(group: string): string {
+  switch (group) {
+    case 'spejder':
+      return 'Din patrulje'
+    case 'bandit':
+      return 'Din klan'
+    case 'crew':
+      // Crew have a section rather than a numbered hold, and `attributionLine` shows other people
+      // the bare section name for the same reason.
+      return 'Din sektion'
+    default:
+      return 'Dit glimt'
+  }
+}
 
 /**
  * The label on the feed's shortcut to the caller's own hold collection.
@@ -282,7 +314,7 @@ export function stripAspectRatio(media: Array<{ width: number; height: number }>
  * beside the image, so a screen reader reaches it regardless.
  */
 export function mediaAltText(glimt: Glimt, ordinal: number): string {
-  const who = glimt.own ? OWN_ATTRIBUTION : attributionLine(glimt.hold)
+  const who = glimt.own ? ownAttribution(glimt.hold.group) : attributionLine(glimt.hold)
   const total = glimt.media.length
   if (total <= 1) return `Glimt fra ${who}`
   return `Glimt fra ${who}, billede ${ordinal + 1} af ${total}`

@@ -22,10 +22,14 @@ import (
 // `.rules` demands for `phoneParent`, and for the same reason — the failure mode is silent, and it
 // is a child's identity attached to a photograph.
 //
-// The author's *own* feed is not an exception. Their card reads "Din patrulje" plus a delete
-// action, which is enough to convey ownership; sending their name so the client can decide to show
-// "you" would put the one payload most likely to be cached on disk in the one place we said it
-// would not be.
+// The author's *own* feed is not an exception. Their card reads their unit in the second person —
+// "Din patrulje", "Din klan" or "Din sektion", derived on the client from this response's **frozen**
+// `authorGroup` — plus a delete action, which is enough to convey ownership; sending their name so the
+// client can decide to show "you" would put the one payload most likely to be cached on disk in the
+// one place we said it would not be.
+//
+// Note it is derived from the frozen group rather than the caller's current role, which is what keeps
+// it honest for somebody who was out as a bandit and is now crew: the glimt keeps saying what it said.
 
 // glimtResponse is one glimt as the app sees it.
 //

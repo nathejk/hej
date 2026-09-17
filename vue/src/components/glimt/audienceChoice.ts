@@ -200,7 +200,7 @@ function dayPhrase(days: number): string {
  * which has room to explain them. Three grey lines also read as boilerplate, which is how the one that
  * matters gets skipped along with the ones that do not.
  */
-export const CONSENT_NOTE = 'Hvis andre er også med på billedet — spørg dem først.'
+export const CONSENT_NOTE = 'Hvis andre også er med på billedet — spørg dem først.'
 
 /**
  * The attribution reassurance.

@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_STRIP_RATIO,
   MIN_STRIP_RATIO,
-  OWN_ATTRIBUTION,
   attributionLine,
   audienceLabel,
   audienceVariant,
@@ -12,6 +11,7 @@ import {
   holdWord,
   mediaAltText,
   moderationActions,
+  ownAttribution,
   relativeTime,
   stripAspectRatio,
 } from '@/components/glimt/glimtPresentation'
@@ -267,8 +267,45 @@ describe('mediaAltText', () => {
     expect(mediaAltText(glimt(), 0)).toBe('Glimt fra Patrulje 42 · Ørnene')
   })
 
-  it('says "Dit hold" for the caller’s own', () => {
-    expect(mediaAltText(glimt({ own: true }), 0)).toBe(`Glimt fra ${OWN_ATTRIBUTION}`)
+  it('names the caller’s own unit rather than "hold"', () => {
+    // The glimt's frozen group decides it, so a spejder's own photograph is "Din patrulje".
+    expect(mediaAltText(glimt({ own: true }), 0)).toBe('Glimt fra Din patrulje')
+  })
+})
+
+// How a member's own glimt is labelled (maintainer direction, 2026-09-17).
+//
+// This was the constant `'Dit hold'`. Two things were wrong with it: "hold" is our internal word for a
+// unit, and `glimtresponse.go` and its test had been documenting for weeks that the own card reads
+// "Din patrulje" — so the Go side and the client disagreed in the record.
+describe('ownAttribution', () => {
+  it('names the unit, in the second person', () => {
+    expect(ownAttribution('spejder')).toBe('Din patrulje')
+    expect(ownAttribution('bandit')).toBe('Din klan')
+    expect(ownAttribution('crew')).toBe('Din sektion')
+  })
+
+  // The objection that produced this, applied to every possible argument.
+  it('never says "hold" to anyone', () => {
+    for (const group of ['spejder', 'bandit', 'crew', '', 'something-new']) {
+      expect(ownAttribution(group), `group ${group}`).not.toMatch(/hold/i)
+    }
+  })
+
+  // A queued glimt has no frozen attribution yet — nothing has reached the server to freeze it — so
+  // this is a real state and must read correctly next to the *Venter* badge.
+  it('falls back without guessing a unit', () => {
+    for (const group of ['', 'unknown-group']) {
+      expect(ownAttribution(group)).toBe('Dit glimt')
+    }
+  })
+
+  // Keyed on the glimt's frozen group, not the viewer's role, which is what makes this correct for a
+  // member whose role has changed since posting: §6 freezes `authorGroup` so a glimt keeps saying what
+  // it said, and reading the current role would relabel history.
+  it('agrees with the group word used for everyone else', () => {
+    expect(ownAttribution('spejder')).toContain(holdWord('spejder').toLowerCase())
+    expect(ownAttribution('bandit')).toContain(holdWord('bandit').toLowerCase())
   })
 })
 

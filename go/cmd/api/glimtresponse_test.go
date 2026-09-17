@@ -77,9 +77,10 @@ func TestGlimtResponseCarriesNoAuthor(t *testing.T) {
 	// A stranger's view.
 	assertNoAuthor(t, "stranger", newGlimtResponse(g, "p-other"))
 
-	// And the author's own view. Not an exception: the card reads "Din patrulje" and gets a
-	// delete action, which conveys ownership without a name. This is also the payload most
-	// likely to be cached on disk.
+	// And the author's own view. Not an exception: the card reads their unit in the second person
+	// ("Din patrulje" for a spejder), derived on the client from the frozen `authorGroup` in this
+	// response, and gets a delete action — which conveys ownership without a name. This is also the
+	// payload most likely to be cached on disk.
 	own := newGlimtResponse(g, "p-author")
 	assertNoAuthor(t, "own", own)
 	if !own.Own {
