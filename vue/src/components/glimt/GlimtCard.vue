@@ -111,7 +111,7 @@ const actions = computed(() => props.actions ?? glimtActions(props.glimt))
       <slot name="badges" />
 
       <Badge :variant="audienceVariant(glimt.audience)" class="shrink-0">
-        {{ audienceLabel(glimt.audience) }}
+        {{ audienceLabel(glimt.audience, glimt.hold.group) }}
       </Badge>
 
       <!-- Hidden is only ever true on a glimt the caller wrote or moderates — anyone else does not

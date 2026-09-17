@@ -90,9 +90,44 @@ describe('holdWord', () => {
 
 describe('audience chip', () => {
   it('labels the three audiences in plain Danish', () => {
-    expect(audienceLabel('group')).toBe('Min gruppe')
+    expect(audienceLabel('group', 'spejder')).toBe('Alle spejdere')
     expect(audienceLabel('nathejk')).toBe('Alle på Nathejk')
     expect(audienceLabel('public')).toBe('Offentligt')
+  })
+
+  // **The bug this replaced.** The chip read "Min gruppe" until 2026-09-17, which understated the
+  // reach exactly as the composer's "Min patrulje" did — `users.MaySeeGlimt` matches this scope on
+  // group, so it is every spejder at the event, not a patrulje.
+  //
+  // It was also false rather than merely vague in the **moderation queue**: a Team member reviewing a
+  // bandit's post saw "Min gruppe" about a group they are not in. "Min" cannot be right on a label
+  // rendered to whoever happens to be reading.
+  describe('the group chip names the population, not "min gruppe"', () => {
+    it('never says "min"', () => {
+      for (const group of ['spejder', 'bandit', 'crew', '', 'something-new']) {
+        expect(audienceLabel('group', group), `group ${group}`).not.toMatch(/\bmin\b/i)
+      }
+    })
+
+    it('names each group', () => {
+      expect(audienceLabel('group', 'spejder')).toBe('Alle spejdere')
+      expect(audienceLabel('group', 'bandit')).toBe('Alle banditter')
+      expect(audienceLabel('group', 'crew')).toBe('Crew')
+    })
+
+    // Vague but true, unlike "Min gruppe", which was specific and sometimes false.
+    it('falls back without claiming whose group it is', () => {
+      for (const group of [undefined, '', 'unknown']) {
+        expect(audienceLabel('group', group)).toBe('Kun én gruppe')
+      }
+    })
+
+    // The chip is read by moderators too, on posts from groups they are not in — which is where the
+    // old label was outright wrong rather than just loose.
+    it('is correct for a reader outside the group', () => {
+      // Nothing in the signature can depend on the viewer, which is the property that makes it so.
+      expect(audienceLabel('group', 'bandit')).toBe('Alle banditter')
+    })
   })
 
   // The chip is the only place after posting where a member can see how far a photograph went, so

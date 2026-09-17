@@ -123,15 +123,45 @@ export function holdShortcutLabel(role: string | null | undefined): string {
  * Deliberately plain and slightly blunt, especially for `public`. This chip is the only place after
  * posting where a member can see how far a photograph went, so it has to be readable at a glance in
  * the dark by a twelve-year-old — not a term of art.
+ *
+ * # The group chip names the population, and takes the glimt's group to do it
+ *
+ * It read **"Min gruppe"** until 2026-09-17, which was wrong twice over. It understated the reach the
+ * same way the composer's "Min patrulje" did — `users.MaySeeGlimt` matches this scope on group, so it
+ * is every spejder at the event — and "min" is only true for a reader who happens to be in that group.
+ * In the **moderation queue** it was plainly false: a Team member reviewing a bandit's post saw "Min
+ * gruppe" about a group they are not in.
+ *
+ * So it takes the glimt's **frozen** `authorGroup` and names that population. One label, correct for
+ * whoever is reading — the author, another member of the group, or a moderator from outside it.
+ *
+ * `group` is optional so the two wide audiences can still be labelled without one; only the narrow
+ * scope needs it. An absent or unknown group falls back to "Kun én gruppe", which is vague but true —
+ * unlike "Min gruppe", which was specific and sometimes false.
  */
-export function audienceLabel(audience: Glimt['audience']): string {
+export function audienceLabel(audience: Glimt['audience'], group?: string): string {
   switch (audience) {
     case 'nathejk':
       return 'Alle på Nathejk'
     case 'public':
       return 'Offentligt'
     default:
-      return 'Min gruppe'
+      return groupAudienceLabel(group)
+  }
+}
+
+function groupAudienceLabel(group: string | undefined): string {
+  switch (group) {
+    case 'spejder':
+      return 'Alle spejdere'
+    case 'bandit':
+      return 'Alle banditter'
+    case 'crew':
+      // No "Alle": the crew bucket is every crew-ish role together (users.GlimtGroupFor), and "Alle
+      // crew" reads as a quantity where the others read as a population.
+      return 'Crew'
+    default:
+      return 'Kun én gruppe'
   }
 }
 
