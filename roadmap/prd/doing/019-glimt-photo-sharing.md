@@ -1,16 +1,17 @@
 # PRD 019 — Glimt: sharing a moment inside the event
 
-**Status:** draft
+**Status:** doing
 **Author:** agent session (Zed)
 **Created:** 2026-09-16
-**Last updated:** 2026-09-16
-**Approved:**
+**Last updated:** 2026-09-17
+**Approved:** 2026-09-17
 <!-- 2026-09-16: maintainer decided §11 Q1 (publish-and-hide-on-report), Q2 (no consent gate,
 close monitoring instead), Q3 (video after images, 30 s target) and authorship (a glimt belongs
 to a person, but is attributed to their hold). 2026-09-16 (later): public feed is served by this
 service on hej.nathejk.dk, moderation belongs to the Team section (slug `team`), public
-attribution is hold
-number + name + group, and the post-race browse is a primary use. Recorded in §0. -->
+attribution is hold number + name + group, and the post-race browse is a primary use.
+2026-09-17: retention is configurable via env var, 0 disables (dev/testing). Recorded in §0.
+Approved 2026-09-17; tasks 299–325 created. -->
 **Shipped:**
 **Target users:** participants — **spejdere (patruljer) first**, then bandit, then crew roles; parents last, as read-only viewers
 
