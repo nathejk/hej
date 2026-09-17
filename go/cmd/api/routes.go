@@ -88,6 +88,10 @@ func (app *application) routes() http.Handler {
 	// because a post carries up to ten items from a field on one bar of signal, so a failure
 	// should cost one item rather than the whole post (and the client's outbox can resume).
 	router.HandlerFunc(http.MethodPost, "/api/glimt/media", app.requireAuth(app.uploadGlimtMediaHandler))
+	router.HandlerFunc(http.MethodPost, "/api/glimt", app.requireAuth(app.createGlimtHandler))
+	// The feed. Note there is deliberately **no** `/api/glimt/version` — freshness is a `glimt`
+	// key on /api/sync above, per the instruction there.
+	router.HandlerFunc(http.MethodGet, "/api/glimt/feed", app.requireAuth(app.listGlimtHandler))
 	// The contacts directory (PRD 007). Cached by the client and worked from offline, so
 	// it carries everything the pane needs and nothing it does not: no guardian numbers, no
 	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach

@@ -27,7 +27,11 @@ func syncApp(t *testing.T, opts ...func(*application)) *application {
 	app.models = data.NewModels(users.NewMockDirectory(), scans.NewMockSource(),
 		fakeRaceAreas{area: areaFixture(), ok: true},
 		&stubPeople{p: person.Person{PersonID: "mock-spejder-1"}, found: true}, nil,
-		data.WithMapReads(fakeMapReads{}))
+		data.WithMapReads(fakeMapReads{}),
+		// Present so the check reports a `glimt` version rather than listing it as
+		// unavailable. Omitting it is also a valid state (and is what a run with no database
+		// gets) — see TestSync_MissingGlimtProjectionIsUnavailableNotAbsent.
+		data.WithGlimt(&stubGlimt{}))
 	for _, opt := range opts {
 		opt(app)
 	}
@@ -120,7 +124,8 @@ func TestSync_FailingDerivationIsUnavailableNotFatal(t *testing.T) {
 		a.models = data.NewModels(users.NewMockDirectory(), scans.NewMockSource(),
 			fakeRaceAreas{err: errRaceAreaRead},
 			&stubPeople{found: true}, nil,
-			data.WithMapReads(fakeMapReads{}))
+			data.WithMapReads(fakeMapReads{}),
+			data.WithGlimt(&stubGlimt{}))
 	})
 
 	resp, out := getSync(t, app, "+4530000001", "")

@@ -126,6 +126,17 @@ func (app *application) syncDatasets() []syncDataset {
 		// Shared by the whole event, and the cheapest of the six: one cache entry serves every
 		// device.
 		{name: "race_area", holds: always, version: app.raceAreaVersionFor},
+		// Glimt (PRD 019). A key here rather than the `GET /api/glimt/version` the PRD's
+		// endpoint table asks for: that table was written against the older per-dataset
+		// convention, which task 292 retired for the reason stated at the top of this file —
+		// seven endpoints would be seven requests per foreground from a few hundred devices on
+		// a mobile link, where round-trip count dominates payload size.
+		//
+		// Held by everyone: every role can post and can see what was shared with them, and
+		// spejdere in particular are the primary audience (unlike `contacts`, which they do not
+		// get). Absent only when the projection is missing, which is reported as unavailable
+		// rather than as absence — see this file's header on why that distinction matters.
+		{name: "glimt", holds: always, version: app.glimtVersionFor},
 	}
 }
 

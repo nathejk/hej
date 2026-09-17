@@ -10,6 +10,7 @@ import (
 	"nathejk.dk/internal/scans"
 	"nathejk.dk/internal/users"
 	"nathejk.dk/nathejk/table/checkpoint"
+	"nathejk.dk/nathejk/table/glimt"
 	"nathejk.dk/nathejk/table/person"
 )
 
@@ -80,6 +81,20 @@ type Models struct {
 	// Typed as an interface declared here rather than as the concrete rule, so this facade keeps stating
 	// what handlers may ask rather than what the implementation happens to offer.
 	Maps MapReads
+
+	// Glimt is the Glimt read model (PRD 019): the feed, one hold's collection, the moderation
+	// queue and the public feed.
+	//
+	// **May be nil**, for the same reason as Maps, and with the same obligation on handlers: a nil
+	// means "the feature is unavailable", which must be reported as such rather than as an empty
+	// feed. "Nobody shared anything tonight" is a legitimate state that the client caches, so
+	// serving it because the database is down would leave a device showing an empty feed for the
+	// rest of the event.
+	//
+	// Note what this facade deliberately cannot do: it holds only the *read* API, so nothing
+	// reachable through it can publish a glimt event or reach the blob store. Creating and hiding
+	// go through internal/commands, and the bytes through app.blobs.
+	Glimt glimt.Queries
 }
 
 // MapReads is the patrol-scoped map read API.
@@ -109,6 +124,14 @@ type Option func(*Models)
 // treat as "map data unavailable".
 func WithMapReads(m MapReads) Option {
 	return func(mo *Models) { mo.Maps = m }
+}
+
+// WithGlimt supplies the Glimt read model (PRD 019). Omit it and Models.Glimt is nil, which handlers
+// must treat as "the feature is unavailable" rather than as an empty feed — an empty feed is a
+// legitimate state a client will cache, and caching "nothing was shared tonight" because the
+// database is down is worse than an honest error.
+func WithGlimt(q glimt.Queries) Option {
+	return func(mo *Models) { mo.Glimt = q }
 }
 
 // NewModels constructs the read-side facade with the given read sources.

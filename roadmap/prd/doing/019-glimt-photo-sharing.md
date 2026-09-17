@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed)
 **Created:** 2026-09-16
-**Last updated:** 2026-09-17
+**Last updated:** 2026-09-17 (§8 endpoint table corrected: no `/glimt/version`; freshness is a `/api/sync` key)
 **Approved:** 2026-09-17
 <!-- 2026-09-16: maintainer decided §11 Q1 (publish-and-hide-on-report), Q2 (no consent gate,
 close monitoring instead), Q3 (video after images, 30 s target) and authorship (a glimt belongs
@@ -560,7 +560,7 @@ the coupling that made phase 3 blocked is gone (§10).
 | `GET` | `/api/glimt/feed` | Paginated, visibility-filtered for the caller. |
 | `GET` | `/api/glimt/hold` | Teams that have posted anything visible to the caller — the index for the post-race browse. |
 | `GET` | `/api/glimt/hold/:number` | One hold's collection, oldest first, visibility-filtered. |
-| `GET` | `/api/glimt/version` | Cheap freshness probe; `version` in the **body** (`fetchWrapper` exposes no headers). |
+| `GET` | `/api/glimt/version` | ❌ **Not built — superseded.** `routes.go` says outright not to add another per-dataset version endpoint (task 292 retired the last one), so freshness is a **`glimt` key on `/api/sync`** instead. Seven endpoints would be seven requests per foreground from a few hundred devices. Corrected in task 304. |
 | `GET` | `/api/glimt/:glimtId` | Single glimt, visibility-checked. |
 | `GET` | `/api/glimt/:glimtId/media/:ordinal` | Serves a variant (`?variant=thumb`), visibility-checked, `immutable` cache headers. |
 | `DELETE` | `/api/glimt/:glimtId` | **Owning `personId` only** — not "same hold", not the Team section. Tombstone + purge. |

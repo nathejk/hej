@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"strconv"
 	"time"
@@ -186,6 +187,34 @@ func raceAreaVersion(area checkpoint.RaceArea, ok bool) string {
 	io.WriteString(h, "\x00")
 	io.WriteString(h, strconv.Itoa(area.TotalCount))
 	return hex.EncodeToString(h.Sum(nil)[:16])
+}
+
+// glimtVersionFor returns the version of what this caller's Glimt feed currently contains
+// (PRD 019 §8, task 304).
+//
+// # Not cached, unlike every other derivation in this file
+//
+// The others cache by permitted set, because their answer is shared: every device in the event holds
+// the same race area, and everyone with the contacts pane holds the same directory. A Glimt feed is
+// per-caller by construction — it contains the caller's own group, plus their own posts, including
+// ones that have been hidden from everyone else — so a cache would be one entry per member, which is
+// a map that grows with the event and shares nothing.
+//
+// What makes that affordable is that the derivation is already a single indexed aggregate
+// (`COUNT`, `MAX(createdAt)`, `MAX(hiddenAt)`) rather than a payload build. If it ever stops being
+// that, it needs a cache before it needs anything else — this endpoint is hit by every device on
+// every foreground.
+//
+// Includes hidden-state changes, which is the non-obvious part: a version tracking only creations
+// would leave a reported glimt sitting in every client that already held it.
+func (app *application) glimtVersionFor(viewer users.User) (string, error) {
+	if app.models.Glimt == nil {
+		// Reported as unavailable rather than as a version, so the client reads "unchanged,
+		// ask again" instead of dropping the dataset. Absence would mean "you may not hold
+		// this", which a client cannot recover from.
+		return "", errors.New("glimt projection unavailable")
+	}
+	return app.models.Glimt.Version(app.config.eventYear, app.glimtFilter(viewer.ID, viewer.Role))
 }
 
 // raceAreaVersionFor returns the version of the event's race area, shared by every caller.

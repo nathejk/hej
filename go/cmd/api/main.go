@@ -88,6 +88,12 @@ type application struct {
 	// May be nil, in which case no limit applies — which is what the test harness and a
 	// zero-config run get. The handler checks.
 	glimtMediaLimiter *ratelimit.Limiter
+	// glimtLimiter throttles glimt *creation*, separately from the media uploads each one
+	// carries. Two limiters because they protect different things: the media limiter protects
+	// CPU and disk, this one protects the broker from a looping client publishing events.
+	//
+	// May be nil, in which case no limit applies.
+	glimtLimiter *ratelimit.Limiter
 	// confirmLimiter throttles the guardian-number confirmation and report endpoints
 	// (PRD 005, tasks 135/136), keyed by IP like the PIN limiter.
 	//
@@ -528,7 +534,8 @@ func run(logger *slog.Logger) error {
 		config:  cfg,
 		models: data.NewModels(directory, scanSourceFor(scanProjection, peopleOrNil(persons), cfg.eventYear, logger),
 			raceAreasOrNil(checkpoints), peopleOrNil(persons), vehiclesOrNil(vehicles),
-			data.WithMapReads(mapReadsFor(mapReads, ev != nil, logger))),
+			data.WithMapReads(mapReadsFor(mapReads, ev != nil, logger)),
+			data.WithGlimt(glimtQueriesOrNil(glimts))),
 		commands: commands.New(publisherFor(ev)),
 		vehicles: vehicleCommandsOrNil(vehicles),
 		db:       db,
@@ -582,6 +589,10 @@ func run(logger *slog.Logger) error {
 		// this alongside the storage ceiling, which is the limit that actually protects the
 		// disk.
 		glimtMediaLimiter: ratelimit.New(60, time.Hour),
+		// Twenty glimt an hour, per member. A busy night for an enthusiastic patrulje is a
+		// handful of posts; twenty leaves room for that and for a few retries, while still
+		// bounding what one looping client can put on the stream.
+		glimtLimiter: ratelimit.New(20, time.Hour),
 		// Twenty confirmation attempts an hour per IP. Generous against the real use — a
 		// member types two digits once, perhaps twice, and may then report the number as
 		// wrong — while leaving room for a shared network: a patrol on one hotspot all

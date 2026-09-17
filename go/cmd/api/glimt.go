@@ -2,6 +2,7 @@ package main
 
 import (
 	"nathejk.dk/internal/users"
+	"nathejk.dk/nathejk/table/glimt"
 )
 
 // Glimt (PRD 019).
@@ -41,6 +42,18 @@ func (app *application) isGlimtModerator(personID string) bool {
 	return users.MayModerateGlimt(p.SectionSlug)
 }
 
+// glimtQueriesOrNil narrows the projection to its read API, or nil.
+//
+// The same shape as peopleOrNil, and for the same reason: a typed nil `*glimt.Table` stored in an
+// interface field is not `== nil`, so every handler's "is this available?" check would pass and then
+// panic on the first call. Converting here is what makes the nil checks in handlers honest.
+func glimtQueriesOrNil(t *glimt.Table) glimt.Queries {
+	if t == nil {
+		return nil
+	}
+	return t
+}
+
 // glimtViewer builds the visibility subject for a caller.
 //
 // Every read path goes through this rather than assembling a users.GlimtViewer inline, so
@@ -51,5 +64,20 @@ func (app *application) glimtViewer(personID string, role users.Role) users.Glim
 		PersonID:    personID,
 		Role:        role,
 		IsModerator: app.isGlimtModerator(personID),
+	}
+}
+
+// glimtSubjectOf narrows a stored row to the fields a visibility decision needs.
+//
+// The conversion lives here rather than in the glimt package because that package may not import
+// internal/... (it is bound for shared-go), and it lives in one function rather than at each call
+// site because a handler that built the subject by hand could omit `Hidden` — which would make a
+// taken-down glimt visible again, silently, in exactly one code path.
+func glimtSubjectOf(g glimt.Glimt) users.GlimtSubject {
+	return users.GlimtSubject{
+		AuthorPersonID: g.AuthorPersonID,
+		AuthorGroup:    users.GlimtGroup(g.AuthorGroup),
+		Audience:       users.GlimtAudience(g.Audience),
+		Hidden:         g.HiddenAt != nil,
 	}
 }
