@@ -12,6 +12,20 @@
 // `stripAspectRatio`) — and every slide fills it. Every level from here down is `h-full` for that
 // reason: nothing inside may contribute a height, or the row starts measuring its children again.
 //
+// # It loops
+//
+// `loop: true`, so the last photograph continues to the first (maintainer, 2026-09-18). Two reasons
+// it is the right default here rather than a preference:
+//
+//   - A glimt is a handful of photographs from one moment, not an ordered document. There is no "end"
+//     to arrive at, so stopping dead at the last one just reads as the control having broken.
+//   - It removes a dead end from the desktop arrows in particular. Without looping, the right-hand
+//     arrow disables itself on the final slide — and a disabled control on a photograph gives no clue
+//     that the way onward is the *other* arrow.
+//
+// Note what this changes about the arrows: `canScrollPrev`/`canScrollNext` are now always true, so
+// neither is ever rendered disabled. That is the intended consequence, not an oversight.
+//
 // # Filling the frame, centred
 //
 // Every slide is `object-cover object-center` inside a box the container sizes. `object-cover` scales
@@ -133,7 +147,7 @@ function srcFor(ordinal: number, hasThumb: boolean) {
     <template v-else>
       <!-- `h-full` all the way down: the container owns the height, and anything inside that sized
            itself would put the flex row back in charge of it. -->
-      <Carousel class="size-full" :opts="{ align: 'start' }" @select="onSelect">
+      <Carousel class="size-full" :opts="{ align: 'start', loop: true }" @select="onSelect">
         <CarouselContent class="-ml-0 h-full">
           <CarouselItem v-for="item in glimt.media" :key="item.ordinal" class="h-full pl-0">
             <button type="button" class="relative block size-full" @click="emit('open', item.ordinal)">

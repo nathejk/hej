@@ -191,6 +191,18 @@ Accessibility: a list of articles, not a gesture-only tape. Captions are real te
   re-decided unilaterally; the alternative is `object-contain` with a backdrop for non-matching
   slides, which crops nothing and letterboxes instead.
 
+- 2026-09-18 (later still) — **The carousel loops.** Maintainer: "when at end of carousel continue from
+  beginning." `loop: true` on the Embla options.
+
+  Right default rather than a preference, for two reasons worth keeping: a glimt is a handful of
+  photographs from one moment, not an ordered document, so there is no "end" to arrive at and stopping
+  dead just reads as the control having broken. And it removes a dead end from the **desktop arrows**
+  specifically — without looping the right-hand arrow disables itself on the last slide, and a disabled
+  control on a photograph gives no clue that the way onward is the other arrow.
+
+  Consequence to know rather than rediscover: `canScrollPrev`/`canScrollNext` are now always true, so
+  neither arrow is ever rendered disabled. That is intended.
+
 ### ⚠️ Not verified, and cannot be from here
 
 The suite runs in `node` and mounts nothing, so **nothing about how this looks or feels has been
