@@ -189,10 +189,16 @@ function dayPhrase(days: number): string {
  * people to tick it. It is a sentence at the moment of deciding, which is the only moment it can do
  * any work.
  *
- * **The only note left in the composer.** It sat with two others — the Team-section disclosure and the
- * retention window — and three grey lines under the audience choice read as boilerplate, which is how
- * a note that matters gets skipped along with the ones that do not. Maintainer direction,
- * 2026-09-17. Both of the others are still stated on `/privatliv` (task 321).
+ * **The only note left in the composer**, and the rule that decides that: the composer carries what a
+ * member must be aware of **each time they post**; standing facts about the system belong on the
+ * privacy page (maintainer direction, 2026-09-17).
+ *
+ * This line qualifies because it is a different question every time — a different photograph, with
+ * different people in it, who did not choose to be. The two notes that sat with it did not: that the
+ * Team section can see everything, and that media is deleted after 90 days, are true before the member
+ * opens the composer and unchanged by anything they do in it. Both are on `/privatliv` (task 321),
+ * which has room to explain them. Three grey lines also read as boilerplate, which is how the one that
+ * matters gets skipped along with the ones that do not.
  */
 export const CONSENT_NOTE = 'Hvis andre er også med på billedet — spørg dem først.'
 
@@ -217,13 +223,17 @@ export function attributionNote(role: string | null | undefined): string {
  * "only my group". A participant choosing it is entitled to know that before they choose it, not
  * afterwards from a privacy page they never open.
  *
- * **No longer shown in the composer** as of 2026-09-17 (maintainer direction): it was one of three
- * grey lines under the audience choice, and three notes read as boilerplate. It remains on
- * `/privatliv`, in the longer form that has room to say who Team are and why they can see everything
- * (`GLIMT_TEAM_REACH`).
+ * **No longer shown in the composer** as of 2026-09-17 (maintainer direction). The rule: the composer
+ * carries what a member must be aware of **each time they post**, and standing facts about the system
+ * belong on the privacy page. This is a standing fact — true before they opened the composer and
+ * unchanged by anything they choose in it — so it lives on `/privatliv`, in the longer form that has
+ * room to say who Team are and why they can see everything (`GLIMT_TEAM_REACH`).
  *
  * That is a **narrowing of what §6 asked for** — it names the composer *and* the privacy page — so it
- * is a decision to record rather than a tidy-up. Kept exported and tested so the wording does not rot
- * while it is out of the composer, and so restoring it is one line.
+ * is recorded in the PRD's §11 as a decision rather than a tidy-up. §6's actual requirement, that the
+ * reach be *disclosed rather than discovered*, is still met.
+ *
+ * Kept exported and tested so the wording does not rot while it is out of the composer, and so
+ * restoring it is one line.
  */
 export const TEAM_DISCLOSURE = 'Team kan altid se alle glimt.'

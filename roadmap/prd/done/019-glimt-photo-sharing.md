@@ -720,11 +720,24 @@ actually reach ("Alle spejderpatruljer" / "Alle klaner" / "Alt crew"), and
 `audienceChoice.spec.ts` asserts no role's group label ever says patrulje or klan again.
 
 **Narrowing of §6, same date.** §6 requires the Team-section reach to be stated by "the composer and
-`PrivacyView`". It is now stated **only on `PrivacyView`**: the composer had three grey notes under the
-audience choice — consent, Team reach, retention — and three notes read as boilerplate, which is how
-the one that matters gets skipped along with the rest. Maintainer direction. The consent line stays,
-because it is the only one that concerns somebody who is not the author. `TEAM_DISCLOSURE` is kept
-exported and tested so the wording does not rot, and restoring it is one line.
+`PrivacyView`". It is now stated **only on `PrivacyView`**.
+
+The rule the maintainer gave for this, which is worth keeping because it decides what belongs in the
+composer at all: **the composer carries what a member must be aware of *each time they post*; standing
+facts about the system belong on the privacy page.**
+
+By that test only one of the three notes qualified. "Spørg dem først" is a per-post obligation to
+somebody who is not the author and who did not choose to be in the photograph — it is a different
+question every time, because it is a different photograph. That the Team section can see everything,
+and that media is deleted after 90 days, are facts about the service: true before the member opened
+the composer, unchanged by anything they do in it, and read once rather than each time. Three grey
+lines also read as boilerplate, which is how the one that matters gets skipped along with the ones
+that do not.
+
+`TEAM_DISCLOSURE` is kept exported and tested so the wording does not rot while it is out of the
+composer, and restoring it is one line. §6's requirement that the reach be *disclosed rather than
+discovered* is still met — by `/privatliv`, in the longer form that has room to say who Team are and
+why they can see everything.
 
 **Scope change, 2026-09-17 — video moved to PRD 020.** Recorded here because it changes what this
 PRD promises. Everything about video was decided here (§0, §8) and the reasoning stays in §8; what
