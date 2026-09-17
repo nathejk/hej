@@ -275,6 +275,7 @@ func validGlimtMedia(in []createGlimtMedia) ([]glimt.Media, error) {
 // @Param        offset  query     int  false  "rows to skip"
 // @Success      200  {object}  glimtFeedResponse
 // @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string  "the caller has no directory record"
 // @Failure      503  {object}  map[string]string  "the feed is unavailable"
 // @Router       /glimt/feed [get]
 func (app *application) listGlimtHandler(w http.ResponseWriter, r *http.Request) {

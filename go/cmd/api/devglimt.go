@@ -138,7 +138,9 @@ func devGlimtFixtures() []devFixtureSpec {
 // @Tags         dev
 // @Produce      json
 // @Success      201  {object}  devGlimtFixtureResponse
+// @Failure      400  {object}  map[string]string  "the caller's role maps to no group"
 // @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string  "the caller has no directory record"
 // @Failure      503  {object}  map[string]string  "event stream unavailable"
 // @Router       /dev/glimt-fixture [post]
 func (app *application) devGlimtFixtureHandler(w http.ResponseWriter, r *http.Request) {

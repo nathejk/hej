@@ -63,6 +63,7 @@ type glimtHoldSummary struct {
 // @Produce      json
 // @Success      200  {object}  glimtHoldsResponse
 // @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string  "the caller has no directory record"
 // @Failure      503  {object}  map[string]string
 // @Router       /glimt/hold [get]
 func (app *application) listGlimtHoldsHandler(w http.ResponseWriter, r *http.Request) {
