@@ -9,6 +9,7 @@ import {
   groupLabelFor,
   retentionNote,
 } from '@/components/glimt/audienceChoice'
+import { ALL_ROLES } from '@/config/roles'
 
 // The audience choice (task 317).
 //
@@ -18,7 +19,7 @@ import {
 // template.
 
 describe('audienceOptions', () => {
-  const options = audienceOptions('Min patrulje')
+  const options = audienceOptions('spejder')
 
   it('offers exactly the three audiences the BFF accepts', () => {
     expect(options.map((o) => o.value)).toEqual(['group', 'nathejk', 'public'])
@@ -55,8 +56,71 @@ describe('audienceOptions', () => {
     expect(options.filter((o) => o.reachesOutside).map((o) => o.value)).toEqual(['public'])
   })
 
-  it('labels the narrowest option with the caller’s own group', () => {
-    expect(audienceOptions('Min klan')[0].label).toBe('Min klan')
+  // **The bug this replaced, pinned so it cannot come back.**
+  //
+  // Until 2026-09-17 the narrowest option read "Min patrulje" with "Kun dem der er med i din gruppe
+  // kan se det." `users.MaySeeGlimt` matches this scope on group, and **never on the patrulje
+  // number** — so it reaches every spejder at the event, some 750 people, not the six in a patrulje.
+  //
+  // We told a twelve-year-old their photograph was going to their patrulje and sent it to the whole
+  // division. The code was correct and the label was a lie, which is why no test caught it: nothing
+  // compares a label to a predicate. These assertions are the closest thing to that comparison.
+  describe('the narrowest option describes a group, never a patrulje', () => {
+    it('does not call the group scope a patrulje or a klan', () => {
+      for (const role of ALL_ROLES) {
+        const group = audienceOptions(role)[0]
+        const text = `${group.label} ${group.consequence}`
+        expect(text, `role ${role}: "${text}"`).not.toMatch(/min patrulje|min klan|din patrulje|din klan/i)
+      }
+    })
+
+    it('names the whole population for a spejder', () => {
+      const group = audienceOptions('spejder')[0]
+      expect(group.label).toBe('Alle spejderpatruljer')
+      expect(group.consequence).toBe('Kun dem som deltager som spejdere kan se det.')
+    })
+
+    it('names the whole population for a bandit', () => {
+      const group = audienceOptions('bandit')[0]
+      expect(group.label).toBe('Alle klaner')
+      expect(group.consequence).toContain('banditter')
+    })
+
+    it('groups every crew-ish role together, as the BFF does', () => {
+      // users.GlimtGroupFor puts postmandskab, guide, samarit, gøgler and crew in one bucket, so the
+      // label must not imply a narrower one.
+      for (const role of ['postmandskab', 'guide', 'samarit', 'gøgler', 'crew']) {
+        expect(audienceOptions(role)[0].label).toBe('Alt crew')
+      }
+    })
+
+    // An unknown role must still get a label that does not understate reach.
+    it('falls back to the widest of the group labels', () => {
+      for (const role of [null, undefined, '', 'role-this-build-does-not-know']) {
+        expect(audienceOptions(role)[0].label).toBe('Alt crew')
+      }
+    })
+  })
+
+  // The middle option names who else is inside Nathejk, rather than saying "de andre grupper" — our
+  // word for a population a participant thinks of by name.
+  describe('the nathejk option names the other populations', () => {
+    it('tells a spejder about the banditter', () => {
+      expect(audienceOptions('spejder')[1].consequence).toContain('banditterne')
+    })
+
+    // Role-dependent because telling a bandit that banditter can see it says nothing.
+    it('tells a bandit about the spejdere', () => {
+      const text = audienceOptions('bandit')[1].consequence
+      expect(text).toContain('spejderne')
+      expect(text).not.toContain('banditterne')
+    })
+
+    it('tells crew about both', () => {
+      const text = audienceOptions('crew')[1].consequence
+      expect(text).toContain('spejderne')
+      expect(text).toContain('banditterne')
+    })
   })
 
   it('uses no jargon a twelve-year-old would need explained', () => {

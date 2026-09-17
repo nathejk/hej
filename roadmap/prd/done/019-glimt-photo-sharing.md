@@ -3,7 +3,7 @@
 **Status:** done
 **Author:** agent session (Zed)
 **Created:** 2026-09-16
-**Last updated:** 2026-09-17 (shipped; video split out into PRD 020; §8 endpoint table corrected: no `/glimt/version`, freshness is a `/api/sync` key)
+**Last updated:** 2026-09-17 (post-ship: `group` scope relabelled after it was found to understate reach, and the composer's Team-reach line moved to PrivacyView only — both in §11; video split out into PRD 020; §8 endpoint table corrected: no `/glimt/version`, freshness is a `/api/sync` key)
 **Approved:** 2026-09-17
 **Shipped:** 2026-09-17
 <!-- 2026-09-16: maintainer decided §11 Q1 (publish-and-hide-on-report), Q2 (no consent gate,
@@ -704,6 +704,27 @@ Proposed tasks for `roadmap/tasks/open/`:
 - [x] Task: Offline field test — post a glimt with no signal, verify outbox drain on reconnect
 
 ## 11. Open Questions
+
+**Correction, 2026-09-17 (after shipping) — the `group` scope was mislabelled, and the label
+understated reach.** Recorded here rather than only in a commit, because it is the one class of
+mistake this PRD's §6 exists to prevent.
+
+The composer's narrowest option read **"Min patrulje"**, with "Kun dem der er med i din gruppe kan se
+det." But `users.MaySeeGlimt` matches this scope on **group** — `GlimtGroupFor(viewer.Role) ==
+g.AuthorGroup` — and never on the patrulje number. So for a spejder it reaches *every spejder at the
+event*, some 750 people, not the six in their patrulje.
+
+The code was correct and the label was a lie. No test caught it because nothing compares a label to a
+predicate; the maintainer caught it by reading the screen. The options now name the population they
+actually reach ("Alle spejderpatruljer" / "Alle klaner" / "Alt crew"), and
+`audienceChoice.spec.ts` asserts no role's group label ever says patrulje or klan again.
+
+**Narrowing of §6, same date.** §6 requires the Team-section reach to be stated by "the composer and
+`PrivacyView`". It is now stated **only on `PrivacyView`**: the composer had three grey notes under the
+audience choice — consent, Team reach, retention — and three notes read as boilerplate, which is how
+the one that matters gets skipped along with the rest. Maintainer direction. The consent line stays,
+because it is the only one that concerns somebody who is not the author. `TEAM_DISCLOSURE` is kept
+exported and tested so the wording does not rot, and restoring it is one line.
 
 **Scope change, 2026-09-17 — video moved to PRD 020.** Recorded here because it changes what this
 PRD promises. Everything about video was decided here (§0, §8) and the reasoning stays in §8; what

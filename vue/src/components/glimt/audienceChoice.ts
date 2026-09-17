@@ -40,19 +40,36 @@ export interface AudienceOption {
  *
  * The order is load-bearing: the composer selects the first by default, so this array is what makes
  * the safe choice the free one.
+ *
+ * # The `group` scope is not a patrulje, and saying so was a real bug
+ *
+ * Until 2026-09-17 the first option read **"Min patrulje"** with "Kun dem der er med i din gruppe kan
+ * se det." That was wrong in the one direction that matters. `users.MaySeeGlimt` matches this scope on
+ * `GlimtGroupFor(viewer.Role) == g.AuthorGroup` — **the patrulje number is never consulted** — so for a
+ * spejder it reaches *every spejder at the event*, some 750 people, not the six in their patrulje.
+ *
+ * We told a twelve-year-old their photograph was going to their patrulje and sent it to the whole
+ * division. Caught by the maintainer reading the screen, which is the only way it could have been
+ * caught: the code was correct, the label was a lie, and no test compares a label to a predicate.
+ *
+ * So each option now describes the population it actually reaches, named for the population rather
+ * than for a unit. Getting this wrong again means understating reach on the default option, which is
+ * the worst place in the feature to be wrong.
  */
-export function audienceOptions(groupLabel: string): AudienceOption[] {
+export function audienceOptions(role: string | null | undefined): AudienceOption[] {
   return [
     {
       value: 'group',
-      label: groupLabel,
-      consequence: 'Kun dem der er med i din gruppe kan se det.',
+      label: groupScopeLabel(role),
+      consequence: groupScopeConsequence(role),
       reachesOutside: false,
     },
     {
       value: 'nathejk',
       label: 'Alle på Nathejk',
-      consequence: 'Alle der er med til Nathejk kan se det — også de andre grupper.',
+      // Names who else that includes rather than saying "de andre grupper", which is our word for a
+      // population a participant thinks of by name. Maintainer direction, 2026-09-17.
+      consequence: `Alle der er med til Nathejk kan se det — også ${otherGroupsFor(role)}.`,
       reachesOutside: false,
     },
     {
@@ -64,6 +81,56 @@ export function audienceOptions(groupLabel: string): AudienceOption[] {
       reachesOutside: true,
     },
   ]
+}
+
+/**
+ * What the narrowest scope is called, for this role.
+ *
+ * Plural and population-shaped on purpose — "Alle spejderpatruljer", not "Min patrulje". The label has
+ * to make the size of the audience obvious at a glance, because it is the default and most members
+ * will never change it.
+ */
+function groupScopeLabel(role: string | null | undefined): string {
+  switch (role) {
+    case 'spejder':
+      return 'Alle spejderpatruljer'
+    case 'bandit':
+      return 'Alle klaner'
+    default:
+      // Every crew-ish role, including gøgler and the unclassified fallback — they share one
+      // audience bucket (see users.GlimtGroupFor).
+      return 'Alt crew'
+  }
+}
+
+/** Who, exactly, the narrowest scope reaches. */
+function groupScopeConsequence(role: string | null | undefined): string {
+  switch (role) {
+    case 'spejder':
+      return 'Kun dem som deltager som spejdere kan se det.'
+    case 'bandit':
+      return 'Kun dem som deltager som banditter kan se det.'
+    default:
+      return 'Kun dem som deltager som crew kan se det.'
+  }
+}
+
+/**
+ * The other populations inside Nathejk, from this role's point of view.
+ *
+ * Role-dependent because "også banditterne" is only the right sentence for a spejder — telling a
+ * bandit that banditter can see it says nothing. The maintainer's wording for the spejder case, and
+ * the same shape for the others.
+ */
+function otherGroupsFor(role: string | null | undefined): string {
+  switch (role) {
+    case 'spejder':
+      return 'banditterne'
+    case 'bandit':
+      return 'spejderne'
+    default:
+      return 'spejderne og banditterne'
+  }
 }
 
 /** The default. The narrowest option, and the first one. */
@@ -121,8 +188,13 @@ function dayPhrase(days: number): string {
  * choose to be in it. This is not a checkbox and does not gate anything — a forced tick would train
  * people to tick it. It is a sentence at the moment of deciding, which is the only moment it can do
  * any work.
+ *
+ * **The only note left in the composer.** It sat with two others — the Team-section disclosure and the
+ * retention window — and three grey lines under the audience choice read as boilerplate, which is how
+ * a note that matters gets skipped along with the ones that do not. Maintainer direction,
+ * 2026-09-17. Both of the others are still stated on `/privatliv` (task 321).
  */
-export const CONSENT_NOTE = 'Andre er også med på billedet — spørg dem først.'
+export const CONSENT_NOTE = 'Hvis andre er også med på billedet — spørg dem først.'
 
 /**
  * The attribution reassurance.
@@ -141,8 +213,17 @@ export function attributionNote(role: string | null | undefined): string {
  * The Team-section disclosure.
  *
  * PRD 019 §6 requires this to be **disclosed, not discovered**: the Team section can read every
- * glimt at every scope, including a `group`-scoped one, so "Min gruppe" is not the same as "only my
- * gruppe". A participant choosing the narrowest option is entitled to know that before they choose
- * it, not afterwards from a privacy page they never open.
+ * glimt at every scope, including a `group`-scoped one, so the narrowest option is not the same as
+ * "only my group". A participant choosing it is entitled to know that before they choose it, not
+ * afterwards from a privacy page they never open.
+ *
+ * **No longer shown in the composer** as of 2026-09-17 (maintainer direction): it was one of three
+ * grey lines under the audience choice, and three notes read as boilerplate. It remains on
+ * `/privatliv`, in the longer form that has room to say who Team are and why they can see everything
+ * (`GLIMT_TEAM_REACH`).
+ *
+ * That is a **narrowing of what §6 asked for** — it names the composer *and* the privacy page — so it
+ * is a decision to record rather than a tidy-up. Kept exported and tested so the wording does not rot
+ * while it is out of the composer, and so restoring it is one line.
  */
 export const TEAM_DISCLOSURE = 'Team kan altid se alle glimt.'

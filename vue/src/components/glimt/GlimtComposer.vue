@@ -41,11 +41,8 @@ import { Label } from '@/components/ui/label'
 import {
   CONSENT_NOTE,
   DEFAULT_AUDIENCE,
-  TEAM_DISCLOSURE,
   attributionNote,
   audienceOptions,
-  groupLabelFor,
-  retentionNote,
   type Audience,
 } from '@/components/glimt/audienceChoice'
 import { cn } from '@/helpers'
@@ -74,9 +71,7 @@ const audience = ref<Audience>(DEFAULT_AUDIENCE)
 const sharing = ref(false)
 const error = ref('')
 
-const groupLabel = computed(() => groupLabelFor(session.role))
-const options = computed(() => audienceOptions(groupLabel.value))
-const retention = computed(() => retentionNote(audience.value))
+const options = computed(() => audienceOptions(session.role))
 const attribution = computed(() => attributionNote(session.role))
 
 const remaining = computed(() => MAX_CAPTION - caption.value.length)
@@ -267,12 +262,15 @@ async function share() {
           </button>
         </section>
 
-        <!-- Three quiet lines, all required by PRD 019 §6. Not a checkbox: a forced tick trains
-             people to tick it, and this has to do its work at the moment of deciding. -->
+        <!-- One quiet line. It was three — consent, the Team-section reach, and the retention window —
+             and three grey notes under the audience choice read as boilerplate, which is how the one
+             that matters gets skipped along with the rest (maintainer direction, 2026-09-17). The other
+             two are on /privatliv, where there is room to explain them.
+
+             Not a checkbox: a forced tick trains people to tick it, and this has to do its work at the
+             moment of deciding. -->
         <section class="flex flex-col gap-1 text-xs text-muted-foreground">
           <p>{{ CONSENT_NOTE }}</p>
-          <p>{{ TEAM_DISCLOSURE }}</p>
-          <p v-if="retention">{{ retention }}</p>
         </section>
 
         <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
