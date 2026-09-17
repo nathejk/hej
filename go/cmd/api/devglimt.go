@@ -289,8 +289,14 @@ func devFixtureImage(w, h, glimtIndex, ordinal int, label string) []byte {
 
 	// Corner markers. These are what make a wrong crop obvious: `object-cover` on a portrait in a
 	// landscape box eats the top and bottom pair first.
-	markerSize := maxOf(12, minOf(w, h)/20)
-	white := image.NewUniform(color.RGBA{255, 255, 255, 220})
+	//
+	// **Opaque white, and `color.RGBA` must be opaque here.** `color.RGBA` is
+	// *alpha-premultiplied*, so `{255, 255, 255, 220}` is out of gamut (R > A) and Go renders it
+	// almost black — which is what the first version of this did, on a dark purple background,
+	// making the markers invisible and defeating their whole purpose. Found by looking at the
+	// output rather than by any test. If a translucent marker is ever wanted, use `color.NRGBA`.
+	markerSize := maxOf(16, minOf(w, h)/12)
+	white := image.NewUniform(color.RGBA{255, 255, 255, 255})
 	for _, corner := range []image.Rectangle{
 		image.Rect(0, 0, markerSize, markerSize),
 		image.Rect(w-markerSize, 0, w, markerSize),
@@ -302,7 +308,10 @@ func devFixtureImage(w, h, glimtIndex, ordinal int, label string) []byte {
 
 	// A row of blocks in the middle: one block per item ordinal, so the third photo of a glimt has
 	// three blocks. Countable at thumbnail size, which a numeral would not be.
-	blockH := maxOf(8, minOf(w, h)/14)
+	//
+	// Sized generously for the same reason as the markers: a 320px thumbnail is the size these are
+	// actually read at, and the first version's blocks were a few pixels across there.
+	blockH := maxOf(14, minOf(w, h)/9)
 	blockW := blockH
 	gap := blockH / 2
 	total := (ordinal + 1)
@@ -316,9 +325,9 @@ func devFixtureImage(w, h, glimtIndex, ordinal int, label string) []byte {
 	// A bar whose width encodes the glimt index, under the blocks. Between the colour and this, two
 	// screenshots can be told apart without reading anything.
 	barW := minOf(w-2*markerSize, (glimtIndex+1)*(w/12))
-	barY := y0 + blockH*2
-	if barY+blockH/2 < h {
-		draw.Draw(img, image.Rect(markerSize, barY, markerSize+barW, barY+blockH/2),
+	barY := y0 + blockH + blockH/2
+	if barY+blockH/3 < h {
+		draw.Draw(img, image.Rect(markerSize, barY, markerSize+barW, barY+blockH/3),
 			white, image.Point{}, draw.Over)
 	}
 

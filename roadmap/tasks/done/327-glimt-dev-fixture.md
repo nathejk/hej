@@ -106,14 +106,50 @@ Then open **Glimt** in the bottom nav. Six glimt appear across five holds.
   so the fixture exercises the fold that hides it (task 301) instead of faking its result.
 - 2026-09-18 — ✅ `gofmt` clean, `go build ./...`, full `go test ./...` green. 6 new tests.
 
-### ⚠️ Not run end to end
+### ✅ Verified end to end (2026-09-18)
 
-The Docker daemon stopped partway through this session, so **the endpoint has not been executed against
-a live stack** — only unit-tested with a fake publisher and blob store. What that leaves unverified:
-whether the projection folds the events as expected on a real MariaDB, and whether the images look
-right in a browser at card and thumbnail size, which is the entire point.
+Run against the live dev stack. Logged in as a real 2026 spejder — the phone number was kept in a shell
+variable and never printed, since it belongs to a participant who is very likely a minor.
 
-The first thing to do with this is run the command above and look at the feed.
+What the run confirmed:
+
+| | |
+|---|---|
+| fixture | `HTTP 201`, six glimt created |
+| projection | folded correctly: 5 holds, 3 audiences, media counts 4/1/2/1/2/1 |
+| media | 11 items — 6 landscape, 3 portrait, 2 square, **all 11 with thumbnails** |
+| report | `hiddenAt` set and `reportCount=1` **by the fold**, not by the fixture |
+| feed | 5 of 6 visible — the reported one is hidden **even from its reporter**, which is the predicate working |
+| payload | no `author`, no `person_id`, no `phone`, **no blob ref** — task 302's rule holds end to end |
+| media bytes | `200 image/jpeg`, `private, max-age=31536000, immutable`, content-hash ETag |
+| conditional | `304` on `If-None-Match` |
+| unauthenticated | `401` |
+| thumbnail economics | 2,961 bytes vs 28,288 full — **~10× smaller**, which is the post-race browse's whole margin |
+
+### 🐞 A bug the tests missed and looking at the output caught
+
+The corner markers and blocks rendered **almost black instead of white**, on a dark purple background —
+so the very thing they exist for (making a wrong `object-fit` crop obvious) was invisible.
+
+Cause: `color.RGBA` in Go is **alpha-premultiplied**, so `{255, 255, 255, 220}` is out of gamut (R > A)
+and renders dark. Every assertion in the test file passed happily — the image decoded, was the right
+size, and differed per glimt. None of them looked at a pixel.
+
+Fixed to opaque white, and the markers and blocks were enlarged after seeing them at 320px: the first
+version's blocks were a few pixels across at the size they are actually read.
+
+Added `TestDevFixtureImage_MarkersAreActuallyLight`, which samples a corner pixel against the
+background across all six palette entries. It would have failed at luma 0.
+
+**This is the whole argument for the task.** A fixture that exists so a feature can be looked at only
+works if somebody looks — and the first thing looking found was a bug in the fixture itself.
+
+### Note on the current dev database
+
+The fixture was applied **twice** (once before the colour fix, once after), so the dev feed currently
+holds **10 visible glimt**: six with dark markers and six with white ones. That is the additive
+behaviour documented below, and side by side it happens to show the fix. A stream purge clears both
+batches.
 
 ### Note
 

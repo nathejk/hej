@@ -199,6 +199,42 @@ func TestDevFixtureImage_IsADecodableJpegOfTheRequestedSize(t *testing.T) {
 
 // TestDevFixtureImage_DiffersPerGlimt is what lets a card in a feed be matched to a tile in a grid by
 // eye — the fixture's whole purpose.
+// TestDevFixtureImage_MarkersAreActuallyLight is the test that should have existed first.
+//
+// The first version drew the corner markers with `color.RGBA{255, 255, 255, 220}`, which is
+// **alpha-premultiplied** and therefore out of gamut (R > A) — Go rendered them almost black, on a
+// dark purple background, making them invisible. The bug was found by looking at the output, which is
+// exactly the kind of thing no assertion in this file was checking.
+//
+// Asserts the corners are much lighter than the middle-ish background, which is the property the
+// markers exist for: they have to be visible enough that a bad `object-fit` crop is obvious.
+func TestDevFixtureImage_MarkersAreActuallyLight(t *testing.T) {
+	for palette := 0; palette < 6; palette++ {
+		data := devFixtureImage(400, 300, palette, 0, "TEST")
+		img, err := jpeg.Decode(bytes.NewReader(data))
+		if err != nil {
+			t.Fatalf("palette %d: decode: %v", palette, err)
+		}
+
+		// A few pixels into the top-left corner marker.
+		cr, cg, cb, _ := img.At(4, 4).RGBA()
+		cornerLuma := (cr + cg + cb) / 3
+
+		// Background, sampled away from every marker and block.
+		br, bg, bb, _ := img.At(370, 40).RGBA()
+		bgLuma := (br + bg + bb) / 3
+
+		if cornerLuma <= bgLuma {
+			t.Errorf("palette %d: corner marker (luma %d) is not lighter than the background (luma %d) — a wrong crop would be invisible",
+				palette, cornerLuma, bgLuma)
+		}
+		// And genuinely light, not merely lighter. JPEG softens the edges, so this is loose.
+		if cornerLuma < 40000 {
+			t.Errorf("palette %d: corner marker luma %d is too dark to read as a marker", palette, cornerLuma)
+		}
+	}
+}
+
 func TestDevFixtureImage_DiffersPerGlimt(t *testing.T) {
 	first := devFixtureImage(400, 300, 0, 0, "A")
 	second := devFixtureImage(400, 300, 1, 0, "A")
