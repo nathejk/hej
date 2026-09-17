@@ -49,7 +49,7 @@ import {
   type Audience,
 } from '@/components/glimt/audienceChoice'
 import { cn } from '@/helpers'
-import { useGlimtStore, type GlimtMediaRef } from '@/stores/glimt.store'
+import { useGlimtStore } from '@/stores/glimt.store'
 import { useSessionStore } from '@/stores/session.store'
 
 const MAX_ITEMS = 10
@@ -66,9 +66,6 @@ interface Draft {
   file: File
   /** Object URL for the thumbnail. Revoked when the item is removed or the draft is cleared. */
   preview: string
-  /** Set once the upload has landed; the create call references these. */
-  uploaded: GlimtMediaRef | null
-  failed: boolean
 }
 
 const items = ref<Draft[]>([])
@@ -95,8 +92,6 @@ function onPick(event: Event) {
     items.value.push({
       file,
       preview: URL.createObjectURL(file),
-      uploaded: null,
-      failed: false,
     })
   }
   if (picked.length > room) {
@@ -124,34 +119,20 @@ async function share() {
   sharing.value = true
   error.value = ''
   try {
-    // Uploaded one at a time, sequentially. Not for the server's sake but for the phone's: ten
-    // parallel uploads over one bar of signal is how a mobile connection stalls all of them, and a
-    // sequential run means a failure names one item.
-    for (const item of items.value) {
-      if (item.uploaded) continue
-      try {
-        item.uploaded = await glimt.uploadMedia(item.file)
-        item.failed = false
-      } catch {
-        item.failed = true
-        error.value = 'En af filerne kunne ikke sendes. Fjern den, eller prøv igen.'
-        return
-      }
-    }
-
-    const media = items.value
-      .map((i) => i.uploaded)
-      .filter((m): m is GlimtMediaRef => m !== null)
-
-    const ok = await glimt.create({
+    // Queued first, then sent (task 314). The files reach IndexedDB *before* anything is attempted,
+    // which is what makes PRD 019 §5's promise true: the post survives a failed upload, a locked
+    // phone and an app the OS killed. The drawer closes either way — a post is accepted, and
+    // delivery is our problem rather than the member's.
+    const result = await glimt.queue({
       caption: caption.value.trim(),
       audience: audience.value,
-      media,
+      files: items.value.map((i) => ({ blob: i.file, name: i.file.name })),
     })
-    if (!ok) {
-      // The store already recorded why. Surfaced here rather than swallowed: the uploads survive,
-      // so retrying costs no re-upload — which is the whole point of keeping `uploaded` per item.
-      error.value = glimt.error
+
+    if (!result.queued && !result.sent) {
+      // Neither stored nor sent: this platform has no outbox and the network refused. The only case
+      // where a member must be kept here, because closing the drawer really would lose the photos.
+      error.value = glimt.error || 'Glimtet kunne ikke sendes. Prøv igen.'
       return
     }
 
@@ -182,11 +163,6 @@ async function share() {
               class="relative size-20 shrink-0 overflow-hidden rounded-md bg-muted"
             >
               <img :src="item.preview" alt="" class="h-full w-full object-cover" />
-              <div
-                v-if="item.failed"
-                class="absolute inset-0 bg-destructive/70"
-                aria-hidden="true"
-              ></div>
               <!-- ≥44px: removing the wrong photo with a thumb in the dark is the mistake this
                    size prevents. Offset so it does not cover the image it belongs to. -->
               <button

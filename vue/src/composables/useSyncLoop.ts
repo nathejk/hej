@@ -121,7 +121,21 @@ function dispatchTable(): Dispatch {
     // Glimt (PRD 019). A plain versioned refresh: unlike `race_area` there is a cached copy to
     // replace, and unlike `contacts` the payload carries no version of its own, so the store records
     // the one it was given — and only after the fetch succeeded (see syncVersions.ts rule 4).
-    glimt: (version) => useGlimtStore().refreshIfVersionDiffers(version),
+    //
+    // The outbox is drained on the same triggers rather than on a timer of its own (task 314). This
+    // check already runs on exactly the moments a queued post could go out — foreground, reconnect,
+    // and a manual refresh — and there is deliberately no Background Sync: it is unavailable on iOS
+    // and a backgrounded web app does not run there at all. Drained before the version check, because
+    // a post that lands changes the feed and the check would otherwise report the version from a
+    // moment ago.
+    glimt: async (version) => {
+      const store = useGlimtStore()
+      const sent = await store.drain()
+      const refreshed = await store.refreshIfVersionDiffers(version)
+      // Either counts as "something happened", so a manual refresh does not claim it did nothing
+      // after successfully sending a queued glimt.
+      return sent || refreshed
+    },
     // The race area has no cached copy to refresh: it is fetched on demand when a bulk tile download
     // starts. So a changed version is not a refetch but a *fact about the tiles* — the event's area has
     // moved beyond what this device downloaded — and it is reported to the readiness surface for the user

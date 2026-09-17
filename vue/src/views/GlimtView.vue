@@ -20,7 +20,7 @@
 // that only said "ingen glimt" would waste the one moment this feature has to explain itself.
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Camera, WifiOff } from '@lucide/vue'
+import { Camera, CloudUpload, WifiOff } from '@lucide/vue'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -74,6 +74,9 @@ const confirmCopy = computed(() => {
 
 onMounted(() => {
   glimt.hydrate()
+  // How many posts are waiting, so the notice below is honest on a cold start too. The *sending* is
+  // the sync loop's job (task 314) — this only reads the count.
+  glimt.refreshPending()
 })
 
 function openHold(number: string) {
@@ -103,6 +106,21 @@ async function confirmAction() {
         Del et glimt
       </Button>
     </header>
+
+    <!-- Queued posts. Deliberately worded as waiting for the network rather than "sender i
+         baggrunden": there is no background upload on iOS, so a post moves when the app is open and
+         claiming otherwise would misplace somebody's photographs (PRD 019 §5, task 314). -->
+    <p
+      v-if="glimt.pending > 0"
+      class="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground"
+    >
+      <CloudUpload class="size-4 shrink-0" aria-hidden="true" />
+      {{
+        glimt.pending === 1
+          ? 'Et glimt venter på nettet.'
+          : `${glimt.pending} glimt venter på nettet.`
+      }}
+    </p>
 
     <!-- Offline or a failed refresh: the cached copy is still shown, so this is a notice rather than
          an error screen. -->

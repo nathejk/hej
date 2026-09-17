@@ -2,6 +2,17 @@ import { defineStore } from 'pinia'
 
 import { HttpError, fetchWrapper } from '@/helpers'
 import { compressImage } from '@/helpers/glimtCompress'
+import {
+  countGlimtDrafts,
+  enqueueGlimt,
+  glimtDraftItems,
+  listGlimtDrafts,
+  markGlimtItemUploaded,
+  outboxAvailable,
+  recordGlimtDraftFailure,
+  removeGlimtDraft,
+  type GlimtDraft,
+} from '@/helpers/glimtOutbox'
 import { isQuotaExceeded } from '@/helpers/offline/eviction'
 import { browserEvictors } from '@/helpers/offline/evictors'
 import { profileKey } from '@/helpers/profileStorage'
@@ -304,6 +315,15 @@ export const useGlimtStore = defineStore('glimt', {
     forbidden: false,
     /** Set when a refresh failed. The stored copy is still shown. */
     error: '',
+    /**
+     * How many posts are waiting in the outbox (task 314).
+     *
+     * Held here so a view can say "1 glimt venter på nettet" without reading IndexedDB itself.
+     * Refreshed by `refreshPending()` after anything that could change it.
+     */
+    pending: 0,
+    /** True while a drain is running, so two cannot overlap. */
+    draining: false,
     storage: browserStorage() as GlimtStorage | null,
   }),
   getters: {
@@ -437,6 +457,205 @@ export const useGlimtStore = defineStore('glimt', {
     },
 
     /**
+     * Queue a glimt for sending, and try to send it now.
+     *
+     * **This is the composer's entry point**, replacing a direct `uploadMedia` + `create` (task 314).
+     * The difference is the promise PRD 019 §5 makes: the files are written to IndexedDB *before*
+     * anything is attempted, so a post survives a failed upload, a locked phone and an app the OS
+     * killed. What the member sees is the same either way — the drawer closes — which is the point: a
+     * post is accepted, and delivery is our problem rather than theirs.
+     *
+     * Returns whether the glimt reached the server *now*. `false` is not a failure: it means queued,
+     * and the feed shows it waiting.
+     */
+    async queue(input: {
+      caption: string
+      audience: Glimt['audience']
+      files: Array<{ blob: Blob; name: string }>
+    }): Promise<{ queued: boolean; sent: boolean }> {
+      if (!outboxAvailable()) {
+        // No IndexedDB — a node test run, or a browser that has blocked it. Fall back to sending
+        // directly, because the alternative is refusing to post at all. Reported as not queued, so
+        // a caller can say plainly that this one will not survive being closed.
+        const sent = await this.sendNow(input)
+        return { queued: false, sent }
+      }
+
+      const id = crypto.randomUUID()
+      try {
+        await enqueueGlimt(
+          { id, caption: input.caption, audience: input.audience, createdAt: Date.now() },
+          input.files,
+        )
+      } catch (err) {
+        // Could not even queue it — almost always quota. Try to send directly rather than lose the
+        // post, and say so.
+        this.error = isQuotaExceeded(err)
+          ? 'Der er ikke plads på telefonen til at gemme glimtet. Prøver at sende det nu.'
+          : 'Kunne ikke gemme glimtet lokalt. Prøver at sende det nu.'
+        const sent = await this.sendNow(input)
+        return { queued: false, sent }
+      }
+
+      await this.refreshPending()
+      const sent = await this.drain()
+      return { queued: true, sent }
+    },
+
+    /**
+     * Send everything in the outbox, oldest first.
+     *
+     * Called after queueing, and on foreground and `online` by the sync loop. **Never by Background
+     * Sync**: it is unavailable on iOS and a backgrounded web app does not run there (PRD 002
+     * measured 2% coverage), so anything implying otherwise would be a lie about where the member's
+     * photographs are.
+     *
+     * Overlap-guarded, because foreground and `online` fire together often enough — unlock a phone in
+     * a coverage hole and both arrive within a second.
+     *
+     * Oldest first, and it **stops at the first draft that fails**. Continuing would burn a data
+     * budget re-failing on the same dead connection, and the queue is ordered because the member
+     * posted in an order.
+     */
+    async drain(): Promise<boolean> {
+      if (this.draining || !outboxAvailable()) return false
+      this.draining = true
+      let sentAny = false
+      try {
+        for (const draft of await listGlimtDrafts()) {
+          const ok = await this.sendDraft(draft)
+          if (!ok) break
+          sentAny = true
+        }
+      } catch {
+        // Reading the outbox failed. Nothing to do but leave it for the next trigger — and
+        // deliberately not surfaced, because a member who is not posting does not need to hear
+        // about it.
+      } finally {
+        this.draining = false
+        await this.refreshPending()
+      }
+      return sentAny
+    },
+
+    /**
+     * Send one queued draft: upload the items that have not landed, then create the glimt.
+     *
+     * Items already uploaded are skipped — their refs are on the row and their Blobs have been
+     * dropped — so a draft that failed on item four resumes at item four rather than starting over.
+     * That is the whole reason the outbox stores refs per item, and on rural mobile data it is the
+     * difference between a post that eventually lands and one that never does.
+     */
+    async sendDraft(draft: GlimtDraft): Promise<boolean> {
+      try {
+        const items = await glimtDraftItems(draft.id)
+        const refs: GlimtMediaRef[] = []
+
+        for (const item of items) {
+          if (item.uploaded) {
+            refs.push(item.uploaded)
+            continue
+          }
+          if (!item.blob) {
+            // Neither bytes nor refs: nothing can be done with this item ever. Skipped rather
+            // than failing the draft forever — the other photographs are still worth posting.
+            continue
+          }
+          const stored = await this.uploadMedia(
+            new File([item.blob], item.name || 'glimt.jpg', { type: item.blob.type }),
+          )
+          await markGlimtItemUploaded(draft.id, item.ordinal, stored)
+          refs.push(stored)
+        }
+
+        if (refs.length === 0) {
+          // A draft with nothing left to post. Removed rather than retried forever.
+          await removeGlimtDraft(draft.id)
+          return true
+        }
+
+        const created = await this.createFromRefs({
+          caption: draft.caption,
+          audience: draft.audience,
+          media: refs,
+        })
+        if (!created.ok) {
+          // Recorded on the draft, not raised as a banner: this is a background attempt.
+          await recordGlimtDraftFailure(draft.id, created.reason)
+          return false
+        }
+
+        await removeGlimtDraft(draft.id)
+        return true
+      } catch (err) {
+        const message =
+          err instanceof HttpError ? `HTTP ${err.status}` : 'netværksfejl'
+        await recordGlimtDraftFailure(draft.id, message)
+        // Not surfaced as `error`: a queued post that has not gone yet is a normal state on this
+        // network, and an error banner on every foreground would train people to ignore it.
+        return false
+      }
+    },
+
+    /** Refresh the waiting count. */
+    async refreshPending() {
+      this.pending = await countGlimtDrafts()
+    },
+
+    /**
+     * Discard a queued post.
+     *
+     * The member's decision, and the only way a draft leaves the outbox unsent. Nothing here gives up
+     * on a post by itself — that is the promise.
+     */
+    async discardPending(draftId: string) {
+      try {
+        await removeGlimtDraft(draftId)
+      } finally {
+        await this.refreshPending()
+      }
+    },
+
+    /**
+     * Upload and create in one go, with no outbox involved.
+     *
+     * The fallback for a platform with no IndexedDB. Kept separate from `sendDraft` rather than
+     * folded in, so the queued path has no branch that skips persistence.
+     */
+    async sendNow(input: {
+      caption: string
+      audience: Glimt['audience']
+      files: Array<{ blob: Blob; name: string }>
+    }): Promise<boolean> {
+      try {
+        const refs: GlimtMediaRef[] = []
+        for (const file of input.files) {
+          refs.push(
+            await this.uploadMedia(
+              new File([file.blob], file.name || 'glimt.jpg', { type: file.blob.type }),
+            ),
+          )
+        }
+        const created = await this.createFromRefs({
+          caption: input.caption,
+          audience: input.audience,
+          media: refs,
+        })
+        if (!created.ok) {
+          // A member is watching this one — it is the no-outbox path, reached straight from the
+          // composer — so the reason becomes the banner.
+          this.error = created.reason
+          return false
+        }
+        this.error = ''
+        return true
+      } catch {
+        this.error = 'Glimtet kunne ikke sendes. Prøv igen.'
+        return false
+      }
+    },
+
+    /**
      * Upload one media item and return what the create call will reference.
      *
      * One request per item rather than one big multipart post, matching the BFF (task 303): a glimt
@@ -471,12 +690,21 @@ export const useGlimtStore = defineStore('glimt', {
      * Prepends the new glimt to the local copy on success rather than refetching. The member has
      * just watched their upload finish; a round trip before their own post appears would read as the
      * post having failed.
+     *
+     * Named `createFromRefs` rather than `create` because it is the *second half* of posting and takes
+     * refs, not files. The composer calls `queue()`; this is what the drain eventually reaches.
+     *
+     * **Returns a reason and does not touch `this.error`.** `error` is UI state — a banner — and its
+     * two callers want opposite things from a failure: a member watching the composer should be told,
+     * while a background drain must stay quiet, because a queued post that has not gone yet is a
+     * normal state on this network and a banner on every foreground would train people to ignore it.
+     * Letting this function set the banner made the drain shout; a test caught it.
      */
-    async create(input: {
+    async createFromRefs(input: {
       caption: string
       audience: Glimt['audience']
       media: GlimtMediaRef[]
-    }): Promise<boolean> {
+    }): Promise<{ ok: boolean; reason: string }> {
       try {
         const created = await fetchWrapper.post<GlimtResponse>('/api/glimt', {
           caption: input.caption,
@@ -493,18 +721,15 @@ export const useGlimtStore = defineStore('glimt', {
         })
         this.glimt = [toGlimt(created), ...this.glimt]
         await this.persist()
-        this.error = ''
-        return true
+        return { ok: true, reason: '' }
       } catch (err) {
         if (err instanceof HttpError && err.status === 503) {
           // The stream is down. The BFF said so honestly rather than pretending (task 304), so the
           // client must too — and this is the message that tells a member to keep the photos and
           // try again rather than to take them a second time.
-          this.error = 'Glimtet kunne ikke deles lige nu. Prøv igen om lidt.'
-          return false
+          return { ok: false, reason: 'Glimtet kunne ikke deles lige nu. Prøv igen om lidt.' }
         }
-        this.error = 'Glimtet kunne ikke deles. Prøv igen.'
-        return false
+        return { ok: false, reason: 'Glimtet kunne ikke deles. Prøv igen.' }
       }
     },
 

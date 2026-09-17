@@ -1,16 +1,11 @@
 # 317 — GlimtComposer — capture, caption, audience choice
 
-**Status:** doing
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-17
 **Picked up by:** agent session (Zed)
 **Started:** 2026-09-18
-**Completed:**
-
-> **Blocked on task 314.** Everything else is built and tested; the composer posts straight to the
-> API, so an offline post fails instead of queueing. `TASKS.md` says a task reaches `done/` when all
-> its criteria are checked, so this waits in `doing/` rather than shipping with a promise PRD 019 §5
-> makes and this does not keep.
+**Completed:** 2026-09-18
 
 ## Description
 
@@ -46,7 +41,7 @@ hard-coded one.
 - [x] Audience is a visible three-option list defaulting to `group`, each with a consequence line
 - [x] Consent line, hold-attribution reassurance, and Team-section disclosure present
 - [x] Retention figure read from `/api/config`
-- [ ] ~~Posts via the outbox (task 314) so an offline post is not lost~~ — **not yet**: task 314 is not built. Posts go straight to the API today; see the note below.
+- [x] Posts via the outbox (task 314) so an offline post is not lost
 - [x] `npm run test:unit` (813 tests), `type-check` and `build` pass
 
 ## Progress Log
@@ -97,15 +92,21 @@ hard-coded one.
 - 2026-09-18 — ✅ All criteria met bar the outbox. 29 new tests (813 total across 63 files),
   `type-check` and `build` clean.
 
-### ⚠️ The outbox criterion is genuinely not met
+### ✅ The outbox criterion is now met (2026-09-18)
 
-Task 314 (`glimtOutbox.ts`) is not built, so **an offline post fails rather than queueing**. The
-composer keeps the member's files and its error message says to try again, so nothing is lost while
-the drawer is open — but closing it discards the draft, and PRD 019 §5 promises more than that: "the
-app must not lose a photo it accepted".
+Task 314 landed, and the composer's `share()` now calls `glimt.queue()` — which writes the files to
+IndexedDB **before** attempting anything, so a post survives a failed upload, a locked phone and an app
+the OS killed.
 
-Left unchecked rather than quietly reinterpreted. Task 314 should wire `share()` through the outbox;
-the per-item `uploaded` refs are already the right shape for a resumable drain.
+The composer got simpler rather than more complex in the process. It no longer tracks per-item upload
+state or failure flags at all: it hands the files over and closes. Two consequences worth noting:
+
+- **The drawer closes on a queued post, not only a sent one.** That is the correct reading of "the app
+must not lose a photo it accepted" — accepting a post and reporting delivery are different promises,
+and only the first one is the member's problem.
+- **The one case that still keeps a member in the composer** is no-outbox *and* no network: a browser
+with IndexedDB blocked, offline. Then closing the drawer really would lose the photographs, so it says
+so instead.
 
 ### ⚠️ Not verified, and cannot be from here
 

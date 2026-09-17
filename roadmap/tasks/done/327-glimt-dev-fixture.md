@@ -151,6 +151,22 @@ holds **10 visible glimt**: six with dark markers and six with white ones. That 
 behaviour documented below, and side by side it happens to show the fix. A stream purge clears both
 batches.
 
+### What this fixture is not for
+
+It answers **geometry**, not aesthetics. The generated patterns are built so a wrong crop, a broken
+aspect ratio or a mis-sized thumbnail is *unmissable* — that is what the corner markers and countable
+blocks are, and they caught two real bugs within an hour (the invisible markers here, and the
+top-aligned carousel slides in task 316).
+
+They are useless for judging whether a crop **feels** right, which is a question about a subject in a
+photograph: where the faces are, whether the horizon survives, whether 15% off the top matters.
+Maintainer, 2026-09-18: "difficult to assess zoom with these similar looking stock photos."
+
+For that, **post real photographs through the composer** — it works, and it is the same upload path.
+One landscape, one portrait, and one glimt mixing the two will show more about the crop rules than any
+synthetic set can. Do not be tempted to commit photographs as fixtures instead: a picture of a real
+person as test data is exactly what this feature is careful about.
+
 ### Note
 
 **It is additive, not idempotent.** Running it twice creates twelve glimt, not six, because each gets a
