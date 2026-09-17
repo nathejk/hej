@@ -1,11 +1,15 @@
 package main
 
 import (
+	"errors"
 	"time"
 
 	"nathejk.dk/internal/users"
 	"nathejk.dk/nathejk/table/glimt"
 )
+
+// errRefCheckFailed stands in for a database that cannot answer "is this object shared?".
+var errRefCheckFailed = errors.New("ref check failed")
 
 // stubGlimt is a fake glimt.Queries for handler tests.
 //
@@ -33,6 +37,10 @@ type stubGlimt struct {
 	// WHERE clause that has drifted from MaySeeGlimt. Used to prove the handler re-checks the
 	// predicate on the way out rather than trusting the query.
 	ignoreFilter bool
+
+	// refsErr fails RefsUsedElsewhere, so a test can assert that an unanswerable
+	// "is this shared?" question leaves the objects in place.
+	refsErr error
 }
 
 func (s *stubGlimt) Feed(_ string, f glimt.Filter, limit, offset int) ([]glimt.Glimt, error) {
@@ -153,6 +161,37 @@ func (s *stubGlimt) Expired(_ string, before time.Time, limit int) ([]glimt.Expi
 		out = out[:limit]
 	}
 	return out, nil
+}
+
+// RefsUsedElsewhere reports which refs another surviving glimt still references.
+//
+// Implemented properly rather than returning nil, because the property it protects — that deleting
+// one glimt must not blank another that shares bytes — is exactly what a test needs to exercise, and
+// a stub that always said "nothing is shared" would make that test pass while the behaviour was
+// absent.
+func (s *stubGlimt) RefsUsedElsewhere(_ string, glimtID string, refs []string) (map[string]bool, error) {
+	if s.refsErr != nil {
+		return nil, s.refsErr
+	}
+	wanted := map[string]bool{}
+	for _, r := range refs {
+		wanted[r] = true
+	}
+	inUse := map[string]bool{}
+	for _, g := range s.rows {
+		if g.GlimtID == glimtID {
+			continue
+		}
+		for _, m := range g.Media {
+			if wanted[m.Ref] {
+				inUse[m.Ref] = true
+			}
+			if m.ThumbRef != "" && wanted[m.ThumbRef] {
+				inUse[m.ThumbRef] = true
+			}
+		}
+	}
+	return inUse, nil
 }
 
 func (s *stubGlimt) Version(_ string, f glimt.Filter) (string, error) {

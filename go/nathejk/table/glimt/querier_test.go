@@ -290,6 +290,53 @@ func TestGetIsUnfilteredByDesign(t *testing.T) {
 	}
 }
 
+// TestRefsUsedElsewhereExcludesTheGlimtBeingDeleted pins the two things the query must get right.
+//
+// It must exclude the glimt whose refs these are — its own rows are exactly the ones going away — and
+// it must look at **both** columns, because a ref can be one glimt's full image and another's
+// thumbnail: a small upload is stored once and referenced as both.
+func TestRefsUsedElsewhereExcludesTheGlimtBeingDeleted(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(regexp.QuoteMeta("m.glimtId <> ?")).
+		WithArgs("2026", "g-mine", refA, refB, refA, refB).
+		WillReturnRows(sqlmock.NewRows([]string{"blobRef", "thumbRef"}).
+			AddRow(refA, ""))
+
+	inUse, err := querier{db: db}.RefsUsedElsewhere("2026", "g-mine", []string{refA, refB})
+	if err != nil {
+		t.Fatalf("RefsUsedElsewhere: %v", err)
+	}
+	if !inUse[refA] {
+		t.Error("a ref another glimt references was not reported as in use")
+	}
+	if inUse[refB] {
+		t.Error("a ref nothing else references was reported as in use")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet: %v", err)
+	}
+}
+
+func TestRefsUsedElsewhereWithNoRefsTouchesNothing(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	if got, err := (querier{db: db}).RefsUsedElsewhere("2026", "g-1", nil); err != nil || got != nil {
+		t.Errorf("= %v, %v; want nil, nil", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected query: %v", err)
+	}
+}
+
 func TestClampLimit(t *testing.T) {
 	// An unbounded query on the post-race browse is the difference between a slow page and
 	// a service that stops answering.

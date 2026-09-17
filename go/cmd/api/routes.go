@@ -100,6 +100,9 @@ func (app *application) routes() http.Handler {
 	// `feed` and `media` siblings (it panics at construction — confirmed while wiring task 305).
 	// The contacts pane hit the same wall and answered it the same way, with `/people/:personId`.
 	router.HandlerFunc(http.MethodGet, "/api/glimt/items/:glimtId/media/:ordinal", app.requireAuth(app.showGlimtMediaHandler))
+	// Deleting is the author's alone. Moderators hide (below) — the person who took the
+	// photograph is the only one who gets to destroy it.
+	router.HandlerFunc(http.MethodDelete, "/api/glimt/items/:glimtId", app.requireAuth(app.deleteGlimtHandler))
 	// The contacts directory (PRD 007). Cached by the client and worked from offline, so
 	// it carries everything the pane needs and nothing it does not: no guardian numbers, no
 	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach

@@ -135,6 +135,7 @@ type Queries interface {
 	Moderation(year string, limit, offset int) ([]Glimt, error)
 	PublicFeed(year string, limit, offset int) ([]Glimt, error)
 	Expired(year string, before time.Time, limit int) ([]Expired, error)
+	RefsUsedElsewhere(year, glimtID string, refs []string) (map[string]bool, error)
 	Version(year string, f Filter) (string, error)
 }
 
@@ -342,6 +343,66 @@ func (q querier) Expired(year string, before time.Time, limit int) ([]Expired, e
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// RefsUsedElsewhere reports which of these refs are still referenced by a *different* glimt.
+//
+// # Why deletion needs this at all
+//
+// The blob store is content-addressed, so identical bytes are one object with one ref. That is what
+// makes uploads idempotent and retries free — and it means **deleting the object for one glimt can
+// blank the media of another**. Two members of the same patrulje posting the photo one of them
+// AirDropped to the other is not a contrived case; nor is one member posting the same picture in two
+// glimt. Without this check, deleting the second post would silently break the first, and the
+// evidence would be a grey box in someone else's feed with nothing in any log.
+//
+// Only non-deleted rows count, and the glimt being deleted is excluded — its own rows are exactly
+// the ones that are going away.
+func (q querier) RefsUsedElsewhere(year, glimtID string, refs []string) (map[string]bool, error) {
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.Repeat("?,", len(refs)-1) + "?"
+	args := make([]any, 0, len(refs)*2+2)
+	args = append(args, year, glimtID)
+	for _, r := range refs {
+		args = append(args, r)
+	}
+	for _, r := range refs {
+		args = append(args, r)
+	}
+
+	// Both columns, because a ref can be one glimt's full image and another's thumbnail — a
+	// 320px upload is stored once and referenced as both.
+	rows, err := q.db.Query(`
+		SELECT m.blobRef, m.thumbRef
+		FROM glimt_media m
+		JOIN glimt g ON g.glimtId = m.glimtId AND g.year = m.year
+		WHERE m.year = ? AND m.glimtId <> ? AND g.deleted = 0
+		  AND (m.blobRef IN (`+placeholders+`) OR m.thumbRef IN (`+placeholders+`))`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	wanted := map[string]bool{}
+	for _, r := range refs {
+		wanted[r] = true
+	}
+	inUse := map[string]bool{}
+	for rows.Next() {
+		var full, thumb string
+		if err := rows.Scan(&full, &thumb); err != nil {
+			return nil, err
+		}
+		if wanted[full] {
+			inUse[full] = true
+		}
+		if wanted[thumb] {
+			inUse[thumb] = true
+		}
+	}
+	return inUse, rows.Err()
 }
 
 // Version returns a cheap fingerprint of what this caller's feed currently contains.
