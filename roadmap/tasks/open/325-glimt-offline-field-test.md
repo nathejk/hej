@@ -101,7 +101,30 @@ Record what actually happened, including anything that behaved differently from 
 - [ ] **Scenario 5** — force-quit mid-upload, reopen, confirm nothing is re-uploaded and no duplicate
       glimt appears. Not yet run, and it is the one that exercises `markGlimtItemUploaded`'s reason
       for existing.
-- [ ] **Re-run scenario 1** against the fix, to confirm the queued glimt now renders with its
-      photographs and the Venter badge.
 - [ ] **Android/Chrome** repeat of all five.
 - [ ] Zero lost media across the runs — nothing lost so far.
+
+- 2026-09-17 — **Scenario 1 re-run: passes.** Screenshot shows the queued glimt rendering with its
+  photograph, an audience chip ("Min gruppe") and the **Venter** badge, above its caption. The
+  contradiction is gone.
+
+  Two things visible in that screenshot, both cosmetic, both fixed:
+
+  - **The queued card was the wrong shape.** A portrait photograph rendered in a 4:3 box, cropped top
+    and bottom — and it would have *changed shape* once the upload returned the real dimensions. The
+    cause: a queued item had no dimensions at all, because the composer passes raw `File`s to the
+    outbox and nothing is decoded until the drain compresses them, so `stripAspectRatio` fell back to
+    its neutral 4:3.
+
+    Fixed by measuring at enqueue (`measureImage`, one decode at the moment *Del* is tapped —
+    invisible next to the upload that follows) and storing `width`/`height` on the draft item.
+    `compressImage` now also returns the dimensions it already computed rather than discarding them.
+    The server's values still win once it has them: it measured what it actually stored.
+
+  - **The pending notice had become redundant.** "Et glimt venter på nettet." sat directly above a
+    card that says "Venter" and shows the photograph — two claims about one thing in the same
+    viewport. It now appears only when **more than one** is queued, where it is a real summary of a
+    queue the member may have to scroll to see.
+
+  Also confirmed incidentally: the **Modererings-kø** button is drawn, so task 309's
+  `moderates_glimt` signal from `/api/me` works on a real device.

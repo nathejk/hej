@@ -61,7 +61,28 @@ export function shouldCompress(type: string, bytes: number, threshold = 512 * 10
 }
 
 /**
- * Downscale and re-encode an image file, returning a Blob.
+ * What compression produced: the bytes to upload, and the pixel dimensions of them.
+ *
+ * The dimensions are returned rather than discarded because the **outbox needs them** (task 325). A
+ * queued glimt renders from its local Blob before the server has ever seen it, and without
+ * dimensions the card falls back to a 4:3 box — which crops a portrait photograph badly and then
+ * *changes shape* once the upload returns the real values. Seen on a device, 2026-09-17.
+ *
+ * `width`/`height` are **0 when unknown**, which is a real case: a file small enough to skip
+ * compression is never decoded, and decoding one purely to measure it would spend a decode on every
+ * small image to improve one card's first paint. The card treats 0 the way it already treats a media
+ * row with no dimensions.
+ */
+export interface CompressedImage {
+  blob: Blob
+  /** 0 when not known — see above. */
+  width: number
+  /** 0 when not known. */
+  height: number
+}
+
+/**
+ * Downscale and re-encode an image file.
  *
  * Returns the original file when anything at all goes wrong — an unsupported format, a decode
  * failure, a canvas the browser refuses to allocate for a very large image. The server can handle
@@ -72,20 +93,26 @@ export function shouldCompress(type: string, bytes: number, threshold = 512 * 10
  * Android phone is the difference between a composer that stutters while you add ten photos and one
  * that does not.
  */
-export async function compressImage(file: File): Promise<Blob> {
-  if (!shouldCompress(file.type, file.size)) return file
-  if (typeof document === 'undefined') return file
+export async function compressImage(file: File): Promise<CompressedImage> {
+  const original = (): CompressedImage => ({ blob: file, width: 0, height: 0 })
+
+  if (!shouldCompress(file.type, file.size)) return original()
+  if (typeof document === 'undefined') return original()
 
   try {
     const bitmap = await decode(file)
+    // The source dimensions, kept before the bitmap is closed. Reported even when the re-encode is
+    // discarded below: the *pixels* are the same either way, and a card that knows the shape of the
+    // original is exactly as correct as one that knows the shape of the copy.
+    const source = { width: bitmap.width, height: bitmap.height }
     const { width, height } = targetSize(bitmap.width, bitmap.height)
-    if (width === 0 || height === 0) return file
+    if (width === 0 || height === 0) return original()
 
     const canvas = document.createElement('canvas')
     canvas.width = width
     canvas.height = height
     const ctx = canvas.getContext('2d')
-    if (!ctx) return file
+    if (!ctx) return { blob: file, ...source }
     ctx.drawImage(bitmap, 0, 0, width, height)
     if ('close' in bitmap) bitmap.close()
 
@@ -95,10 +122,49 @@ export async function compressImage(file: File): Promise<Blob> {
     // Only take the re-encode if it actually helped. A re-encoded JPEG is not reliably smaller than
     // its source, and uploading a *larger* file than the member chose would be the opposite of the
     // point.
-    if (!blob || blob.size >= file.size) return file
-    return blob
+    if (!blob || blob.size >= file.size) return { blob: file, ...source }
+    return { blob, width, height }
   } catch {
-    return file
+    return original()
+  }
+}
+
+/**
+ * Read an image's pixel dimensions, or `{0, 0}` if it cannot be read.
+ *
+ * Exists for the outbox (task 325): a queued glimt is rendered from its local Blob before the server
+ * has measured anything, and a card with no dimensions falls back to a 4:3 box — which crops a
+ * portrait photograph and then reshapes when the upload response arrives. One decode at the moment
+ * the member taps *Del* is invisible next to the upload that follows.
+ *
+ * Never throws. Dimensions are a presentation nicety; a post must not fail for want of them.
+ */
+export async function measureImage(blob: Blob): Promise<{ width: number; height: number }> {
+  const unknown = { width: 0, height: 0 }
+  if (!blob.type.startsWith('image/')) return unknown
+
+  try {
+    if (typeof createImageBitmap === 'function') {
+      const bitmap = await createImageBitmap(blob)
+      const size = { width: bitmap.width, height: bitmap.height }
+      bitmap.close()
+      return size
+    }
+    if (typeof document === 'undefined') return unknown
+    const url = URL.createObjectURL(blob)
+    try {
+      const img = new Image()
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve()
+        img.onerror = () => reject(new Error('decode failed'))
+        img.src = url
+      })
+      return { width: img.naturalWidth, height: img.naturalHeight }
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+  } catch {
+    return unknown
   }
 }
 

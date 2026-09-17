@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { HttpError, NetworkError, fetchWrapper } from '@/helpers'
-import { compressImage } from '@/helpers/glimtCompress'
+import { compressImage, measureImage } from '@/helpers/glimtCompress'
 import {
   countGlimtDrafts,
   enqueueGlimt,
@@ -753,9 +753,15 @@ export const useGlimtStore = defineStore('glimt', {
 
       const id = crypto.randomUUID()
       try {
+        // Measured here so a queued card has the right shape from its first paint (task 325).
+        // Best-effort and never fatal: an unmeasurable item queues with zeros and falls back to the
+        // neutral 4:3 box, exactly as a media row with no dimensions does.
+        const measured = await Promise.all(
+          input.files.map(async (f) => ({ ...f, ...(await measureImage(f.blob)) })),
+        )
         await enqueueGlimt(
           { id, caption: input.caption, audience: input.audience, createdAt: Date.now() },
-          input.files,
+          measured,
         )
       } catch (err) {
         // Could not even queue it — almost always quota. Try to send directly rather than lose the
@@ -918,8 +924,11 @@ export const useGlimtStore = defineStore('glimt', {
             media.push({
               ordinal: item.ordinal,
               kind: item.uploaded?.kind ?? 'image',
-              width: item.uploaded?.width ?? 0,
-              height: item.uploaded?.height ?? 0,
+              // The server's measurements win once it has them — it measured what it actually
+              // stored. Before that, the composer's, so a queued card has the right shape from its
+              // first paint instead of assuming 4:3 and then reshaping when the upload lands.
+              width: item.uploaded?.width ?? item.width ?? 0,
+              height: item.uploaded?.height ?? item.height ?? 0,
               durationMs: item.uploaded?.durationMs ?? 0,
               hasThumb: false,
               localUrl: item.blob ? URL.createObjectURL(item.blob) : undefined,
@@ -1028,9 +1037,9 @@ export const useGlimtStore = defineStore('glimt', {
     async uploadMedia(file: File): Promise<GlimtMediaRef> {
       const compressed = await compressImage(file)
       const form = new FormData()
-      // The field is `media`, not `photo`: it carries video too (task 322), and the BFF names it
+      // The field is `media`, not `photo`: it carries video too (PRD 020), and the BFF names it
       // that way.
-      form.append('media', compressed, file.name || 'glimt.jpg')
+      form.append('media', compressed.blob, file.name || 'glimt.jpg')
       const stored = await fetchWrapper.postForm<StoredMediaResponse>('/api/glimt/media', form)
       return {
         ref: stored.ref,

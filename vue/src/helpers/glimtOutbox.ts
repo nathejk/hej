@@ -74,6 +74,18 @@ export interface GlimtDraftItem {
   blob: Blob | null
   /** Original filename, for the multipart part. */
   name: string
+  /**
+   * Pixel dimensions of the queued bytes, or 0 when the composer could not measure them.
+   *
+   * Only used to give a **queued** card the right shape before upload (task 325). Without it the
+   * card falls back to 4:3, which crops a portrait photograph and then changes shape when the real
+   * dimensions arrive with the upload response — visible and jarring, seen on a device.
+   *
+   * Not authoritative for anything: once `uploaded` is set, those values win, because the server
+   * measured what it actually stored.
+   */
+  width: number
+  height: number
   /** The server's refs, once uploaded. Null until then. */
   uploaded: {
     ref: string
@@ -163,7 +175,7 @@ function asPromise<T>(req: IDBRequest<T>): Promise<T> {
  */
 export async function enqueueGlimt(
   draft: Omit<GlimtDraft, 'attempts' | 'lastError' | 'itemCount'>,
-  files: Array<{ blob: Blob; name: string }>,
+  files: Array<{ blob: Blob; name: string; width?: number; height?: number }>,
 ): Promise<void> {
   const database = await db()
   const transaction = tx(database, [DRAFTS, MEDIA], 'readwrite')
@@ -183,6 +195,8 @@ export async function enqueueGlimt(
       ordinal,
       blob: file.blob,
       name: file.name,
+      width: file.width ?? 0,
+      height: file.height ?? 0,
       uploaded: null,
     }
     media.put(item)

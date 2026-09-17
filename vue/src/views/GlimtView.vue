@@ -176,19 +176,22 @@ async function confirmAction() {
       Modererings-kø
     </Button>
 
-    <!-- Queued posts. Deliberately worded as waiting for the network rather than "sender i
-         baggrunden": there is no background upload on iOS, so a post moves when the app is open and
-         claiming otherwise would misplace somebody's photographs (PRD 019 §5, task 314). -->
+    <!-- Queued posts. Shown **only when more than one** is waiting (task 325).
+
+         With a single queued glimt the card below already says "Venter" and shows the photograph, so
+         this notice restated it in the same viewport — two claims about one thing, which on a device
+         read as clutter above the content. It survives for the plural case, where it is a genuine
+         summary of a queue the member may have to scroll to see.
+
+         Deliberately worded as waiting for the network rather than "sender i baggrunden": there is no
+         background upload on iOS, so a post moves when the app is open and claiming otherwise would
+         misplace somebody's photographs (PRD 019 §5, task 314). -->
     <p
-      v-if="glimt.pending > 0"
+      v-if="glimt.pending > 1"
       class="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground"
     >
       <CloudUpload class="size-4 shrink-0" aria-hidden="true" />
-      {{
-        glimt.pending === 1
-          ? 'Et glimt venter på nettet.'
-          : `${glimt.pending} glimt venter på nettet.`
-      }}
+      {{ glimt.pending }} glimt venter på nettet.
     </p>
 
     <!-- Offline or a failed refresh: the cached copy is still shown, so this is a notice rather than
