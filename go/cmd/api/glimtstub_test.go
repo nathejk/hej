@@ -51,6 +51,9 @@ type stubGlimt struct {
 	storedBytes int64
 	totalBytes  int64
 	bytesErr    error
+
+	// publicCutoffs records the retention cutoff each PublicFeed read was given (task 323).
+	publicCutoffs []time.Time
 }
 
 func (s *stubGlimt) StoredBytes(_, _ string) (int64, error) {
@@ -176,6 +179,10 @@ func (s *stubGlimt) Moderation(_ string, limit, offset int) ([]glimt.Glimt, erro
 }
 
 func (s *stubGlimt) PublicFeed(_ string, notBefore time.Time, limit, offset int) ([]glimt.Glimt, error) {
+	// Recorded so a test can assert the handler **passed** the retention cutoff (task 323). A zero
+	// time there serves the whole archive to the open web, and the page looks perfect either way —
+	// so the only way to catch it is to check what the query was given.
+	s.publicCutoffs = append(s.publicCutoffs, notBefore)
 	if s.err != nil {
 		return nil, s.err
 	}

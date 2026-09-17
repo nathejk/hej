@@ -127,6 +127,22 @@ type application struct {
 	//
 	// May be nil, in which case no limit applies.
 	glimtReadLimiter *ratelimit.Limiter
+	// publicGlimtReadLimiter and publicReportLimiter throttle the **unauthenticated** public page
+	// and its API (task 323), keyed by **IP** — the only key available, since there is no member.
+	//
+	// Separate from the member-keyed limiters rather than shared, because an IP is a much worse key:
+	// a school, a workplace or a parents' group behind one NAT shares a single budget. That forces
+	// the read ceiling to be correspondingly generous, and mixing the two would drag the
+	// member-keyed limit down to match.
+	//
+	// The report limit is tighter than the authenticated one — an anonymous write should be — but
+	// still generous, for the reason glimtreport.go records: the cost of a spurious report is a
+	// moderator's glance, and the cost of a throttled one is a photograph somebody objected to
+	// staying on the open web.
+	//
+	// Both may be nil, in which case no limit applies.
+	publicGlimtReadLimiter *ratelimit.Limiter
+	publicReportLimiter    *ratelimit.Limiter
 	// confirmLimiter throttles the guardian-number confirmation and report endpoints
 	// (PRD 005, tasks 135/136), keyed by IP like the PIN limiter.
 	//
@@ -643,6 +659,13 @@ func run(logger *slog.Logger) error {
 		// So this exists to stop a script hammering the endpoint and for nothing else. If it ever
 		// fires for a real member, it is set wrong.
 		glimtReadLimiter: limiterOrNil(cfg.glimtReadsPerMinute, time.Minute),
+		// The public page, by IP. Deliberately looser again than the member read limit: one IP may
+		// legitimately be a whole school, and this is the surface a link in a parents' group chat
+		// lands on — the worst possible moment to start answering 429.
+		publicGlimtReadLimiter: limiterOrNil(cfg.glimtPublicReadsPerMinute, time.Minute),
+		// Anonymous reports, by IP. Tighter than the authenticated 100/hour, because an
+		// unauthenticated write should be, but still far beyond honest use.
+		publicReportLimiter: limiterOrNil(cfg.glimtPublicReportsPerHour, time.Hour),
 		// A hundred reports an hour per member. Far beyond any honest use, which is the
 		// point: reporting is the safety mechanism for an unmoderated public scope
 		// (PRD 019 §0), so the ceiling is set to stop a script rather than to shape

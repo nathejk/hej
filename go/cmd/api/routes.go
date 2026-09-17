@@ -119,6 +119,34 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodGet, "/api/glimt/moderation", app.requireAuth(app.listGlimtModerationHandler))
 	router.HandlerFunc(http.MethodPost, "/api/glimt/items/:glimtId/hide", app.requireAuth(app.hideGlimtHandler))
 	router.HandlerFunc(http.MethodPost, "/api/glimt/items/:glimtId/unhide", app.requireAuth(app.unhideGlimtHandler))
+	// The public Glimt page and its API (PRD 019 §0, task 323). Served by this service on
+	// hej.nathejk.dk, not exported into the marketing site — one store, one takedown.
+	//
+	// **Registered without `requireAuth`, and that is the security property rather than a
+	// convenience.** A logged-in member's browser *will* send `hej_session` to these routes, and if
+	// any of them read it the public page would silently become a different page for members than
+	// for parents — at which point "is this public-safe?" stops being a testable question
+	// (PRD 019 §8).
+	//
+	// They cannot read it: `requireAuth` is the **only** place a session enters the request context
+	// (middleware.go), so `contextGetSession` in a bare handler returns false unconditionally. Do
+	// not wrap these, and do not add a middleware that populates the session globally — that one
+	// change would undo this without any test failing except the ones in glimtpublic_test.go, which
+	// exist for exactly this.
+	//
+	// The audience is re-checked per glimt inside the handlers (`publiclyVisible`), so the media
+	// route cannot be used to reach a group-scoped item by id.
+	router.HandlerFunc(http.MethodGet, "/api/public/glimt", app.listPublicGlimtHandler)
+	router.HandlerFunc(http.MethodGet, "/api/public/glimt/:glimtId/media/:ordinal", app.showPublicGlimtMediaHandler)
+	// Unauthenticated by design: a parent who spots a problem is exactly the person we want to hear
+	// from, and they have no session and will not make one. Rate-limited by IP.
+	router.HandlerFunc(http.MethodPost, "/api/public/glimt/:glimtId/report", app.reportPublicGlimtHandler)
+	// The server-rendered page. Not under /api, and deliberately **not** an SPA route: it must work
+	// with JavaScript disabled on a browser that cannot parse the app's bundle. Registered here
+	// rather than left to the SPA fallback, which would serve index.html — and note that the
+	// service worker needs a `navigateFallbackDenylist` entry for the same reason, or an installed
+	// member following a public link gets the app shell instead (see vite.config.ts).
+	router.HandlerFunc(http.MethodGet, "/offentligt/glimt", app.publicGlimtPageHandler)
 	// The contacts directory (PRD 007). Cached by the client and worked from offline, so
 	// it carries everything the pane needs and nothing it does not: no guardian numbers, no
 	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach

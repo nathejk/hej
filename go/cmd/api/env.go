@@ -285,6 +285,13 @@ type config struct {
 	glimtMediaPerHour   int
 	glimtBytesPerHour   int64
 	glimtReadsPerMinute int
+	// glimtPublicReadsPerMinute and glimtPublicReportsPerHour bound the unauthenticated public page
+	// and its API (task 323), keyed by IP because there is no member to key on.
+	//
+	// Looser again than the member read limit: one IP may legitimately be a whole school, and this
+	// is the surface a link in a parents' group chat lands on.
+	glimtPublicReadsPerMinute int
+	glimtPublicReportsPerHour int
 	// glimtMemberStorageBytes is one member's total media allowance for the year.
 	glimtMemberStorageBytes int64
 	// glimtTotalStorageBytes is the whole year's allowance, protecting the volume itself.
@@ -325,6 +332,8 @@ func loadConfig() config {
 	flag.IntVar(&cfg.glimtMediaPerHour, "glimt-media-per-hour", envInt("GLIMT_MEDIA_PER_HOUR", 60), "Media files one member may upload per hour (0 disables the limit)")
 	flag.Int64Var(&cfg.glimtBytesPerHour, "glimt-bytes-per-hour", envInt64("GLIMT_BYTES_PER_HOUR", 200<<20), "Media bytes one member may upload per hour (0 disables the limit)")
 	flag.IntVar(&cfg.glimtReadsPerMinute, "glimt-reads-per-minute", envInt("GLIMT_READS_PER_MINUTE", 600), "Glimt read requests one member may make per minute (0 disables the limit)")
+	flag.IntVar(&cfg.glimtPublicReadsPerMinute, "glimt-public-reads-per-minute", envInt("GLIMT_PUBLIC_READS_PER_MINUTE", 3000), "Public glimt read requests one IP may make per minute (0 disables the limit)")
+	flag.IntVar(&cfg.glimtPublicReportsPerHour, "glimt-public-reports-per-hour", envInt("GLIMT_PUBLIC_REPORTS_PER_HOUR", 30), "Anonymous glimt reports one IP may make per hour (0 disables the limit)")
 	flag.Int64Var(&cfg.glimtMemberStorageBytes, "glimt-member-storage-bytes", envInt64("GLIMT_MEMBER_STORAGE_BYTES", 500<<20), "Total media bytes one member may have stored (0 disables the ceiling)")
 	flag.Int64Var(&cfg.glimtTotalStorageBytes, "glimt-total-storage-bytes", envInt64("GLIMT_TOTAL_STORAGE_BYTES", 0), "Total media bytes the event may have stored (0 disables the ceiling)")
 	flag.Parse()

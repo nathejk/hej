@@ -113,11 +113,19 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // The desktop placeholder (task 140) is a plain file, not part of this app, so the
-        // navigation fallback must not answer for it. Without this exclusion an installed
-        // client asking for /desktop.html would be served index.html, boot the app, and be
-        // redirected straight back here — a loop, and the one failure mode of moving that
-        // page out of the SPA.
+        // Two paths the navigation fallback must **not** answer for, both of which are real
+        // pages served outside this app.
+        //
+        // `/desktop.html` is the desktop placeholder (task 140): a plain file, not part of this
+        // app. Without the exclusion an installed client asking for it would be served
+        // index.html, boot the app, and be redirected straight back — a loop, and the one
+        // failure mode of moving that page out of the SPA.
+        //
+        // `/offentligt/` is the public Glimt page (PRD 019, task 323), server-rendered by the
+        // BFF. This one is easy to get wrong because it fails *asymmetrically*: a parent following
+        // a shared link has no service worker and gets the real page, so the bug is invisible to
+        // everyone except **installed members**, who would get the app shell instead of the page
+        // they clicked. Prefix rather than exact, so the page can gain siblings.
         navigateFallbackDenylist: [/^\/desktop\.html$/, /^\/offentligt\//],
         // Pull in custom push / notificationclick handlers (public/push-sw.js).
         importScripts: ['push-sw.js'],

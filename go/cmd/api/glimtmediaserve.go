@@ -122,7 +122,7 @@ func (app *application) showGlimtMediaHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	app.streamGlimtMedia(w, r, ref, glimtID)
+	app.streamGlimtMedia(w, r, ref, glimtID, glimtMediaCacheControl)
 }
 
 // glimtVariantRef picks the ref for an ordinal and a variant.
@@ -153,14 +153,21 @@ func glimtVariantRef(g glimt.Glimt, ordinal int, variant string) (blob.Ref, bool
 // same bytes, same value. Combined with `immutable` this is what turns the post-race browse from
 // thousands of transfers into thousands of 304s and then, once the browser trusts `immutable`, into
 // no requests at all.
-func (app *application) streamGlimtMedia(w http.ResponseWriter, r *http.Request, ref blob.Ref, logID string) {
+//
+// `cacheControl` is a parameter rather than the constant above, because the public route (task 323)
+// must answer `public` where this one answers `private`, and that difference is a privacy property.
+// Passing it in keeps it visible at each call site instead of hidden in a wrapper a reader would
+// have to prove nobody changed.
+func (app *application) streamGlimtMedia(
+	w http.ResponseWriter, r *http.Request, ref blob.Ref, logID, cacheControl string,
+) {
 	etag := `"` + string(ref) + `"`
 
 	// Answered before opening the object: a 304 should not cost a filesystem read. The
 	// browser sends this on every navigation back into a grid it already has.
 	if match := r.Header.Get("If-None-Match"); match != "" && strings.Contains(match, string(ref)) {
 		w.Header().Set("ETag", etag)
-		w.Header().Set("Cache-Control", glimtMediaCacheControl)
+		w.Header().Set("Cache-Control", cacheControl)
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
@@ -182,7 +189,7 @@ func (app *application) streamGlimtMedia(w http.ResponseWriter, r *http.Request,
 	// need the stored content type here for video, which is why `glimt_media.contentType`
 	// exists in the schema already.
 	w.Header().Set("Content-Type", "image/jpeg")
-	w.Header().Set("Cache-Control", glimtMediaCacheControl)
+	w.Header().Set("Cache-Control", cacheControl)
 	w.Header().Set("ETag", etag)
 
 	if _, err := io.Copy(w, reader); err != nil {

@@ -48,6 +48,12 @@ type registeredRoute struct {
 	path    string
 	handler string
 	line    int
+	// authenticated is whether the registration wraps the handler in `requireAuth`.
+	//
+	// Read from the AST rather than assumed, because the public page and its API (task 323) are
+	// deliberately **not** wrapped, and that is a security property rather than an omission — see
+	// TestPublicGlimtRoutesAreNotBehindAuth.
+	authenticated bool
 }
 
 func isInScope(path string) bool {
@@ -85,10 +91,11 @@ func glimtRoutes(t *testing.T) []registeredRoute {
 		}
 
 		out = append(out, registeredRoute{
-			method:  method,
-			path:    path,
-			handler: handlerName(call.Args[2]),
-			line:    fset.Position(call.Pos()).Line,
+			method:        method,
+			path:          path,
+			handler:       handlerName(call.Args[2]),
+			line:          fset.Position(call.Pos()).Line,
+			authenticated: wrapsRequireAuth(call.Args[2]),
 		})
 		return true
 	})
@@ -140,6 +147,18 @@ func handlerName(e ast.Expr) string {
 		return true
 	})
 	return name
+}
+
+// wrapsRequireAuth reports whether a registration puts the handler behind the auth middleware.
+func wrapsRequireAuth(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "requireAuth" {
+			found = true
+		}
+		return true
+	})
+	return found
 }
 
 // handlerDocs maps every `func (app *application) xHandler` in the package to its doc comment.
@@ -221,7 +240,14 @@ func TestGlimtRouterAnnotationsMatchTheRegisteredPaths(t *testing.T) {
 		}
 
 		// swaggo paths are relative to /api and use {braces} where httprouter uses :colons.
-		want := strings.TrimPrefix(route.path, "/api")
+		//
+		// A route that is *not* under /api — the server-rendered public page — documents its literal
+		// path instead. There is no tidy alternative: swaggo has one basePath, and writing
+		// `/../offentligt/glimt` to satisfy the arithmetic would be a lie in the rendered spec.
+		want := route.path
+		if strings.HasPrefix(want, "/api") {
+			want = strings.TrimPrefix(want, "/api")
+		}
 		for _, segment := range strings.Split(want, "/") {
 			if strings.HasPrefix(segment, ":") {
 				want = strings.Replace(want, segment, "{"+strings.TrimPrefix(segment, ":")+"}", 1)
@@ -269,8 +295,11 @@ func TestGlimtTagsGroupCoherently(t *testing.T) {
 // Every authenticated Glimt endpoint documents a 401.
 //
 // Not pedantry: a client author reading the spec needs to know an expired session is a *documented*
-// outcome on this endpoint rather than a bug to report, and every one of these sits behind
-// `requireAuth`.
+// outcome on this endpoint rather than a bug to report.
+//
+// Conditional on the route actually being wrapped in `requireAuth`, read from the AST — the public
+// routes are not, and a 401 documented on one of them would describe an outcome that cannot happen
+// and, worse, imply the endpoint looks at a session.
 func TestGlimtEndpointsDocumentAuthFailure(t *testing.T) {
 	docs := handlerDocs(t)
 
@@ -281,8 +310,13 @@ func TestGlimtEndpointsDocumentAuthFailure(t *testing.T) {
 			codes[m[1]] = true
 		}
 
-		if !codes["401"] {
+		if route.authenticated && !codes["401"] {
 			t.Errorf("%s (%s %s) does not document a 401, though it is behind requireAuth",
+				route.handler, route.method, route.path)
+		}
+		if !route.authenticated && codes["401"] {
+			t.Errorf("%s (%s %s) documents a 401 but is not behind requireAuth — which implies it "+
+				"reads a session, and the public routes must not",
 				route.handler, route.method, route.path)
 		}
 
@@ -291,6 +325,88 @@ func TestGlimtEndpointsDocumentAuthFailure(t *testing.T) {
 			t.Errorf("%s takes a glimt id but documents no 404", route.handler)
 		}
 	}
+}
+
+// The public routes are unauthenticated, and they cannot read a session even if one is sent.
+//
+// # This is the trap PRD 019 §8 names, asserted structurally
+//
+// A logged-in member's browser **will** send `hej_session` to the public page. If any of these
+// handlers ever read it, the public page silently becomes a different page for members than for
+// parents — and "is this public-safe?" stops being a testable question, because the answer would
+// depend on who asked.
+//
+// Two halves, and together they make it impossible rather than merely wrong:
+//
+//  1. **Not wrapped in `requireAuth`.** That middleware is the *only* place a session enters the
+//     request context (middleware.go), so a bare handler's `contextGetSession` returns false
+//     unconditionally. Wrapping one of these would be the change that undoes everything else.
+//  2. **No handler in the chain calls `contextGetSession`.** Belt and braces: if somebody ever adds
+//     a global session middleware, half 1 stops protecting anything and this half still fires.
+//
+// `glimtpublic_test.go` covers the behaviour with a real authenticated cookie attached. This covers
+// the structure, which is what stops the behaviour from being an accident.
+func TestPublicGlimtRoutesAreNotBehindAuth(t *testing.T) {
+	bodies := handlerBodies(t)
+	saw := 0
+
+	for _, route := range glimtRoutes(t) {
+		if !strings.Contains(route.path, "/public/") && route.path != "/offentligt/glimt" {
+			continue
+		}
+		saw++
+
+		if route.authenticated {
+			t.Errorf("%s (%s %s) is wrapped in requireAuth — the public surface must not be",
+				route.handler, route.method, route.path)
+		}
+		if reads := readsSession(bodies, route.handler, 2); reads != "" {
+			t.Errorf("%s reads the session (via %s) — the public page must answer the same thing to "+
+				"a member and to a parent, whatever cookie arrives", route.handler, reads)
+		}
+	}
+
+	if saw < 4 {
+		t.Fatalf("found only %d public routes, want the 3 API routes plus the page — has the public "+
+			"surface moved?", saw)
+	}
+}
+
+// readsSession returns the name of the function that reads the session, or "".
+func readsSession(bodies map[string]*ast.FuncDecl, name string, depth int) string {
+	fn, found := bodies[name]
+	if !found || depth < 0 {
+		return ""
+	}
+
+	culprit := ""
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		switch fun := call.Fun.(type) {
+		case *ast.Ident:
+			if fun.Name == "contextGetSession" {
+				culprit = name
+			}
+		case *ast.SelectorExpr:
+			if ident, ok := fun.X.(*ast.Ident); ok && ident.Name == "app" {
+				// `app.sessions.Read` would be the other way in.
+				if fun.Sel.Name == "sessions" {
+					culprit = name
+				}
+				if deeper := readsSession(bodies, fun.Sel.Name, depth-1); deeper != "" {
+					culprit = deeper
+				}
+			}
+			if sel, ok := fun.X.(*ast.SelectorExpr); ok && sel.Sel.Name == "sessions" {
+				culprit = name
+			}
+		}
+		return true
+	})
+	return culprit
 }
 
 // responseStatus maps each error helper in cmd/api/app/errors.go to the status it writes.

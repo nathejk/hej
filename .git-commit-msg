@@ -1,60 +1,62 @@
-glimt: rate limits and storage ceilings
+glimt: the public page and its API
 
-Task 311, PRD 019 §8 and §11 Q8.
+Task 323, PRD 019 §0/§7/§8.
 
-The byte budget needed a new type. ratelimit.Limiter answers "how many times", which is
-right for a PIN request and wrong for an upload: sixty thumbnails and sixty 12 MiB videos
-are the same number of events and nowhere near the same cost. ratelimit.Budget is a
-per-key sliding-window sum, kept separate from Limiter rather than widening a signature a
-dozen callers use honestly. A refused charge is not recorded, so a member refused a large
-video can still post the small photo they settle for; an oversized charge is refused
-rather than clamped, since clamping would let one through per window and read as the limit
-not working.
+Served by this service on hej.nathejk.dk rather than exported into the marketing site.
+An export would mean a second copy of the photographs, a second retention window to keep
+correct, and a hidden glimt that stays up somewhere else. One store, one takedown.
 
-The read limiter is the point of the task, and the test that matters asserts that nothing
-is throttled. 600/minute per member, two orders of magnitude looser than the writes and
-measured over a shorter window. PRD 019 §0a.3 describes the post-race browse as the load
-peak of the feature -- a thousand people at the finish line pulling a grid of thumbnails
-per screen -- and it is the use the feature was built for. A limiter near the upload
-numbers would refuse the fourth screen, and an hourly read budget would be spent by
-somebody scrolling for two minutes and then lock them out for fifty-eight. The test drives
-200 reads through the real handler with the production numbers wired in, including the
-write limiters, so if reads and writes ever share a limiter again that is what fails. This
-is a trap rather than an optimisation: a throttled browse does not look like a bug from
-the server's side, it looks like a working rate limiter.
+Every media item gets its own img tag. That is the maintainer's desktop requirement -
+media must be reachable without a swipe - and the app's fix cannot carry here, because
+prev/next buttons on an Embla carousel need a bundle this page deliberately does not load.
+So a four-photograph glimt is four tags in an auto-fit grid: side by side where there is
+room, stacked where there is not. No script, no scroll-snap, and a test that asserts both
+are absent.
 
-Making the limits configurable exposed a live bug. Limiter.Allow refuses when
-len(kept) >= limit, so New(0, w) blocks every request. No existing caller passes 0, so it
-had never mattered -- but with the documented "zero means unlimited" convention,
-GLIMT_PER_HOUR=0 would have taken the whole feature down silently while looking like a
-working limit. limiterOrNil fixes it at the call site rather than changing ratelimit.New,
-whose other callers are fine and whose reading is defensible on its own terms.
+Trap 2 turned out to be answerable structurally, which is much better than "the handlers
+ignore the cookie". requireAuth is the only place a session enters the request context, so
+a bare handler does not choose not to read one -- contextGetSession returns false because
+nothing put a session there. The registration is the guarantee. Guarded from three
+directions, since that rests on an assumption a future change could break quietly: an AST
+test that no public route is wrapped and that no handler in the chain touches the session
+or app.sessions, a behavioural test that the JSON and the HTML are byte-identical with and
+without a real member cookie, and the annotation guard now failing a 401 documented on a
+public route.
 
-§11 Q8 is answered: reject, never evict. Eviction would mean this feature's one
-irreversible operation firing with no human involved and nobody told, deleting one
-member's memories to make room for another's. Retention is what frees space, on a schedule
-everybody was told about.
+404 rather than 403 for a non-public glimt: the authenticated route answers 403 on purpose,
+because there the caller is a known member and an honest refusal tells them the photo was
+not shared with them, whereas here a 403 would confirm to an anonymous caller that a glimt
+with this id exists and is not public.
 
-Two ceilings with two different status codes, because the difference decides what the
-client tells the member. Per member is 429 -- their quota, and they can act on it, so the
-message says to delete something. Total is 507: the server is out of room, nothing the
-member did wrong and nothing they can do, so a 429 would be a lie and "try again" invites
-a loop. The check fails open, the opposite of how the moderation check fails, and
-deliberately: a ceiling is a safety margin, not an authorization, and the cost of wrongly
-refusing is a member in a forest losing a photograph they cannot retake.
+publiclyVisible re-checks the audience on the media route, which fetches one glimt by id
+rather than going through PublicFeed. Without it an id alone would be an unauthenticated
+read of a group-scoped photograph of a child, so it is tested with a valid member session
+attached -- the case a reader would assume is fine.
 
-The storage sums overcount on purpose. Content addressing means identical bytes are one
-object, so summing glimt_media.bytes exceeds real disk use when media are shared. As a
-per-member quota that is arguably more correct than the disk figure -- a member's budget
-should reflect what they posted, not whether a stranger posted the same file first -- and
-as an input to the total ceiling it errs towards refusing early, which is the safe
-direction for a volume that cannot be replayed. Hidden glimt are counted, since hiding
-does not delete. The query shape is asserted off the text, including the COALESCE, without
-which a member who has posted nothing would produce a scan error.
+streamGlimtMedia now takes the cache-control value as a parameter rather than the public
+route wrapping the ResponseWriter to overwrite it. The authenticated route's private is a
+privacy property and belongs at its own call site, not somewhere a reader has to prove
+nobody downstream changed. There is a test that it stayed private.
 
-The byte figures are guesses, like the retention defaults, and should be reviewed before
-the event. None of this has been exercised under real load; task 324 is the load test and
-is what would tell us whether 600 reads/minute is right.
+The anonymous reporter is recorded as a sentinel, not an IP. glimt_report is keyed by
+reporter so it needs a value, and recording the address would put a personal identifier of
+the one participant in this feature who never agreed to anything into an append-only audit
+table, to solve a duplicate-counting problem that does not matter. Several anonymous
+reports of one glimt collapse into a row; it is hidden on the first anyway.
 
-The task 312 annotation guard immediately caught the new 507 branch as undocumented, which
-is what it was built for.
+The service worker denylist entry was already present but undocumented, so it read as
+arbitrary. It deserves a test because it fails asymmetrically: a parent following a shared
+link has no service worker and gets the real page, so the bug is invisible to everyone who
+would naturally check it, and the only people who see it are installed members getting the
+app shell. The spec asserts it in the config and in the built sw.js, which are different
+claims.
+
+Two new by-IP limiters, separate from the member-keyed ones because an IP is a much worse
+key -- a school behind one NAT shares a budget -- so the public read ceiling has to be far
+more generous, and mixing them would drag the member limit down.
+
+publicHoldLabel duplicates the frontend's attributionLine, named as duplication in the
+code because there is nothing to share it through.
+
+Not opened in a browser, and nothing links to the page yet from anywhere -- where a public
+link belongs is a decision for whoever owns the site.
