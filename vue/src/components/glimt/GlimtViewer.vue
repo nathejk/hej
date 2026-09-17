@@ -198,7 +198,8 @@ async function save() {
           </p>
 
           <!-- Save. A button that fetches and shares, **not** an `<a download>` — see `save()` for
-               the two device failures that produced this. -->
+               the two device failures that produced this. Verified on an installed iPhone
+               (2026-09-17): opens the iOS share sheet, where *Gem billede* is the camera roll. -->
           <Button
             v-if="currentSrc"
             variant="ghost"
