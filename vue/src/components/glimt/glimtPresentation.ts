@@ -147,10 +147,24 @@ export function relativeTime(createdAt: number, now: number = Date.now()): strin
 
 // The narrowest and widest shapes a media strip may take, as width/height.
 //
-// A phone photograph is often 3:4 or 9:16, and a 9:16 card is nearly a whole screen tall — one glimt
-// per scroll, which makes a feed unreadable. Clamped to 4:5 portrait and 16:9 landscape, which is
-// roughly where Instagram landed and for the same reason.
-export const MIN_STRIP_RATIO = 4 / 5
+// # Where these numbers come from
+//
+// A strip has one shape and every slide fills it with `object-cover`, centred — so the clamps decide
+// two things at once: how tall a card can get, and how much a photograph that does not match gets
+// cropped.
+//
+//   - **4:3 portrait (0.75) is the floor**, because it is the most ordinary shape a phone camera
+//     produces in portrait, and cropping the most ordinary shape is the wrong default. At 0.75 a 3:4
+//     photograph is shown whole. Maintainer direction, 2026-09-18: crop "a little (maybe 10–15%)",
+//     not a lot.
+//   - **16:9 (1.78) is the ceiling**, so a panorama cannot flatten a card into a letterbox.
+//
+// What that costs: a 9:16 phone portrait (0.5625) still crops ~25% of its height. That is accepted
+// deliberately — a 9:16 card is nearly a whole screen tall, which means one glimt per scroll and an
+// unreadable feed. A very tall photograph is the one case where the card wins.
+//
+// Anything between the two is used exactly, so most glimt are not cropped at all.
+export const MIN_STRIP_RATIO = 3 / 4
 export const MAX_STRIP_RATIO = 16 / 9
 
 /**
@@ -179,7 +193,7 @@ export function stripAspectRatio(media: Array<{ width: number; height: number }>
   if (!first || first.width <= 0 || first.height <= 0) return '4 / 3'
 
   const ratio = first.width / first.height
-  if (ratio < MIN_STRIP_RATIO) return '4 / 5'
+  if (ratio < MIN_STRIP_RATIO) return '3 / 4'
   if (ratio > MAX_STRIP_RATIO) return '16 / 9'
   return `${first.width} / ${first.height}`
 }

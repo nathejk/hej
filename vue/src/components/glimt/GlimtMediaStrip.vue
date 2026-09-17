@@ -12,6 +12,24 @@
 // `stripAspectRatio`) — and every slide fills it. Every level from here down is `h-full` for that
 // reason: nothing inside may contribute a height, or the row starts measuring its children again.
 //
+// # Filling the frame, centred
+//
+// Every slide is `object-cover object-center` inside a box the container sizes. `object-cover` scales
+// the photograph until it fills the box and crops whatever overflows — which is the "zoom a little and
+// crop the long direction" behaviour, and it is why the clamps in `stripAspectRatio` are set to keep
+// that crop small for ordinary shapes.
+//
+// `object-center` is Tailwind's default and is written out anyway: this is the line that decides *which
+// part* of a photograph survives a crop, and leaving it implicit invites somebody to assume the top is
+// kept. Centre is right for a scene; for a face it would not be, but a glimt is a scene.
+//
+// This only works if every level from the aspect container down has a height. It did not, at first —
+// `CarouselContent`'s viewport div is auto-height upstream, so `h-full` on the track resolved against
+// auto and the whole chain collapsed: slides sized themselves from their content, sat at the top of
+// the frame, and `object-cover` had no box to cover. Fixed in `ui/carousel/CarouselContent.vue` with a
+// LOCAL DEVIATION note. Single-item glimt never had the bug, because they skip the carousel entirely —
+// which is what pointed at it.
+//
 // # Getting between slides without a swipe
 //
 // A swipe is the right control on a phone and it is the *only* control on a phone — but it is not the
@@ -102,7 +120,7 @@ function srcFor(ordinal: number, hasThumb: boolean) {
         :alt="mediaAltText(glimt, glimt.media[0].ordinal)"
         loading="lazy"
         decoding="async"
-        class="size-full object-cover"
+        class="size-full object-cover object-center"
       />
       <span
         v-if="glimt.media[0].kind === 'video'"
@@ -124,7 +142,7 @@ function srcFor(ordinal: number, hasThumb: boolean) {
                 :alt="mediaAltText(glimt, item.ordinal)"
                 loading="lazy"
                 decoding="async"
-                class="size-full object-cover"
+                class="size-full object-cover object-center"
               />
               <span
                 v-if="item.kind === 'video'"

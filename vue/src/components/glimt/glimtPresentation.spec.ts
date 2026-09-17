@@ -190,14 +190,15 @@ describe('stripAspectRatio', () => {
     expect(stripAspectRatio(mixed)).toBe('1600 / 900')
 
     // And the reverse order gives the portrait's clamped shape, not the landscape's.
-    expect(stripAspectRatio([...mixed].reverse())).toBe('4 / 5')
+    expect(stripAspectRatio([...mixed].reverse())).toBe('3 / 4')
   })
 
   // A 9:16 phone portrait card is nearly a whole screen tall — one glimt per scroll, which makes a
-  // feed unreadable.
-  it('clamps a tall portrait to 4:5', () => {
-    expect(stripAspectRatio([{ width: 900, height: 1600 }])).toBe('4 / 5')
-    expect(stripAspectRatio([{ width: 1080, height: 1920 }])).toBe('4 / 5')
+  // feed unreadable. It is the one case where the card wins over the photograph, at ~25% of its
+  // height cropped.
+  it('clamps a very tall portrait to 3:4', () => {
+    expect(stripAspectRatio([{ width: 900, height: 1600 }])).toBe('3 / 4')
+    expect(stripAspectRatio([{ width: 1080, height: 1920 }])).toBe('3 / 4')
   })
 
   it('clamps a panorama to 16:9', () => {
@@ -205,18 +206,19 @@ describe('stripAspectRatio', () => {
   })
 
   it('leaves ordinary shapes alone', () => {
-    // 4:3 landscape and square are both inside the clamps and are respected exactly.
+    // The shapes a phone camera actually produces are all inside the clamps and are respected
+    // exactly — which is the point of loosening the floor to 3:4 (maintainer, 2026-09-18: crop "a
+    // little", not a lot). Most glimt are therefore not cropped at all.
     expect(stripAspectRatio([{ width: 1600, height: 1200 }])).toBe('1600 / 1200')
     expect(stripAspectRatio([{ width: 1400, height: 1400 }])).toBe('1400 / 1400')
+    expect(stripAspectRatio([{ width: 1200, height: 1600 }])).toBe('1200 / 1600')
   })
 
-  // Worth stating explicitly, because it is the one clamp that bites a common shape: a 3:4 phone
-  // portrait (0.75) is *taller* than 4:5 (0.8), so it is cropped by about 6%. That is deliberate —
-  // it is where Instagram landed, and it keeps a feed scannable — but it means the most ordinary
-  // portrait photograph loses a sliver, and anyone changing MIN_STRIP_RATIO should know that is what
-  // they are changing.
-  it('crops a 3:4 phone portrait, deliberately', () => {
-    expect(stripAspectRatio([{ width: 1200, height: 1600 }])).toBe('4 / 5')
+  // Regression guard for the floor. It was 4:5, which cropped the most ordinary portrait shape a
+  // phone produces by ~6% for no good reason. If somebody tightens it again, this says why not.
+  it('does not crop a 3:4 phone portrait', () => {
+    expect(stripAspectRatio([{ width: 1200, height: 1600 }])).toBe('1200 / 1600')
+    expect(MIN_STRIP_RATIO).toBeLessThanOrEqual(3 / 4)
   })
 
   it('reserves a neutral shape when dimensions are missing', () => {

@@ -153,6 +153,44 @@ Accessibility: a list of articles, not a gesture-only tape. Captions are real te
   Embla to put arrows on. Recorded as a criterion and an options analysis in task 323, where the
   recommendation is to show every item rather than port a carousel.
 
+- 2026-09-18 (later still) — 🐞 **The carousel's slides were top-aligned and not filling their frame.**
+  Maintainer: "in the carousel everything is top aligned, it should be centered both horizontal and
+  vertical."
+
+  The clue that found it was theirs: *in the carousel*. Single-item glimt looked right, and they skip
+  the carousel entirely — so the fault was in the Embla path, not in the aspect box.
+
+  Cause: upstream `CarouselContent` forwards `props.class` to the inner flex **track** but leaves its
+  own viewport div auto-height. So `<CarouselContent class="h-full">` set the height on the track,
+  whose parent was auto — and `h-full` against an auto-height parent resolves to auto. The chain
+  broke there, silently: slides sized themselves from their content, sat at the top of the frame, and
+  `object-cover` had no box to cover. Fixed with `h-full` on the viewport div and a LOCAL DEVIATION
+  note explaining why it is harmless upstream (auto parent → auto).
+
+  Also wrote `object-center` out explicitly rather than relying on it being Tailwind's default: this
+  is the line that decides *which part* of a photograph survives a crop, and leaving it implicit
+  invites somebody to assume the top is kept.
+
+- 2026-09-18 (later still) — **Crop budget loosened**, per "crop the long direction a little (maybe
+  10–15%)". `MIN_STRIP_RATIO` went from **4:5 to 3:4**, so the most ordinary shape a phone produces in
+  portrait is now shown **whole** instead of losing ~6% for no good reason. Everything between 3:4 and
+  16:9 is used exactly, so most glimt are not cropped at all. Measured on the live fixture data:
+
+  | hold | items | first item | strip shape | height @390px | crop per slide |
+  |---|---|---|---|---|---|
+  | 45 | 2 | 1600×900 | 1.78 exact | 219px | 0%, **68%** |
+  | 43 | 2 | 1600×1200 | 1.33 exact | 292px | 0%, 44% |
+  | 42 | 4 | 1200×1600 | 0.75 exact | 520px | 0%, 44%, 25%, 58% |
+  | 44 | 1 | 1400×1400 | 1.00 exact | 390px | 0% |
+
+  **The lead photograph is never cropped now. Later slides in a different orientation still are,
+  heavily.** That is inherent to one-shape-per-strip and is the trade for a card that does not change
+  height as you swipe. Worth knowing that the fixture is adversarial here on purpose — it mixes
+  landscape and portrait in one glimt precisely to expose this — whereas real glimt are usually all one
+  orientation, because people hold a phone one way. Raised with the maintainer rather than
+  re-decided unilaterally; the alternative is `object-contain` with a backdrop for non-matching
+  slides, which crops nothing and letterboxes instead.
+
 ### ⚠️ Not verified, and cannot be from here
 
 The suite runs in `node` and mounts nothing, so **nothing about how this looks or feels has been
