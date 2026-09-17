@@ -23,6 +23,26 @@ const (
 	RoleCrew         = "crew"
 )
 
+// Section slugs this app makes a decision on.
+//
+// Most slugs only ever land in crewFunctionBySlug below, where an unrecognised value is
+// harmless. These are different: something is gated on them, so the string must exist in
+// exactly one place. `"team"` in particular is an easy literal to typo and an easy one to
+// confuse with the `team*` columns on this very table — which hold a *hold's* number and
+// name, an unrelated meaning (PRD 019 §0b).
+const (
+	// SectionTeam is the organizers and the people responsible. Its members moderate
+	// Glimt: they may read every glimt at every scope and hide anything (PRD 019 §0,
+	// task 300).
+	//
+	// Note this grants a capability while mapping to RoleCrew below. That is not a
+	// contradiction — the app *role* is least-privileged because the section grants
+	// nothing in the nav or the directory, and moderation is authorised by the section
+	// assignment itself, looked up per request. Keeping the two apart is what lets the
+	// assignment be revoked without touching roles.
+	SectionTeam = "team"
+)
+
 // crewFunctionBySlug maps an organizer-authored section slug to a crew app role.
 //
 // Crew function is not modelled anywhere upstream. A crew member carries a
@@ -88,7 +108,7 @@ var crewFunctionBySlug = map[string]string{
 	"bandit":         RoleCrew,
 	"hoensegaard":    RoleCrew,
 	"pr":             RoleCrew,
-	"team":           RoleCrew,
+	SectionTeam:      RoleCrew,
 }
 
 // normalizeSlug folds a slug to its comparison form.
@@ -100,6 +120,16 @@ var crewFunctionBySlug = map[string]string{
 // both spellings can be added to the map explicitly if they occur.
 func normalizeSlug(slug string) string {
 	return strings.ToLower(strings.TrimSpace(slug))
+}
+
+// NormalizeSectionSlug is normalizeSlug, exported for callers that compare a stored slug
+// against one of the constants above.
+//
+// Exported so that a comparison outside this package cannot use a *different* folding than
+// the map lookup does. A caller that wrote `slug == SectionTeam` directly would reject
+// " Team", which is a value an admin field can plausibly contain.
+func NormalizeSectionSlug(slug string) string {
+	return normalizeSlug(slug)
 }
 
 // ClassifyCrew maps a section slug to a crew app role.

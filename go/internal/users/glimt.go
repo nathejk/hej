@@ -1,5 +1,9 @@
 package users
 
+import (
+	"nathejk.dk/nathejk/table/person"
+)
+
 // Glimt visibility (PRD 019 §6, §8, task 299).
 //
 // This file is the *only* place that decides who may see a glimt. The feed query, the hold
@@ -191,6 +195,33 @@ func MaySeeGlimt(viewer GlimtViewer, g GlimtSubject) bool {
 		return ok && g.AuthorGroup.Valid() && vg == g.AuthorGroup
 	}
 	return false
+}
+
+// MayModerateGlimt reports whether a member with this section slug moderates Glimt.
+//
+// Moderation belongs to the **Team section** (PRD 019 §0), which is an *assignment*, not a
+// role — and that distinction is the whole reason this function takes a slug rather than a
+// Role. It has three consequences worth stating where the code is:
+//
+//  1. **It must be looked up per request.** `session.Session` carries only a user id, a role
+//     and an expiry, and it is a stateless signed cookie with no server-side store. A
+//     `section: "team"` claim baked into it would keep working for the cookie's whole life
+//     after the assignment was revoked, with no way to invalidate it. So the caller reads
+//     the current `sectionSlug` from the person projection on every moderation request — one
+//     indexed read, correct revocation.
+//  2. **It is not derivable from a Role.** Every Team-section member is `crew` as far as the
+//     app role goes, and so are the kitchen and PR sections. Gating on a role here would
+//     hand moderation to everyone in crew.
+//  3. **It fails closed.** An empty slug — which is what a missing person row, a database
+//     outage or an unassigned member all produce — is not the Team section.
+//
+// The slug constant lives in the person package next to the map of every known section, so
+// there is one definition of the string; this package imports it rather than repeating it,
+// because `"team"` is a literal that would be easy to typo and easy to confuse with the
+// `team*` columns holding a hold's number and name (PRD 019 §0b).
+func MayModerateGlimt(sectionSlug string) bool {
+	slug := person.NormalizeSectionSlug(sectionSlug)
+	return slug != "" && slug == person.SectionTeam
 }
 
 // GlimtFeedFilter describes, in terms a SQL query can use, which rows a viewer may be
