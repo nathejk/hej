@@ -161,28 +161,50 @@ func wrapsRequireAuth(e ast.Expr) bool {
 	return found
 }
 
+// packageFiles parses every non-test .go file in this directory.
+//
+// `os.ReadDir` plus `parser.ParseFile` rather than `parser.ParseDir`, which staticcheck rejects as
+// deprecated (SA1019) — and staticcheck is a gate in the dev container's build loop, so using it
+// wedges the loop and leaves the API serving a stale binary. Found the hard way.
+func packageFiles(t *testing.T) []*ast.File {
+	t.Helper()
+
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read package dir: %v", err)
+	}
+
+	fset := token.NewFileSet()
+	var out []*ast.File
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, perr := parser.ParseFile(fset, name, nil, parser.ParseComments)
+		if perr != nil {
+			t.Fatalf("parse %s: %v", name, perr)
+		}
+		out = append(out, file)
+	}
+	if len(out) == 0 {
+		t.Fatal("parsed no package files — has the layout changed?")
+	}
+	return out
+}
+
 // handlerDocs maps every `func (app *application) xHandler` in the package to its doc comment.
 func handlerDocs(t *testing.T) map[string]string {
 	t.Helper()
 
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
-		return strings.HasSuffix(fi.Name(), ".go") && !strings.HasSuffix(fi.Name(), "_test.go")
-	}, parser.ParseComments)
-	if err != nil {
-		t.Fatalf("parse package: %v", err)
-	}
-
 	docs := map[string]string{}
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Files {
-			for _, decl := range file.Decls {
-				fn, ok := decl.(*ast.FuncDecl)
-				if !ok || fn.Recv == nil || fn.Doc == nil {
-					continue
-				}
-				docs[fn.Name.Name] = fn.Doc.Text()
+	for _, file := range packageFiles(t) {
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv == nil || fn.Doc == nil {
+				continue
 			}
+			docs[fn.Name.Name] = fn.Doc.Text()
 		}
 	}
 	return docs
@@ -242,12 +264,10 @@ func TestGlimtRouterAnnotationsMatchTheRegisteredPaths(t *testing.T) {
 		// swaggo paths are relative to /api and use {braces} where httprouter uses :colons.
 		//
 		// A route that is *not* under /api — the server-rendered public page — documents its literal
-		// path instead. There is no tidy alternative: swaggo has one basePath, and writing
-		// `/../offentligt/glimt` to satisfy the arithmetic would be a lie in the rendered spec.
-		want := route.path
-		if strings.HasPrefix(want, "/api") {
-			want = strings.TrimPrefix(want, "/api")
-		}
+		// path instead, and `TrimPrefix` is a no-op for it. There is no tidy alternative: swaggo has
+		// one basePath, and writing `/../offentligt/glimt` to satisfy the arithmetic would be a lie in
+		// the rendered spec.
+		want := strings.TrimPrefix(route.path, "/api")
 		for _, segment := range strings.Split(want, "/") {
 			if strings.HasPrefix(segment, ":") {
 				want = strings.Replace(want, segment, "{"+strings.TrimPrefix(segment, ":")+"}", 1)
@@ -454,21 +474,11 @@ var statusConstant = map[string]string{
 func handlerBodies(t *testing.T) map[string]*ast.FuncDecl {
 	t.Helper()
 
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
-		return strings.HasSuffix(fi.Name(), ".go") && !strings.HasSuffix(fi.Name(), "_test.go")
-	}, parser.ParseComments)
-	if err != nil {
-		t.Fatalf("parse package: %v", err)
-	}
-
 	out := map[string]*ast.FuncDecl{}
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Files {
-			for _, decl := range file.Decls {
-				if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv != nil && fn.Body != nil {
-					out[fn.Name.Name] = fn
-				}
+	for _, file := range packageFiles(t) {
+		for _, decl := range file.Decls {
+			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv != nil && fn.Body != nil {
+				out[fn.Name.Name] = fn
 			}
 		}
 	}
