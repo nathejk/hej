@@ -33,6 +33,7 @@ import (
 	"nathejk.dk/internal/vcs"
 	"nathejk.dk/nathejk/table/checkgroup"
 	"nathejk.dk/nathejk/table/checkpoint"
+	"nathejk.dk/nathejk/table/glimt"
 	"nathejk.dk/nathejk/table/kort"
 	"nathejk.dk/nathejk/table/maphandout"
 	"nathejk.dk/nathejk/table/person"
@@ -325,6 +326,10 @@ func run(logger *slog.Logger) error {
 	var handouts *maphandout.Table
 	var checkgroups *checkgroup.Table
 	var scanProjection *scan.Table
+	// glimts is the Glimt projection (PRD 019). Declared with the others because it shares
+	// their construction condition, but note it is the only one whose blobs are not
+	// rebuildable from the stream — the rows here replay, the media in the blob store do not.
+	var glimts *glimt.Table
 	if ev != nil && (err == nil || noBroker) {
 		if t, cerr := kort.New(ev.publisherOrNil(), ev.writer, ev.reader,
 			// A body we cannot decode is the one signal that our mirrored copy of hq's event shapes
@@ -360,6 +365,16 @@ func run(logger *slog.Logger) error {
 			logger.Error("scan projection unavailable", "err", cerr)
 		} else {
 			scanProjection = t
+		}
+
+		// Glimt (PRD 019). Same construction condition as the projections above, and for
+		// the same reason: reading the feed needs only the database, while the broker
+		// decides whether it keeps *updating*. A degraded Glimt is a feed that stops
+		// growing, which is visibly stale rather than wrong.
+		if t, cerr := glimt.New(ev.publisherOrNil(), ev.writer, ev.reader); cerr != nil {
+			logger.Error("glimt projection unavailable", "err", cerr)
+		} else {
+			glimts = t
 		}
 	}
 
@@ -426,6 +441,9 @@ func run(logger *slog.Logger) error {
 			}
 			if vehicles != nil {
 				projections = append(projections, vehicles)
+			}
+			if glimts != nil {
+				projections = append(projections, glimts)
 			}
 
 			ev.registerProjections(logger, projections...)
