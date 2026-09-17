@@ -74,7 +74,6 @@ type config struct {
 	// supported way to use this.
 	installGate bool
 
-
 	// syncIntervalSeconds and syncDebounceSeconds tune the multiplexed freshness check (PRD 017):
 	// how often a client re-checks while the app is open, and the minimum gap between checks.
 	//
@@ -202,6 +201,50 @@ type config struct {
 	// megabytes of backup into gigabytes. An operator who cannot afford that should be
 	// able to say so without a deploy.
 	portraitKeepOriginal bool
+
+	// glimtRetention is how long a glimt is kept after it was posted, before the purge job
+	// deletes it and its media (PRD 019 §6, task 310).
+	//
+	// # Why this is much longer than portraitRetention
+	//
+	// The portrait is a safety feature whose purpose expires with the race. A glimt is the
+	// opposite: its **peak use is after the event**, when spejdere spend hours going through the
+	// night's photos (PRD 019 §0a). A window measured against the race's end would delete the
+	// thing at the moment it is most wanted.
+	//
+	// 90 days by default — long enough for the post-race browse and for showing family, short
+	// enough to be a real limit rather than an archive. PRD 019 §4 is explicit that this is not
+	// a photo backup: what a member wants to keep, they save to their device (task 318).
+	//
+	// Measured from **creation**, not from a configured event end date. The same simplification
+	// portraitRetention makes, and it fails in the safe direction: one fewer thing to keep
+	// correct every year, and getting it wrong deletes early rather than never.
+	//
+	// **Zero or negative disables the purge entirely**, which dev and CI run with — a fixture
+	// posted last month must still be there tomorrow. Guarded with `<= 0` so a negative value
+	// cannot be read as "immediately", and logged at startup: "off for dev" and "off because
+	// somebody fat-fingered the env in production" look identical otherwise, and this is the one
+	// setting whose failure mode is keeping children's photographs forever.
+	glimtRetention time.Duration
+
+	// glimtPublicRetention is how long a public glimt stays on the public page, which can be
+	// shorter than how long the glimt itself lives.
+	//
+	// # Why this is a read-time cutoff and not a state change
+	//
+	// It would be tidier to "unpublish" a glimt when this expires. It would also be wrong: the
+	// audience is **immutable** (PRD 019 §6) and hiding is a moderation act with a moderator's
+	// name on it. Neither should be repurposed by a timer. So this is applied where the public
+	// feed is read — a glimt older than the cutoff simply is not returned to the open web, while
+	// remaining exactly what it was inside the app.
+	//
+	// That also makes it reversible: lengthening the window brings the older glimt back, which a
+	// state change could not do without inventing an "unexpire" event.
+	//
+	// 30 days by default, closing the public window before the internal one. **Zero means "as
+	// long as the glimt itself"** — not "immediately", which is the reading that would silently
+	// empty the public page in a dev environment where everything else is set to 0.
+	glimtPublicRetention time.Duration
 }
 
 func loadConfig() config {
@@ -232,6 +275,8 @@ func loadConfig() config {
 	flag.DurationVar(&cfg.portraitRetention, "portrait-retention", envDuration("PORTRAIT_RETENTION", 30*24*time.Hour), "How long a portrait is kept after capture before it is purged (0 disables the purge)")
 	flag.DurationVar(&cfg.cachedDirectoryTTL, "cached-directory-ttl", envDuration("CACHED_DIRECTORY_TTL", 14*24*time.Hour), "How long a device may keep its cached contacts directory (0 disables the deadline)")
 	flag.BoolVar(&cfg.portraitKeepOriginal, "portrait-keep-original", envBool("PORTRAIT_KEEP_ORIGINAL", true), "Retain the uploaded image at full resolution (metadata stripped) so renditions can be regenerated later")
+	flag.DurationVar(&cfg.glimtRetention, "glimt-retention", envDuration("GLIMT_RETENTION", 90*24*time.Hour), "How long a glimt is kept after it was posted before it is purged (0 disables the purge)")
+	flag.DurationVar(&cfg.glimtPublicRetention, "glimt-public-retention", envDuration("GLIMT_PUBLIC_RETENTION", 30*24*time.Hour), "How long a public glimt stays on the public page (0 means as long as the glimt itself)")
 	flag.Parse()
 	return cfg
 }

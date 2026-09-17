@@ -160,7 +160,31 @@ func TestPublicFeedTakesNoCaller(t *testing.T) {
 		WithArgs("2026", AudiencePublic, 20, 0).
 		WillReturnRows(glimtRows())
 
-	if _, err := (querier{db: db}).PublicFeed("2026", 20, 0); err != nil {
+	// A zero cutoff means no public-retention window, which is what a deployment with
+	// GLIMT_PUBLIC_RETENTION=0 gets — "as long as the glimt itself", not "nothing".
+	if _, err := (querier{db: db}).PublicFeed("2026", time.Time{}, 20, 0); err != nil {
+		t.Fatalf("PublicFeed: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet: %v", err)
+	}
+}
+
+// TestPublicFeedAppliesTheRetentionCutoff checks the window reaches the SQL, since it is the only
+// thing keeping older photographs off the open web once the public window has closed.
+func TestPublicFeedAppliesTheRetentionCutoff(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	cutoff := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(regexp.QuoteMeta("g.createdAt >= ?")).
+		WithArgs("2026", AudiencePublic, "2026-08-18 12:00:00", 20, 0).
+		WillReturnRows(glimtRows())
+
+	if _, err := (querier{db: db}).PublicFeed("2026", cutoff, 20, 0); err != nil {
 		t.Fatalf("PublicFeed: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

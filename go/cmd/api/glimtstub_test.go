@@ -127,15 +127,20 @@ func (s *stubGlimt) Moderation(_ string, limit, offset int) ([]glimt.Glimt, erro
 	return page(append([]glimt.Glimt(nil), s.rows...), limit, offset), nil
 }
 
-func (s *stubGlimt) PublicFeed(_ string, limit, offset int) ([]glimt.Glimt, error) {
+func (s *stubGlimt) PublicFeed(_ string, notBefore time.Time, limit, offset int) ([]glimt.Glimt, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
 	var out []glimt.Glimt
 	for _, g := range s.rows {
-		if g.Audience == glimt.AudiencePublic && g.HiddenAt == nil {
-			out = append(out, g)
+		if g.Audience != glimt.AudiencePublic || g.HiddenAt != nil {
+			continue
 		}
+		// The public retention cutoff, applied as the real query does.
+		if !notBefore.IsZero() && g.CreatedAt.Before(notBefore) {
+			continue
+		}
+		out = append(out, g)
 	}
 	return page(out, limit, offset), nil
 }

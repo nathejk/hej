@@ -1,6 +1,9 @@
 package main
 
-import "net/http"
+import (
+	"net/http"
+	"time"
+)
 
 // runtimeConfigResponse is the client-visible configuration the SPA fetches at
 // startup. Everything here is public by definition: it is handed to any browser
@@ -31,6 +34,25 @@ type runtimeConfigResponse struct {
 	// flip the gate's behaviour.
 	InstallGate bool `json:"install_gate"`
 
+	// GlimtRetentionDays is how long a glimt is kept, in days, or 0 when retention is off
+	// (PRD 019 §6, task 310).
+	//
+	// Served so the composer and the privacy page can **state the real number** instead of a
+	// hard-coded sentence. Once the window is per-deployment, copy that says "90 dage" while the
+	// deployment is set to 30 is worse than saying nothing — it is a promise about somebody's
+	// photographs that the service will not keep.
+	//
+	// Days rather than seconds because it is shown to a 12-year-old, and rounded down so the
+	// stated number is never longer than the truth.
+	GlimtRetentionDays int `json:"glimt_retention_days"`
+
+	// GlimtPublicRetentionDays is how long a public glimt stays on the public page, or 0 when it
+	// stays as long as the glimt itself.
+	//
+	// A separate number because the composer's `public` option should be able to say how long
+	// the open web keeps it, which is the part a member is most entitled to know before tapping
+	// "Offentligt".
+	GlimtPublicRetentionDays int `json:"glimt_public_retention_days"`
 }
 
 // runtimeConfigHandler serves configuration the SPA needs but must not have
@@ -47,12 +69,26 @@ type runtimeConfigResponse struct {
 // @Router       /config [get]
 func (app *application) runtimeConfigHandler(w http.ResponseWriter, r *http.Request) {
 	cfg := runtimeConfigResponse{
-		DataforsyningenToken: app.config.dataforsyningenToken,
-		ShowBuildId:          app.config.showBuildId,
-		ShowLayoutDebug:      app.config.showLayoutDebug,
-		InstallGate:          app.config.installGate,
+		DataforsyningenToken:     app.config.dataforsyningenToken,
+		ShowBuildId:              app.config.showBuildId,
+		ShowLayoutDebug:          app.config.showLayoutDebug,
+		InstallGate:              app.config.installGate,
+		GlimtRetentionDays:       durationDays(app.config.glimtRetention),
+		GlimtPublicRetentionDays: durationDays(app.config.glimtPublicRetention),
 	}
 	if err := app.WriteJSON(w, http.StatusOK, cfg, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
 	}
+}
+
+// durationDays renders a retention window as whole days, or 0 when it is disabled.
+//
+// Rounded **down**, so the number a member reads is never longer than the truth. A 36-hour window
+// shown as "2 dage" would be a promise the service does not keep; "1 dag" understates it, which is the
+// safe direction for a statement about how long somebody's photographs live.
+func durationDays(d time.Duration) int {
+	if d <= 0 {
+		return 0
+	}
+	return int(d / (24 * time.Hour))
 }

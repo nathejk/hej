@@ -133,7 +133,7 @@ type Queries interface {
 	Get(year, glimtID string) (Glimt, bool, error)
 	Holds(year string, f Filter) ([]Hold, error)
 	Moderation(year string, limit, offset int) ([]Glimt, error)
-	PublicFeed(year string, limit, offset int) ([]Glimt, error)
+	PublicFeed(year string, notBefore time.Time, limit, offset int) ([]Glimt, error)
 	Expired(year string, before time.Time, limit int) ([]Expired, error)
 	RefsUsedElsewhere(year, glimtID string, refs []string) (map[string]bool, error)
 	Version(year string, f Filter) (string, error)
@@ -295,20 +295,32 @@ func (q querier) Moderation(year string, limit, offset int) ([]Glimt, error) {
 	return q.list(query, year, clampLimit(limit), clampOffset(offset))
 }
 
-// PublicFeed returns what the open web sees: public, not hidden, newest first.
+// PublicFeed returns what the open web sees: public, not hidden, newer than the cutoff, newest first.
 //
 // Takes no Filter and no caller at all — that is the design, not an omission. The public page is on
 // the same host as the app, so a logged-in member's browser will send its session cookie to it; if
 // this read could be influenced by a caller, the public page would silently become a different page
 // for members than for parents and "is this public-safe?" would stop being testable (PRD 019 §8).
-func (q querier) PublicFeed(year string, limit, offset int) ([]Glimt, error) {
+//
+// `notBefore` is the public retention window, applied here rather than by mutating rows: the audience
+// is immutable and hiding is a moderation act, so neither may be repurposed by a timer (see
+// cmd/api/glimtpurge.go). A zero `notBefore` means no cutoff.
+func (q querier) PublicFeed(year string, notBefore time.Time, limit, offset int) ([]Glimt, error) {
+	clause := ""
+	args := []any{year, AudiencePublic}
+	if !notBefore.IsZero() {
+		clause = " AND g.createdAt >= ?"
+		args = append(args, notBefore.UTC().Format("2006-01-02 15:04:05"))
+	}
+	args = append(args, clampLimit(limit), clampOffset(offset))
+
 	query := `
 		SELECT ` + glimtColumns + `
 		FROM glimt g
-		WHERE g.year = ? AND g.deleted = 0 AND g.audience = ? AND g.hiddenAt IS NULL
+		WHERE g.year = ? AND g.deleted = 0 AND g.audience = ? AND g.hiddenAt IS NULL` + clause + `
 		ORDER BY g.createdAt DESC, g.glimtId DESC
 		LIMIT ? OFFSET ?`
-	return q.list(query, year, AudiencePublic, clampLimit(limit), clampOffset(offset))
+	return q.list(query, args...)
 }
 
 // Expired returns glimt created before the cutoff, with every blob ref to delete.

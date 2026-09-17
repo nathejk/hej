@@ -630,6 +630,11 @@ func run(logger *slog.Logger) error {
 	// thing a shorter interval would buy is more log noise and more load; the only thing a
 	// longer one would cost is a few hours of a portrait outliving its window.
 	app.runPortraitPurge(ctx, 6*time.Hour, logger)
+	// Glimt retention (PRD 019 §6, task 310). Six-hourly like the portrait purge and for the same
+	// reason: retention is measured in days, so a shorter interval buys nothing but queries. Note
+	// this sweep enforces `glimtRetention` only — `glimtPublicRetention` is a read-time cutoff in
+	// the public feed, not a job.
+	app.runGlimtPurge(ctx, 6*time.Hour, logger)
 
 	return app.Serve(app.routes(), cfg.port)
 }
