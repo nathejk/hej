@@ -92,6 +92,11 @@ func (app *application) routes() http.Handler {
 	// The feed. Note there is deliberately **no** `/api/glimt/version` — freshness is a `glimt`
 	// key on /api/sync above, per the instruction there.
 	router.HandlerFunc(http.MethodGet, "/api/glimt/feed", app.requireAuth(app.listGlimtHandler))
+	// Browsing by hold (PRD 019 §0a.1) — the post-race surface, and the load peak of the feature.
+	// The collection is **oldest first**: a race reads forward in time, which is deliberately the
+	// opposite of the feed's order.
+	router.HandlerFunc(http.MethodGet, "/api/glimt/hold", app.requireAuth(app.listGlimtHoldsHandler))
+	router.HandlerFunc(http.MethodGet, "/api/glimt/hold/:number", app.requireAuth(app.listGlimtByHoldHandler))
 	// Media bytes. The visibility check here is the same one the feed applies — a media URL is
 	// guessable, so it must not be a bearer token (PRD 019 §8).
 	//

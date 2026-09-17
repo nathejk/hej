@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"sort"
 	"time"
 
 	"nathejk.dk/internal/users"
@@ -48,7 +49,11 @@ func (s *stubGlimt) Feed(_ string, f glimt.Filter, limit, offset int) ([]glimt.G
 	if s.err != nil {
 		return nil, s.err
 	}
-	return page(s.matching(f), limit, offset), nil
+	// Newest first, as the real query is. The stub sorts rather than returning insertion order
+	// so that tests see realistic data — but note the *authority* on ordering is the SQL, which
+	// `nathejk/table/glimt/querier_test.go` asserts directly. A handler test cannot prove an
+	// ORDER BY.
+	return page(sortedByCreated(s.matching(f), false), limit, offset), nil
 }
 
 func (s *stubGlimt) ByHold(_ string, teamNumber string, f glimt.Filter, limit, offset int) ([]glimt.Glimt, error) {
@@ -65,7 +70,27 @@ func (s *stubGlimt) ByHold(_ string, teamNumber string, f glimt.Filter, limit, o
 			out = append(out, g)
 		}
 	}
-	return page(out, limit, offset), nil
+	// **Oldest first**, the opposite of the feed — a race reads forward in time (PRD 019 §0a.1).
+	return page(sortedByCreated(out, true), limit, offset), nil
+}
+
+// sortedByCreated orders rows by creation time, ascending or descending, with the id breaking ties
+// so a page boundary is stable between requests.
+func sortedByCreated(rows []glimt.Glimt, ascending bool) []glimt.Glimt {
+	out := append([]glimt.Glimt(nil), rows...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			if ascending {
+				return out[i].GlimtID < out[j].GlimtID
+			}
+			return out[i].GlimtID > out[j].GlimtID
+		}
+		if ascending {
+			return out[i].CreatedAt.Before(out[j].CreatedAt)
+		}
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	return out
 }
 
 func (s *stubGlimt) Get(_ string, glimtID string) (glimt.Glimt, bool, error) {
