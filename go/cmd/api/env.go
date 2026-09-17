@@ -265,6 +265,13 @@ type config struct {
 	// the same reason — a grid of 60 thumbnails is one screen, so an hourly budget would be spent by
 	// a member scrolling for two minutes and then locked out for fifty-eight.
 	//
+	// **3000, raised from 600 after task 324 measured it.** The arithmetic that forced the change: a
+	// hold page is 20 glimt averaging 2.1 media, so ~43 requests including the JSON. At 600/minute
+	// that is fourteen pages a minute — one every 4.3 seconds — which a member flicking through grids
+	// at the finish line beats comfortably. The limit would therefore have fired for exactly the
+	// browse it exists to protect, and the comment above says that means it is set wrong. At 3000 it
+	// is one page every 0.85s, still some sixty times below what a script does.
+	//
 	// # The ceilings
 	//
 	// The blob store is the only non-rebuildable data in the service and lives on one volume
@@ -331,7 +338,7 @@ func loadConfig() config {
 	flag.IntVar(&cfg.glimtPerHour, "glimt-per-hour", envInt("GLIMT_PER_HOUR", 20), "Glimt one member may create per hour (0 disables the limit)")
 	flag.IntVar(&cfg.glimtMediaPerHour, "glimt-media-per-hour", envInt("GLIMT_MEDIA_PER_HOUR", 60), "Media files one member may upload per hour (0 disables the limit)")
 	flag.Int64Var(&cfg.glimtBytesPerHour, "glimt-bytes-per-hour", envInt64("GLIMT_BYTES_PER_HOUR", 200<<20), "Media bytes one member may upload per hour (0 disables the limit)")
-	flag.IntVar(&cfg.glimtReadsPerMinute, "glimt-reads-per-minute", envInt("GLIMT_READS_PER_MINUTE", 600), "Glimt read requests one member may make per minute (0 disables the limit)")
+	flag.IntVar(&cfg.glimtReadsPerMinute, "glimt-reads-per-minute", envInt("GLIMT_READS_PER_MINUTE", 3000), "Glimt read requests one member may make per minute (0 disables the limit)")
 	flag.IntVar(&cfg.glimtPublicReadsPerMinute, "glimt-public-reads-per-minute", envInt("GLIMT_PUBLIC_READS_PER_MINUTE", 3000), "Public glimt read requests one IP may make per minute (0 disables the limit)")
 	flag.IntVar(&cfg.glimtPublicReportsPerHour, "glimt-public-reports-per-hour", envInt("GLIMT_PUBLIC_REPORTS_PER_HOUR", 30), "Anonymous glimt reports one IP may make per hour (0 disables the limit)")
 	flag.Int64Var(&cfg.glimtMemberStorageBytes, "glimt-member-storage-bytes", envInt64("GLIMT_MEMBER_STORAGE_BYTES", 500<<20), "Total media bytes one member may have stored (0 disables the ceiling)")

@@ -145,3 +145,9 @@ else's memories to make room.
   Full Go suite, `gofmt` and `go vet` clean. **None of this has been exercised under real load** —
   task 324 is the load test, and it is the thing that would tell us whether 600 reads/minute is the
   right number.
+
+- 2026-09-17 — **It was not.** Task 324 ran the load test and the read limit was the one thing it
+  found wrong: a hold page is ~43 requests, so 600/minute is fourteen pages a minute — one every
+  4.3 seconds — which a member flicking through grids beats. The limiter would have fired for exactly
+  the browse it exists to protect. Raised to 3,000/minute, with the arithmetic recorded in `env.go`
+  and asserted by `TestGlimtLimitDefaults`. See task 324 for the numbers.

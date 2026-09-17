@@ -646,15 +646,18 @@ func run(logger *slog.Logger) error {
 		// handful of posts; twenty leaves room for that and for a few retries, while still
 		// bounding what one looping client can put on the stream.
 		glimtLimiter: limiterOrNil(cfg.glimtPerHour, time.Hour),
-		// Reads, and the number that matters most in this block: **600 per minute per member**,
-		// which is two orders of magnitude looser than the write limits and measured per minute
-		// rather than per hour.
+		// Reads, and the number that matters most in this block: **3000 per minute per member**,
+		// two orders of magnitude looser than the write limits and measured per minute rather
+		// than per hour.
 		//
 		// Both of those are deliberate. The post-race browse is a legitimate flood (PRD 019
 		// §0a.3) — a thousand people at the finish line, each pulling a grid of thumbnails per
 		// screen — and it is the use this whole feature was built for. A limiter tuned anywhere
 		// near the upload numbers would throttle exactly that, and an *hourly* budget would be
 		// spent by somebody scrolling for two minutes and then locked out for fifty-eight.
+		//
+		// It was 600 until task 324 measured a hold page at ~43 requests — fourteen pages a
+		// minute, which a member flicking through grids beats. See env.go for the arithmetic.
 		//
 		// So this exists to stop a script hammering the endpoint and for nothing else. If it ever
 		// fires for a real member, it is set wrong.

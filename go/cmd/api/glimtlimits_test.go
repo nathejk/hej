@@ -269,7 +269,7 @@ func TestGlimtReads_ABrowseBurstIsNotThrottled(t *testing.T) {
 	app.models = newModelsWithGlimt(people, &stubGlimt{})
 	// The production wiring, not a permissive test value: this is what a deployed instance runs
 	// with, so the assertion is about the real configuration.
-	app.glimtReadLimiter = limiterOrNil(600, time.Minute)
+	app.glimtReadLimiter = limiterOrNil(3000, time.Minute)
 	// And the write limiters at their production values, to prove the read path does not consult
 	// them. If reads and writes ever share a limiter again, this is what fails.
 	app.glimtMediaLimiter = limiterOrNil(60, time.Hour)
@@ -298,7 +298,7 @@ func TestGlimtReads_TheHoldGridIsNotThrottled(t *testing.T) {
 		GlimtID: "g-1", AuthorPersonID: "mock-spejder-1", AuthorGroup: "spejder",
 		TeamNumber: "42", Audience: glimt.AudienceGroup, CreatedAt: time.Now(),
 	}}})
-	app.glimtReadLimiter = limiterOrNil(600, time.Minute)
+	app.glimtReadLimiter = limiterOrNil(3000, time.Minute)
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
@@ -379,16 +379,28 @@ func TestGlimtLimitDefaults(t *testing.T) {
 	cfg.glimtPerHour = 20
 	cfg.glimtMediaPerHour = 60
 	cfg.glimtBytesPerHour = 200 << 20
-	cfg.glimtReadsPerMinute = 600
+	cfg.glimtReadsPerMinute = 3000
 
 	// Reads are looser than writes by two orders of magnitude, *and* measured over a shorter
 	// window. Both halves matter: an hourly read budget would be spent by somebody scrolling for
 	// two minutes and then lock them out for fifty-eight.
+	//
+	// The floor is not arbitrary. Task 324 measured a hold page at ~43 requests (20 glimt × 2.1
+	// media, plus the JSON), so the limit must clear a plausible browse rate by a wide margin — at
+	// 600/minute it was fourteen pages a minute, which a member flicking through grids beats.
 	readsPerHour := cfg.glimtReadsPerMinute * 60
 	if readsPerHour < cfg.glimtMediaPerHour*100 {
 		t.Errorf("the read limit (%d/hour) is not decisively looser than the upload limit (%d/hour) "+
 			"— the post-race browse is the load this feature exists for (PRD 019 §0a.3)",
 			readsPerHour, cfg.glimtMediaPerHour)
+	}
+
+	// A hold page must not be able to exhaust a meaningful fraction of the budget. Roughly 43
+	// requests per page, and a browsing member should get at least a page a second.
+	const requestsPerHoldPage = 43
+	if pagesPerMinute := cfg.glimtReadsPerMinute / requestsPerHoldPage; pagesPerMinute < 60 {
+		t.Errorf("the read limit allows only %d hold pages per minute, which a member flicking "+
+			"through grids at the finish line will beat (task 324)", pagesPerMinute)
 	}
 }
 
