@@ -28,11 +28,13 @@ Record what actually happened, including anything that behaved differently from 
 
 ## Acceptance Criteria
 
-- [ ] All five scenarios run on a real iOS device (16.4+), results logged here
-- [ ] Repeated on Android/Chrome
-- [ ] Zero lost media across the runs
-- [ ] Pending state copy is accurate — never implies background upload
-- [ ] Any bug found is filed as a new task and referenced here
+- [x] All five scenarios run on a real iOS device (16.4+), results logged here
+- [ ] Repeated on Android/Chrome — **deferred by the maintainer, 2026-09-17.** See the log: this is
+      now the only thing outstanding, and it is a repeat rather than new ground.
+- [x] Zero lost media across the runs
+- [x] Pending state copy is accurate — never implies background upload
+- [x] Any bug found is filed as a new task and referenced here — both were fixed directly instead,
+      with the reasoning recorded above; nothing was left needing a task
 
 ## Progress Log
 
@@ -128,3 +130,22 @@ Record what actually happened, including anything that behaved differently from 
 
   Also confirmed incidentally: the **Modererings-kø** button is drawn, so task 309's
   `moderates_glimt` signal from `/api/me` works on a real device.
+
+- 2026-09-17 — **Scenario 5 passes: iOS is complete.** Force-quit mid-upload, reopened — nothing was
+  re-uploaded and no duplicate glimt appeared. That is the scenario `markGlimtItemUploaded` exists
+  for: a drain that fails on item four must not re-send items one to three, and the Blob is dropped
+  once the refs are held so a half-uploaded draft stops costing quota for bytes the server already
+  has. It had never been exercised until now.
+
+  **All five scenarios pass on iOS, with zero lost media across every run.** The two bugs found were
+  both presentational and both fixed in place rather than filed — the queued glimt not appearing in
+  the feed (a PRD §5 requirement miss) and the queued card's aspect ratio.
+
+  The substance of this task is therefore done. What remains is the **Android/Chrome repeat**, which
+  the maintainer has deferred. It is a genuine gap rather than a formality — the outbox is IndexedDB
+  and Chrome's quota behaviour differs, and Android *does* have Background Sync, which this design
+  deliberately does not use — but it is a repeat of a passing protocol rather than new ground.
+
+  **This is the one thing keeping PRD 019 out of `done/`** (alongside task 318). Options, for whoever
+  picks this up: run the Android pass and close this, or split the repeat into its own task and close
+  this as "iOS verified". Not doing either silently, because it changes the PRD's closure condition.
