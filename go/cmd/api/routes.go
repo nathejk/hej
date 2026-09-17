@@ -92,6 +92,14 @@ func (app *application) routes() http.Handler {
 	// The feed. Note there is deliberately **no** `/api/glimt/version` — freshness is a `glimt`
 	// key on /api/sync above, per the instruction there.
 	router.HandlerFunc(http.MethodGet, "/api/glimt/feed", app.requireAuth(app.listGlimtHandler))
+	// Media bytes. The visibility check here is the same one the feed applies — a media URL is
+	// guessable, so it must not be a bearer token (PRD 019 §8).
+	//
+	// Under `/items/` rather than `/api/glimt/:glimtId/media/:ordinal`, which is what PRD 019 §8
+	// asks for and what httprouter refuses: a wildcard segment cannot sit alongside the static
+	// `feed` and `media` siblings (it panics at construction — confirmed while wiring task 305).
+	// The contacts pane hit the same wall and answered it the same way, with `/people/:personId`.
+	router.HandlerFunc(http.MethodGet, "/api/glimt/items/:glimtId/media/:ordinal", app.requireAuth(app.showGlimtMediaHandler))
 	// The contacts directory (PRD 007). Cached by the client and worked from offline, so
 	// it carries everything the pane needs and nothing it does not: no guardian numbers, no
 	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach

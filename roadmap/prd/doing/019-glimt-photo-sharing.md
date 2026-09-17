@@ -561,16 +561,22 @@ the coupling that made phase 3 blocked is gone (§10).
 | `GET` | `/api/glimt/hold` | Teams that have posted anything visible to the caller — the index for the post-race browse. |
 | `GET` | `/api/glimt/hold/:number` | One hold's collection, oldest first, visibility-filtered. |
 | `GET` | `/api/glimt/version` | ❌ **Not built — superseded.** `routes.go` says outright not to add another per-dataset version endpoint (task 292 retired the last one), so freshness is a **`glimt` key on `/api/sync`** instead. Seven endpoints would be seven requests per foreground from a few hundred devices. Corrected in task 304. |
-| `GET` | `/api/glimt/:glimtId` | Single glimt, visibility-checked. |
-| `GET` | `/api/glimt/:glimtId/media/:ordinal` | Serves a variant (`?variant=thumb`), visibility-checked, `immutable` cache headers. |
-| `DELETE` | `/api/glimt/:glimtId` | **Owning `personId` only** — not "same hold", not the Team section. Tombstone + purge. |
-| `POST` | `/api/glimt/:glimtId/report` | Any member. Hides from `public` synchronously. |
+| `GET` | `/api/glimt/items/:glimtId` | Single glimt, visibility-checked. |
+| `GET` | `/api/glimt/items/:glimtId/media/:ordinal` | Serves a variant (`?variant=thumb`), visibility-checked, `immutable` cache headers. |
+| `DELETE` | `/api/glimt/items/:glimtId` | **Owning `personId` only** — not "same hold", not the Team section. Tombstone + purge. |
+| `POST` | `/api/glimt/items/:glimtId/report` | Any member. Hides from `public` synchronously. |
 | `GET` | `/api/glimt/moderation` | **Team section only.** Every scope, reported-first; the one response carrying `authorPersonId`. |
-| `POST` | `/api/glimt/:glimtId/hide` · `/unhide` | **Team section only.** Reversible, records `hiddenBy`. |
+| `POST` | `/api/glimt/items/:glimtId/hide` · `/unhide` | **Team section only.** Reversible, records `hiddenBy`. |
 | `GET` | `/offentligt/glimt` | **No auth, ignores the session cookie.** Server-rendered HTML page on `hej.nathejk.dk`. Must be in `navigateFallbackDenylist`. |
 | `GET` | `/api/public/glimt` | **No auth.** Public-scope, not hidden, hold attribution only. |
-| `GET` | `/api/public/glimt/:glimtId/media/:ordinal` | **No auth.** Public-scope media only. |
-| `POST` | `/api/public/glimt/:glimtId/report` | **No auth**, rate-limited by IP. Lets a parent report. |
+| `GET` | `/api/public/glimt/items/:glimtId/media/:ordinal` | **No auth.** Public-scope media only. |
+| `POST` | `/api/public/glimt/items/:glimtId/report` | **No auth**, rate-limited by IP. Lets a parent report. |
+
+**Note on the `items/` segment** (added 2026-09-17, task 305): every per-glimt path carries
+`/items/` because httprouter **panics at construction** if a wildcard segment sits alongside static
+siblings — and `/api/glimt/` already has `feed`, `media`, `moderation` and `hold`. The contacts pane
+hit the same wall and answered it the same way, with `/api/contacts/people/:personId`. This is a
+router constraint, not a design preference.
 
 ### Data / events
 
