@@ -93,3 +93,20 @@ Document the failure codes that actually exist: 400, 401, 403, 404, 413, 429, 50
   is worth doing, but it would fail on handlers from other PRDs that nobody in this task touched,
   and turning a guard red on unrelated work is how guards get commented out. **Left as a suggestion:
   a follow-up task to run this across the whole API and fix what it finds.**
+
+- 2026-09-17 — **This guard broke the API for three hours and I did not notice.** Recorded here
+  because the mechanism is worth knowing, not because the fix was interesting.
+
+  `parser.ParseDir` is deprecated, and **staticcheck is one of the gates in
+  `docker/init/api-dev`'s build loop**. When a gate fails the loop logs
+  `==> build failed; waiting for changes` and **leaves the previous binary running** — so the
+  container kept serving a pre-task-312 API while every commit after it looked green.
+
+  The reason I missed it: my pre-commit routine was `gofmt` + `go build` + `go vet` + `go test`,
+  which is a **strict subset** of what the container enforces (`get / test / vet / staticcheck /
+  build / pinned-build`). Nothing in my loop could have caught it, and the symptom — the app
+  failing to fetch — looks like a frontend or a database problem, not like a linter.
+
+  Fixed by replacing `ParseDir` with `os.ReadDir` + `parser.ParseFile` in a shared `packageFiles`
+  helper (which also means the two AST walks parse once instead of twice). **`go tool staticcheck
+  ./...` belongs in the pre-commit routine for this repo**, alongside the four I was running.
