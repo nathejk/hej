@@ -78,6 +78,16 @@ type application struct {
 	// directory that must be backed up. Taking a portrait is a once-or-twice-per-event
 	// action, so a low ceiling costs nobody anything.
 	photoLimiter *ratelimit.Limiter
+	// glimtMediaLimiter throttles Glimt media uploads, keyed by user like the two above.
+	//
+	// Separate from photoLimiter, and much more generous, because the actions are nothing
+	// alike: a portrait is taken once or twice an event, while a glimt carries up to ten items
+	// and a member may post several during a night. A shared ceiling would mean two posts
+	// exhausting someone's portrait budget, or a portrait limit loose enough to be pointless.
+	//
+	// May be nil, in which case no limit applies — which is what the test harness and a
+	// zero-config run get. The handler checks.
+	glimtMediaLimiter *ratelimit.Limiter
 	// confirmLimiter throttles the guardian-number confirmation and report endpoints
 	// (PRD 005, tasks 135/136), keyed by IP like the PIN limiter.
 	//
@@ -566,6 +576,12 @@ func run(logger *slog.Logger) error {
 		// against the real use — take a photo, dislike it, retake it a few times — and
 		// far below what it would take to fill a disk or keep a CPU busy.
 		photoLimiter: ratelimit.New(10, time.Hour),
+		// Sixty Glimt media items an hour, per member. Six full ten-item posts in an hour
+		// is already an unusual night, and the ceiling is there to stop a looping client
+		// rather than to ration sharing — the feature exists to be used. Task 311 revisits
+		// this alongside the storage ceiling, which is the limit that actually protects the
+		// disk.
+		glimtMediaLimiter: ratelimit.New(60, time.Hour),
 		// Twenty confirmation attempts an hour per IP. Generous against the real use — a
 		// member types two digits once, perhaps twice, and may then report the number as
 		// wrong — while leaving room for a shared network: a patrol on one hotspot all

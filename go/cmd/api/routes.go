@@ -83,6 +83,11 @@ func (app *application) routes() http.Handler {
 	// the endpoints cannot be used to discover which registrations exist.
 	router.HandlerFunc(http.MethodPatch, "/api/me/vehicles/:id", app.requireAuth(app.updateVehicleHandler))
 	router.HandlerFunc(http.MethodDelete, "/api/me/vehicles/:id", app.requireAuth(app.deleteVehicleHandler))
+	// Glimt (PRD 019). Media is uploaded one item at a time and the refs returned are then
+	// named when the glimt is created — two steps rather than one big multipart request,
+	// because a post carries up to ten items from a field on one bar of signal, so a failure
+	// should cost one item rather than the whole post (and the client's outbox can resume).
+	router.HandlerFunc(http.MethodPost, "/api/glimt/media", app.requireAuth(app.uploadGlimtMediaHandler))
 	// The contacts directory (PRD 007). Cached by the client and worked from offline, so
 	// it carries everything the pane needs and nothing it does not: no guardian numbers, no
 	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach
