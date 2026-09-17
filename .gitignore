@@ -16,3 +16,6 @@ tmp/
 # macOS Finder metadata. Unanchored so it matches at any depth — Finder creates
 # one in every directory it displays.
 .DS_Store
+
+# Scratch file for long commit messages (never meant to be tracked).
+.git-commit-msg
