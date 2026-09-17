@@ -1,18 +1,21 @@
 # PRD 019 — Glimt: sharing a moment inside the event
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed)
 **Created:** 2026-09-16
-**Last updated:** 2026-09-17 (video split out into PRD 020; §8 endpoint table corrected: no `/glimt/version`, freshness is a `/api/sync` key)
+**Last updated:** 2026-09-17 (shipped; video split out into PRD 020; §8 endpoint table corrected: no `/glimt/version`, freshness is a `/api/sync` key)
 **Approved:** 2026-09-17
+**Shipped:** 2026-09-17
 <!-- 2026-09-16: maintainer decided §11 Q1 (publish-and-hide-on-report), Q2 (no consent gate,
 close monitoring instead), Q3 (video after images, 30 s target) and authorship (a glimt belongs
 to a person, but is attributed to their hold). 2026-09-16 (later): public feed is served by this
 service on hej.nathejk.dk, moderation belongs to the Team section (slug `team`), public
 attribution is hold number + name + group, and the post-race browse is a primary use.
 2026-09-17: retention is configurable via env var, 0 disables (dev/testing). Recorded in §0.
-Approved 2026-09-17; tasks 299–325 created. -->
-**Shipped:**
+Approved 2026-09-17; tasks 299–325 created.
+2026-09-17 (later): video split out into PRD 020 (§11); shipped after the iOS field pass — all five
+offline scenarios and the save-to-Photos path verified on an installed iPhone (tasks 318, 325). The
+Android/Chrome repeat is task 329. -->
 **Target users:** participants — **spejdere (patruljer) first**, then bandit, then crew roles; parents last, as read-only viewers
 
 <!--
@@ -224,12 +227,12 @@ the posting itself (§0a).
 
 ### Functional
 
-- [ ] A participant can create a glimt with **1–10 media items** and an optional caption of
+- [x] A participant can create a glimt with **1–10 media items** and an optional caption of
       at most **280 characters**.
-- [ ] Media items may be **images** (JPEG/PNG/HEIC-decoded). **Video moved to PRD 020** — the
+- [x] Media items may be **images** (JPEG/PNG/HEIC-decoded). **Video moved to PRD 020** — the
       constraints and the reasoning that produced them are still in §8, because they were decided
       here.
-- [ ] A glimt is **owned by the author's `personId`** — only they can delete it — and
+- [x] A glimt is **owned by the author's `personId`** — only they can delete it — and
       **attributed in every UI to their hold**, never to them. Attribution carries **number,
       name and group**:
       | role | attribution shown |
@@ -237,61 +240,61 @@ the posting itself (§0a).
       | `spejder` | "Patrulje 42 · Ørnene · Spejder" |
       | `bandit` | "Klan 7 · <klan name> · Bandit" |
       | crew roles | section name + "Crew" (crew has no hold number) |
-- [ ] The **same attribution is shown at every scope**, including `public`. A parent must be
+- [x] The **same attribution is shown at every scope**, including `public`. A parent must be
       able to recognise their own child's patrulje, which is the only thing that makes the
       public feed worth publishing.
-- [ ] **The author's name, portrait and person id are projected out of every response**,
+- [x] **The author's name, portrait and person id are projected out of every response**,
       including the author's own feed — the card says "Din patrulje" plus a *Slet* action, so
       ownership is visible without a name ever being on screen. The client cannot render what
       it never receives.
-- [ ] Hold attribution is **captured at creation time**, not resolved at read time, so a
+- [x] Hold attribution is **captured at creation time**, not resolved at read time, so a
       glimt keeps saying what it said even if a hold is renamed or a member moves. Number,
       name and group are all frozen together.
-- [ ] **Browse by hold.** In addition to the chronological feed, a member can see all glimt
+- [x] **Browse by hold.** In addition to the chronological feed, a member can see all glimt
       from one hold, and reach **their own hold's collection in one tap**. This is the primary
       post-race surface (§0a.1).
-- [ ] **Save to device.** A member can save an individual photo or video they are viewing to
+- [x] **Save to device.** A member can save an individual photo or video they are viewing to
       their camera roll / downloads.
-- [ ] Each glimt has exactly one **audience** chosen at creation from:
+- [x] Each glimt has exactly one **audience** chosen at creation from:
       | value | who sees it | label (da) |
       |---|---|---|
       | `group` | members whose role maps to the author's group (spejder / bandit / crew) | "Min gruppe" |
       | `nathejk` | every authenticated member, any role | "Alle på Nathejk" |
       | `public` | anyone, no login, via `/offentligt/glimt` on `hej.nathejk.dk` | "Offentligt — også forældre" |
-- [ ] The audience selector **defaults to `group`**. Widening is an explicit act.
-- [ ] Audience is **immutable after posting**. Changing it would retroactively expose an
+- [x] The audience selector **defaults to `group`**. Widening is an explicit act.
+- [x] Audience is **immutable after posting**. Changing it would retroactively expose an
       already-shared photo; deleting and reposting is the honest path.
-- [ ] Role → group mapping: `spejder` → `spejder`; `bandit` → `bandit`; all of
+- [x] Role → group mapping: `spejder` → `spejder`; `bandit` → `bandit`; all of
       `postmandskab`, `guide`, `samarit`, `gøgler`, `crew` → `crew`. This reuses
       `isCrewRole` semantics already in `vue/src/config/roles.ts` and
       `go/internal/users/`.
-- [ ] Every authenticated member gets a **single chronological feed** of glimt visible to
+- [x] Every authenticated member gets a **single chronological feed** of glimt visible to
       them: their group's, all-Nathejk, and public — plus their own, always.
-- [ ] A member can **delete their own glimt**, which purges the media.
-- [ ] Any authenticated member can **report** a glimt. Reporting hides it from `public`
+- [x] A member can **delete their own glimt**, which purges the media.
+- [x] Any authenticated member can **report** a glimt. Reporting hides it from `public`
       immediately, before any human looks at it (§0).
-- [ ] **Members with the Team section assigned can see every glimt at every scope**, including
+- [x] **Members with the Team section assigned can see every glimt at every scope**, including
       `group`-scoped glimt they are not in the audience for, and can **hide or unhide** any of
       them. This is the moderation capability §0 depends on.
-- [ ] The Team section's reach must be **disclosed, not discovered**: the composer and `PrivacyView` state
+- [x] The Team section's reach must be **disclosed, not discovered**: the composer and `PrivacyView` state
       that the Team section can see everything posted, whatever the audience. A participant choosing "Min
       gruppe" is entitled to know that is not the same as "only my gruppe".
-- [ ] Hiding is **reversible and recorded**, not a delete: hidden glimt stay visible to the Team section and
+- [x] Hiding is **reversible and recorded**, not a delete: hidden glimt stay visible to the Team section and
       to their author, and only the author can actually destroy media.
-- [ ] Moderation authority is derived from the **current** Team section assignment on every
+- [x] Moderation authority is derived from the **current** Team section assignment on every
       request, so revoking the assignment revokes the power (§8).
-- [ ] Reports are surfaced to the **Team section** with the owning `personId` — the one place the person
+- [x] Reports are surfaced to the **Team section** with the owning `personId` — the one place the person
       behind a glimt is disclosed, because moderation cannot work against an anonymous author.
-- [ ] **All uploaded media has EXIF/GPS stripped** before storage, reusing
+- [x] **All uploaded media has EXIF/GPS stripped** before storage, reusing
       `go/internal/imaging` and the `normalizePortrait` approach.
-- [ ] Media is stored in **variants**: a feed-sized version and a thumbnail; the original is
+- [x] Media is stored in **variants**: a feed-sized version and a thumbnail; the original is
       not served.
-- [ ] Feed freshness follows the existing shared loop (`useFreshnessLoop`) with a cheap
+- [x] Feed freshness follows the existing shared loop (`useFreshnessLoop`) with a cheap
       version probe, not a bespoke poller.
-- [ ] Retention: media and metadata are **purged after a configurable window that comfortably
+- [x] Retention: media and metadata are **purged after a configurable window that comfortably
       outlives the race** (§0a.2), on the same mechanism as the portrait purge
       (`portraitpurge.go`).
-- [ ] The window is set by **environment variable**, and **`0` disables the purge entirely** —
+- [x] The window is set by **environment variable**, and **`0` disables the purge entirely** —
       required for dev and testing, where a fixture posted last month must still be there
       tomorrow. Two knobs, because the public feed should be able to close before the internal
       one:
@@ -299,20 +302,20 @@ the posting itself (§0a).
       |---|---|---|
       | `GLIMT_RETENTION` | how long a glimt is kept after creation | see §11 Q1 |
       | `GLIMT_PUBLIC_RETENTION` | how long a glimt stays on the public feed | see §11 Q1 |
-- [ ] Whatever the configured window is, the **UI must state the real number**, not a
+- [x] Whatever the configured window is, the **UI must state the real number**, not a
       hard-coded sentence. A composer that says "90 dage" while the deployment is set to 30 is
       worse than saying nothing, so the value is served to the client (`/api/config`) rather
       than written into copy.
-- [ ] Retention is measured **from creation**, not from a configured event end date — the same
+- [x] Retention is measured **from creation**, not from a configured event end date — the same
       simplification `portraitRetention` already makes, and it fails in the safe direction.
-- [ ] A disabled purge must be **visible, not silent**: log it at startup, exactly as
+- [x] A disabled purge must be **visible, not silent**: log it at startup, exactly as
       `portraitpurge.go` already does ("portrait retention disabled").
-- [ ] The privacy page (`/privatliv`) documents Glimt: what is stored, who can see it —
+- [x] The privacy page (`/privatliv`) documents Glimt: what is stored, who can see it —
       **including the Team section** — how long it lives, and how to get something removed.
-- [ ] **No guardian phone number, and no phone number at all, appears anywhere in Glimt.**
+- [x] **No guardian phone number, and no phone number at all, appears anywhere in Glimt.**
       Nor does any personal name, portrait or arm number — attribution is the hold
       (`.rules`, and §0).
-- [ ] The public surface shows **the hold attribution (number, name, group) and nothing else**
+- [x] The public surface shows **the hold attribution (number, name, group) and nothing else**
       about who posted — no personal name, no portrait, no arm number.
 
 ### Non-Functional
@@ -672,33 +675,33 @@ rather than merely built, someone is on the rota, and the load test has been run
 
 Proposed tasks for `roadmap/tasks/open/`:
 
-- [ ] Task: Glimt visibility predicate in `internal/users` (role → group, may-see rules, Team-section override) + tests
-- [ ] Task: `mayModerate` — per-request `sectionSlug` lookup against the `team` slug constant, revocation test
-- [ ] Task: `nathejk/table/glimt` projection — schema, consumer, querier
-- [ ] Task: Freeze hold number/name/group at creation and project `authorPersonId` out of every response, with a test
-- [ ] Task: `POST /api/glimt/media` — upload, decode-validate, EXIF strip, variants, limits
-- [ ] Task: `POST /api/glimt` + `GET /api/glimt/feed` + `GET /api/glimt/version`
-- [ ] Task: `GET /api/glimt/:id/media/:ordinal` — visibility check, `immutable` cache headers, test that a group ref 403s for an outsider
-- [ ] Task: `DELETE /api/glimt/:id` — owner-only (not the Team section), tombstone and blob purge
-- [ ] Task: `POST /api/glimt/:id/report` — synchronous hide from public
-- [ ] Task: Moderation API (Team section) — `GET /api/glimt/moderation`, `hide`/`unhide`, reversible + recorded
-- [ ] Task: `GlimtModerationView` — all scopes, reported-first, hide/unhide
-- [ ] Task: Glimt retention purge (mirror `portraitpurge.go`) — `GLIMT_RETENTION` and `GLIMT_PUBLIC_RETENTION`, `0` disables, logged at startup, effective value on `/api/config`
-- [ ] Task: Per-member rate limits, looser read limits, and a storage ceiling for Glimt media
-- [ ] Task: OpenAPI annotations for all Glimt endpoints
-- [ ] Task: `glimt.store.ts` — feed fetch/cache on the contacts-store pattern
-- [ ] Task: `glimtOutbox.ts` — IndexedDB outbox, drain on foreground and `online`
-- [ ] Task: Add `glimt` to `config/offline.ts` datasets, split thumbnail/full Workbox routes and budgets
-- [ ] Task: `GlimtView` feed + `GlimtCard` (hold attribution, tappable, one-tap report) + `GlimtMediaStrip` (add shadcn `carousel`)
-- [ ] Task: `GlimtComposer` — multi-capture, client-side compression, caption, audience choice, Team-section visibility disclosure
-- [ ] Task: `GlimtViewer` full-screen dialog + save-to-device (verify on iOS 16.4)
-- [ ] Task: `GET /api/glimt/hold` + `/hold/:number` and `GlimtHoldView` thumbnail grid
-- [ ] Task: Nav slot ordering decision — where Glimt sits per role, what moves to `MoreMenu`
-- [ ] Task: Document Glimt in `PrivacyView` — storage, audience, Team-section reach, retention, takedown
+- [x] Task: Glimt visibility predicate in `internal/users` (role → group, may-see rules, Team-section override) + tests
+- [x] Task: `mayModerate` — per-request `sectionSlug` lookup against the `team` slug constant, revocation test
+- [x] Task: `nathejk/table/glimt` projection — schema, consumer, querier
+- [x] Task: Freeze hold number/name/group at creation and project `authorPersonId` out of every response, with a test
+- [x] Task: `POST /api/glimt/media` — upload, decode-validate, EXIF strip, variants, limits
+- [x] Task: `POST /api/glimt` + `GET /api/glimt/feed` + `GET /api/glimt/version`
+- [x] Task: `GET /api/glimt/:id/media/:ordinal` — visibility check, `immutable` cache headers, test that a group ref 403s for an outsider
+- [x] Task: `DELETE /api/glimt/:id` — owner-only (not the Team section), tombstone and blob purge
+- [x] Task: `POST /api/glimt/:id/report` — synchronous hide from public
+- [x] Task: Moderation API (Team section) — `GET /api/glimt/moderation`, `hide`/`unhide`, reversible + recorded
+- [x] Task: `GlimtModerationView` — all scopes, reported-first, hide/unhide
+- [x] Task: Glimt retention purge (mirror `portraitpurge.go`) — `GLIMT_RETENTION` and `GLIMT_PUBLIC_RETENTION`, `0` disables, logged at startup, effective value on `/api/config`
+- [x] Task: Per-member rate limits, looser read limits, and a storage ceiling for Glimt media
+- [x] Task: OpenAPI annotations for all Glimt endpoints
+- [x] Task: `glimt.store.ts` — feed fetch/cache on the contacts-store pattern
+- [x] Task: `glimtOutbox.ts` — IndexedDB outbox, drain on foreground and `online`
+- [x] Task: Add `glimt` to `config/offline.ts` datasets, split thumbnail/full Workbox routes and budgets
+- [x] Task: `GlimtView` feed + `GlimtCard` (hold attribution, tappable, one-tap report) + `GlimtMediaStrip` (add shadcn `carousel`)
+- [x] Task: `GlimtComposer` — multi-capture, client-side compression, caption, audience choice, Team-section visibility disclosure
+- [x] Task: `GlimtViewer` full-screen dialog + save-to-device (verify on iOS 16.4)
+- [x] Task: `GET /api/glimt/hold` + `/hold/:number` and `GlimtHoldView` thumbnail grid
+- [x] Task: Nav slot ordering decision — where Glimt sits per role, what moves to `MoreMenu`
+- [x] Task: Document Glimt in `PrivacyView` — storage, audience, Team-section reach, retention, takedown
 - [x] ~~Task: Video support — container validation, server-side 30 s / 50 MB enforcement, metadata-strip verification on real iOS/Android recordings~~ — **moved to PRD 020** (was task 322)
-- [ ] Task: `/offentligt/glimt` — server-rendered public page, ignores session cookie, `navigateFallbackDenylist` entry, unauthenticated report link
-- [ ] Task: Load-test the post-race browse against a realistic item count
-- [ ] Task: Offline field test — post a glimt with no signal, verify outbox drain on reconnect
+- [x] Task: `/offentligt/glimt` — server-rendered public page, ignores session cookie, `navigateFallbackDenylist` entry, unauthenticated report link
+- [x] Task: Load-test the post-race browse against a realistic item count
+- [x] Task: Offline field test — post a glimt with no signal, verify outbox drain on reconnect
 
 ## 11. Open Questions
 

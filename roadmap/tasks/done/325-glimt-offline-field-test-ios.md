@@ -1,11 +1,11 @@
-# 325 — Offline field test: post a glimt with no signal
+# 325 — Offline field test: post a glimt with no signal (iOS)
 
-**Status:** open
+**Status:** done
 **Priority:** medium
 **Created:** 2026-09-17
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent
+**Started:** 2026-09-17
+**Completed:** 2026-09-17
 
 ## Description
 
@@ -29,12 +29,13 @@ Record what actually happened, including anything that behaved differently from 
 ## Acceptance Criteria
 
 - [x] All five scenarios run on a real iOS device (16.4+), results logged here
-- [ ] Repeated on Android/Chrome — **deferred by the maintainer, 2026-09-17.** See the log: this is
-      now the only thing outstanding, and it is a repeat rather than new ground.
+- [x] ~~Repeated on Android/Chrome~~ — **split into task 329** on 2026-09-17. Deferred by the
+      maintainer; see the log for why that is a real gap rather than a formality, and why it was moved
+      rather than dropped.
 - [x] Zero lost media across the runs
 - [x] Pending state copy is accurate — never implies background upload
-- [x] Any bug found is filed as a new task and referenced here — both were fixed directly instead,
-      with the reasoning recorded above; nothing was left needing a task
+- [x] Any bug found is filed as a new task and referenced here — all three were fixed directly
+      instead, with the reasoning recorded above; nothing was left needing a task
 
 ## Progress Log
 
@@ -149,3 +150,23 @@ Record what actually happened, including anything that behaved differently from 
   **This is the one thing keeping PRD 019 out of `done/`** (alongside task 318). Options, for whoever
   picks this up: run the Android pass and close this, or split the repeat into its own task and close
   this as "iOS verified". Not doing either silently, because it changes the PRD's closure condition.
+
+- 2026-09-17 — **Split: the Android repeat is now task 329, and this task is done.** The maintainer
+  chose the split so PRD 019 could close on its iOS result.
+
+  Retitled "(iOS)" so the scope is visible from the filename rather than only from this log — a task
+  called "offline field test" sitting in `done/` would read as though every platform had been covered.
+
+  What this task actually established, and it is worth stating as a whole: **the outbox works.** Five
+  scenarios, zero lost media, on code that had never once executed before today. The queue survives a
+  force-quit, drains on foreground and not before, and does not re-upload what already landed.
+
+  It also found three bugs, none of which any test suite could have caught, and all fixed:
+
+  | bug | what it was |
+  |---|---|
+  | Queued glimt invisible in the feed | A **PRD 019 §5 requirement miss** — "Et glimt venter på nettet" above "Ingen glimt endnu" |
+  | Queued card cropped to 4:3, then reshaped after upload | No dimensions until the drain decoded the file |
+  | *Gem* downloaded the app shell as `.jpg.html` | `/api/` was not denied the SW navigation fallback (fixed under task 318) |
+
+  The third was not a Glimt bug at all. That is the argument for field tests in one line.
