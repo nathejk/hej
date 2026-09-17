@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed)
 **Created:** 2026-09-16
-**Last updated:** 2026-09-17 (§8 endpoint table corrected: no `/glimt/version`; freshness is a `/api/sync` key)
+**Last updated:** 2026-09-17 (video split out into PRD 020; §8 endpoint table corrected: no `/glimt/version`, freshness is a `/api/sync` key)
 **Approved:** 2026-09-17
 <!-- 2026-09-16: maintainer decided §11 Q1 (publish-and-hide-on-report), Q2 (no consent gate,
 close monitoring instead), Q3 (video after images, 30 s target) and authorship (a glimt belongs
@@ -32,7 +32,7 @@ the rest of the document is written on top of these answers rather than around t
 |---|---|
 | Moderation of the `public` scope | **Publish immediately, hide on report**, backed by *close monitoring* by the Team section while the feature is young. No pre-publication approval queue. |
 | Guardian consent for `public` | **Not required for now.** We rely on the same Team-section monitoring rather than a recorded consent. |
-| Video | **Yes, after images.** Target cap **30 s** rather than 15 s, if the size and metadata story holds up (§8). |
+| Video | **Split out into PRD 020.** Decided here as "yes, after images, 30 s cap", and the reasoning is preserved in §8 — but it is gated on a metadata claim that can only be verified on real devices, and that gate is too large an unknown to hold this PRD open around. See PRD 020. |
 | Authorship | **A glimt belongs to a person** — they own it and they alone can delete it — **but the person is never disclosed. It is attributed to their hold.** |
 | Where the public feed lives | **In this service, on `hej.nathejk.dk`.** Not a separate site and not a build-time export to PRD 013 — the BFF serves it directly. |
 | Who moderates | **Whoever has the Team section assigned** (slug `team`) — the organizers and the people responsible. The Team section can **view every glimt at every scope** and hide anything unwanted. |
@@ -226,8 +226,9 @@ the posting itself (§0a).
 
 - [ ] A participant can create a glimt with **1–10 media items** and an optional caption of
       at most **280 characters**.
-- [ ] Media items may be **images** (JPEG/PNG/HEIC-decoded) and **videos** of at most
-      **30 seconds** (see §8 for the video constraints and phasing).
+- [ ] Media items may be **images** (JPEG/PNG/HEIC-decoded). **Video moved to PRD 020** — the
+      constraints and the reasoning that produced them are still in §8, because they were decided
+      here.
 - [ ] A glimt is **owned by the author's `personId`** — only they can delete it — and
       **attributed in every UI to their hold**, never to them. Attribution carries **number,
       name and group**:
@@ -521,6 +522,16 @@ the coupling that made phase 3 blocked is gone (§10).
   recordings rather than assumed, and the 30 s cap must be enforced **server-side** on the
   parsed container, not just by the recorder UI. If verification fails, the fallback is
   option (b) or a shorter cap — not shipping video with an unverified privacy claim.
+
+  **Moved to PRD 020 (2026-09-17).** Kept here rather than deleted because this is where the
+  decision was made and the alternatives were weighed — PRD 020 inherits all of it unchanged. The
+  split happened because that verification gate can only be closed with an iOS device and an
+  Android device in hand, and its outcome could force option (b), which is a materially different
+  piece of work. An unknown that large should not hold an otherwise-finished PRD open. PRD 020 also
+  found three things this paragraph missed: the metadata "stripping" is a container **rewrite**
+  rather than a read, video needs **HTTP Range** support that the media route does not have, and the
+  storage numbers task 311 set for an image-only feature give a member **ten videos** before they
+  are full.
 - **Storage growth is unbounded and non-rebuildable.** Every projection in this service is
   replayed from the stream on boot; the blob store is the only thing that is not. Glimt
   multiplies its size by a large factor, and `FileStore` is a Docker volume on one host. A
@@ -651,10 +662,10 @@ to build against a small feed than a full one.
 
 **Phase 1 — images, spejder, `group` and `nathejk` scopes, moderation.** Behind a role gate:
 only `spejder` sees the destination. No video, no public scope.
-**Phase 2 — bandit; the post-race browse; then video.** Extend the role gate. The hold
+**Phase 2 — bandit; the post-race browse.** Extend the role gate. The hold
 collection view and saving to device belong here at the latest — they are what makes the first
-event's photos worth having (§0a) — and video follows with the 30 s / 50 MB caps once
-container-level metadata stripping is verified on real devices.
+event's photos worth having (§0a). ~~then video~~ — **video is now PRD 020**, which carries the
+30 s / 50 MB caps and the metadata-verification gate.
 **Phase 3 — remaining roles, then the `public` scope** and `/offentligt/glimt`. Prerequisites
 are concrete: the report path works end to end including unauthenticated, the moderation view is in use
 rather than merely built, someone is on the rota, and the load test has been run.
@@ -684,12 +695,23 @@ Proposed tasks for `roadmap/tasks/open/`:
 - [ ] Task: `GET /api/glimt/hold` + `/hold/:number` and `GlimtHoldView` thumbnail grid
 - [ ] Task: Nav slot ordering decision — where Glimt sits per role, what moves to `MoreMenu`
 - [ ] Task: Document Glimt in `PrivacyView` — storage, audience, Team-section reach, retention, takedown
-- [ ] Task: Video support — container validation, server-side 30 s / 50 MB enforcement, metadata-strip verification on real iOS/Android recordings
+- [x] ~~Task: Video support — container validation, server-side 30 s / 50 MB enforcement, metadata-strip verification on real iOS/Android recordings~~ — **moved to PRD 020** (was task 322)
 - [ ] Task: `/offentligt/glimt` — server-rendered public page, ignores session cookie, `navigateFallbackDenylist` entry, unauthenticated report link
 - [ ] Task: Load-test the post-race browse against a realistic item count
 - [ ] Task: Offline field test — post a glimt with no signal, verify outbox drain on reconnect
 
 ## 11. Open Questions
+
+**Scope change, 2026-09-17 — video moved to PRD 020.** Recorded here because it changes what this
+PRD promises. Everything about video was decided here (§0, §8) and the reasoning stays in §8; what
+moved is the *building* of it. The trigger: video's privacy claim can only be verified with an iOS
+device and an Android device in hand, and if that verification fails the answer is `ffmpeg`
+out-of-band — a materially different piece of work. An unknown of that size should not keep an
+otherwise-finished PRD in `doing/`.
+
+This is deliberately **not** a `reopen`: nothing already built is invalidated and nothing needs
+re-agreeing. It is a narrowing, and the closure condition narrows with it — PRD 019 is done when its
+remaining tasks (318, 325) are, both of which are device checks.
 
 Seven questions from earlier drafts — public-scope moderation, guardian consent, video,
 person-vs-patrol authorship, who moderates, where the public feed lives, and how much the
