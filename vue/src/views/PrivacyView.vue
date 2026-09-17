@@ -10,11 +10,26 @@
 // legalese: a text nobody reads is not consent, and this is the only written account most
 // parents will see, since the start-area briefing reaches the participants and not them.
 import { computed, onMounted } from 'vue'
-import { MapPin, Camera, ShieldCheck, Clock, Route, Info, HardDrive } from '@lucide/vue'
+import { MapPin, Camera, Images, ShieldCheck, Clock, Route, Info, HardDrive } from '@lucide/vue'
 import { OFFLINE_DATASETS } from '@/config/offline'
 import { registerOfflineDatasets } from '@/helpers/offline/reporters'
 import { useOfflineStore } from '@/stores/offline.store'
 import { useTrackStore } from '@/stores/track.store'
+import {
+  GLIMT_NO_NAMES,
+  GLIMT_PRIVACY_HEADING,
+  GLIMT_REMOVAL,
+  GLIMT_STORED,
+  GLIMT_TEAM_REACH,
+  GLIMT_WHO_CAN_SEE,
+  glimtRetentionCopy,
+} from '@/components/glimt/glimtPrivacyCopy'
+
+// The Glimt copy lives in a module, not in this template (PRD 019 §6, task 321). Two of those
+// sentences are required disclosures rather than prose — the Team-section reach, and the retention
+// window read from /api/config — and the unit suite never mounts a component, so copy left here
+// could not be asserted. See the module for the full argument.
+const glimtRetentionText = computed(() => glimtRetentionCopy())
 
 // The recording status below is here rather than in a developer tool on purpose
 // (task 082): "storage growth is bounded or at least observable", and the person with
@@ -121,6 +136,46 @@ const appVersion = __APP_VERSION__
           </p>
           <p class="mt-2 text-sm text-slate-600">
             Billedet vises kun til andre, der er med i løbet, og deles ikke uden for Nathejk.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Glimt (PRD 019 §6). Placed straight after "Dit billede": both are about photographs, and a
+         reader who has just been told their portrait stays inside Nathejk is exactly the reader who
+         needs to know a glimt can leave it. -->
+    <section class="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+      <div class="flex items-start gap-3">
+        <Images class="mt-0.5 h-5 w-5 shrink-0 text-slate-500" aria-hidden="true" />
+        <div>
+          <h2 class="font-medium text-slate-800">{{ GLIMT_PRIVACY_HEADING }}</h2>
+
+          <p v-for="line in GLIMT_STORED" :key="line" class="mt-1 text-sm text-slate-600">
+            {{ line }}
+          </p>
+
+          <p v-for="line in GLIMT_WHO_CAN_SEE" :key="line" class="mt-2 text-sm text-slate-600">
+            {{ line }}
+          </p>
+
+          <!-- The disclosure PRD 019 §6 requires to be stated rather than discovered. Given its own
+               emphasised paragraph because a member choosing "min patrulje" is entitled to know that
+               is not the same as "only my patrulje" — and because a sentence folded into the list
+               above is a sentence that gets skimmed. -->
+          <p class="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            {{ GLIMT_TEAM_REACH }}
+          </p>
+
+          <p class="mt-3 text-sm text-slate-600">{{ GLIMT_NO_NAMES }}</p>
+
+          <!-- Absent, not "0 dage", when the deployment has retention switched off: saying nothing
+               beats inventing a number about somebody's photographs. -->
+          <p v-if="glimtRetentionText" class="mt-2 text-sm text-slate-600">
+            {{ glimtRetentionText }}
+          </p>
+
+          <p v-for="line in GLIMT_REMOVAL" :key="line" class="mt-2 text-sm text-slate-600">
+            {{ line }}
           </p>
         </div>
       </div>

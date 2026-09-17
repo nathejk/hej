@@ -1,0 +1,36 @@
+glimt: document it on the privacy page
+
+Task 321, PRD 019 §6.
+
+The copy lives in a module rather than in PrivacyView's template, because two of these
+sentences are not prose. The Team-section reach is a disclosure the PRD requires to be
+stated rather than discoverable, and a sentence in a template can be dropped by anyone
+rearranging the page with nothing failing -- the reach is invisible by definition, so no
+amount of looking at the page would show it had gone. The retention window carries a number
+that must match the deployment, and it is only ever wrong on a deployment configured
+differently from the developer's, which is exactly the case nobody looks at. The unit suite
+never mounts a component, so copy left in the view could not be asserted at all.
+
+The Team sentence says who they are and why. "Team kan se alle glimt" is true and useless;
+this says "de voksne, der staar for loebet", gives the reason, and spells out the
+consequence for the narrowest audience. It has to be unmissable and fair at once, or it
+reads as surveillance rather than as the thing that makes the safety mechanism work.
+
+Other decisions: the location is framed as what we do (the camera writes the place in and we
+cut it out) rather than as what we lack, since it is the most reassuring true thing on the
+page and the one a reader would never assume. "Ingen, der ser det igennem foerst" is stated
+plainly, because with no approval queue in front of the public scope it is the fact a parent
+most needs and would least expect. Hiding and deleting are kept distinct, so nobody is
+surprised later.
+
+glimtRetentionCopy returns an empty string when retention is off, and the view drops the
+paragraph -- "0 dage" and "for altid" are both worse than silence about somebody's
+photographs. Both windows are stated public-first, matching the order a parent asks.
+
+Two guards beyond the copy: the view must still import every constant, since the module is
+only a guarantee if the view renders it, and the view must hard-code no "N dage" of its own
+-- the exact regression this task was written against, in the file most likely to
+reintroduce it.
+
+The tone has not been reviewed by a native Danish speaker, and should be: this is the only
+written account most parents will see.
