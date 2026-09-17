@@ -5,6 +5,11 @@ import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import {
+  GLIMT_MEDIA_CACHE_MAX_AGE_SECONDS,
+  GLIMT_MEDIA_CACHE_MAX_ENTRIES,
+  GLIMT_MEDIA_CACHE_NAME,
+  GLIMT_THUMB_CACHE_MAX_ENTRIES,
+  GLIMT_THUMB_CACHE_NAME,
   PORTRAIT_CACHE_MAX_AGE_SECONDS,
   PORTRAIT_CACHE_MAX_ENTRIES,
   PORTRAIT_CACHE_NAME,
@@ -113,7 +118,7 @@ export default defineConfig({
         // client asking for /desktop.html would be served index.html, boot the app, and be
         // redirected straight back here — a loop, and the one failure mode of moving that
         // page out of the SPA.
-        navigateFallbackDenylist: [/^\/desktop\.html$/],
+        navigateFallbackDenylist: [/^\/desktop\.html$/, /^\/offentligt\//],
         // Pull in custom push / notificationclick handlers (public/push-sw.js).
         importScripts: ['push-sw.js'],
         // Map tiles are cached as they are browsed (PRD 002 §11.2, task 087).
@@ -213,6 +218,55 @@ export default defineConfig({
               // return an indistinguishable 403/404 for "not allowed" and "no photo", and caching
               // either would freeze an authorization decision on the device for a fortnight — a
               // member whose role changes mid-event would keep seeing the refusal.
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+          {
+            // Glimt **thumbnails** — the grid tiles (PRD 019 §8, task 315).
+            //
+            // Matched by the `variant=thumb` query parameter, which is what distinguishes them from
+            // full-size media on the same path. Workbox matches on the whole URL, so this route must
+            // come **before** the full-media route below — the first matching route wins, and a
+            // pattern without the parameter would swallow both.
+            urlPattern: /\/api\/glimt\/items\/[^/]+\/media\/\d+\?.*variant=thumb/,
+            // CacheFirst. The bytes are immutable by construction: a different image is a different
+            // content hash, so a URL's content can only change if the *glimt* changes, and a glimt's
+            // media list is written once. The BFF says so too — `immutable` with a content-hash ETag
+            // (task 305) — so there is nothing to revalidate against and SWR would re-request every
+            // visible tile on every scroll, which is exactly the cost this exists to avoid.
+            handler: 'CacheFirst',
+            options: {
+              cacheName: GLIMT_THUMB_CACHE_NAME,
+              expiration: {
+                maxEntries: GLIMT_THUMB_CACHE_MAX_ENTRIES,
+                maxAgeSeconds: GLIMT_MEDIA_CACHE_MAX_AGE_SECONDS,
+                // Not `purgeOnQuotaError`, for the reason the tile and portrait caches give:
+                // losing every grid tile because one write did not fit is worse than not storing
+                // the newest one.
+              },
+              // 200 only, and it matters here for the same reason as portraits: the media endpoint
+              // answers 403 for "not shared with you" (task 305), and caching that would freeze an
+              // authorization decision on the device for a fortnight — a member whose group changes
+              // mid-event would keep seeing the refusal.
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+          {
+            // Glimt **full-size media** — what the viewer opens.
+            //
+            // A separate, much smaller cache: see the note on GLIMT_MEDIA_CACHE_MAX_ENTRIES. Its job
+            // is to make going back to a photograph you just looked at instant, not to hold an
+            // event. Sharing a cache with the thumbnails would let twenty opened photographs evict
+            // several hundred grid tiles — the cheap, numerous, load-bearing things pushed out by
+            // the expensive, rare ones.
+            urlPattern: /\/api\/glimt\/items\/[^/]+\/media\/\d+/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: GLIMT_MEDIA_CACHE_NAME,
+              expiration: {
+                maxEntries: GLIMT_MEDIA_CACHE_MAX_ENTRIES,
+                maxAgeSeconds: GLIMT_MEDIA_CACHE_MAX_AGE_SECONDS,
+              },
               cacheableResponse: { statuses: [200] },
             },
           },

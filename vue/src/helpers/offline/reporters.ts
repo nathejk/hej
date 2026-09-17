@@ -16,17 +16,33 @@
 // pretending to a live count. The directory, which *is* written by app code, still reports on write
 // because it can.
 
-import { PORTRAIT_CACHE_NAME, TILE_CACHE_NAME } from '@/config/cache'
+import {
+  GLIMT_MEDIA_CACHE_NAME,
+  GLIMT_THUMB_CACHE_NAME,
+  PORTRAIT_CACHE_NAME,
+  TILE_CACHE_NAME,
+} from '@/config/cache'
 import type { CacheStorageLike } from '@/helpers/offline/eviction'
 import { forgetTileAreaVersion, rememberTileAreaVersion } from '@/helpers/offline/tileAreaVersion'
 import { measureCache, measureShell } from '@/helpers/offline/measure'
 import { countPoints, countPending } from '@/helpers/trackDb'
 import { useContactsStore } from '@/stores/contacts.store'
+import { useGlimtStore } from '@/stores/glimt.store'
 import { useOfflineStore } from '@/stores/offline.store'
 import { useSessionStore } from '@/stores/session.store'
 
-/** Our own named caches, so shell measurement can exclude them. */
-export const OWN_CACHE_NAMES = [TILE_CACHE_NAME, PORTRAIT_CACHE_NAME] as const
+/**
+ * Our own named caches, so shell measurement can exclude them.
+ *
+ * Every cache added here must also be excluded, or the shell's size grows by whatever the new one
+ * holds — which for the Glimt caches would make "the app itself" look like it needed 20 MB.
+ */
+export const OWN_CACHE_NAMES = [
+  TILE_CACHE_NAME,
+  PORTRAIT_CACHE_NAME,
+  GLIMT_THUMB_CACHE_NAME,
+  GLIMT_MEDIA_CACHE_NAME,
+] as const
 
 type CachesApi = CacheStorageLike & { keys?: () => Promise<string[]> }
 
@@ -34,9 +50,11 @@ type CachesApi = CacheStorageLike & { keys?: () => Promise<string[]> }
 export async function reportCaches(caches: CachesApi | undefined) {
   const offline = useOfflineStore()
 
-  const [tiles, portraits, shell] = await Promise.all([
+  const [tiles, portraits, glimtThumbs, glimtMedia, shell] = await Promise.all([
     measureCache(caches, TILE_CACHE_NAME),
     measureCache(caches, PORTRAIT_CACHE_NAME),
+    measureCache(caches, GLIMT_THUMB_CACHE_NAME),
+    measureCache(caches, GLIMT_MEDIA_CACHE_NAME),
     measureShell(caches, OWN_CACHE_NAMES),
   ])
 
@@ -57,6 +75,20 @@ export async function reportCaches(caches: CachesApi | undefined) {
     complete: false,
     itemCount: portraits.itemCount,
     bytes: portraits.bytes,
+  })
+
+  // Two caches, **one reported dataset**. The split into thumbnails and full media is a caching
+  // decision (task 315) and not something a participant should be asked to understand: the readiness
+  // view offers to clear "Glimt", not "Glimt thumbnails". Summed here so `config/offline.ts`'s single
+  // budget line has a matching single measurement.
+  const glimtItems = glimtThumbs.itemCount + glimtMedia.itemCount
+  offline.report('glimt', {
+    state: glimtItems > 0 ? 'synced' : 'empty',
+    // Same reasoning as tiles and portraits: images arrive as cards are drawn, so we know we have
+    // *some* of them and can never honestly claim all.
+    complete: false,
+    itemCount: glimtItems,
+    bytes: glimtThumbs.bytes + glimtMedia.bytes,
   })
 
   offline.report('shell', {
@@ -153,6 +185,41 @@ export async function purgeSensitiveData(caches: CachesApi | undefined) {
 }
 
 /**
+ * Drop the Glimt feed and the photographs it points at (task 315).
+ *
+ * The other half of the purge task 313 could only flag. The store's `hydrate` throws away a feed past
+ * its server-issued deadline and raises `expired`; the images live in two Cache API buckets the store
+ * knows nothing about, so something outside it has to finish the job.
+ *
+ * Both halves together, for the reason `purgeSensitiveData` gives about names and faces: a feed of
+ * captions pointing at nothing is useless, and — the part that actually matters — a set of
+ * photographs of participants with no feed referencing them is bytes nobody will ever come back for.
+ * That is the residue this exists to prevent.
+ *
+ * Called on every launch when the deadline has passed, which for a device that has not opened the app
+ * since the event is the only moment anything of ours will ever run again (PRD 009 §11.5).
+ */
+export async function purgeGlimtData(caches: CachesApi | undefined) {
+  const glimt = useGlimtStore()
+  const offline = useOfflineStore()
+
+  glimt.clearLocalCopy()
+
+  if (caches) {
+    for (const name of [GLIMT_THUMB_CACHE_NAME, GLIMT_MEDIA_CACHE_NAME]) {
+      try {
+        const cache = await caches.open(name)
+        for (const key of await cache.keys()) await cache.delete(key)
+      } catch {
+        // Carry on. Each cache's own 14-day `maxAgeSeconds` is the backstop, which is why that
+        // number was set short rather than matched to the server's 90-day retention.
+      }
+    }
+  }
+  offline.markCleared('glimt')
+}
+
+/**
  * Connect every existing cache to the readiness surface, and register what the user may ask of it.
  *
  * Called once from `App.vue`. Handlers:
@@ -176,6 +243,16 @@ export async function registerOfflineDatasets(caches: CachesApi | undefined) {
   // app after the event is exactly the one no server-side purge can reach.
   contacts.hydrate()
   if (contacts.expired) await purgeSensitiveData(caches)
+
+  // The same rule for Glimt, and the stake is higher: what a dormant device holds here is
+  // photographs of participants rather than a list of names (task 313, task 315).
+  const glimt = useGlimtStore()
+  glimt.hydrate()
+  if (glimt.expired) await purgeGlimtData(caches)
+
+  // How many posts are waiting to go out, so the readiness surface and the feed agree on the number
+  // without each reading IndexedDB.
+  await glimt.refreshPending()
 
   offline.registerHandlers('directory', {
     sync: async () => {

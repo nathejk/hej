@@ -143,3 +143,68 @@ export const PORTRAIT_CACHE_MAX_ENTRIES = 1_000
  * not keeping photographs of people indefinitely is.
  */
 export const PORTRAIT_CACHE_MAX_AGE_SECONDS = 14 * 24 * 60 * 60
+
+/**
+ * Cache holding Glimt **thumbnails** (`/api/glimt/items/{id}/media/{n}?variant=thumb`).
+ *
+ * # Why thumbnails and full media get separate caches
+ *
+ * This is the one decision in this file that PRD 019 asks for by name (§8), and it is worth stating
+ * why rather than treating it as tidiness. The post-race browse (PRD 019 §0a.3) pulls **thumbnails by
+ * the thousand** — a hold's collection is a grid — and full-size media a handful at a time, when
+ * somebody opens one. Under a single Workbox route those share one entry cap and one LRU list, so
+ * opening twenty photographs evicts several hundred grid tiles: the cheap, numerous, load-bearing
+ * things are pushed out by the expensive, rare ones.
+ *
+ * Two caches means the grid keeps working while the viewer's cache churns, which is the behaviour the
+ * finish line needs — a thousand people on the worst network of the weekend, and the grid is what
+ * they scroll.
+ */
+export const GLIMT_THUMB_CACHE_NAME = 'nathejk-glimt-thumbs-v1'
+
+/**
+ * Maximum Glimt thumbnails retained.
+ *
+ * ~3 kB each at 320px (measured 2,961 bytes on the fixture, task 327). 3,000 entries is ~9 MB and
+ * covers an entire event's worth of grid tiles several times over — a busy year might produce a few
+ * hundred glimt with up to ten items each.
+ *
+ * Generous on purpose, for the reason the tile cap is: eviction here is not free. A thumbnail
+ * discarded at the finish line is re-fetched over a congested network, and the grid is the surface
+ * being scrolled at that exact moment.
+ */
+export const GLIMT_THUMB_CACHE_MAX_ENTRIES = 3_000
+
+/**
+ * Cache holding Glimt **full-size media**.
+ *
+ * Small on purpose — see `GLIMT_MEDIA_CACHE_MAX_ENTRIES`.
+ */
+export const GLIMT_MEDIA_CACHE_NAME = 'nathejk-glimt-media-v1'
+
+/**
+ * Maximum full-size Glimt media retained.
+ *
+ * ~30 kB each at 1600px (measured 28–31 kB, task 327), so 200 entries is ~6 MB.
+ *
+ * Deliberately a *small* cache. Its job is only to make going back to a photograph you just looked at
+ * instant — swiping through a carousel, closing the viewer and reopening it. It is not trying to hold
+ * an event's worth of full-size images, and if it did it would compete with the thumbnails that make
+ * the grid usable.
+ */
+export const GLIMT_MEDIA_CACHE_MAX_ENTRIES = 200
+
+/**
+ * How long cached Glimt media is kept, in seconds. Fourteen days.
+ *
+ * Matched to `PORTRAIT_CACHE_MAX_AGE_SECONDS` and for the same reason, which applies more strongly
+ * here: these are photographs of participants, and a device that never reopens the app after the
+ * event must drop them on its own. That is the dormant-device case no purge can reach (PRD 009
+ * §11.5), and it is why this is short rather than matched to the server's 90-day retention.
+ *
+ * Note the feed metadata carries a **server-issued** `expiresAt` derived from `GLIMT_RETENTION`
+ * (task 313), and the store raises `expired` when it passes so these caches can be dropped in the
+ * same beat. This constant is the belt to that braces: it bounds the bytes even if the app is never
+ * opened again to run the purge.
+ */
+export const GLIMT_MEDIA_CACHE_MAX_AGE_SECONDS = 14 * 24 * 60 * 60

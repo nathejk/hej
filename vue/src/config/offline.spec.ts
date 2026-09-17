@@ -45,6 +45,13 @@ describe('the priority order', () => {
     expect(evictionOrder()[0].id).toBe('tiles')
   })
 
+  // A portrait is a safety feature — recognising the samarit coming to help you, in the dark — while a
+  // glimt is a memory. If one of the two has to go, it is not the safety one (task 315).
+  it('sacrifices Glimt before portraits', () => {
+    const order = evictionOrder().map((d) => d.id)
+    expect(order.indexOf('glimt')).toBeLessThan(order.indexOf('portraits'))
+  })
+
   it('has no duplicate ids', () => {
     const ids = OFFLINE_DATASETS.map((d) => d.id)
     expect(new Set(ids).size).toBe(ids.length)

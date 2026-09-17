@@ -1,7 +1,12 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { PORTRAIT_CACHE_NAME, TILE_CACHE_NAME } from '@/config/cache'
+import {
+  GLIMT_MEDIA_CACHE_NAME,
+  GLIMT_THUMB_CACHE_NAME,
+  PORTRAIT_CACHE_NAME,
+  TILE_CACHE_NAME,
+} from '@/config/cache'
 import type { CacheLike, CacheStorageLike } from '@/helpers/offline/eviction'
 import { browserEvictors } from '@/helpers/offline/evictors'
 import { purgeSensitiveData, registerOfflineDatasets, reportCaches } from '@/helpers/offline/reporters'
@@ -198,9 +203,42 @@ describe('the index/binary separation', () => {
 })
 
 describe('browserEvictors', () => {
-  it('offers tiles and portraits, and nothing else', () => {
+  it('offers the recoverable caches, and nothing else', () => {
     const keys = Object.keys(browserEvictors(caches({})))
-    expect(keys.sort()).toEqual(['portraits', 'tiles'])
+    expect(keys.sort()).toEqual(['glimt', 'portraits', 'tiles'])
+  })
+
+  // Glimt is two caches behind one evictor, and the order inside it is the point: full-size media
+  // first, thumbnails only if that is not enough. Full images are ~10× the bytes and are wanted by one
+  // person looking at one photograph, while the thumbnails are what makes a whole grid usable at the
+  // finish line — so freeing the viewer's cache is nearly free, and freeing the grid's is not.
+  it('evicts full-size Glimt media before thumbnails', async () => {
+    const media = cacheOf(['/api/glimt/items/g-1/media/0'])
+    const thumbs = cacheOf(['/api/glimt/items/g-1/media/0?variant=thumb'])
+    const evictors = browserEvictors(
+      caches({ [GLIMT_MEDIA_CACHE_NAME]: media, [GLIMT_THUMB_CACHE_NAME]: thumbs }),
+    )
+
+    // A target the full-media cache alone can satisfy.
+    const freed = await evictors.glimt!.evict(1)
+
+    expect(freed).toBeGreaterThan(0)
+    expect(await media.keys()).toHaveLength(0)
+    // Untouched: the grid still works.
+    expect(await thumbs.keys()).toHaveLength(1)
+  })
+
+  it('falls through to thumbnails when full media is not enough', async () => {
+    const media = cacheOf([])
+    const thumbs = cacheOf(['/api/glimt/items/g-1/media/0?variant=thumb'])
+    const evictors = browserEvictors(
+      caches({ [GLIMT_MEDIA_CACHE_NAME]: media, [GLIMT_THUMB_CACHE_NAME]: thumbs }),
+    )
+
+    const freed = await evictors.glimt!.evict(1)
+
+    expect(freed).toBeGreaterThan(0)
+    expect(await thumbs.keys()).toHaveLength(0)
   })
 
   // The directory is usually the thing being written when a quota error happens; evicting it to make

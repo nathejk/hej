@@ -34,7 +34,13 @@
  */
 export type OfflineStorageKind = 'cache-api' | 'indexeddb' | 'local-storage'
 
-export type OfflineDatasetId = 'track' | 'shell' | 'directory' | 'portraits' | 'tiles'
+export type OfflineDatasetId =
+  | 'track'
+  | 'shell'
+  | 'directory'
+  | 'portraits'
+  | 'glimt'
+  | 'tiles'
 
 export interface OfflineDataset {
   id: OfflineDatasetId
@@ -137,6 +143,32 @@ export const OFFLINE_DATASETS: readonly OfflineDataset[] = [
     // event-wide (PRD 007 §8). 5 MB matches the cache's own ceiling —
     // `PORTRAIT_CACHE_MAX_ENTRIES` × 4.5 kB — so the two cannot disagree about what "full" means.
     budgetBytes: 5 * 1024 * 1024,
+    unrecoverable: false,
+    sensitive: true,
+  },
+  {
+    id: 'glimt',
+    label: 'Glimt',
+    purpose: 'Billeder og videoer, som andre har delt, så du kan se dem uden signal.',
+    kind: 'cache-api',
+    // Two caches, one budget line: ~9 MB of thumbnails (3,000 × ~3 kB) plus ~6 MB of full-size
+    // media (200 × ~30 kB), measured on the fixture in task 327. 20 MB planned rather than 15
+    // leaves room for video, which task 322 will add at a much higher cost per item.
+    //
+    // # Where this sits in the order, and why
+    //
+    // **Below portraits, above tiles.** Below portraits because a portrait is a safety feature —
+    // recognising the samarit coming to help you in the dark — while a glimt is a memory, and if
+    // one of the two has to go it is not the safety one. Above tiles for the reason everything is
+    // above tiles: they are ~99% of the bytes, so protecting 20 MB costs a rounding error of the
+    // map.
+    //
+    // Note this is the first dataset whose *loss* is asymmetric in time rather than in kind: a
+    // glimt evicted during the race is a re-download, while one evicted after the server's
+    // retention window has closed is gone for good. That is not a reason to rank it higher — the
+    // post-race browse happens within days, well inside the window — but it is why the expiry
+    // below is short and matched to the portraits' rather than to the server's 90 days.
+    budgetBytes: 20 * 1024 * 1024,
     unrecoverable: false,
     sensitive: true,
   },
