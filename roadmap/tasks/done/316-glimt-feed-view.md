@@ -122,6 +122,37 @@ Accessibility: a list of articles, not a gesture-only tape. Captions are real te
   fixture's invisible markers, task 327), which is a fair verdict on how much of this feature's
   correctness the suite can actually speak to.
 
+- 2026-09-18 (later still) — **Arrows added, for desktop and for discoverability.** Maintainer: "since
+  the public version needs to be accessible on a desktop computer, we need some way to move the
+  carousel without swiping."
+
+  A finding while fixing it: shadcn's `Carousel` **already** wires ←/→ and takes focus via
+  `tabindex="0"`, so the strip was never swipe-*only*. But nobody discovers a keyboard shortcut on a
+  photograph, and a mouse cannot swipe an Embla carousel (a trackpad sometimes can), so on a laptop
+  the second photo was effectively unreachable.
+
+  So `CarouselPrevious`/`CarouselNext` are now rendered — they had to go **inside** `<Carousel>`,
+  since they consume its provider through `useCarousel()` — and shown only where the pointer is fine
+  (`pointer-coarse:hidden`). On a phone they would sit on top of the photograph duplicating a gesture
+  that already works; on a laptop they are the only way through. Repositioned inside the frame, since
+  shadcn's default `-left-12` assumes a carousel with margin around it and this one is full-bleed in a
+  card. The dots stay in both cases — saying *how many* there are is a different job from moving
+  between them.
+
+  Also translated the two `sr-only` labels in `ui/carousel/` to Danish, with `LOCAL DEVIATION`
+  comments. All user-facing copy in this app is Danish, and a screen-reader label is user-facing copy
+  — it is just the part only some users hear.
+
+  Verified the variant actually emits rather than silently doing nothing: the built CSS contains
+  `@media (pointer:coarse){.pointer-coarse\:hidden{display:none}}`. Worth checking, because an
+  unrecognised Tailwind variant produces no error and no rule — it simply never hides anything. (My
+  first grep for it failed on a space Tailwind does not emit, which is a neat illustration of the same
+  trap.)
+
+  **The public page cannot reuse any of this** — it is server-rendered with no bundle, so there is no
+  Embla to put arrows on. Recorded as a criterion and an options analysis in task 323, where the
+  recommendation is to show every item rather than port a carousel.
+
 ### ⚠️ Not verified, and cannot be from here
 
 The suite runs in `node` and mounts nothing, so **nothing about how this looks or feels has been

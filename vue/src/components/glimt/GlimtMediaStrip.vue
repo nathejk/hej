@@ -12,6 +12,27 @@
 // `stripAspectRatio`) — and every slide fills it. Every level from here down is `h-full` for that
 // reason: nothing inside may contribute a height, or the row starts measuring its children again.
 //
+// # Getting between slides without a swipe
+//
+// A swipe is the right control on a phone and it is the *only* control on a phone — but it is not the
+// only place this runs. Two cases make arrows necessary rather than decorative:
+//
+//   - **Desktop.** The public page (PRD 019 §7, task 323) is explicitly for a parent on a laptop, and
+//     there is no gesture there. A trackpad can sometimes drag an Embla carousel and a mouse
+//     generally cannot, so "swipe" reduces to "you cannot see the second photo".
+//   - **Keyboard and assistive tech.** shadcn's `Carousel` already wires ←/→ and takes focus, which is
+//     more than the first version of this comment credited it with — but nobody discovers a keyboard
+//     shortcut on a photograph. A visible control is what makes an existing capability usable.
+//
+// So the prev/next buttons are rendered and shown **only where a pointer is fine** (`pointer-coarse`
+// hides them). On a phone they would sit on top of the photograph to duplicate a gesture that already
+// works; on a laptop they are the only way through. The dots stay in both cases — they say how many
+// there are, which is a different job.
+//
+// Note the public page cannot use this component at all: it is server-rendered with no bundle
+// (PRD 019 §7), so it needs its own no-JavaScript answer. Recorded in task 323 rather than solved
+// here.
+//
 // # Thumbnail-first, and that is not a detail
 //
 // The feed and the grid both ask for `variant=thumb`; full media is fetched only when the viewer
@@ -26,7 +47,7 @@
 import { computed, ref } from 'vue'
 import { Play } from '@lucide/vue'
 
-import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carousel'
+import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel'
 import { cn } from '@/helpers'
 import { glimtMediaUrl, type Glimt } from '@/stores/glimt.store'
 import { mediaAltText, stripAspectRatio } from '@/components/glimt/glimtPresentation'
@@ -114,6 +135,19 @@ function srcFor(ordinal: number, hasThumb: boolean) {
             </button>
           </CarouselItem>
         </CarouselContent>
+
+        <!-- Inside `<Carousel>` because these consume its provider via `useCarousel()`.
+
+             Shown only for a fine pointer: on a phone they would cover the photograph to duplicate a
+             swipe that already works, and on a laptop they are the only way to the second photo.
+             Positioned inside the frame, unlike shadcn's default `-left-12`, which assumes a carousel
+             with margin around it — this one is full-bleed inside a card. -->
+        <CarouselPrevious
+          class="left-2 size-9 border-0 bg-black/45 text-white hover:bg-black/65 hover:text-white pointer-coarse:hidden"
+        />
+        <CarouselNext
+          class="right-2 size-9 border-0 bg-black/45 text-white hover:bg-black/65 hover:text-white pointer-coarse:hidden"
+        />
       </Carousel>
 
       <!-- Dots rather than arrows. Arrows are a desktop affordance; on a phone the gesture is the

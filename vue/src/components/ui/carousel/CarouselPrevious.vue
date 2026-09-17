@@ -36,7 +36,10 @@ const { orientation, canScrollPrev, scrollPrev } = useCarousel()
   >
     <slot>
       <ChevronLeftIcon class="cn-rtl-flip" />
-      <span class="sr-only">Previous slide</span>
+      <!-- LOCAL DEVIATION FROM UPSTREAM shadcn-vue: label in Danish. All user-facing copy in
+           this app is Danish (see the vue3-pwa-layout skill), and a screen-reader label is
+           user-facing copy — it is simply the part only some users hear. -->
+      <span class="sr-only">Forrige billede</span>
     </slot>
   </Button>
 </template>

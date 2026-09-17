@@ -35,14 +35,41 @@ personal name, no portrait, no arm number, no phone number — ever.
 ## Acceptance Criteria
 
 - [ ] `/offentligt/glimt` server-rendered, works with JavaScript disabled
+- [ ] **Multiple media are reachable without a swipe and without JavaScript** — see the note below
 - [ ] Public API endpoints serve only public, non-hidden glimt
 - [ ] **Test: an authenticated member's cookie changes nothing about the response**
 - [ ] Test: a hidden glimt disappears from the public page
 - [ ] Test: the payload contains no personal name, `personId` or phone number
 - [ ] Unauthenticated report endpoint, IP rate-limited
 - [ ] `navigateFallbackDenylist` entry present and verified in the built `sw.js`
+- [ ] Passes `app.glimtPublicCutoff()` into `PublicFeed` — a zero time there serves the whole archive to the open web
 - [ ] `go test ./...` passes
+
+## ⚠️ Multiple media on a page with no JavaScript
+
+Raised by the maintainer on 2026-09-18 while reviewing the feed: *"since the public version needs to be
+accessible on a desktop computer, we need some way to move the carousel without swiping."*
+
+The app's own strip was fixed for desktop by showing prev/next buttons where the pointer is fine
+(task 316). **That fix does not carry here.** `GlimtMediaStrip.vue` is a Vue component driven by Embla,
+and this page is server-rendered with no bundle — so there is no carousel to add arrows to.
+
+The options, and the recommendation:
+
+| approach | verdict |
+|---|---|
+| **Show every item, stacked or in a grid** | **Recommended.** No JavaScript, no gestures, no controls to discover, works in every browser including the very old ones this page exists for (PRD 013). A glimt has at most ten items and the page is already thumbnail-first. |
+| CSS scroll-snap + `#anchor` links | Works without JS and looks like the app. But anchor navigation scrolls the *page*, and getting it to move only the strip needs care per browser — a lot of subtlety for a public page whose whole virtue is that it is dumb. |
+| A small inline script | Rejected: the page must work with JavaScript disabled, so this would be a second code path that only some visitors get. |
+
+**Do not port the carousel.** The reason the public page is server-rendered is that it must work on a
+browser that cannot parse the app's bundle; a carousel is exactly the sort of thing that pulls a bundle
+back in.
 
 ## Progress Log
 
 - 2026-09-17 00:00 — Task created from PRD 019.
+- 2026-09-18 — Added the no-JavaScript media criterion and the analysis above, from the maintainer's
+  desktop-access point. Also added the `glimtPublicCutoff` criterion — task 310 built the read-time
+  public retention window and this is the only caller that must pass it; a zero time would silently
+  serve the whole archive to the open web.

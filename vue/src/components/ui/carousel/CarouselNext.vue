@@ -36,7 +36,8 @@ const { orientation, canScrollNext, scrollNext } = useCarousel()
   >
     <slot>
       <ChevronRightIcon class="cn-rtl-flip" />
-      <span class="sr-only">Next slide</span>
+      <!-- LOCAL DEVIATION FROM UPSTREAM shadcn-vue: label in Danish, as in CarouselPrevious. -->
+      <span class="sr-only">Næste billede</span>
     </slot>
   </Button>
 </template>
