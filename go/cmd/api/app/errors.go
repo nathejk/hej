@@ -120,3 +120,19 @@ func (a *JsonApi) ServiceUnavailableResponse(w http.ResponseWriter, r *http.Requ
 		"reason", message, "method", r.Method, "uri", r.URL.RequestURI())
 	a.errorResponse(w, r, http.StatusServiceUnavailable, message)
 }
+
+// InsufficientStorageResponse returns a 507 when the server has no room to store what was sent.
+//
+// Distinct from a 429, and the distinction decides what the client tells the member (PRD 019 §8,
+// task 311). A 429 is "you have used your share" — the member's own quota, which they can act on by
+// deleting something or waiting. A 507 is the *server* being out of room: nothing the member did
+// wrong, nothing they can do, and telling them they had uploaded too much would be a lie while
+// telling them to retry invites a loop.
+//
+// Logged at error level rather than warn, unlike the 503 above: a degraded dependency is a designed
+// state, whereas a full volume is an operator problem happening right now.
+func (a *JsonApi) InsufficientStorageResponse(w http.ResponseWriter, r *http.Request, message string) {
+	a.Logger.Error("insufficient storage",
+		"reason", message, "method", r.Method, "uri", r.URL.RequestURI())
+	a.errorResponse(w, r, http.StatusInsufficientStorage, message)
+}

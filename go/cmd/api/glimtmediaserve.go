@@ -64,12 +64,16 @@ const glimtMediaCacheControl = "private, max-age=31536000, immutable"
 // @Failure      401  {object}  map[string]string
 // @Failure      403  {object}  map[string]string  "not shared with you"
 // @Failure      404  {object}  map[string]string
+// @Failure      429  {object}  map[string]string  "read rate limit — loose; see allowGlimtRead"
 // @Failure      503  {object}  map[string]string
 // @Router       /glimt/items/{glimtId}/media/{ordinal} [get]
 func (app *application) showGlimtMediaHandler(w http.ResponseWriter, r *http.Request) {
 	s, ok := contextGetSession(r)
 	if !ok {
 		app.AuthenticationRequiredResponse(w, r)
+		return
+	}
+	if !app.allowGlimtRead(w, r, s.UserID) {
 		return
 	}
 	if app.models.Glimt == nil {

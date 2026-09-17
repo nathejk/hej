@@ -311,6 +311,7 @@ var responseStatus = map[string]string{
 	"RateLimitMessageResponse":       "429",
 	"PayloadTooLargeResponse":        "413",
 	"ServiceUnavailableResponse":     "503",
+	"InsufficientStorageResponse":    "507",
 	"ServerErrorResponse":            "500",
 }
 

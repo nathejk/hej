@@ -42,6 +42,29 @@ type stubGlimt struct {
 	// refsErr fails RefsUsedElsewhere, so a test can assert that an unanswerable
 	// "is this shared?" question leaves the objects in place.
 	refsErr error
+
+	// storedBytes / totalBytes are what the storage-ceiling check reads (task 311), and
+	// bytesErr fails both — so a test can assert the ceiling **fails open**, which is the
+	// opposite of how the moderation check fails and is deliberate: a ceiling is a safety
+	// margin, not an authorization, and the cost of wrongly refusing is a member in a forest
+	// losing a photograph they cannot retake.
+	storedBytes int64
+	totalBytes  int64
+	bytesErr    error
+}
+
+func (s *stubGlimt) StoredBytes(_, _ string) (int64, error) {
+	if s.bytesErr != nil {
+		return 0, s.bytesErr
+	}
+	return s.storedBytes, nil
+}
+
+func (s *stubGlimt) TotalBytes(_ string) (int64, error) {
+	if s.bytesErr != nil {
+		return 0, s.bytesErr
+	}
+	return s.totalBytes, nil
 }
 
 func (s *stubGlimt) Feed(_ string, f glimt.Filter, limit, offset int) ([]glimt.Glimt, error) {

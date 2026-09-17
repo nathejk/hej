@@ -136,6 +136,8 @@ type Queries interface {
 	PublicFeed(year string, notBefore time.Time, limit, offset int) ([]Glimt, error)
 	Expired(year string, before time.Time, limit int) ([]Expired, error)
 	RefsUsedElsewhere(year, glimtID string, refs []string) (map[string]bool, error)
+	StoredBytes(year, personID string) (int64, error)
+	TotalBytes(year string) (int64, error)
 	Version(year string, f Filter) (string, error)
 }
 
@@ -485,6 +487,69 @@ func (q querier) list(query string, args ...any) ([]Glimt, error) {
 }
 
 // mediaFor loads the media for a page of glimt, keyed by glimt id and in ordinal order.
+// StoredBytes is how many media bytes one member has posted this year (task 311).
+//
+// # It is a quota measure, not a disk measure, and the difference is deliberate
+//
+// Content addressing means identical bytes are **one object**: two members posting the same
+// screenshot occupy one blob between them. Summing `glimt_media.bytes` therefore *overcounts* actual
+// disk use whenever media are shared.
+//
+// That is the right way round for both uses it has:
+//
+//   - As a **per-member quota** it is arguably more correct than the disk figure. A member's budget
+//     should reflect what they posted, not whether somebody else happened to post the same file
+//     first — otherwise the second person to share a popular image gets it free, and their
+//     neighbour's quota depends on a stranger's timing.
+//   - As an input to the **total** ceiling it errs towards refusing early, which is the safe
+//     direction for a volume that cannot be rebuilt (PRD 008 §8).
+//
+// Hidden glimt are counted: hiding does not delete, so the bytes are still on the disk. Deleted ones
+// are not, because their blobs are gone unless another glimt still references them — in which case
+// they are counted against whoever still has them, which is correct.
+// storedBytesQuery and totalBytesQuery are the two accounting sums.
+//
+// Named constants rather than inline strings so `querier_test.go` can assert their *shape*: three of
+// their properties are the whole correctness of the accounting and none is observable from a stubbed
+// result — the COALESCE, the exclusion of deleted glimt, and the deliberate **inclusion** of hidden
+// ones.
+const storedBytesQuery = `
+		SELECT COALESCE(SUM(m.bytes), 0)
+		FROM glimt_media m
+		JOIN glimt g ON g.glimtId = m.glimtId AND g.year = m.year
+		WHERE m.year = ? AND g.deleted = 0 AND g.authorPersonId = ?`
+
+const totalBytesQuery = `
+		SELECT COALESCE(SUM(m.bytes), 0)
+		FROM glimt_media m
+		JOIN glimt g ON g.glimtId = m.glimtId AND g.year = m.year
+		WHERE m.year = ? AND g.deleted = 0`
+
+func (q querier) StoredBytes(year, personID string) (int64, error) {
+	return q.sumBytes(storedBytesQuery, year, personID)
+}
+
+// TotalBytes is how many media bytes this year holds in total.
+//
+// Same caveat as StoredBytes: an overcount when media are shared, which is the safe direction for a
+// ceiling protecting the one volume in the service that cannot be replayed from the stream.
+func (q querier) TotalBytes(year string) (int64, error) {
+	return q.sumBytes(totalBytesQuery, year)
+}
+
+// sumBytes runs a single-value SUM query.
+//
+// `COALESCE` in the SQL rather than a NULL-able scan target: SUM over no rows is NULL, and a member
+// who has posted nothing is the *most* common caller of StoredBytes — so the empty case must be a 0,
+// not a scan error.
+func (q querier) sumBytes(query string, args ...any) (int64, error) {
+	var total int64
+	if err := q.db.QueryRow(query, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
 func (q querier) mediaFor(year string, ids []string) (map[string][]Media, error) {
 	if len(ids) == 0 {
 		return nil, nil

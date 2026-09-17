@@ -725,10 +725,18 @@ public page reveals — have been answered and moved to §0. What remains:
    entry, so Glimt lands third for them and fourth for everyone else. `schedule`, `faq`, `privacy`
    and `sos` were all already behind "Mere". No per-role ordering was introduced; the outcome is
    pinned by `vue/src/config/navSlots.spec.ts`.
-8. **Storage ceiling.** What is the per-member and total budget, and what happens when it is
+8. ~~**Storage ceiling.** What is the per-member and total budget, and what happens when it is
    reached mid-event — reject, or evict oldest? Rejecting a photo in a field is a bad
    experience; deleting someone's memory is worse. 30 s video makes this urgent rather than
-   theoretical.
+   theoretical.~~ **Resolved (task 311): reject, never evict.** Eviction would mean this
+   feature's one irreversible operation firing with no human involved and nobody told; retention
+   is what frees space, on a schedule everybody was told about in advance. Two ceilings, both
+   configurable and both `0` for unlimited: `GLIMT_MEMBER_STORAGE_BYTES` (500 MiB default) answers
+   **429** — the member's own quota, which they can act on by deleting something — and
+   `GLIMT_TOTAL_STORAGE_BYTES` (off by default) answers **507**, because a full volume is the
+   server's problem and there is nothing the member can do. The check **fails open** if it cannot
+   be measured: a ceiling is a safety margin, not an authorization. **The byte figures are still
+   unconfirmed** — same status as Q1's retention numbers.
 9. **Is this PRD 011's team artefact?** §0a makes this much more likely than it was: a
    patrulje's collection, browsable after the race, is most of a post-race memento already.
    Worth deciding before 011 designs its own.

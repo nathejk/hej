@@ -96,8 +96,9 @@ type glimtMediaStored struct {
 // @Failure      400  {object}  map[string]string  "not a decodable image"
 // @Failure      401  {object}  map[string]string
 // @Failure      413  {object}  map[string]string  "larger than 12 MiB"
-// @Failure      429  {object}  map[string]string  "upload rate or storage ceiling reached"
+// @Failure      429  {object}  map[string]string  "upload rate, byte budget or per-member storage ceiling reached"
 // @Failure      500  {object}  map[string]string
+// @Failure      507  {object}  map[string]string  "the event's total storage ceiling is reached"
 // @Router       /glimt/media [post]
 func (app *application) uploadGlimtMediaHandler(w http.ResponseWriter, r *http.Request) {
 	s, ok := contextGetSession(r)
@@ -133,6 +134,24 @@ func (app *application) uploadGlimtMediaHandler(w http.ResponseWriter, r *http.R
 			return
 		}
 		app.BadRequestResponse(w, r, err)
+		return
+	}
+
+	// The byte half of the rate limit, and the storage ceiling. Both are checked **after** the body
+	// is read and **before** the decode, which is the only place they can be: the size is not known
+	// until the bytes have arrived, and the decode is the expensive part.
+	//
+	// The size charged is the *uploaded* size, not the re-encoded one. It is the honest measure of
+	// what the member cost the link and the CPU, it is knowable here, and it cannot be gamed by
+	// sending something that compresses well after resampling. The stored figure ends up smaller,
+	// which means the ceiling refuses slightly early — the safe direction.
+	incoming := int64(len(raw))
+	if !app.glimtMediaBudget.Allow(s.UserID, incoming) {
+		app.RateLimitMessageResponse(w, r,
+			"Du har uploadet mange billeder på kort tid. Prøv igen om lidt.")
+		return
+	}
+	if app.writeGlimtCeilingResponse(w, r, app.checkGlimtStorageCeiling(s.UserID, incoming)) {
 		return
 	}
 

@@ -1,6 +1,10 @@
 package main
 
 import (
+	"net/http"
+	"time"
+
+	"nathejk.dk/internal/ratelimit"
 	"nathejk.dk/internal/users"
 	"nathejk.dk/nathejk/table/glimt"
 )
@@ -40,6 +44,52 @@ func (app *application) isGlimtModerator(personID string) bool {
 		return false
 	}
 	return users.MayModerateGlimt(p.SectionSlug)
+}
+
+// allowGlimtRead applies the read limiter, answering 429 if it fires.
+//
+// Returns false when it has written a response, so a handler can `return` immediately.
+//
+// # One helper so there is one place to read the reasoning
+//
+// Four read endpoints share it — the feed, the hold index, a hold's collection, and media — and the
+// thing worth keeping in one place is *why the number is what it is*: the read limit exists to stop a
+// script hammering the endpoint and for **nothing else**. The post-race browse is a legitimate flood
+// (PRD 019 §0a.3), so a limit anywhere near the upload numbers would throttle the use this feature was
+// built for. If this ever fires for a real member, the configuration is wrong — which is why the
+// message says "prøv igen om lidt" rather than suggesting they have done something they should not.
+//
+// # The moderation queue is deliberately not limited
+//
+// It is three accounts, and the failure mode is the worst trade in the feature: a moderator throttled
+// out of a takedown while a photograph somebody objected to stays up. There is nothing to protect
+// against there that the Team-section gate does not already handle.
+func (app *application) allowGlimtRead(w http.ResponseWriter, r *http.Request, userID string) bool {
+	if app.glimtReadLimiter == nil || app.glimtReadLimiter.Allow(userID) {
+		return true
+	}
+	app.RateLimitMessageResponse(w, r, "For mange forespørgsler. Prøv igen om lidt.")
+	return false
+}
+
+// limiterOrNil builds a rate limiter, or nil when the limit is disabled.
+//
+// # Why this is not `ratelimit.New(0, w)`
+//
+// `Limiter.Allow` refuses when `len(kept) >= l.limit`, so a limit of **0 blocks everything** — the
+// exact opposite of the "zero means unlimited" convention every other Glimt setting uses, and a
+// failure mode that would take the feature down completely the first time somebody set
+// `GLIMT_PER_HOUR=0` expecting to switch the limit off.
+//
+// Fixed here rather than in `ratelimit.New`, whose existing callers all pass positive constants and
+// whose "0 allows nothing" reading is defensible on its own terms. Returning nil is also what the
+// handlers already understand: they nil-check, because a zero-config run and the test harness have
+// always had no limiters.
+func limiterOrNil(limit int, window time.Duration) *ratelimit.Limiter {
+	if limit <= 0 {
+		return nil
+	}
+	return ratelimit.New(limit, window)
 }
 
 // glimtQueriesOrNil narrows the projection to its read API, or nil.

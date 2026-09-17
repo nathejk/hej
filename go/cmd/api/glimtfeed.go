@@ -276,12 +276,16 @@ func validGlimtMedia(in []createGlimtMedia) ([]glimt.Media, error) {
 // @Success      200  {object}  glimtFeedResponse
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string  "the caller has no directory record"
+// @Failure      429  {object}  map[string]string  "read rate limit — loose; see allowGlimtRead"
 // @Failure      503  {object}  map[string]string  "the feed is unavailable"
 // @Router       /glimt/feed [get]
 func (app *application) listGlimtHandler(w http.ResponseWriter, r *http.Request) {
 	s, ok := contextGetSession(r)
 	if !ok {
 		app.AuthenticationRequiredResponse(w, r)
+		return
+	}
+	if !app.allowGlimtRead(w, r, s.UserID) {
 		return
 	}
 	if app.models.Glimt == nil {

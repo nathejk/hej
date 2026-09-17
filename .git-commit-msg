@@ -1,44 +1,60 @@
-glimt: make the OpenAPI annotations enforceable
+glimt: rate limits and storage ceilings
 
-Task 312, plus task 328 raised out of it.
+Task 311, PRD 019 §8 and §11 Q8.
 
-All twelve endpoints were already annotated, because the blocks were written as each
-handler landed. So the sweep this task describes would have found nothing, and the
-criterion with any value is the last one -- that no endpoint added by PRD 019 is missing
-annotations -- which is a claim about the future that only a test can hold.
+The byte budget needed a new type. ratelimit.Limiter answers "how many times", which is
+right for a PIN request and wrong for an upload: sixty thumbnails and sixty 12 MiB videos
+are the same number of events and nowhere near the same cost. ratelimit.Budget is a
+per-key sliding-window sum, kept separate from Limiter rather than widening a signature a
+dozen callers use honestly. A refused charge is not recorded, so a member refused a large
+video can still post the small photo they settle for; an oversized charge is refused
+rather than clamped, since clamping would let one through per window and read as the limit
+not working.
 
-swaggo annotations are comments. Nothing compiles them, nothing runs them, and a handler
-registered without them behaves identically, which makes them the one kind of
-documentation that goes stale with no symptom at all. glimtopenapi_test.go parses
-routes.go for what is actually registered and cross-checks each handler's doc comment, so
-adding a route is what fails rather than forgetting to update a checklist.
+The read limiter is the point of the task, and the test that matters asserts that nothing
+is throttled. 600/minute per member, two orders of magnitude looser than the writes and
+measured over a shorter window. PRD 019 §0a.3 describes the post-race browse as the load
+peak of the feature -- a thousand people at the finish line pulling a grid of thumbnails
+per screen -- and it is the use the feature was built for. A limiter near the upload
+numbers would refuse the fourth screen, and an hourly read budget would be spent by
+somebody scrolling for two minutes and then lock them out for fifty-eight. The test drives
+200 reads through the real handler with the production numbers wired in, including the
+write limiters, so if reads and writes ever share a limiter again that is what fails. This
+is a trap rather than an optimisation: a throttled browse does not look like a bug from
+the server's side, it looks like a working rate limiter.
 
-The core of it compares the documented @Failure codes against the branches the code
-actually has. That shape came out of getting it wrong first: the initial version asserted
-that every write documents 503, since the event stream can be down by design, and it
-flagged uploadGlimtMediaHandler -- which was right, because uploading stores bytes in the
-blob store and never publishes, so it has no 503 branch. The rule was wrong, not the
-annotation. Comparing against the code cannot make that mistake.
+Making the limits configurable exposed a live bug. Limiter.Allow refuses when
+len(kept) >= limit, so New(0, w) blocks every request. No existing caller passes 0, so it
+had never mattered -- but with the documented "zero means unlimited" convention,
+GLIMT_PER_HOUR=0 would have taken the whole feature down silently while looking like a
+working limit. limiterOrNil fixes it at the call site rather than changing ratelimit.New,
+whose other callers are fine and whose reading is defensible on its own terms.
 
-It follows calls one level into other app methods, which is necessary rather than
-thorough: requireGlimtModerator owns the 401/403/503 for all three moderation endpoints
-and moderateGlimt owns hide and unhide entirely, so a walk stopping at the handler body
-would have declared their documented failures unreachable. It checks both directions, and
-the second is the one that earns its keep -- a documented failure the code cannot produce
-is worse than a missing one and far harder to notice, because the spec then describes an
-outcome that cannot happen and nothing looks wrong.
+§11 Q8 is answered: reject, never evict. Eviction would mean this feature's one
+irreversible operation firing with no human involved and nobody told, deleting one
+member's memories to make room for another's. Retention is what frees space, on a schedule
+everybody was told about.
 
-It found three real gaps on the first run, all the same shape: listGlimtHandler,
-listGlimtHoldsHandler and devGlimtFixtureHandler all answer 404 when the caller has no
-directory record, undocumented. That is reachable -- a signed-in member whose upstream row
-is missing -- and a client reading the spec would have treated it as a bug to report. The
-fixture handler was also missing the 400 it answers when a role maps to no group.
+Two ceilings with two different status codes, because the difference decides what the
+client tells the member. Per member is 429 -- their quota, and they can act on it, so the
+message says to delete something. Total is 507: the server is out of room, nothing the
+member did wrong and nothing they can do, so a 429 would be a lie and "try again" invites
+a loop. The check fails open, the opposite of how the moderation check fails, and
+deliberately: a ceiling is a safety margin, not an authorization, and the cost of wrongly
+refusing is a member in a forest losing a photograph they cannot retake.
 
-It also found one gap in itself: showGlimtMediaHandler's conditional-GET 304 is written
-with w.WriteHeader rather than an error helper, so the walk now reads http.Status
-constants passed to WriteHeader too, non-2xx only.
+The storage sums overcount on purpose. Content addressing means identical bytes are one
+object, so summing glimt_media.bytes exceeds real disk use when media are shared. As a
+per-member quota that is arguably more correct than the disk figure -- a member's budget
+should reflect what they posted, not whether a stranger posted the same file first -- and
+as an input to the total ceiling it errs towards refusing early, which is the safe
+direction for a volume that cannot be replayed. Hidden glimt are counted, since hiding
+does not delete. The query shape is asserted off the text, including the COALESCE, without
+which a member who has posted nothing would produce a scan error.
 
-Scoped to Glimt on purpose. Widening it is a one-line change to isInScope and is worth
-doing, but it would fail on handlers from other PRDs that nobody in this task touched, and
-turning a guard red on unrelated work is how guards get commented out. Task 328 tracks
-doing it properly.
+The byte figures are guesses, like the retention defaults, and should be reviewed before
+the event. None of this has been exercised under real load; task 324 is the load test and
+is what would tell us whether 600 reads/minute is right.
+
+The task 312 annotation guard immediately caught the new 507 branch as undocumented, which
+is what it was built for.

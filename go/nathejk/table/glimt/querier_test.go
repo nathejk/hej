@@ -380,3 +380,100 @@ func TestClampLimit(t *testing.T) {
 		t.Errorf("clampOffset(-1) = %d", got)
 	}
 }
+
+// The storage-accounting queries (task 311).
+//
+// The SQL is the authority for these, so the assertions are about the SQL: which tables it joins,
+// what it excludes, and that an empty result is a 0 rather than an error.
+
+func TestStoredBytesSumsOneMembersMedia(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(regexp.QuoteMeta("FROM glimt_media m")).
+		WithArgs("2026", "p-1").
+		WillReturnRows(sqlmock.NewRows([]string{"total"}).AddRow(int64(4096)))
+
+	got, err := querier{db: db}.StoredBytes("2026", "p-1")
+	if err != nil {
+		t.Fatalf("StoredBytes: %v", err)
+	}
+	if got != 4096 {
+		t.Errorf("got %d, want 4096", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
+
+// A member who has posted nothing is the most common caller, and SUM over no rows is NULL — so
+// without COALESCE the ordinary case would be a scan error, and the ceiling check would fail open on
+// every first upload.
+func TestStoredBytesIsZeroForAMemberWithNothing(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(regexp.QuoteMeta("FROM glimt_media m")).
+		WillReturnRows(sqlmock.NewRows([]string{"total"}).AddRow(int64(0)))
+
+	got, err := querier{db: db}.StoredBytes("2026", "p-nobody")
+	if err != nil {
+		t.Fatalf("StoredBytes: %v", err)
+	}
+	if got != 0 {
+		t.Errorf("got %d, want 0", got)
+	}
+}
+
+func TestStoredBytesQueryShape(t *testing.T) {
+	// Read off the query itself rather than from an executed result, because these four properties
+	// are the whole correctness of the accounting and none of them is observable from a stub.
+	sql := storedBytesQuery
+
+	if !strings.Contains(sql, "COALESCE") {
+		t.Error("no COALESCE: SUM over no rows is NULL, and a member with nothing is the common case")
+	}
+	// Deleted glimt must not be counted: their blobs are gone unless another glimt references
+	// them, in which case they are counted against whoever still has them.
+	if !strings.Contains(sql, "g.deleted = 0") {
+		t.Error("deleted glimt are counted, so a member cannot free space by deleting")
+	}
+	// Hidden glimt *must* be counted: hiding does not delete, so the bytes are still on the disk.
+	if strings.Contains(sql, "hiddenAt") {
+		t.Error("hidden glimt are excluded, but hiding does not delete — the bytes are still stored")
+	}
+	if !strings.Contains(sql, "authorPersonId") {
+		t.Error("the per-member sum is not scoped to a member")
+	}
+}
+
+func TestTotalBytesIsNotScopedToAMember(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	// One argument, the year: a total scoped to a person would be a per-member limit wearing the
+	// name of a volume ceiling.
+	mock.ExpectQuery(regexp.QuoteMeta("FROM glimt_media m")).
+		WithArgs("2026").
+		WillReturnRows(sqlmock.NewRows([]string{"total"}).AddRow(int64(1 << 20)))
+
+	got, err := querier{db: db}.TotalBytes("2026")
+	if err != nil {
+		t.Fatalf("TotalBytes: %v", err)
+	}
+	if got != 1<<20 {
+		t.Errorf("got %d, want %d", got, 1<<20)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}

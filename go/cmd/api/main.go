@@ -102,6 +102,31 @@ type application struct {
 	//
 	// May be nil, in which case no limit applies.
 	glimtReportLimiter *ratelimit.Limiter
+	// glimtMediaBudget is the *byte* half of the upload limit (task 311), keyed by member like
+	// glimtMediaLimiter and checked next to it.
+	//
+	// Two limiters on one endpoint because a count and a size answer different questions: sixty
+	// thumbnails and sixty 12 MiB videos are the same number of events and nowhere near the same
+	// cost, while a byte cap on its own would let a client hammer the decode path with tiny
+	// images. Each lets through precisely what the other exists to stop.
+	//
+	// May be nil, and a nil Budget allows everything — so the handler needs no nil check here.
+	glimtMediaBudget *ratelimit.Budget
+	// glimtReadLimiter throttles the Glimt *read* endpoints, deliberately two orders of magnitude
+	// looser than the write limiters and measured per minute rather than per hour.
+	//
+	// This separation is the point rather than an optimisation (PRD 019 §0a.3, task 311). The
+	// post-race browse is a **legitimate flood** — a thousand people at the finish line, each
+	// pulling a grid of thumbnails per screen — and it is the use the whole feature was built
+	// for. A read limit anywhere near the upload numbers would throttle exactly that, and an
+	// hourly budget would be spent by somebody scrolling for two minutes and then locked out for
+	// fifty-eight.
+	//
+	// So it exists to stop a script hammering the endpoint and for nothing else. If it ever fires
+	// for a real member, it is set wrong.
+	//
+	// May be nil, in which case no limit applies.
+	glimtReadLimiter *ratelimit.Limiter
 	// confirmLimiter throttles the guardian-number confirmation and report endpoints
 	// (PRD 005, tasks 135/136), keyed by IP like the PIN limiter.
 	//
@@ -591,16 +616,33 @@ func run(logger *slog.Logger) error {
 		// against the real use — take a photo, dislike it, retake it a few times — and
 		// far below what it would take to fill a disk or keep a CPU busy.
 		photoLimiter: ratelimit.New(10, time.Hour),
-		// Sixty Glimt media items an hour, per member. Six full ten-item posts in an hour
-		// is already an unusual night, and the ceiling is there to stop a looping client
-		// rather than to ration sharing — the feature exists to be used. Task 311 revisits
-		// this alongside the storage ceiling, which is the limit that actually protects the
-		// disk.
-		glimtMediaLimiter: ratelimit.New(60, time.Hour),
+		// Sixty Glimt media items an hour, per member — now configurable (task 311). Six full
+		// ten-item posts in an hour is already an unusual night, and the ceiling is there to stop
+		// a looping client rather than to ration sharing: the feature exists to be used.
+		//
+		// Paired with glimtMediaBudget below, because a count alone cannot tell sixty thumbnails
+		// from sixty 12 MiB videos.
+		glimtMediaLimiter: limiterOrNil(cfg.glimtMediaPerHour, time.Hour),
+		// The byte half of the upload limit. 200 MiB an hour by default — roughly sixty full-size
+		// photographs, or a handful of videos, per member per hour.
+		glimtMediaBudget: ratelimit.NewBudget(cfg.glimtBytesPerHour, time.Hour),
 		// Twenty glimt an hour, per member. A busy night for an enthusiastic patrulje is a
 		// handful of posts; twenty leaves room for that and for a few retries, while still
 		// bounding what one looping client can put on the stream.
-		glimtLimiter: ratelimit.New(20, time.Hour),
+		glimtLimiter: limiterOrNil(cfg.glimtPerHour, time.Hour),
+		// Reads, and the number that matters most in this block: **600 per minute per member**,
+		// which is two orders of magnitude looser than the write limits and measured per minute
+		// rather than per hour.
+		//
+		// Both of those are deliberate. The post-race browse is a legitimate flood (PRD 019
+		// §0a.3) — a thousand people at the finish line, each pulling a grid of thumbnails per
+		// screen — and it is the use this whole feature was built for. A limiter tuned anywhere
+		// near the upload numbers would throttle exactly that, and an *hourly* budget would be
+		// spent by somebody scrolling for two minutes and then locked out for fifty-eight.
+		//
+		// So this exists to stop a script hammering the endpoint and for nothing else. If it ever
+		// fires for a real member, it is set wrong.
+		glimtReadLimiter: limiterOrNil(cfg.glimtReadsPerMinute, time.Minute),
 		// A hundred reports an hour per member. Far beyond any honest use, which is the
 		// point: reporting is the safety mechanism for an unmoderated public scope
 		// (PRD 019 §0), so the ceiling is set to stop a script rather than to shape

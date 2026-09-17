@@ -245,6 +245,50 @@ type config struct {
 	// long as the glimt itself"** — not "immediately", which is the reading that would silently
 	// empty the public page in a dev environment where everything else is set to 0.
 	glimtPublicRetention time.Duration
+
+	// Glimt write limits and storage ceilings (PRD 019 §8, §11 Q8, task 311).
+	//
+	// # Two limits per member, because a count and a size answer different questions
+	//
+	// `glimtMediaPerHour` counts uploads and `glimtBytesPerHour` sums them. Each lets through
+	// exactly what the other exists to stop: sixty thumbnails and sixty 12 MiB videos are the same
+	// number of events and nowhere near the same cost, while a byte cap alone would let a client
+	// hammer the decode path with tiny images. `glimtPerHour` is separate again and protects the
+	// broker rather than the disk — a looping client publishing creation events costs no upload.
+	//
+	// # Reads are limited separately and much more loosely, on purpose
+	//
+	// `glimtReadsPerMinute` exists so the read endpoints cannot be hammered, and for **no other
+	// reason**. The post-race browse is a legitimate flood (PRD 019 §0a.3): a thousand people at the
+	// finish line pulling thumbnails by the hundred is the use this feature was built for, and a
+	// limiter tuned for uploads would throttle precisely that. Per *minute* rather than per hour for
+	// the same reason — a grid of 60 thumbnails is one screen, so an hourly budget would be spent by
+	// a member scrolling for two minutes and then locked out for fifty-eight.
+	//
+	// # The ceilings
+	//
+	// The blob store is the only non-rebuildable data in the service and lives on one volume
+	// (PRD 008 §8), so it needs a floor under it that is not "the disk filled up". Two ceilings: per
+	// member, so no one account can consume the event's storage, and total, so the volume cannot be
+	// filled at all.
+	//
+	// **Exceeding one rejects the upload; nothing is ever evicted.** PRD 019 §11 Q8 asks whether to
+	// reject or evict oldest, and rejecting is the only defensible answer: refusing a photo in a
+	// field is a bad experience, and silently deleting somebody else's memories to make room is
+	// worse — it would also mean this feature's one irreversible operation firing with no human
+	// involved. Retention is what frees space, on a schedule everybody was told about.
+	//
+	// **Zero means unlimited** for all five, matching the retention windows: the disabling value is
+	// the zero value, so an unset variable cannot impose a limit nobody chose. Defaults are
+	// deliberately generous — the point is a ceiling, not a ration.
+	glimtPerHour        int
+	glimtMediaPerHour   int
+	glimtBytesPerHour   int64
+	glimtReadsPerMinute int
+	// glimtMemberStorageBytes is one member's total media allowance for the year.
+	glimtMemberStorageBytes int64
+	// glimtTotalStorageBytes is the whole year's allowance, protecting the volume itself.
+	glimtTotalStorageBytes int64
 }
 
 func loadConfig() config {
@@ -277,6 +321,12 @@ func loadConfig() config {
 	flag.BoolVar(&cfg.portraitKeepOriginal, "portrait-keep-original", envBool("PORTRAIT_KEEP_ORIGINAL", true), "Retain the uploaded image at full resolution (metadata stripped) so renditions can be regenerated later")
 	flag.DurationVar(&cfg.glimtRetention, "glimt-retention", envDuration("GLIMT_RETENTION", 90*24*time.Hour), "How long a glimt is kept after it was posted before it is purged (0 disables the purge)")
 	flag.DurationVar(&cfg.glimtPublicRetention, "glimt-public-retention", envDuration("GLIMT_PUBLIC_RETENTION", 30*24*time.Hour), "How long a public glimt stays on the public page (0 means as long as the glimt itself)")
+	flag.IntVar(&cfg.glimtPerHour, "glimt-per-hour", envInt("GLIMT_PER_HOUR", 20), "Glimt one member may create per hour (0 disables the limit)")
+	flag.IntVar(&cfg.glimtMediaPerHour, "glimt-media-per-hour", envInt("GLIMT_MEDIA_PER_HOUR", 60), "Media files one member may upload per hour (0 disables the limit)")
+	flag.Int64Var(&cfg.glimtBytesPerHour, "glimt-bytes-per-hour", envInt64("GLIMT_BYTES_PER_HOUR", 200<<20), "Media bytes one member may upload per hour (0 disables the limit)")
+	flag.IntVar(&cfg.glimtReadsPerMinute, "glimt-reads-per-minute", envInt("GLIMT_READS_PER_MINUTE", 600), "Glimt read requests one member may make per minute (0 disables the limit)")
+	flag.Int64Var(&cfg.glimtMemberStorageBytes, "glimt-member-storage-bytes", envInt64("GLIMT_MEMBER_STORAGE_BYTES", 500<<20), "Total media bytes one member may have stored (0 disables the ceiling)")
+	flag.Int64Var(&cfg.glimtTotalStorageBytes, "glimt-total-storage-bytes", envInt64("GLIMT_TOTAL_STORAGE_BYTES", 0), "Total media bytes the event may have stored (0 disables the ceiling)")
 	flag.Parse()
 	return cfg
 }
@@ -299,6 +349,24 @@ func envStr(key, fallback string) string {
 func envInt(key string, fallback int) int {
 	if v, ok := os.LookupEnv(key); ok {
 		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return fallback
+}
+
+// envInt64 reads a byte-sized setting.
+//
+// Separate from envInt because the storage ceilings are naturally larger than a 32-bit int on the
+// platforms this may run on, and a silently truncated ceiling is the kind of bug that only appears
+// once the disk is nearly full.
+//
+// Plain digits only — no "500MB" suffix parsing. A suffix that a typo turns into a different
+// magnitude ("500Mb", "500 MB", "500mib") is worse than a long number, and these are written once in
+// a compose file.
+func envInt64(key string, fallback int64) int64 {
+	if v, ok := os.LookupEnv(key); ok {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 			return n
 		}
 	}
