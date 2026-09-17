@@ -107,6 +107,13 @@ func (app *application) routes() http.Handler {
 	// safety mechanism, so it hides the glimt immediately rather than queueing a decision — see
 	// the projection's handleReported, which records and hides in one fold.
 	router.HandlerFunc(http.MethodPost, "/api/glimt/items/:glimtId/report", app.requireAuth(app.reportGlimtHandler))
+	// Team-section moderation (PRD 019 §0). The queue takes no visibility filter — it is the
+	// widest read in the service — so the section check inside each handler is the only thing
+	// standing between it and every photograph in the event. It is a per-request lookup of the
+	// caller's current section, never a session claim, so revoking the assignment revokes access.
+	router.HandlerFunc(http.MethodGet, "/api/glimt/moderation", app.requireAuth(app.listGlimtModerationHandler))
+	router.HandlerFunc(http.MethodPost, "/api/glimt/items/:glimtId/hide", app.requireAuth(app.hideGlimtHandler))
+	router.HandlerFunc(http.MethodPost, "/api/glimt/items/:glimtId/unhide", app.requireAuth(app.unhideGlimtHandler))
 	// The contacts directory (PRD 007). Cached by the client and worked from offline, so
 	// it carries everything the pane needs and nothing it does not: no guardian numbers, no
 	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach

@@ -12,6 +12,7 @@ import (
 
 	"github.com/jrgensen/cqrs/cqrstest"
 
+	"nathejk.dk/internal/blob"
 	"nathejk.dk/internal/data"
 	"nathejk.dk/internal/ratelimit"
 	"nathejk.dk/internal/scans"
@@ -30,10 +31,21 @@ func glimtApp(t *testing.T, rows []glimt.Glimt, p person.Person) (*application, 
 	app := photoTestApp(t, pub, people)
 	app.config.eventYear = "2026"
 	store := &stubGlimt{rows: rows}
-	app.models = data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil, people, nil,
-		data.WithGlimt(store))
+	app.models = newModelsWithGlimt(people, store)
 	return app, store, pub
 }
+
+// newModelsWithGlimt is the read facade these tests use: the mock directory, a person stub and a
+// glimt store. Factored out so a test that needs to swap the person record mid-run (see the
+// revocation test) can build the same facade without repeating the option list.
+func newModelsWithGlimt(people person.Queries, store glimt.Queries) data.Models {
+	return data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil, people, nil,
+		data.WithGlimt(store))
+}
+
+// blobRefOf is a tiny helper so tests can assert on stored objects without importing blob
+// everywhere.
+func blobRefOf(ref string) blob.Ref { return blob.Ref(ref) }
 
 // spejderPerson is a mock-directory spejder with a hold.
 func spejderPerson() person.Person {
