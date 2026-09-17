@@ -60,6 +60,32 @@ export function holdWord(group: string): string {
 export const OWN_ATTRIBUTION = 'Dit hold'
 
 /**
+ * The label on the feed's shortcut to the caller's own hold collection.
+ *
+ * # Why it varies by role
+ *
+ * "Se dit holds glimt" was one label for everyone, and it is the kind of phrasing that reads fine to
+ * whoever wrote it and like machinery to whoever reads it. **"Hold" is our word, not theirs**: a
+ * spejder is in a *patrulje* and says so. Maintainer direction, 2026-09-17.
+ *
+ * So a spejder gets "Se din patruljes glimt", which is a sentence they can check against reality — the
+ * same reasoning `groupLabelFor` records for the audience selector's first option.
+ *
+ * Everyone else gets **"Se dine glimt"**, in the second person rather than named after their unit.
+ * That is the maintainer's call and it is worth knowing it is deliberate rather than a gap: see the
+ * note below about bandits.
+ */
+export function holdShortcutLabel(role: string | null | undefined): string {
+  if (role === 'spejder') return 'Se din patruljes glimt'
+  // **Note for whoever reads this next.** For a bandit this collection is their *klan's* glimt, not
+  // only their own, so "dine" is looser than `holdWord` would allow — and PRD 019 §0b is emphatic
+  // that patrulje and klan are distinct rather than two words for a hold. It is written this way on
+  // purpose. If a bandit ever reports it as confusing, "Se din klans glimt" is the change, and this
+  // function is the only place it lives.
+  return 'Se dine glimt'
+}
+
+/**
  * The audience chip: who this glimt reached.
  *
  * Deliberately plain and slightly blunt, especially for `public`. This chip is the only place after

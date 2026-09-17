@@ -34,6 +34,7 @@ import {
 import GlimtCard from '@/components/glimt/GlimtCard.vue'
 import GlimtComposer from '@/components/glimt/GlimtComposer.vue'
 import GlimtViewer from '@/components/glimt/GlimtViewer.vue'
+import { holdShortcutLabel } from '@/components/glimt/glimtPresentation'
 import type { GlimtAction } from '@/components/glimt/glimtPresentation'
 import { useOpenGlimt } from '@/composables/useOpenGlimt'
 import { useGlimtStore, type Glimt } from '@/stores/glimt.store'
@@ -161,7 +162,7 @@ async function confirmAction() {
       @click="openHold(glimt.ownHoldNumber)"
     >
       <Users class="size-5" aria-hidden="true" />
-      Se dit holds glimt
+      {{ holdShortcutLabel(session.role) }}
     </Button>
 
     <!-- Moderation, for the Team section only. -->

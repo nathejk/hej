@@ -8,12 +8,14 @@ import {
   audienceLabel,
   audienceVariant,
   glimtActions,
+  holdShortcutLabel,
   holdWord,
   mediaAltText,
   moderationActions,
   relativeTime,
   stripAspectRatio,
 } from '@/components/glimt/glimtPresentation'
+import { ALL_ROLES } from '@/config/roles'
 import type { Glimt } from '@/stores/glimt.store'
 
 // Presentation rules for a glimt card (task 316).
@@ -366,5 +368,37 @@ describe('glimtActions for a queued glimt', () => {
   // `own` first is what produced a Slet on a draft.
   it('takes precedence over own', () => {
     expect(glimtActions(glimt({ pending: true, own: true })).map((a) => a.key)).not.toContain('delete')
+  })
+})
+
+// The shortcut to the caller's own hold collection (maintainer direction, 2026-09-17).
+//
+// A copy test, and the reason it is worth having is that the label was one string for everyone:
+// "Se dit holds glimt". **"Hold" is our word, not theirs** — a spejder is in a patrulje and says so.
+describe('holdShortcutLabel', () => {
+  it('names the patrulje for a spejder', () => {
+    expect(holdShortcutLabel('spejder')).toBe('Se din patruljes glimt')
+  })
+
+  // Deliberately not "Se dit holds glimt" for anyone. If this starts returning the internal word for
+  // a unit, the label has regressed to machinery.
+  it('never says "hold" to anyone', () => {
+    for (const role of [...ALL_ROLES, null, undefined, 'something-new']) {
+      expect(holdShortcutLabel(role as string | null), `role ${role}`).not.toMatch(/hold/i)
+    }
+  })
+
+  it('uses the second person for everyone else', () => {
+    for (const role of ALL_ROLES.filter((r) => r !== 'spejder')) {
+      expect(holdShortcutLabel(role), `role ${role}`).toBe('Se dine glimt')
+    }
+  })
+
+  // An unknown or absent role must still produce a usable label rather than an empty button. The
+  // shortcut is only drawn when the caller has a numbered hold, so this is the defensive case.
+  it('falls back rather than returning nothing', () => {
+    for (const role of [null, undefined, '', 'role-this-build-does-not-know']) {
+      expect(holdShortcutLabel(role)).toBe('Se dine glimt')
+    }
   })
 })
