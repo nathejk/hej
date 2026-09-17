@@ -159,6 +159,10 @@ func (app *application) routes() http.Handler {
 	// ENV=development they do not exist at all — see dev.go.
 	if devRoutesEnabled(app.config) {
 		router.HandlerFunc(http.MethodGet, "/api/dev/pin", app.devPinHandler)
+		// Glimt fixture data (task 327). Authenticated, because it authors the glimt *as* the
+		// caller so the group-scoped ones are visible to whoever asked — a fixture nobody can
+		// see would be worse than none.
+		router.HandlerFunc(http.MethodPost, "/api/dev/glimt-fixture", app.requireAuth(app.devGlimtFixtureHandler))
 	}
 
 	return router
