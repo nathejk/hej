@@ -307,7 +307,8 @@ func (app *application) listGlimtHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	out := glimtFeedResponse{
-		Glimt: newGlimtResponses(app.visibleGlimt(rows, s.UserID, viewer.Role), s.UserID),
+		Glimt:     newGlimtResponses(app.visibleGlimt(rows, s.UserID, viewer.Role), s.UserID),
+		ExpiresAt: app.glimtCacheDeadline(),
 	}
 	if err := app.WriteJSON(w, http.StatusOK, out, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
@@ -320,6 +321,36 @@ func (app *application) listGlimtHandler(w http.ResponseWriter, r *http.Request)
 // response's JSON *type* — which would break every client at once.
 type glimtFeedResponse struct {
 	Glimt []glimtResponse `json:"glimt"`
+
+	// ExpiresAt is when the device must throw away its cached copy, as epoch milliseconds. Zero
+	// when retention is disabled and there is therefore no deadline to issue.
+	//
+	// # Why the server issues this, and why Glimt needs it more than contacts does
+	//
+	// The contacts directory carries one of these because a client-computed TTL is defeated by the
+	// likeliest thing to be wrong on a phone at 03:00 — its clock — and because it is the only
+	// lever we hold over a **dormant device**: a phone that never reopens the app after the event,
+	// where no purge, no service worker and no push will ever run again (PRD 009 §11.5).
+	//
+	// Both reasons apply here and the stake is higher. What a dormant device holds is not a list of
+	// names but **photographs of children**, cached in the Cache API by the service worker. The
+	// server's retention sweep (task 310) cannot reach them; a deadline baked into the payload is
+	// checked the next time the app opens at all, whenever that is.
+	//
+	// Derived from `glimtRetention` rather than a separate knob: "a device may keep this for as long
+	// as the server would have kept it" is the honest rule, it needs no second number to keep in
+	// agreement, and shortening the server window shortens the client's in the same edit.
+	ExpiresAt int64 `json:"expires_at,omitempty"`
+}
+
+// glimtCacheDeadline is the epoch-ms deadline to hand a client, or 0 when there is none.
+func (app *application) glimtCacheDeadline() int64 {
+	if app.config.glimtRetention <= 0 {
+		// Retention off. No deadline rather than "expire immediately": a dev environment with
+		// retention disabled should keep working offline, not drop its cache on every hydrate.
+		return 0
+	}
+	return time.Now().UTC().Add(app.config.glimtRetention).UnixMilli()
 }
 
 // glimtFilter derives the query narrowing for a caller.

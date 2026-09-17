@@ -9,6 +9,7 @@ import { reportDirectory } from '@/helpers/offline/reporters'
 import { heldTileAreaVersion, tileAreaIsStale } from '@/helpers/offline/tileAreaVersion'
 import { useCheckpointsStore } from '@/stores/checkpoints.store'
 import { useContactsStore } from '@/stores/contacts.store'
+import { useGlimtStore } from '@/stores/glimt.store'
 import { useHandoutsStore } from '@/stores/handouts.store'
 import { useOfflineStore } from '@/stores/offline.store'
 import { useProfileStore } from '@/stores/profile.store'
@@ -117,6 +118,10 @@ function dispatchTable(): Dispatch {
     scans: (version) => useScansStore().refreshIfVersionDiffers(version),
     handouts: (version) => useHandoutsStore().refreshIfVersionDiffers(version),
     checkpoints: (version) => useCheckpointsStore().refreshIfVersionDiffers(version),
+    // Glimt (PRD 019). A plain versioned refresh: unlike `race_area` there is a cached copy to
+    // replace, and unlike `contacts` the payload carries no version of its own, so the store records
+    // the one it was given — and only after the fetch succeeded (see syncVersions.ts rule 4).
+    glimt: (version) => useGlimtStore().refreshIfVersionDiffers(version),
     // The race area has no cached copy to refresh: it is fetched on demand when a bulk tile download
     // starts. So a changed version is not a refetch but a *fact about the tiles* — the event's area has
     // moved beyond what this device downloaded — and it is reported to the readiness surface for the user

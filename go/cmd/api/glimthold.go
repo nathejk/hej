@@ -156,7 +156,8 @@ func (app *application) listGlimtByHoldHandler(w http.ResponseWriter, r *http.Re
 	// the query, and the predicate is the authority (PRD 019 §8). An empty result for a hold that
 	// exists is a normal answer — it means nothing they posted was shared this far.
 	out := glimtFeedResponse{
-		Glimt: newGlimtResponses(app.visibleGlimt(rows, s.UserID, viewer.Role), s.UserID),
+		Glimt:     newGlimtResponses(app.visibleGlimt(rows, s.UserID, viewer.Role), s.UserID),
+		ExpiresAt: app.glimtCacheDeadline(),
 	}
 	if err := app.WriteJSON(w, http.StatusOK, out, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)

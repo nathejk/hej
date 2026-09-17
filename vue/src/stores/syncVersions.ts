@@ -41,6 +41,7 @@ export type SyncDataset =
   | 'handouts'
   | 'checkpoints'
   | 'race_area'
+  | 'glimt'
 
 /**
  * Compare a held version with the server's and load if they differ.
