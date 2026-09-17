@@ -213,3 +213,38 @@ checked**. Specifically worth a look on a phone viewport before this is called f
 - safe areas: the feed sits inside App.vue's scroll container, so it should be fine, but the compose
   button in the header has not been seen next to a notch
 - whether `font-nathejk` at `text-2xl` reads as a page title or as shouting
+
+### 2026-09-17 — the dots were decoration: `@select` never fired
+
+Reported from a device: the lit dot sat on the first photograph however far you swiped.
+
+`<Carousel @select="onSelect">` **never called the handler.** The shadcn primitive's `CarouselEmits`
+declares exactly one event, `init-api`. Vue does not treat a binding for an undeclared event as an
+error — it falls through to the root element as a native DOM listener, and a `div` never emits
+`select`. So `current` stayed 0 for the life of every card.
+
+**Nothing in the toolchain could have caught it**, which is what makes it worth writing down rather
+than just fixing: `vue-tsc` does not check event names against `defineEmits` for a binding that could
+plausibly be native, the build and the linter are happy, and this suite mounts nothing. It is the
+second bug in this feature found only by looking at a screen — the first was the 693px carousel box
+above. The "not verified, and cannot be from here" section above listed "whether the dots are visible
+against a bright photo" and did not think to ask whether they *worked*.
+
+Fixed by taking the Embla instance from `init-api`, which is what that event exists for, and
+subscribing to its own `select`. Plus `reInit`, because Embla re-initialises when the slide list
+changes and would otherwise leave the dot on a slide that has moved, and one immediate sync, because
+`loop` with `align: 'start'` means the initial snap is not always 0. No teardown —
+`embla-carousel-vue` destroys the instance on unmount and its listeners go with it.
+
+`vue/src/components/carouselEvents.spec.ts` guards it: the primitive still emits `init-api` (a
+`shadcn-vue` regeneration renaming it would break the dots the same silent way), no component binds an
+undeclared event on `<Carousel>`, and the strip is actually wired. Confirmed it fails when the bug is
+reintroduced, rather than trusting a guard nobody has seen go red.
+
+Deliberately narrow: it only checks primitives that declare their emits locally in
+`ui/*/interface.ts`. Most shadcn-vue components forward Reka UI's emits without redeclaring them, so
+widening it would flag legitimate bindings like `<DropdownMenuItem @select>` — and a guard that cries
+wolf gets deleted.
+
+Its first run flagged its own documentation, which quotes the wrong binding to explain why not to use
+it. Comments are stripped before scanning, as `profileNotCached.spec.ts` already records.
