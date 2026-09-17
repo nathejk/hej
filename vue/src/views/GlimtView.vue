@@ -20,7 +20,7 @@
 // that only said "ingen glimt" would waste the one moment this feature has to explain itself.
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Camera, CloudUpload, WifiOff } from '@lucide/vue'
+import { Camera, CloudUpload, Users, WifiOff } from '@lucide/vue'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -33,7 +33,9 @@ import {
 } from '@/components/ui/dialog'
 import GlimtCard from '@/components/glimt/GlimtCard.vue'
 import GlimtComposer from '@/components/glimt/GlimtComposer.vue'
+import GlimtViewer from '@/components/glimt/GlimtViewer.vue'
 import type { GlimtAction } from '@/components/glimt/glimtPresentation'
+import { useOpenGlimt } from '@/composables/useOpenGlimt'
 import { useGlimtStore, type Glimt } from '@/stores/glimt.store'
 
 const router = useRouter()
@@ -48,6 +50,8 @@ const canBrowseHolds = computed(() => router.hasRoute('glimt-hold'))
 // The composer is a drawer rather than a route (PRD 019 §7): the feed stays behind it, so a member
 // who changes their mind is back where they were rather than navigated somewhere and then back.
 const composerOpen = ref(false)
+
+const viewer = useOpenGlimt()
 
 // Both destructive-ish actions get a confirmation, for different reasons: a delete cannot be undone
 // by its author, and a report takes somebody else's photograph off the public feed immediately. A
@@ -77,6 +81,9 @@ onMounted(() => {
   // How many posts are waiting, so the notice below is honest on a cold start too. The *sending* is
   // the sync loop's job (task 314) — this only reads the count.
   glimt.refreshPending()
+  // The browse index, for the "din patrulje" shortcut. Cheap, and it is what tells us whether the
+  // caller even has a numbered hold — crew do not.
+  if (canBrowseHolds.value) glimt.fetchHolds()
 })
 
 function openHold(number: string) {
@@ -106,6 +113,20 @@ async function confirmAction() {
         Del et glimt
       </Button>
     </header>
+
+    <!-- The one-tap way into the post-race browse (PRD 019 §0a.1). Hidden when the caller has no
+         numbered hold — crew have a section instead — rather than linking to a collection that cannot
+         exist. -->
+    <Button
+      v-if="canBrowseHolds && glimt.ownHoldNumber"
+      variant="outline"
+      size="lg"
+      class="justify-start gap-2"
+      @click="openHold(glimt.ownHoldNumber)"
+    >
+      <Users class="size-5" aria-hidden="true" />
+      Se dit holds glimt
+    </Button>
 
     <!-- Queued posts. Deliberately worded as waiting for the network rather than "sender i
          baggrunden": there is no background upload on iOS, so a post moves when the app is open and
@@ -155,10 +176,17 @@ async function confirmAction() {
         v-for="entry in glimt.newestFirst"
         :key="entry.id"
         :glimt="entry"
+        @open="(ordinal) => viewer.open(entry, ordinal)"
         @open-hold="openHold"
         @action="(key) => (pending = { entry, key })"
       />
     </template>
+
+    <GlimtViewer
+      v-model:open="viewer.isOpen.value"
+      :glimt="viewer.glimt.value"
+      :ordinal="viewer.ordinal.value"
+    />
 
     <GlimtComposer v-model:open="composerOpen" />
 

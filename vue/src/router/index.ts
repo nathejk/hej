@@ -77,6 +77,20 @@ const router = createRouter({
       component: () => import('@/views/ContactPersonView.vue'),
       meta: { roles: destinations.find((d) => d.name === 'contacts')?.roles },
     },
+    // One hold's glimt, oldest-first (PRD 019, task 326). Deliberately NOT a
+    // `destination`: it is reached from a shortcut on the glimt feed, so it takes no
+    // bottom-nav slot — which matters, because Glimt itself now occupies one.
+    //
+    // Roles are derived from the glimt destination rather than restated, for the same
+    // reason as `/contacts/:personId` above: a deep link must not become a second, laxer
+    // way into the pane. Visibility of the *items* is not this route's job either way —
+    // `users.MaySeeGlimt` on the BFF is the only authority, and it is applied per item.
+    {
+      path: '/glimt/hold/:number',
+      name: 'glimt-hold',
+      component: () => import('@/views/GlimtHoldView.vue'),
+      meta: { roles: destinations.find((d) => d.name === 'glimt')?.roles },
+    },
     // Min profil (PRD 003). Deliberately NOT a `destination`: it is reached from the
     // user menu in the top bar, so it takes no bottom-nav slot — which matters,
     // because the service roles are already close to the five visible slots.

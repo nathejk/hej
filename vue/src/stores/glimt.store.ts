@@ -114,6 +114,27 @@ interface FeedResponse {
   expires_at?: number
 }
 
+/** One hold in the browse index (PRD 019 §0a.1). */
+export interface GlimtHoldSummary {
+  number: string
+  name: string
+  group: string
+  /** How many glimt from this hold the caller may see — not how many exist. */
+  count: number
+  latestAt: number
+}
+
+interface HoldsResponse {
+  holds: Array<{
+    number?: string
+    name?: string
+    group?: string
+    count?: number
+    latest_at?: string
+  }> | null
+  own_number?: string
+}
+
 /** What an upload returns, and what a create call references. */
 export interface GlimtMediaRef {
   ref: string
@@ -324,6 +345,34 @@ export const useGlimtStore = defineStore('glimt', {
     pending: 0,
     /** True while a drain is running, so two cannot overlap. */
     draining: false,
+    /**
+     * The browse index: holds that have shared something visible to the caller.
+     *
+     * Not persisted, unlike the feed. See `holdGlimt` for why.
+     */
+    holds: [] as GlimtHoldSummary[],
+    /**
+     * The caller's own hold number, for the "din patrulje" shortcut. Empty for crew, who have a
+     * section rather than a numbered hold — the UI then offers no shortcut rather than linking to a
+     * collection that cannot exist.
+     */
+    ownHoldNumber: '',
+    /**
+     * One hold's collection, keyed by hold number, **oldest first** as the BFF returns it.
+     *
+     * # Held in memory only, deliberately
+     *
+     * The feed is persisted because it is the surface a member opens cold and offline. A hold
+     * collection is not: it is reached by tapping an attribution, which means the feed already
+     * loaded. Persisting these would write the same glimt again under one key per hold — the feed's
+     * data duplicated N times — for a case the feed's own cache already covers.
+     *
+     * What actually makes revisiting a hold cheap offline is the **image** cache (task 315), which is
+     * where the bytes are. Metadata for one hold is a few kilobytes and refetches in one request.
+     */
+    holdGlimt: {} as Record<string, Glimt[]>,
+    /** True while a hold collection is loading, so the grid can say so. */
+    loadingHold: false,
     storage: browserStorage() as GlimtStorage | null,
   }),
   getters: {
@@ -453,6 +502,60 @@ export const useGlimtStore = defineStore('glimt', {
         return false
       } finally {
         this.loading = false
+      }
+    },
+
+    /**
+     * Load the browse index: which holds have shared something (PRD 019 §0a.1).
+     *
+     * Never throws. An empty index and a failed request look the same to a member who has just tapped
+     * "se alle hold", so the error is recorded and the view says so rather than showing an
+     * indistinguishable blank.
+     */
+    async fetchHolds(): Promise<boolean> {
+      try {
+        const data = await fetchWrapper.get<HoldsResponse>('/api/glimt/hold')
+        this.holds = (data.holds ?? []).map((h) => ({
+          number: h.number ?? '',
+          name: h.name ?? '',
+          group: h.group ?? '',
+          count: h.count ?? 0,
+          latestAt: h.latest_at ? Date.parse(h.latest_at) : 0,
+        }))
+        this.ownHoldNumber = data.own_number ?? ''
+        this.error = ''
+        return true
+      } catch {
+        this.error = 'Kunne ikke hente holdene.'
+        return false
+      }
+    },
+
+    /**
+     * Load one hold's collection, oldest first.
+     *
+     * The order comes from the BFF (task 319) and is **not** re-sorted here: a race reads forward in
+     * time, and there is exactly one place that decides so.
+     */
+    async fetchHold(number: string): Promise<boolean> {
+      if (!number) return false
+      this.loadingHold = true
+      try {
+        const data = await fetchWrapper.get<FeedResponse>(
+          `/api/glimt/hold/${encodeURIComponent(number)}`,
+        )
+        this.holdGlimt = { ...this.holdGlimt, [number]: (data.glimt ?? []).map(toGlimt) }
+        this.error = ''
+        return true
+      } catch (err) {
+        if (err instanceof HttpError && err.status === 503) {
+          this.error = 'Glimt er ikke tilgængelige lige nu.'
+        } else {
+          this.error = 'Kunne ikke hente holdets glimt.'
+        }
+        return false
+      } finally {
+        this.loadingHold = false
       }
     },
 
