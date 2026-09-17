@@ -3,7 +3,7 @@ import type { Component } from 'vue'
 import type { RouteLocationRaw, RouteRecordRaw } from 'vue-router'
 import { useSessionStore } from '@/stores/session.store'
 import { gatesEnabled } from '@/config/gates'
-import { LEAVE_APP, WEBSITE_PAGE, deviceAndInstallGates, roleGate } from '@/router/gates'
+import { LEAVE_APP, WEBSITE_PAGE, deviceAndInstallGates, moderatorGate, roleGate } from '@/router/gates'
 import type { Role } from '@/stores/session.store'
 import { destinations } from '@/config/navigation'
 
@@ -16,6 +16,9 @@ declare module 'vue-router' {
     roles?: Role[]
     // render edge-to-edge: no top bar, no scroll wrapper (see App.vue).
     fullBleed?: boolean
+    // when set, only a member with the Team-section assignment may enter (PRD 019, task 309).
+    // Separate from `roles` because moderation comes from `sectionSlug`, not from a role.
+    moderator?: boolean
   }
 }
 
@@ -77,6 +80,20 @@ const router = createRouter({
       component: () => import('@/views/ContactPersonView.vue'),
       meta: { roles: destinations.find((d) => d.name === 'contacts')?.roles },
     },
+    // The Team-section moderation queue (PRD 019 §6, task 309). Deliberately NOT a `destination`:
+    // it is organizer tooling for a handful of accounts, and a nav slot spent on it would be a slot
+    // taken from every participant to reach a page they may not open. Reached from the Glimt feed,
+    // which draws the link only when `/api/me` said the caller moderates.
+    //
+    // `meta.moderator` rather than `meta.roles`: every Team member is `crew` as far as roles go, and
+    // so are the kitchen and PR — gating on the role would hand the widest read in the service to
+    // every unclassified crew account. See `moderatorGate`.
+    {
+      path: '/glimt/moderation',
+      name: 'glimt-moderation',
+      component: () => import('@/views/GlimtModerationView.vue'),
+      meta: { moderator: true },
+    },
     // One hold's glimt, oldest-first (PRD 019, task 326). Deliberately NOT a
     // `destination`: it is reached from a shortcut on the glimt feed, so it takes no
     // bottom-nav slot — which matters, because Glimt itself now occupies one.
@@ -129,6 +146,7 @@ const router = createRouter({
 //   4. onboarding        — the flow at /welcome
 //   5. auth
 //   6. roles
+//   7. moderation (PRD 019: a narrower gate on top of roles, not an alternative to them)
 //
 // **The device gate runs before `session.ensureReady()`,** which it can only do because it
 // is session-independent by design: PRD 005 §11 decided there is no desktop login for any
@@ -186,6 +204,12 @@ router.beforeEach(async (to) => {
   // 6. Roles.
   const outcome = roleGate(to, session.role)
   if (outcome !== true) return outcome
+
+  // 7. Moderation. After roles, because it is a narrower gate on top of them rather than an
+  //    alternative to them, and after auth for the obvious reason: `moderatesGlimt` comes from
+  //    /api/me.
+  const moderation = moderatorGate(to, session.moderatesGlimt)
+  if (moderation !== true) return moderation
   return true
 })
 

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jrgensen/cqrs/cqrstest"
+
 	"nathejk.dk/nathejk/table/glimt"
 	"nathejk.dk/nathejk/table/person"
 )
@@ -309,5 +311,77 @@ func TestModeration_NoPublisherIs503(t *testing.T) {
 		moderateGlimtRequest{}, cookies)
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", resp.StatusCode)
+	}
+}
+
+// GET /api/me carries `moderates_glimt` so the client knows whether to draw the moderation entry
+// (task 309).
+//
+// The client cannot derive this: moderation comes from `sectionSlug`, which is deliberately kept out
+// of the session and never sent to the client. The alternative — having the client probe
+// /api/glimt/moderation and read the 403 — would cost every participant a refused request per
+// foreground, which is the exact mistake the contacts prefetch made (see `hasContactsPane`).
+func TestMe_ReportsGlimtModeration(t *testing.T) {
+	app, _, _ := glimtApp(t, nil, teamPerson())
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	cookies := authedCookies(t, app, srv, "30000001", "+4530000001")
+
+	resp, payload := readBody(t, srv.URL+"/api/me", cookies)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", resp.StatusCode, payload)
+	}
+	var out identityResponse
+	if err := json.Unmarshal(payload, &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !out.ModeratesGlimt {
+		t.Errorf("a Team-section member is not told they moderate: %s", payload)
+	}
+}
+
+func TestMe_DoesNotReportModerationForEveryoneElse(t *testing.T) {
+	app, _, _ := glimtApp(t, nil, spejderPerson())
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	cookies := authedCookies(t, app, srv, "30000001", "+4530000001")
+
+	_, payload := readBody(t, srv.URL+"/api/me", cookies)
+	var out identityResponse
+	if err := json.Unmarshal(payload, &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.ModeratesGlimt {
+		t.Errorf("a spejder outside the Team section is told they moderate: %s", payload)
+	}
+	// Present-and-false rather than absent: a client must not have to distinguish "not a
+	// moderator" from "this build does not implement it".
+	if !strings.Contains(string(payload), "moderates_glimt") {
+		t.Errorf("moderates_glimt omitted when false, so false and unimplemented look alike: %s", payload)
+	}
+}
+
+// The field is a hint for drawing a link, never the permission. If someone ever wires the client gate
+// to something cached, this is the test that says the endpoint does not care.
+func TestMe_ModerationFieldIsNotThePermission(t *testing.T) {
+	people := &stubPeople{p: teamPerson(), found: true}
+	app := photoTestApp(t, &cqrstest.Publisher{}, people)
+	app.config.eventYear = "2026"
+	store := &stubGlimt{rows: mixedScopes()}
+	app.models = newModelsWithGlimt(people, store)
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	cookies := authedCookies(t, app, srv, "30000001", "+4530000001")
+
+	if resp, _ := readBody(t, srv.URL+"/api/glimt/moderation", cookies); resp.StatusCode != http.StatusOK {
+		t.Fatalf("Team member refused the queue: %d", resp.StatusCode)
+	}
+
+	// Assignment taken away. No new login, no new /api/me — the very next request must fail,
+	// whatever the client was last told.
+	people.p = person.Person{PersonID: "mock-spejder-1", AppRole: person.RoleSpejder, SectionSlug: "koekken"}
+	if resp, _ := readBody(t, srv.URL+"/api/glimt/moderation", cookies); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want 403 after the Team assignment was revoked", resp.StatusCode)
 	}
 }

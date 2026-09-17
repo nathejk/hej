@@ -129,3 +129,34 @@ export function roleGate(
   // Somewhere sensible, never an error page: the map is every role's landing route.
   return { name: 'maps' }
 }
+
+/**
+ * The moderation gate: `meta.moderator` routes need the Team-section assignment (PRD 019, task 309).
+ *
+ * A separate gate rather than a `Role`, because moderation is **not** a role: it comes from the
+ * member's `sectionSlug`, and every Team member is `crew` as far as roles are concerned — as are the
+ * kitchen and PR. Expressing it as `meta.roles: ['crew']` would hand the queue to every unclassified
+ * crew account in the event.
+ *
+ * # Unlike `roleGate`, an unknown answer refuses
+ *
+ * `roleGate` lets a null role through, because bouncing a legitimate user off a page while the session
+ * resolves is the blank-screen class of bug. The trade is inverted here: `moderatesGlimt` is false
+ * both when the caller does not moderate and when we could not ask (an offline cold start, where the
+ * remembered identity carries no such flag). Falling *through* would then render a queue that cannot
+ * load — the view needs the network by definition — so refusing costs a moderator one reconnect and
+ * saves everyone else a screen they should not see.
+ *
+ * Not the security boundary, and nothing here protects data: all three moderation endpoints re-read
+ * the assignment per request, so a caller who reaches this route by any means still gets 403s. Same
+ * rule as the gates above — do not let a later change lean on it.
+ */
+export function moderatorGate(
+  to: RouteLocationNormalized,
+  moderates: boolean,
+): true | RouteLocationRaw {
+  if (!to.meta.moderator) return true
+  if (moderates) return true
+  // The feed, not the map: somebody following a stale moderation link was on their way to Glimt.
+  return { name: 'glimt' }
+}

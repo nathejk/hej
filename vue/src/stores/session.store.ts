@@ -20,6 +20,20 @@ interface IdentityResponse {
    * look" — both of which must hide the control, since offering it is what would mislead.
    */
   profile_count?: number
+  /**
+   * Whether this caller currently moderates Glimt — i.e. has the Team section assigned
+   * (PRD 019 §0, §6).
+   *
+   * Comes from the server because it *cannot* be derived here: moderation is decided by
+   * `sectionSlug`, which is deliberately kept out of the session and never sent to the client. The
+   * alternative of probing `/api/glimt/moderation` and reading the 403 would cost every participant
+   * a refused request per foreground — the exact mistake the contacts prefetch made (see
+   * `hasContactsPane` in @/config/roles).
+   *
+   * **A hint for drawing a link, never a permission.** All three moderation endpoints re-check the
+   * assignment per request, so believing a stale `true` costs a 403 and nothing else.
+   */
+  moderates_glimt?: boolean
 }
 
 // One owner of a shared phone number, as offered by the chooser.
@@ -89,6 +103,16 @@ export const useSessionStore = defineStore('session', {
      * complete without the network anyway.
      */
     profileCount: 0,
+    /**
+     * Whether the signed-in member moderates Glimt (PRD 019, task 309).
+     *
+     * Decides whether the moderation entry is *drawn*. Like `profileCount`, deliberately **not**
+     * persisted with the remembered identity: on an offline start we do not know it, and the queue
+     * is a live operational view that needs the network anyway. Defaulting to false when unknown
+     * means the entry is missing rather than present-and-broken, which is the right direction to
+     * be wrong — a moderator can reload, whereas an entry that 403s teaches everyone to ignore it.
+     */
+    moderatesGlimt: false,
   }),
   getters: {
     isAuthenticated: (state) => state.user !== null,
@@ -121,6 +145,7 @@ export const useSessionStore = defineStore('session', {
         const data = await fetchWrapper.get<IdentityResponse>('/api/me')
         this.user = { userId: data.user_id, role: data.role }
         this.profileCount = data.profile_count ?? 0
+        this.moderatesGlimt = data.moderates_glimt === true
         this.provisional = false
         saveIdentity(this.user)
         app.setOnline(true)
@@ -216,6 +241,10 @@ export const useSessionStore = defineStore('session', {
 
       this.clearChoice()
       this.user = { userId: data.user_id, role: data.role }
+      // Set on the login paths too, not just /api/me: login marks the session ready and the
+      // client does not re-ask, so without this a Team member would have no moderation entry
+      // until their next foreground refresh.
+      this.moderatesGlimt = data.moderates_glimt === true
       this.provisional = false
       this.ready = true
       saveIdentity(this.user)
@@ -248,6 +277,7 @@ export const useSessionStore = defineStore('session', {
 
       this.clearChoice()
       this.user = { userId: data.user_id, role: data.role }
+      this.moderatesGlimt = data.moderates_glimt === true
       this.provisional = false
       this.ready = true
       saveIdentity(this.user)
@@ -289,6 +319,7 @@ export const useSessionStore = defineStore('session', {
         this.user = null
         this.provisional = false
         this.profileCount = 0
+        this.moderatesGlimt = false
         clearIdentity()
         this.clearChoice()
       }

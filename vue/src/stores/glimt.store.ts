@@ -124,6 +124,48 @@ export interface GlimtHoldSummary {
   latestAt: number
 }
 
+/**
+ * One entry in the Team-section moderation queue (PRD 019 §6, task 308/309).
+ *
+ * # This is the only place the client ever learns who posted a glimt
+ *
+ * Every other surface is attributed to the **hold** and the author is projected out of the response
+ * entirely (PRD 019 §0b) — so it cannot leak, because it is not there. The queue is the deliberate
+ * exception: a report cannot be answered against an anonymous author, and a moderator triaging at
+ * 03:00 needs a name rather than a uuid.
+ *
+ * That makes the handling rules non-negotiable, and they are enforced in three places:
+ *
+ *   - the BFF sends this **only** to a caller with the current Team-section assignment, re-checked
+ *     per request, and marks the response `no-store`
+ *   - it lives in `moderationQueue`, which `persist()` does not write — so no author name ever
+ *     reaches this device's disk. `glimtModerationNotCached.spec.ts` asserts that.
+ *   - it is dropped on navigation away, because the queue is a live operational view and a stale one
+ *     is worse than none
+ */
+export interface ModerationGlimt extends Glimt {
+  /** Resolved by the BFF. Empty when the person row is missing — which is itself worth looking at. */
+  authorName: string
+  authorPersonId: string
+  /** How many members have reported it. Drives the queue's ordering, server-side. */
+  reportCount: number
+  /** Person id of the moderator who hid it, or empty. Non-empty implies a human decided. */
+  hiddenBy: string
+}
+
+interface ModerationResponse {
+  glimt:
+    | Array<
+        GlimtResponse & {
+          author_name?: string
+          author_person_id?: string
+          report_count?: number
+          hidden_by?: string
+        }
+      >
+    | null
+}
+
 interface HoldsResponse {
   holds: Array<{
     number?: string
@@ -170,6 +212,42 @@ interface StoredPayload {
   /** Server-issued deadline, epoch ms. Zero when the server issued none. */
   expiresAt: number
   glimt: Glimt[]
+}
+
+/**
+ * Project a glimt down to exactly the fields that may be written to disk.
+ *
+ * # This is not defensive tidiness, it closes a real hole
+ *
+ * `ModerationGlimt extends Glimt`, so TypeScript's structural typing happily accepts an array of
+ * queue entries — **author names and all** — wherever a `Glimt[]` is wanted. `StoredPayload.glimt`
+ * is a `Glimt[]`, and `JSON.stringify` writes whatever is actually on the object rather than what
+ * its declared type admits. One assignment (`glimt = moderationQueue`, or a spread that carried the
+ * extra fields) would therefore put the one payload we promised never to cache into localStorage,
+ * with nothing failing to say so.
+ *
+ * A whitelist makes that impossible instead of merely unlikely, which is the right shape for a
+ * privacy rule: the type system cannot express "no *more* than these fields", so the code does.
+ * `glimtModerationNotCached.spec.ts` proves it.
+ */
+function toStoredGlimt(g: Glimt): Glimt {
+  return {
+    id: g.id,
+    hold: { number: g.hold.number, name: g.hold.name, group: g.hold.group },
+    own: g.own,
+    audience: g.audience,
+    caption: g.caption,
+    createdAt: g.createdAt,
+    media: g.media.map((m) => ({
+      ordinal: m.ordinal,
+      kind: m.kind,
+      width: m.width,
+      height: m.height,
+      durationMs: m.durationMs,
+      hasThumb: m.hasThumb,
+    })),
+    hidden: g.hidden,
+  }
 }
 
 /**
@@ -373,6 +451,30 @@ export const useGlimtStore = defineStore('glimt', {
     holdGlimt: {} as Record<string, Glimt[]>,
     /** True while a hold collection is loading, so the grid can say so. */
     loadingHold: false,
+    /**
+     * The Team-section moderation queue (task 309).
+     *
+     * # Never persisted, and that is a requirement rather than a preference
+     *
+     * This is the only payload in the app that carries who authored a glimt — see `ModerationGlimt`.
+     * `persist()` writes `glimt` and nothing else, so keeping the queue in its own field is what
+     * keeps author names off this device's disk. Do not fold it into `glimt`, and do not add it to
+     * the stored payload: `glimtModerationNotCached.spec.ts` will fail, which is the point.
+     *
+     * It is also a live operational view. A cached queue would have a moderator reviewing something
+     * already handled, or believing a reported glimt is still up.
+     */
+    moderationQueue: [] as ModerationGlimt[],
+    /** True while the queue is loading. */
+    loadingModeration: false,
+    /**
+     * Set when the BFF refused the queue — i.e. the caller does not have the Team section.
+     *
+     * Distinct from `error`, because it is not a failure: it is the correct answer to a caller who
+     * should not have been offered the page. Kept so the view can say so plainly instead of showing
+     * a retry button for something retrying cannot fix.
+     */
+    moderationForbidden: false,
     storage: browserStorage() as GlimtStorage | null,
   }),
   getters: {
@@ -401,7 +503,9 @@ export const useGlimtStore = defineStore('glimt', {
         version: this.version,
         syncedAt: this.syncedAt ?? Date.now(),
         expiresAt: this.expiresAt,
-        glimt: this.glimt,
+        // Whitelisted rather than passed through: see `toStoredGlimt`. An object that is a `Glimt`
+        // as far as the type checker is concerned may still be carrying an author name.
+        glimt: this.glimt.map(toStoredGlimt),
       }
 
       if (writeStored(this.storage, this.storageKey, payload)) return
@@ -882,6 +986,127 @@ export const useGlimtStore = defineStore('glimt', {
         this.error = 'Kunne ikke anmelde glimtet. Prøv igen.'
         return false
       }
+    },
+
+    /**
+     * Load the Team-section moderation queue (task 309).
+     *
+     * # Order comes from the BFF and is not re-sorted here
+     *
+     * The server returns reported-and-not-yet-hidden first, then by report count, then newest — the
+     * triage order (task 308). Re-sorting on the client would put a second opinion next to the first
+     * for them to disagree, and it would actively hurt: after an optimistic *Skjul* the card must
+     * **stay where it is** so the moderator can undo a misclick, whereas a live re-sort would make it
+     * jump out from under their thumb.
+     *
+     * Never throws. A 403 is recorded as `moderationForbidden` rather than an error, because it is
+     * the correct answer for a caller who should not have been offered the page — an assignment
+     * revoked mid-session lands here, and a retry button would be a lie.
+     */
+    async fetchModeration(): Promise<boolean> {
+      this.loadingModeration = true
+      try {
+        const data = await fetchWrapper.get<ModerationResponse>('/api/glimt/moderation')
+        this.moderationQueue = (data.glimt ?? []).map((r) => ({
+          ...toGlimt(r),
+          authorName: r.author_name ?? '',
+          authorPersonId: r.author_person_id ?? '',
+          reportCount: r.report_count ?? 0,
+          hiddenBy: r.hidden_by ?? '',
+        }))
+        this.moderationForbidden = false
+        this.error = ''
+        return true
+      } catch (err) {
+        if (err instanceof HttpError && err.status === 403) {
+          this.moderationForbidden = true
+          // Dropped, not left on screen. Whatever is in there was fetched under an assignment the
+          // caller no longer has.
+          this.moderationQueue = []
+          this.error = ''
+        } else if (err instanceof HttpError && err.status === 503) {
+          this.error = 'Glimt er ikke tilgængelige lige nu.'
+        } else {
+          this.error = 'Kunne ikke hente køen.'
+        }
+        return false
+      } finally {
+        this.loadingModeration = false
+      }
+    },
+
+    /**
+     * Drop the queue. Called when the moderation view unmounts.
+     *
+     * Explicit rather than left to garbage collection, because this is the one payload carrying
+     * author names: a Pinia store outlives the component, so without this the names would sit in
+     * memory for the rest of the session behind whatever page the moderator went to next.
+     */
+    clearModeration() {
+      this.moderationQueue = []
+      this.moderationForbidden = false
+    },
+
+    /**
+     * Hide or restore a glimt as a moderator (task 308's endpoints).
+     *
+     * # Optimistic, and it reverts
+     *
+     * The badge flips before the request, because the moderator is working through a list on event
+     * wifi and a spinner per decision makes triage feel broken. On failure the flip is **undone** and
+     * `error` is set — leaving it flipped would tell a moderator a photograph is down when it is
+     * still up, which is the one lie this screen must not tell.
+     *
+     * The card is **not removed** from the queue. A hidden glimt is still the moderator's business:
+     * they may need to reverse it, and a report that turned out to be malicious is only visible if
+     * the thing it was aimed at is still listed.
+     *
+     * # The feed's copy is updated too
+     *
+     * A moderator's own device may be holding the same glimt in its cached feed. Updating both keeps
+     * the two views from contradicting each other until the next sync, and costs one array pass.
+     */
+    async setHidden(id: string, hidden: boolean): Promise<boolean> {
+      const entry = this.moderationQueue.find((g) => g.id === id)
+      const previous = entry?.hidden
+      this.applyHidden(id, hidden)
+
+      const verb = hidden ? 'hide' : 'unhide'
+      try {
+        await fetchWrapper.post(`/api/glimt/items/${encodeURIComponent(id)}/${verb}`)
+        this.error = ''
+        return true
+      } catch (err) {
+        if (previous !== undefined) this.applyHidden(id, previous)
+        if (err instanceof HttpError && err.status === 403) {
+          // The assignment went away between loading the queue and acting on it.
+          this.moderationForbidden = true
+          this.error = 'Du har ikke længere adgang til at moderere.'
+        } else if (err instanceof HttpError && err.status === 404) {
+          // The author deleted it while the moderator was looking at it. Not a failure of theirs,
+          // and the outcome they wanted has effectively happened.
+          this.moderationQueue = this.moderationQueue.filter((g) => g.id !== id)
+          this.error = 'Glimtet findes ikke længere — forfatteren har slettet det.'
+        } else {
+          this.error = hidden
+            ? 'Kunne ikke skjule glimtet. Prøv igen.'
+            : 'Kunne ikke vise glimtet igen. Prøv igen.'
+        }
+        return false
+      }
+    },
+
+    /**
+     * Set `hidden` on both copies of one glimt, in place.
+     *
+     * Split out so the optimistic write and its revert are literally the same operation, which is the
+     * only way to be sure a failed hide leaves no trace in either list.
+     */
+    applyHidden(id: string, hidden: boolean) {
+      this.moderationQueue = this.moderationQueue.map((g) =>
+        g.id === id ? { ...g, hidden } : g,
+      )
+      this.glimt = this.glimt.map((g) => (g.id === id ? { ...g, hidden } : g))
     },
 
     /**

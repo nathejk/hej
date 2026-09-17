@@ -10,6 +10,7 @@ import {
   glimtActions,
   holdWord,
   mediaAltText,
+  moderationActions,
   relativeTime,
   stripAspectRatio,
 } from '@/components/glimt/glimtPresentation'
@@ -266,5 +267,63 @@ describe('mediaAltText', () => {
 
   it('says "Dit hold" for the caller’s own', () => {
     expect(mediaAltText(glimt({ own: true }), 0)).toBe(`Glimt fra ${OWN_ATTRIBUTION}`)
+  })
+})
+
+// The moderator's overflow menu (task 309).
+//
+// Same reasoning as `glimtActions` above: a menu is where a safety mechanism either is or is not one
+// tap away, and no screenshot shows whether the *wrong* action was offered.
+describe('moderationActions', () => {
+  it('offers Skjul on a visible glimt and nothing else', () => {
+    const actions = moderationActions(glimt({ hidden: false }))
+    expect(actions.map((a) => a.key)).toEqual(['hide'])
+    expect(actions[0].label).toBe('Skjul')
+  })
+
+  it('offers Vis igen on a hidden one and nothing else', () => {
+    const actions = moderationActions(glimt({ hidden: true }))
+    expect(actions.map((a) => a.key)).toEqual(['unhide'])
+    expect(actions[0].label).toBe('Vis igen')
+  })
+
+  // Never both. A menu with "hide" next to "unhide" makes the moderator work out which one is a
+  // no-op, at 03:00, on a photograph somebody has complained about.
+  it('never offers both directions at once', () => {
+    for (const hidden of [true, false]) {
+      const keys = moderationActions(glimt({ hidden })).map((a) => a.key)
+      expect(keys.includes('hide') && keys.includes('unhide')).toBe(false)
+    }
+  })
+
+  // Hiding looks like the destructive one and is not: the row and the media survive, and Vis igen
+  // puts it back. Painting it red would push a moderator towards hesitating, and PRD 019 §6 wants
+  // hiding cheap enough to be the immediate answer to an ambiguous report.
+  it('does not mark hiding as destructive', () => {
+    expect(moderationActions(glimt({ hidden: false }))[0].destructive).toBe(false)
+    expect(moderationActions(glimt({ hidden: true }))[0].destructive).toBe(false)
+  })
+
+  // Reporting is a way to ask a moderator to look. A moderator is already looking, and the endpoint
+  // would only inflate the count they are triaging by.
+  it('never offers Anmeld', () => {
+    for (const own of [true, false]) {
+      for (const hidden of [true, false]) {
+        expect(moderationActions(glimt({ own, hidden })).map((a) => a.key)).not.toContain('report')
+      }
+    }
+  })
+
+  // Destroying another member's photograph is not a power this feature grants anyone: the author
+  // deletes, the Team hides, and retention does the rest.
+  it('gives a moderator no delete on somebody else’s glimt', () => {
+    expect(moderationActions(glimt({ own: false })).map((a) => a.key)).not.toContain('delete')
+  })
+
+  it('still gives an author their own Slet', () => {
+    // A Team member looking at their own glimt in the queue is an author too, and `own` is honoured
+    // here exactly as it is in the feed.
+    const keys = moderationActions(glimt({ own: true, hidden: false })).map((a) => a.key)
+    expect(keys).toEqual(['hide', 'delete'])
   })
 })

@@ -50,6 +50,14 @@ const props = defineProps<{
   glimt: GlimtEntry
   /** Suppress the hold link — the hold collection does not need to link to itself. */
   hideHoldLink?: boolean
+  /**
+   * Override the overflow menu.
+   *
+   * The moderation view passes `moderationActions(glimt)` (task 309). A prop rather than a
+   * `moderating` flag, so this component holds no opinion about who is looking at it — which is what
+   * lets the queue reuse it instead of forking a second card that would drift from this one.
+   */
+  actions?: GlimtAction[]
 }>()
 
 const emit = defineEmits<{
@@ -68,7 +76,7 @@ const holdLinkable = computed(
   () => !props.hideHoldLink && props.glimt.hold.number.length > 0,
 )
 
-const actions = computed(() => glimtActions(props.glimt))
+const actions = computed(() => props.actions ?? glimtActions(props.glimt))
 </script>
 
 <template>
@@ -90,7 +98,14 @@ const actions = computed(() => glimtActions(props.glimt))
         <p class="text-xs text-muted-foreground">
           {{ relativeTime(glimt.createdAt) }}
         </p>
+        <!-- Extra context under the timestamp. Used by the moderation queue for the author, which
+             is the one thing this card is otherwise forbidden from knowing (PRD 019 §0b) — so it
+             arrives as markup from the caller rather than as a field on the glimt. -->
+        <slot name="meta" />
       </div>
+
+      <!-- Extra chips before the audience badge; the queue puts its report count here. -->
+      <slot name="badges" />
 
       <Badge :variant="audienceVariant(glimt.audience)" class="shrink-0">
         {{ audienceLabel(glimt.audience) }}

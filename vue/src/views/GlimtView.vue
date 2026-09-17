@@ -20,7 +20,7 @@
 // that only said "ingen glimt" would waste the one moment this feature has to explain itself.
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Camera, CloudUpload, Users, WifiOff } from '@lucide/vue'
+import { Camera, CloudUpload, ShieldCheck, Users, WifiOff } from '@lucide/vue'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -37,9 +37,19 @@ import GlimtViewer from '@/components/glimt/GlimtViewer.vue'
 import type { GlimtAction } from '@/components/glimt/glimtPresentation'
 import { useOpenGlimt } from '@/composables/useOpenGlimt'
 import { useGlimtStore, type Glimt } from '@/stores/glimt.store'
+import { useSessionStore } from '@/stores/session.store'
 
 const router = useRouter()
 const glimt = useGlimtStore()
+const session = useSessionStore()
+
+// The moderation queue's only entry point (task 309). Here rather than in the bottom nav: it is for a
+// handful of Team-section accounts, and a nav slot spent on it is a slot taken from every participant
+// (task 320). Drawn only when `/api/me` said the caller moderates — `moderates_glimt` is a hint for
+// this decision and nothing else; the endpoints re-check the assignment per request.
+const canModerate = computed(
+  () => session.moderatesGlimt && router.hasRoute('glimt-moderation'),
+)
 
 // The hold collection is a separate task (326) and registers its own route. Checked rather than
 // assumed, so this view works in a build where it does not exist yet and gains the link
@@ -126,6 +136,18 @@ async function confirmAction() {
     >
       <Users class="size-5" aria-hidden="true" />
       Se dit holds glimt
+    </Button>
+
+    <!-- Moderation, for the Team section only. -->
+    <Button
+      v-if="canModerate"
+      variant="outline"
+      size="lg"
+      class="justify-start gap-2"
+      @click="router.push({ name: 'glimt-moderation' })"
+    >
+      <ShieldCheck class="size-5" aria-hidden="true" />
+      Modererings-kø
     </Button>
 
     <!-- Queued posts. Deliberately worded as waiting for the network rather than "sender i

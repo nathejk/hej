@@ -107,6 +107,24 @@ type identityResponse struct {
 	// learn by signing in. Omitted when unknown — e.g. no directory — rather than reported as
 	// 1, because "one profile" and "we could not look" should not be the same answer.
 	ProfileCount int `json:"profile_count,omitempty"`
+	// ModeratesGlimt is whether this caller currently has the Team section assigned, and so may
+	// reach the moderation queue (PRD 019 §0, §6; tasks 300, 308, 309).
+	//
+	// Here rather than derived on the client, for the reason `hasContactsPane` in
+	// `vue/src/config/roles.ts` records: a client-side copy of a server rule can disagree with
+	// the server, and when the contacts prefetch did, the disagreement cost a 403 per
+	// foreground. The client cannot compute this in any case — moderation comes from
+	// `sectionSlug`, which is deliberately not in the session and is not sent to the client.
+	//
+	// **It is a hint for drawing a link, never a permission.** The three moderation handlers each
+	// re-check the assignment per request (see `isGlimtModerator`), so a forged `true` here buys
+	// nothing but a menu entry that answers 403. It is computed from the same function as that
+	// check, so the two cannot drift.
+	//
+	// Not `omitempty`: absent and false must look the same to a client, and a non-moderator is the
+	// overwhelmingly common case, so making it the silent one would leave the field almost never
+	// present and easy to mistake for unimplemented.
+	ModeratesGlimt bool `json:"moderates_glimt"`
 }
 
 // candidate is one owner of a shared phone number, as shown in the chooser.
@@ -229,7 +247,14 @@ func (app *application) verifyPinHandler(w http.ResponseWriter, r *http.Request)
 		// The PIN just proved this number reaches this member, so record it (PRD 015). After the
 		// session is issued and deliberately unable to fail the login — see recordOwnPhoneVerified.
 		app.recordOwnPhoneVerified(user.ID, normalized)
-		if err := app.WriteJSON(w, http.StatusOK, identityResponse{UserID: user.ID, Role: string(user.Role)}, nil); err != nil {
+		// `moderates_glimt` is set on the login paths as well as on /api/me, so a Team-section
+		// member has the moderation entry in the session they just started rather than after
+		// the next foreground refresh — the client marks the session ready on login and does
+		// not re-ask.
+		if err := app.WriteJSON(w, http.StatusOK, identityResponse{
+			UserID: user.ID, Role: string(user.Role),
+			ModeratesGlimt: app.isGlimtModerator(user.ID),
+		}, nil); err != nil {
 			app.ServerErrorResponse(w, r, err)
 		}
 		return
@@ -310,7 +335,12 @@ func (app *application) chooseHandler(w http.ResponseWriter, r *http.Request) {
 		// we learn *which* of its owners is holding it — so the fact belongs to this member (PRD
 		// 015). A shared number legitimately records the same number as verified for two people.
 		app.recordOwnPhoneVerified(u.ID, normalized)
-		if err := app.WriteJSON(w, http.StatusOK, identityResponse{UserID: u.ID, Role: string(u.Role)}, nil); err != nil {
+		// Same reason as the single-match path: the entry should be there for the session that
+		// was just issued.
+		if err := app.WriteJSON(w, http.StatusOK, identityResponse{
+			UserID: u.ID, Role: string(u.Role),
+			ModeratesGlimt: app.isGlimtModerator(u.ID),
+		}, nil); err != nil {
 			app.ServerErrorResponse(w, r, err)
 		}
 		return
@@ -372,7 +402,7 @@ func candidatesFor(owners []users.User, detail candidateDetail) []candidate {
 // requireAuth, so reaching it means a valid session exists.
 //
 // @Summary      Current identity
-// @Description  Returns the signed-in user's id + role. 401 when not signed in.
+// @Description  Returns the signed-in user's id + role, how many profiles their number carries, and whether they currently moderate Glimt. `moderates_glimt` is a hint for drawing the moderation entry, not a permission: every moderation endpoint re-checks the Team-section assignment per request. 401 when not signed in.
 // @Tags         auth
 // @Produce      json
 // @Success      200  {object}  identityResponse
@@ -386,6 +416,10 @@ func (app *application) meHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := identityResponse{UserID: s.UserID, Role: s.Role}
+	// Whether to *draw* the moderation entry (task 309). Computed from `isGlimtModerator`, the
+	// same function the three moderation handlers gate on, so this cannot answer a different
+	// question than the endpoints do. It fails closed for the same reasons documented there.
+	resp.ModeratesGlimt = app.isGlimtModerator(s.UserID)
 	// The profile count comes from the directory rather than the session, because the session
 	// carries only {userId, role} — deliberately, since that is all the router guard needs. A
 	// failed or empty lookup leaves the count at zero, which the client reads as "no switcher":

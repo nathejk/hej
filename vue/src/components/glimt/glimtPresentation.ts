@@ -90,7 +90,7 @@ export function audienceVariant(audience: Glimt['audience']): 'secondary' | 'def
 
 /** What the overflow menu offers for this glimt. */
 export interface GlimtAction {
-  key: 'delete' | 'report'
+  key: 'delete' | 'report' | 'hide' | 'unhide'
   label: string
   /** Destructive actions get the red styling shadcn's dropdown provides. */
   destructive: boolean
@@ -115,6 +115,42 @@ export function glimtActions(glimt: Glimt): GlimtAction[] {
     return [{ key: 'delete', label: 'Slet', destructive: true }]
   }
   return [{ key: 'report', label: 'Anmeld', destructive: false }]
+}
+
+/**
+ * The actions a Team-section moderator gets on a queue card (PRD 019 §7, task 309).
+ *
+ * # Exactly one action, and it is the opposite of the current state
+ *
+ * *Skjul* on a visible glimt, *Vis igen* on a hidden one — never both. A menu offering "hide" next to
+ * "unhide" makes the moderator work out which one is a no-op, at 03:00, on a photograph somebody has
+ * complained about. The card already shows a **Skjult** badge, so the available action doubles as a
+ * second reading of the state.
+ *
+ * # Why *Skjul* is not marked destructive
+ *
+ * It looks like the destructive one and it is not. Hiding sets a column and publishes an event; the
+ * row and the media survive, and *Vis igen* puts it back — only the author's own delete destroys
+ * bytes. Painting it red would push a moderator towards hesitating, and PRD 019 §6 wants the
+ * opposite: hiding is deliberately cheap so it can be the immediate answer to an ambiguous report,
+ * because the public scope cannot afford waiting for a human to be sure.
+ *
+ * # No *Anmeld*, and no *Slet*
+ *
+ * Reporting is a way to ask a moderator to look; a moderator is already looking, and the endpoint
+ * would only inflate the count they are triaging by. And a moderator has no delete: destroying
+ * another member's photograph is not a power this feature grants anyone — the author deletes, the
+ * Team hides, and retention eventually does the rest. `own` is still honoured, so a moderator looking
+ * at their *own* glimt in the queue gets the author's *Slet* as well.
+ */
+export function moderationActions(glimt: Glimt): GlimtAction[] {
+  const moderate: GlimtAction = glimt.hidden
+    ? { key: 'unhide', label: 'Vis igen', destructive: false }
+    : { key: 'hide', label: 'Skjul', destructive: false }
+  if (glimt.own) {
+    return [moderate, { key: 'delete', label: 'Slet', destructive: true }]
+  }
+  return [moderate]
 }
 
 /**
