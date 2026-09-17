@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import { Map, Users, BookOpen, Megaphone, CalendarDays, Siren, HelpCircle, ShieldCheck } from '@lucide/vue'
+import { Map, Users, BookOpen, Megaphone, CalendarDays, Siren, HelpCircle, ShieldCheck, Camera } from '@lucide/vue'
 import type { Role } from '@/stores/session.store'
 import { allRolesExcept } from '@/config/roles'
 
@@ -46,6 +46,14 @@ export const destinations: NavDestination[] = [
     roles: allRolesExcept('spejder'),
   },
   { name: 'rulebook', path: '/rulebook', label: 'Regler', icon: BookOpen },
+  // Glimt (PRD 019): sharing a moment. **No `roles`, deliberately** — every role can post and can
+  // see what was shared with them, and spejdere are the primary audience rather than an exception,
+  // which makes this the one destination they get that `contacts` denies them.
+  //
+  // Ordering matters here and is not final: `BottomNav` shows five slots and everything beyond that
+  // moves into the `MoreMenu` overflow. Placed above `updates` so a spejder — who has no `contacts`
+  // entry — gets it in the bar, but the per-role ordering is task 320's decision, not this line's.
+  { name: 'glimt', path: '/glimt', label: 'Glimt', icon: Camera },
   { name: 'updates', path: '/updates', label: 'Nyt', icon: Megaphone },
   { name: 'schedule', path: '/schedule', label: 'Program', icon: CalendarDays },
   // Role-gated: only the identified service functions see the SOS/samarit page.

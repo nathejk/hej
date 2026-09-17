@@ -415,6 +415,54 @@ export const useGlimtStore = defineStore('glimt', {
     },
 
     /**
+     * Delete one of the caller's own glimt.
+     *
+     * Removes it locally on success rather than refetching: the feed is already on screen, and a
+     * round trip would leave the card sitting there for a beat after the member asked for it to be
+     * gone. The next sync check reconciles anyway.
+     *
+     * Only the author may do this and the BFF enforces it (task 306) — this does not re-check, so
+     * that there is one authority rather than two that can disagree.
+     */
+    async remove(id: string): Promise<boolean> {
+      try {
+        await fetchWrapper.delete(`/api/glimt/items/${encodeURIComponent(id)}`)
+        this.glimt = this.glimt.filter((g) => g.id !== id)
+        await this.persist()
+        this.error = ''
+        return true
+      } catch {
+        // Kept on screen. Telling a member their glimt was deleted when it was not would be the
+        // one lie that matters here.
+        this.error = 'Kunne ikke slette glimtet. Prøv igen.'
+        return false
+      }
+    },
+
+    /**
+     * Report a glimt.
+     *
+     * The reported glimt is **removed from this device's copy** on success, because the server has
+     * hidden it from every audience the reporter belongs to (task 307) — leaving it on screen would
+     * have the member watch the thing they objected to stay put, and invite them to report it again.
+     *
+     * A failure is surfaced rather than swallowed. A report that silently failed is the worst lie
+     * this feature could tell: the member believes they have acted, and the photograph stays up.
+     */
+    async report(id: string, reason = ''): Promise<boolean> {
+      try {
+        await fetchWrapper.post(`/api/glimt/items/${encodeURIComponent(id)}/report`, { reason })
+        this.glimt = this.glimt.filter((g) => g.id !== id)
+        await this.persist()
+        this.error = ''
+        return true
+      } catch {
+        this.error = 'Kunne ikke anmelde glimtet. Prøv igen.'
+        return false
+      }
+    },
+
+    /**
      * Refetch when the server's version differs from ours (PRD 017).
      *
      * The version is **handed** to this store by the multiplexed `/api/sync` check rather than asked

@@ -25,6 +25,7 @@ const viewLoaders: Record<string, () => Promise<Component>> = {
   maps: () => import('@/views/MapsView.vue'),
   contacts: () => import('@/views/ContactsView.vue'),
   rulebook: () => import('@/views/RulebookView.vue'),
+  glimt: () => import('@/views/GlimtView.vue'),
   updates: () => import('@/views/UpdatesView.vue'),
   schedule: () => import('@/views/ScheduleView.vue'),
   sos: () => import('@/views/SosView.vue'),
