@@ -94,6 +94,14 @@ type application struct {
 	//
 	// May be nil, in which case no limit applies.
 	glimtLimiter *ratelimit.Limiter
+	// glimtReportLimiter throttles reports, deliberately much more loosely than creation.
+	//
+	// The asymmetry is the design: a spurious report costs a moderator a glance, while a
+	// throttled one costs a photograph somebody objected to staying up. The limit exists only so
+	// the endpoint cannot be hammered, not to ration reporting.
+	//
+	// May be nil, in which case no limit applies.
+	glimtReportLimiter *ratelimit.Limiter
 	// confirmLimiter throttles the guardian-number confirmation and report endpoints
 	// (PRD 005, tasks 135/136), keyed by IP like the PIN limiter.
 	//
@@ -593,6 +601,11 @@ func run(logger *slog.Logger) error {
 		// handful of posts; twenty leaves room for that and for a few retries, while still
 		// bounding what one looping client can put on the stream.
 		glimtLimiter: ratelimit.New(20, time.Hour),
+		// A hundred reports an hour per member. Far beyond any honest use, which is the
+		// point: reporting is the safety mechanism for an unmoderated public scope
+		// (PRD 019 §0), so the ceiling is set to stop a script rather than to shape
+		// behaviour.
+		glimtReportLimiter: ratelimit.New(100, time.Hour),
 		// Twenty confirmation attempts an hour per IP. Generous against the real use — a
 		// member types two digits once, perhaps twice, and may then report the number as
 		// wrong — while leaving room for a shared network: a patrol on one hotspot all
