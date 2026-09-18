@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -117,6 +118,14 @@ type config struct {
 	// app rather than taking it down (PRD 008 §5). Env var name matches the sibling
 	// repos so operators do not have to learn a second one.
 	jetstreamDSN string
+
+	// smsDSN decides how login PINs are delivered, and is the *only* thing that
+	// decides it: empty (the dev default) logs the message and sends nothing, a
+	// `cpsms://<key>@api.cpsms.dk` DSN sends for real. Keeping it a single DSN
+	// means a developer cannot accidentally text a participant by setting some
+	// unrelated flag, and production cannot silently fall back to logging PINs —
+	// an invalid DSN refuses to boot. Env var name matches the sibling repos.
+	smsDSN string
 
 	// blobPath is the directory for content-addressed binary objects — portrait
 	// bytes today (PRDs 003/007). Empty keeps them in memory, which is fine for
@@ -328,6 +337,7 @@ func loadConfig() config {
 	flag.DurationVar(&cfg.dbConnMaxLifetime, "db-conn-max-lifetime", envDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute), "Maximum lifetime of a pooled database connection")
 	flag.DurationVar(&cfg.dbConnectTimeout, "db-connect-timeout", envDuration("DB_CONNECT_TIMEOUT", 10*time.Second), "How long to keep retrying the initial database ping")
 	flag.StringVar(&cfg.jetstreamDSN, "jetstream-dsn", envStr("JETSTREAM_DSN", ""), "NATS JetStream DSN (empty runs without a broker)")
+	flag.StringVar(&cfg.smsDSN, "sms-dsn", envStr("SMS_DSN", ""), "SMS provider DSN, e.g. cpsms://<api-key>@api.cpsms.dk (empty logs messages instead of sending)")
 	flag.StringVar(&cfg.blobPath, "blob-path", envStr("BLOB_PATH", ""), "Directory for binary objects such as portraits (empty keeps them in memory)")
 	flag.StringVar(&cfg.eventYear, "event-year", envStr("EVENT_YEAR", currentYear()), "Event year the member directory reads (defaults to the current year)")
 	flag.DurationVar(&cfg.portraitRetention, "portrait-retention", envDuration("PORTRAIT_RETENTION", 30*24*time.Hour), "How long a portrait is kept after capture before it is purged (0 disables the purge)")
@@ -353,6 +363,15 @@ func loadConfig() config {
 // the flag definition so a test can reason about the fallback without reparsing flags.
 func currentYear() string {
 	return strconv.Itoa(time.Now().Year())
+}
+
+// smsProviderName reports just the scheme of an SMS DSN, so a startup log line can
+// say what will happen without putting the API key in the log.
+func smsProviderName(dsn string) string {
+	if u, err := url.Parse(dsn); err == nil && u.Scheme != "" {
+		return u.Scheme
+	}
+	return "unknown"
 }
 
 func envStr(key, fallback string) string {

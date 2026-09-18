@@ -30,6 +30,9 @@
 #   export SESSION_SECRET="$(openssl rand -hex 32)"
 #   export DB_PASSWORD="$(openssl rand -hex 24)" DB_ROOT_PASSWORD="$(openssl rand -hex 24)"
 #   export VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... DATAFORSYNINGEN_TOKEN=...
+#   # SMS delivery of login PINs. Without it the API only logs PINs, so nobody
+#   # can log in — hence no default.
+#   export SMS_DSN='cpsms://<api-key>@api.cpsms.dk'
 #
 # Generating the VAPID pair (either way; both verified 2026-08-29):
 #
@@ -147,6 +150,11 @@ services:
       # here that cannot be rebuilt from the event log, and therefore the entire
       # backup scope (task 063).
       BLOB_PATH: /blobs
+      # SMS delivery of login PINs (CPSMS). Required in production: without it the
+      # API logs PINs instead of sending them, which means nobody can log in — a
+      # silent failure, hence the hard `:?`. Same account and approved sender name
+      # as the sibling services; add `?from=X` only if this account has another one.
+      SMS_DSN: ${SMS_DSN:?set SMS_DSN, e.g. cpsms://<api-key>@api.cpsms.dk}
       # Portrait retention (task 109). The rule is settled — an in-race safety
       # feature has no purpose the day after the race — but the *number* is
       # deliberately here rather than in code, because shortening it must not

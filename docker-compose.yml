@@ -121,6 +121,12 @@ services:
       # API serves in a degraded state rather than not at all (PRD 008 §5).
       JETSTREAM_DSN: "nats://jetstream:4222"
       BLOB_PATH: "/blobs"
+      # SMS delivery of login PINs. Deliberately left empty in dev: with no DSN the
+      # PIN is written to `docker compose logs api` and nothing is sent, so testing
+      # login costs no money and cannot reach a real participant's phone. Put a real
+      # `SMS_DSN: cpsms://<api-key>@api.cpsms.dk` in docker-compose.override.yml if
+      # you specifically need to test delivery.
+      SMS_DSN: ""
       # Which event year the member directory reads (PRD 006 §11 Q7). Pinned in dev
       # rather than left to the clock, because the dev broker's realistic dataset is
       # 2026 and a machine whose clock says otherwise would show an empty directory

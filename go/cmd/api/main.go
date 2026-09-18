@@ -578,6 +578,19 @@ func run(logger *slog.Logger) error {
 	// instance (task 293).
 	syncMetrics := newSyncMetrics()
 
+	// SMS delivery (login PINs). Fatal on a bad DSN: the alternative is booting with
+	// a sender nobody configured, which in production means PINs are written to the
+	// log and no one receives one — a silent, total failure of login.
+	smsSender, err := sms.NewSender(cfg.smsDSN, logger)
+	if err != nil {
+		return err
+	}
+	if cfg.smsDSN == "" {
+		logger.Warn("no SMS_DSN configured: login PINs are logged, not sent")
+	} else {
+		logger.Info("sms sender ready", "provider", smsProviderName(cfg.smsDSN))
+	}
+
 	app := &application{
 		JsonApi: bff.JsonApi{Logger: logger},
 		config:  cfg,
@@ -610,7 +623,7 @@ func run(logger *slog.Logger) error {
 		raceAreaVersions:    newVersionCache(5*time.Second).observedAs("race_area", syncMetrics),
 
 		pins: pinStoreFor(cfg),
-		sms:  sms.LogSender{Logger: logger},
+		sms:  smsSender,
 		sessions: session.NewManager(
 			[]byte(cfg.sessionSecret),
 			7*24*time.Hour, // ≥ 7-day session per PRD
