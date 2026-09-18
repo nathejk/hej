@@ -44,7 +44,13 @@ ARG BUILD_VERSION=dev
 # and that does not exist inside this image. This is also the gate that catches a
 # change which only builds with the dev workspace active.
 ENV GOWORK=off
-RUN go test -timeout 60s ./... \
+# The timeout is a deadlock guard, not a performance budget: it exists so a test
+# that hangs fails the build instead of holding a runner for ten minutes (Go's
+# default). It must therefore sit well clear of the suite's honest runtime. 60s
+# did not: cmd/api alone is ~48s of several hundred fast tests, so a slower
+# shared runner tipped it over and failed a green commit (run #104). 5m keeps
+# the guard meaningful while leaving room for the suite to keep growing.
+RUN go test -timeout 5m ./... \
     && go tool staticcheck ./...
 # The build context has no .git, so runtime/debug VCS stamping can't work —
 # inject the CI-supplied version through vcs.version instead.
