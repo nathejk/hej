@@ -24,6 +24,7 @@ import (
 	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/data"
 	"nathejk.dk/internal/pin"
+	"nathejk.dk/internal/publicgate"
 	"nathejk.dk/internal/push"
 	"nathejk.dk/internal/ratelimit"
 	"nathejk.dk/internal/reveal"
@@ -58,6 +59,15 @@ type application struct {
 	// for the generic publisher would end up re-implementing both — and would be able
 	// to publish a vehicle event this entity would never emit.
 	vehicles vehicle.Commands
+
+	// publicGate decides when a patrol's public page may exist (PRD 011 §0b.3, task 330).
+	//
+	// **May be nil**, like the other projection-backed reads, and the handling differs from theirs in a
+	// way worth stating: a nil here fails *closed* rather than answering 503. The other nil-projection
+	// paths tell an authenticated member "we cannot serve this right now", which is the honest and
+	// recoverable answer. This one faces the open web, where a distinguishable "exists but unavailable"
+	// confirms a patrol number is real and that the race is still running — see publicgate.go.
+	publicGate *publicgate.Gate
 
 	// Auth infrastructure.
 	pins              *pin.Store
@@ -559,6 +569,21 @@ func run(logger *slog.Logger) error {
 			"checkpoints", checkpoints != nil, "checkgroups", checkgroups != nil)
 	}
 
+	// The public patrol page's gate (PRD 011 §0b.3, task 330). Composed from three projections, and —
+	// like the reveal rule above — refused rather than degraded when one is missing. A partial gate fails
+	// in two directions and neither is worth guessing at: without the checkgroups nothing is the finish
+	// line, which is closed and therefore safe; without the closing instant every non-finishing patrol's
+	// page is withheld indefinitely, which is silent. So all three, or nothing.
+	var publicGate *publicgate.Gate
+	if checkgroups != nil && scanProjection != nil && checkpoints != nil {
+		publicGate = publicgate.New(checkgroups, scanProjection, checkpoints,
+			publicgate.WithOverride(publicGateOverride(cfg.publicPagePatrolOverride, logger)))
+	} else if ev != nil {
+		logger.Warn("public patrol gate unavailable: one of its projections did not build",
+			"checkgroups", checkgroups != nil, "scans", scanProjection != nil,
+			"checkpoints", checkpoints != nil)
+	}
+
 	// Binary objects. This is the one store whose contents cannot be rebuilt by
 	// replaying the log, so an in-memory fallback is a real limitation rather than
 	// a convenience — log it plainly instead of letting it look configured.
@@ -603,6 +628,9 @@ func run(logger *slog.Logger) error {
 		db:       db,
 		eventing: ev,
 		blobs:    blobs,
+
+		// The public patrol page's gate (task 330). Nil fails closed — see the field's doc.
+		publicGate: publicGate,
 
 		// The freshness check's own numbers (task 293). Attached to each cache below, so a derivation is
 		// counted where it happens rather than at whichever endpoint asked for it.

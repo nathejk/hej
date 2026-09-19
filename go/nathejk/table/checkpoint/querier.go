@@ -46,6 +46,23 @@ type AreaQueries interface {
 type Queries interface {
 	AreaQueries
 
+	// LastCloses returns the greatest absolute closing instant over the year's checkpoints.
+	//
+	// "When does the race end?", expressed the only way the data expresses it. PRD 011 §0b.3 uses it as
+	// the backstop that makes every patrol's public page open once the last post has shut, including the
+	// patrols that never reached the finish.
+	//
+	// **This does not widen the boundary the rest of this interface holds.** It returns one instant and no
+	// position, so unlike the reads below it needs no bounding by what the caller named — there is nothing
+	// in a timestamp for a caller to learn about where a post is.
+	//
+	// Only the `fixed` scheme has an absolute window (see table.sql): `relative` carries a duration whose
+	// anchor is per patrol, and `none` carries zeros. Zero means "not set" rather than midnight 1970, so
+	// zeros are ignored here and **ok is false when no checkpoint has an absolute closing instant at all**.
+	// Callers must treat that as "the race has not been declared over" and never as "it ended in 1970",
+	// which on the public surface would open every page at once.
+	LastCloses(year string) (uts int64, ok bool, err error)
+
 	// ByIDs returns the named checkpoints that exist, are not deleted, and have a position.
 	//
 	// Ids that do not resolve are **dropped silently**, which is a requirement rather than leniency: a
@@ -199,6 +216,42 @@ func (q querier) ByCheckgroups(year string, groups []types.CheckgroupID) ([]Chec
 		ORDER BY sortOrder ASC, checkpointId ASC`
 
 	return q.scanCheckpoints(query, args...)
+}
+
+// LastCloses returns the greatest absolute closing instant over the year's checkpoints.
+//
+// `MAX()` over a filtered set rather than a sort-and-take: one row back, and the aggregate says what is
+// being asked better than `ORDER BY ... LIMIT 1` does.
+//
+// `openUntilUts > 0` is the filter that matters, and it is the reason this cannot be a plain `MAX()` over
+// everything: a `relative`- or `none`-scheme checkpoint stores zero, and zero is "not set". Including them
+// would be harmless here (zero cannot be the maximum of a set containing a real instant) but the filter
+// also decides the `ok` answer — with no absolute windows at all, `MAX()` returns NULL and this reports
+// false rather than 1970.
+func (q querier) LastCloses(year string) (int64, bool, error) {
+	rows, err := q.db.Query(`
+		SELECT MAX(openUntilUts)
+		FROM checkpoint
+		WHERE year = ? AND deleted = 0 AND openUntilUts > 0`, year)
+	if err != nil {
+		return 0, false, err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return 0, false, rows.Err()
+	}
+	var uts sql.NullInt64
+	if err := rows.Scan(&uts); err != nil {
+		return 0, false, err
+	}
+	if err := rows.Err(); err != nil {
+		return 0, false, err
+	}
+	if !uts.Valid || uts.Int64 <= 0 {
+		return 0, false, nil
+	}
+	return uts.Int64, true, nil
 }
 
 func (q querier) scanCheckpoints(query string, args ...any) ([]Checkpoint, error) {

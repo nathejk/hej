@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -255,6 +256,34 @@ type config struct {
 	// empty the public page in a dev environment where everything else is set to 0.
 	glimtPublicRetention time.Duration
 
+	// publicPagePatrolOverride names patrols whose public page is open regardless of the gate
+	// (PRD 011 §0b.3, task 330).
+	//
+	// # What this is for
+	//
+	// A patrol's page opens when it is scanned at the last checkgroup, or when the last checkpoint
+	// closes. The first trigger depends on the scan being *attributed* to a checkpoint, which happens
+	// by asking which post its scanner was on shift at — and an unattributed scan is a normal outcome,
+	// not an error, because the rota is fed from outside this repo. So a patrol can finish and not be
+	// recognised as having finished. This is how løbsledelsen fixes that by hand.
+	//
+	// # Why it is only a convenience
+	//
+	// The second trigger is guaranteed: the last checkpoint always carries absolute opening hours, so
+	// every patrol's page opens when the race ends whatever happens here. Without an override the worst
+	// case is a page arriving at closing time instead of at the finish line — late, not absent. That is
+	// why this is one environment variable rather than a moderation surface, and why nothing in the
+	// feature degrades if it is never set.
+	//
+	// It can only ever **open** a page. There is deliberately no way to close one from configuration: a
+	// second, quieter mechanism for withholding a page would mean two places to look when one is
+	// missing.
+	//
+	// Patrol **ids**, comma-separated. Ids rather than the numbers a human reads off a sign, because the
+	// gate is evaluated against the patrol id the rest of the read side uses, and translating here would
+	// put a directory lookup in the configuration layer.
+	publicPagePatrolOverride []string
+
 	// Glimt write limits and storage ceilings (PRD 019 §8, §11 Q8, task 311).
 	//
 	// # Two limits per member, because a count and a size answer different questions
@@ -353,8 +382,26 @@ func loadConfig() config {
 	flag.IntVar(&cfg.glimtPublicReportsPerHour, "glimt-public-reports-per-hour", envInt("GLIMT_PUBLIC_REPORTS_PER_HOUR", 30), "Anonymous glimt reports one IP may make per hour (0 disables the limit)")
 	flag.Int64Var(&cfg.glimtMemberStorageBytes, "glimt-member-storage-bytes", envInt64("GLIMT_MEMBER_STORAGE_BYTES", 500<<20), "Total media bytes one member may have stored (0 disables the ceiling)")
 	flag.Int64Var(&cfg.glimtTotalStorageBytes, "glimt-total-storage-bytes", envInt64("GLIMT_TOTAL_STORAGE_BYTES", 0), "Total media bytes the event may have stored (0 disables the ceiling)")
+	publicOverride := flag.String("public-page-patrol-override", envStr("PUBLIC_PAGE_PATROL_OVERRIDE", ""), "Patrol ids whose public page is open regardless of the gate, comma-separated (PRD 011)")
 	flag.Parse()
+	cfg.publicPagePatrolOverride = splitCSV(*publicOverride)
 	return cfg
+}
+
+// splitCSV parses a comma-separated list, dropping empties and surrounding space.
+//
+// Empty in, nil out — not a one-element list containing "". That distinction is the whole reason this is
+// a function: the value it feeds is the public-page override, and an unset variable yielding a list with
+// an empty id in it would make the gate's "is this patrol overridden?" lookup true for the empty patrol
+// id, which is every personnel user.
+func splitCSV(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 // currentYear is the default event year.
