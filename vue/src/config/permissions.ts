@@ -78,3 +78,33 @@ export function blockedGuidance(
 ): string {
   return guidance[capability][platform]
 }
+
+// What we tell someone *before* asking for their location (task 085, task 331).
+//
+// # Why this string lives here and not in the components
+//
+// It was a literal in three places — onboarding's location step, the map's prompt and the profile
+// page's status row — and the comment in WelcomeStepLocation.vue already warned that two texts for
+// the same request would drift, with the one on the less-visited screen going stale. Task 331 proved
+// the point: the wording had to change in all three at once, and nothing would have failed if one had
+// been missed.
+//
+// # Why it now mentions the public page
+//
+// PRD 011 publishes a patrol's route on a page that needs no login (§0b.1). We have the right to do
+// that — permission was obtained — so this is not a consent gap. It is a **transparency** obligation:
+// the old wording said the route went to the arrangører and stopped there, so a participant reading it
+// would be surprised by the public page. Being surprised by a true thing is still a failure of the
+// copy, and this is the text someone reads while deciding whether to grant location at all.
+//
+// Two things it is careful to say, because they are what makes the public page defensible:
+//
+//   - the route is published **for the patrol, not the person** — the tracks are merged and carry no
+//     name, so nobody can be picked out of one;
+//   - it appears **afterwards**, never while the patrol is still walking.
+//
+// Short enough to sit above a system dialog. The full account is the privacy page, which every caller
+// links to.
+export const locationConsentMessage =
+  'Appen viser dig på kortet og gemmer din rute. Ruten sendes til arrangørerne, og efter løbet vises ' +
+  'patruljens samlede rute på en offentlig side — uden navne. Du kan altid slå det fra igen.'

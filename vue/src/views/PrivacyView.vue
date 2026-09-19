@@ -109,6 +109,18 @@ const appVersion = __APP_VERSION__
             egen rute.
           </p>
           <p class="mt-2 text-sm text-slate-600">
+            Efter løbet viser vi også ruten på <strong>patruljens egen side</strong>, som ligger
+            offentligt — den kan ses uden at logge ind, så I kan sende den til familien.
+          </p>
+          <p class="mt-2 text-sm text-slate-600">
+            Der står <strong>ingen navne</strong> på den. Vi lægger hele patruljens ruter sammen
+            til én rute, så man ikke kan se, hvem der gik hvor — og ikke hvem der havde placering
+            slået til.
+          </p>
+          <p class="mt-2 text-sm text-slate-600">
+            Siden kommer først frem, når patruljen er i mål. Mens I går, er der ingenting at se.
+          </p>
+          <p class="mt-2 text-sm text-slate-600">
             Vi kan <strong>ikke</strong> se på en skærm, hvor I er lige nu. Har I brug for
             hjælp, skal I ringe — ruten er ikke en nødknap.
           </p>
@@ -303,7 +315,9 @@ const appVersion = __APP_VERSION__
             du skal ikke gøre noget for det.
           </p>
           <p class="mt-2 text-sm text-slate-600">
-            Vil du have din rute eller dit billede slettet, så skriv til os, så gør vi det.
+            Vil du have din rute eller dit billede slettet, så skriv til os, så gør vi det. Det
+            gælder også patruljens offentlige side — skriv, hvis den ikke skal ligge der, så tager
+            vi den ned.
           </p>
         </div>
       </div>

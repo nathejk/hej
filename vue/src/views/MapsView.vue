@@ -21,7 +21,7 @@ import {
   type BaseLayerKey,
 } from '@/config/map'
 import { dataforsyningenToken, loadRuntimeConfig } from '@/config/runtime'
-import { blockedGuidance } from '@/config/permissions'
+import { blockedGuidance, locationConsentMessage } from '@/config/permissions'
 import { geoFailureMessage } from '@/stores/location.store'
 import { logEvent } from '@/helpers/trackDb'
 
@@ -296,7 +296,7 @@ onBeforeUnmount(() => {
       <PermissionPrompt
         v-if="showPrompt"
         title="Vis din placering"
-        message="Appen viser dig på kortet og gemmer din rute, som sendes til arrangørerne. Du kan altid slå det fra igen."
+        :message="locationConsentMessage"
         cta="Slå placering til"
         :icon="MapPin"
         :more-to="{ name: 'privacy' }"

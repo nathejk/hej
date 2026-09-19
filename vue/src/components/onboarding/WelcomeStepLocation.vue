@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { MapPin } from '@lucide/vue'
 
 import PermissionPrompt from '@/components/PermissionPrompt.vue'
-import { blockedGuidance } from '@/config/permissions'
+import { blockedGuidance, locationConsentMessage } from '@/config/permissions'
 import { useLocationStore } from '@/stores/location.store'
 
 // The location step of onboarding (PRD 005 §5 step 4).
@@ -14,10 +14,12 @@ import { useLocationStore } from '@/stores/location.store'
 // through Settings.
 //
 // The copy is task 085's, deliberately not a second version of it. That wording was written
-// once for the map's prompt because the honest description of what is shared ("din rute
-// gemmes og sendes til arrangørerne") is bigger than a permission dialog implies, and it
-// points at the privacy page for the rest. Two texts for the same request would drift, and
-// the one on the less-visited screen would be the stale one.
+// once for the map's prompt because the honest description of what is shared is bigger than a
+// permission dialog implies, and it points at the privacy page for the rest.
+//
+// It is now a single exported constant (`locationConsentMessage`) rather than the same literal
+// typed into three components. Task 331 is why: PRD 011 publishes the patrol's route publicly, so
+// the wording had to change everywhere at once, and nothing would have caught a missed copy.
 //
 // Granted or denied, the flow continues. Only login is mandatory (PRD 005 §6).
 
@@ -49,7 +51,7 @@ async function accept() {
   <PermissionPrompt
     variant="page"
     title="Vis din placering"
-    message="Appen viser dig på kortet og gemmer din rute, som sendes til arrangørerne. Du kan altid slå det fra igen."
+    :message="locationConsentMessage"
     cta="Slå placering til"
     :icon="MapPin"
     :more-to="{ name: 'privacy' }"

@@ -103,9 +103,15 @@ const locationRow = computed(() => {
   if (location.permission === 'granted') {
     // Deliberate wording (PRD 003 §11): nothing is shared live. Saying "til" alone
     // would imply someone is watching a screen with a dot on it.
+    //
+    // It also names the public page (task 331). This row is where a member looks when they
+    // wonder what they agreed to, weeks after the onboarding prompt they read once — so it is
+    // the wrong place to be the one surface that still stops at "sendes til arrangørerne".
     return {
       status: 'Til',
-      detail: 'Kortet kan vise, hvor du er, og din rute gemmes og sendes til arrangørerne.',
+      detail:
+        'Kortet kan vise, hvor du er, og din rute gemmes og sendes til arrangørerne. ' +
+        'Efter løbet vises patruljens samlede rute på en offentlig side — uden navne.',
     }
   }
   return {

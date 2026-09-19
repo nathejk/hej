@@ -288,9 +288,27 @@ this section for the one place those two disagree.*
     participants, not parents: for a minor's location track kept without an end date,
     `/privatliv` is the only account a parent will see. **Wording still needs maintainer
     review.**
+
+    *Revised 2026-09-19 (task 331, PRD 011 §0b.1):* the copy said the route goes to the
+    organizers and stopped there, which is no longer the whole truth — **PRD 011 publishes a
+    patrol's route on a page that needs no login.** The right to publish was obtained, so this
+    was a transparency failure rather than a consent gap, but it was the text someone reads
+    while deciding whether to grant location at all. All three surfaces now say that the
+    patrol's *merged, unnamed* route appears publicly after the patrol finishes, and the string
+    is single-sourced as `locationConsentMessage` in `config/permissions.ts` — it had been the
+    same literal typed into three components, which is exactly how one of them would have been
+    missed.
   - **Per-person subjects**, so that erasure is expressible later (§11.1).
-  - **The track is only shown to its own team**, never across teams — the same race
-    dynamic that keeps portraits from crossing populations in PRD 007.
+  - ~~**The track is only shown to its own team**, never across teams — the same race
+    dynamic that keeps portraits from crossing populations in PRD 007.~~ **— superseded
+    2026-09-19 by PRD 011 §0b.1/§0b.3.** The track is now published *publicly*, and the race
+    dynamic this line was protecting turned out not to be at stake: a patrol's page opens only
+    once that patrol has scanned at the last checkgroup, which **is the finish line**, so its
+    route can no longer affect its own race — and it tells the patrols still walking nothing
+    they do not have, since everybody knows where the finish is. What replaces the per-team
+    boundary is a *per-person* one that is stronger where it matters: the tracks are **merged
+    per patrol and unattributed**, so no individual's route is shown to anyone, including their
+    own teammates. See PRD 011 §0b.1.
 - **Security:** the Dataforsyningen API token must not be committed to the
   frontend source (see Technical Considerations).
 - **Data economy:** aerial tiles are heavy; do not preload layers the user has
