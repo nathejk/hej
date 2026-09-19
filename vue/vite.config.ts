@@ -135,7 +135,16 @@ export default defineConfig({
         // the fallback answered it with index.html, and the member got the app shell renamed as a
         // photograph. Anything under `/api/` that a browser navigates to should get the API's own
         // answer — bytes, or a JSON 404 — never the shell.
-        navigateFallbackDenylist: [/^\/desktop\.html$/, /^\/offentligt\//, /^\/api\//],
+        navigateFallbackDenylist: [
+          /^\/desktop\.html$/,
+          // `/offentligt` itself as well as everything under it. The bare path was missing until
+          // task 332 added the frontpage: the prefix pattern below does not match a path with no
+          // trailing slash, so an installed member following a link to the frontpage would have been
+          // served the app shell instead of the page.
+          /^\/offentligt$/,
+          /^\/offentligt\//,
+          /^\/api\//,
+        ],
         // Pull in custom push / notificationclick handlers (public/push-sw.js).
         importScripts: ['push-sw.js'],
         // Map tiles are cached as they are browsed (PRD 002 §11.2, task 087).

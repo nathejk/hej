@@ -87,6 +87,6 @@ func publicGateOverride(ids []string, logger *slog.Logger) func(string) bool {
 //
 // Every closed path must answer identically to "no such patrol" — status and body — or the difference
 // becomes a way to enumerate patrols and to watch the field finish in real time. The response itself
-// belongs with the page it mimics, so it is written in task 341 alongside the patrol page; this file
-// stops at deciding *whether* to serve. The property to preserve when 341 lands: one function producing
-// that answer, called from every closed branch, so the two cannot drift apart.
+// belongs with the page it mimics, so it lives in publicsite.go as `renderPatrolNotYet` (task 332).
+// The property to preserve as branches are added: one function producing that answer, called from
+// every closed branch, so the two cannot drift apart.

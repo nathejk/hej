@@ -39,7 +39,12 @@ var allowedGlimtTags = map[string]bool{
 	"glimt":            true,
 	"glimt-moderation": true,
 	"glimt-public":     true,
-	"dev":              true,
+	// The public site (PRD 011, task 332). A separate group from `glimt-public` on purpose: that one is
+	// the glimt feed's public API, this one is the surrounding site — frontpage, albums, patrol pages.
+	// Folding them together would put "here are the photographs somebody shared" and "here is a patrol's
+	// route" in one section of the spec, which are different things with different rules.
+	"public-site": true,
+	"dev":         true,
 }
 
 // registeredRoute is one `router.HandlerFunc(...)` call in routes.go.
@@ -56,8 +61,18 @@ type registeredRoute struct {
 	authenticated bool
 }
 
+// isInScope selects the routes this guard checks.
+//
+// Glimt (task 312, the guard's original scope) plus **the whole public site** (task 332). The public
+// site was brought in immediately rather than waiting for task 328's repo-wide widening, because it is
+// the surface where an undocumented failure mode costs most: these routes are unauthenticated, so the
+// spec is the only description of them anybody outside this repo will ever read, and a `@Failure` that
+// disagrees with the code is how a rate limit or a closed gate becomes a surprise.
+//
+// Widening this to the rest of the API remains task 328.
 func isInScope(path string) bool {
-	return strings.HasPrefix(path, "/api/glimt") || strings.Contains(path, "glimt")
+	return strings.HasPrefix(path, "/api/glimt") || strings.Contains(path, "glimt") ||
+		strings.HasPrefix(path, "/offentligt") || strings.HasPrefix(path, "/api/public/")
 }
 
 // glimtRoutes parses routes.go and returns every in-scope registration.

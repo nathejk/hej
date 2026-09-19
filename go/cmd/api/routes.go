@@ -147,6 +147,17 @@ func (app *application) routes() http.Handler {
 	// service worker needs a `navigateFallbackDenylist` entry for the same reason, or an installed
 	// member following a public link gets the app shell instead (see vite.config.ts).
 	router.HandlerFunc(http.MethodGet, "/offentligt/glimt", app.publicGlimtPageHandler)
+	// The public site (PRD 011, task 332). Same properties as the glimt page above and for the same
+	// reasons — registered bare so no session can be read, server-rendered so no bundle is needed, and
+	// outside the SPA fallback so a hard load does not get index.html.
+	//
+	// Note the ordering constraint httprouter imposes: `/offentligt/patrulje` (the form's target) and
+	// `/offentligt/patrulje/:number` (the page) are different routes, not one with an optional segment,
+	// which is why the lookup is its own handler rather than the page treating an empty number as "show
+	// the form".
+	router.HandlerFunc(http.MethodGet, "/offentligt", app.publicFrontpageHandler)
+	router.HandlerFunc(http.MethodGet, "/offentligt/patrulje", app.patrolSearchLookupHandler)
+	router.HandlerFunc(http.MethodGet, "/offentligt/patrulje/:number", app.publicPatrolPageHandler)
 	// The contacts directory (PRD 007). Cached by the client and worked from offline, so
 	// it carries everything the pane needs and nothing it does not: no guardian numbers, no
 	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach
