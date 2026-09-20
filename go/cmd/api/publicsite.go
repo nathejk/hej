@@ -105,6 +105,7 @@ func (app *application) publicFrontpageHandler(w http.ResponseWriter, r *http.Re
 
 	data := publicFrontpageData{
 		publicPageData: publicPageData{Year: app.config.eventYear},
+		Albums:         app.frontpageAlbums(),
 		SearchError:    patrolSearchError(r.URL.Query().Get("fejl")),
 	}
 
@@ -362,6 +363,13 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   .card .meta { color: #666; font-size: .85rem; }
   .thumbs { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem; }
   .thumbs img { width: 100%; height: auto; border-radius: .25rem; background: #eee; display: block; }
+  /* One photograph per row on a phone, two where there is room. Wider than the thumbnail grid on
+     purpose: an album is for looking at, so the pictures get the space. */
+  .photos { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+         gap: 1rem; }
+  .photos figure { margin: 0; }
+  .photos img { width: 100%; height: auto; border-radius: .25rem; background: #eee; display: block; }
+  .photos figcaption { color: #555; font-size: .9rem; margin-top: .35rem; }
   .find label { display: block; font-weight: 600; margin-bottom: .35rem; }
   .find input { font-size: 1.1rem; padding: .5rem; width: 8rem; border: 1px solid #94a3b8;
          border-radius: .25rem; }
@@ -410,6 +418,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
       {{end}}
       <span class="name">{{.Title}}</span>
       {{if .Description}}<span class="meta">{{.Description}}</span>{{end}}
+      {{if .Count}}<span class="meta">{{.Count}} billeder</span>{{end}}
     </a>
     {{end}}
   </div>
@@ -450,6 +459,33 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   <p class="empty">Der er ikke delt nogen offentlige billeder endnu.</p>
   {{end}}
 </section>
+{{template "layout-foot" .}}{{end}}
+
+{{define "album"}}{{template "layout-head" .}}
+<h1>{{.Album.Title}}</h1>
+{{if .Album.Description}}<p class="intro">{{.Album.Description}}</p>{{end}}
+
+{{if .Items}}
+{{$album := .Album}}
+<div class="photos">
+  {{range .Items}}
+  <figure>
+    <!-- The thumbnail, always: this page is read by a lot of people at once on whatever connection
+         they have. Every item gets its own tag — there is no carousel here, so every photograph is
+         reachable on a desktop without a swipe and without script. See the handler comment. -->
+    <img src="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}?variant=thumb"
+         alt="{{if .Caption}}{{.Caption}}{{else}}Billede fra {{$album.Title}}{{end}}"
+         loading="lazy" decoding="async"
+         {{if and .Width .Height}}width="{{.Width}}" height="{{.Height}}"{{end}}>
+    {{if .Caption}}<figcaption>{{.Caption}}</figcaption>{{end}}
+  </figure>
+  {{end}}
+</div>
+{{else}}
+<p class="empty">Der er ingen billeder i dette album.</p>
+{{end}}
+
+<p class="more"><a href="/offentligt">Tilbage til forsiden</a></p>
 {{template "layout-foot" .}}{{end}}
 
 {{define "patrol-notyet"}}{{template "layout-head" .}}

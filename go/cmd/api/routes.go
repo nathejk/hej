@@ -156,8 +156,13 @@ func (app *application) routes() http.Handler {
 	// which is why the lookup is its own handler rather than the page treating an empty number as "show
 	// the form".
 	router.HandlerFunc(http.MethodGet, "/offentligt", app.publicFrontpageHandler)
+	router.HandlerFunc(http.MethodGet, "/offentligt/album/:slug", app.albumPageHandler)
 	router.HandlerFunc(http.MethodGet, "/offentligt/patrulje", app.patrolSearchLookupHandler)
 	router.HandlerFunc(http.MethodGet, "/offentligt/patrulje/:number", app.publicPatrolPageHandler)
+	// Album media (task 334). Under /api/public/ with the glimt media route rather than under
+	// /offentligt/, because it serves bytes rather than a page — and it shares `streamGlimtMedia`, so
+	// the ETag handling and the missing-object degradation cannot diverge between the two.
+	router.HandlerFunc(http.MethodGet, "/api/public/albums/:albumId/media/:ordinal", app.albumMediaHandler)
 	// The contacts directory (PRD 007). Cached by the client and worked from offline, so
 	// it carries everything the pane needs and nothing it does not: no guardian numbers, no
 	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach
