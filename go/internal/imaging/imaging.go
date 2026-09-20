@@ -492,7 +492,114 @@ func ReadOrientation(raw []byte) int {
 		return upright
 	}
 
-	// TIFF header: byte order, magic 42, offset of the first IFD.
+	order, ifd, ok := tiffHeader(exif)
+	if !ok {
+		return upright
+	}
+
+	entry, ok := ifdEntry(exif, order, ifd, 0x0112) // Orientation
+	if !ok {
+		return upright
+	}
+	// Type 3 is SHORT, and a SHORT value sits inline in the first two bytes of the value field
+	// rather than at an offset.
+	if order.Uint16(entry[2:4]) != 3 {
+		return upright
+	}
+	value := int(order.Uint16(entry[8:10]))
+	if value < 1 || value > 8 {
+		return upright
+	}
+	return value
+}
+
+// ReadGPS returns the coordinate a JPEG's EXIF GPS block records, if it has a usable one.
+//
+// # Why this exists, given that everything else here destroys GPS
+//
+// It looks like a contradiction and is the opposite of one. `Prepare` re-encodes from pixels and
+// `StripMetadata` scrubs containers, both specifically so that **a photograph of a child never carries
+// where it was taken** (PRD 003 §6). None of that changes, and this function must never be used to
+// weaken it.
+//
+// PRD 011 introduces one narrow case that needs the value *before* it is destroyed: an organizer's
+// **curated album** photograph may be plotted on the public map. The coordinate then belongs in a
+// column a curator can see, correct, bounds-check and delete — not riding along inside a file where
+// nobody decided it should be.
+//
+// That is the whole distinction, and it is worth stating plainly because it is the kind of thing a
+// later reader will try to "simplify": **a coordinate in a column is a decision somebody made; a
+// coordinate inside a stored file is a leak waiting to happen.** So this reads, the caller records,
+// and the stored bytes are still scrubbed exactly as before.
+//
+// # What it accepts
+//
+// Only what is unambiguous: a JPEG, with a GPS sub-IFD, with both latitude and longitude as three
+// RATIONALs and both hemisphere refs present. Anything else returns ok=false.
+//
+// Every malformed or partial case is "no coordinate" rather than an error, following ReadOrientation's
+// rule and for a sharper reason: a half-parsed coordinate is a pin in the wrong place on a public
+// page, which is worse than no pin. There is nothing a caller could usefully do with an error here
+// that it would not also do with ok=false.
+func ReadGPS(raw []byte) (lat, lng float64, ok bool) {
+	exif := findExifSegment(raw)
+	if len(exif) < 8 {
+		return 0, 0, false
+	}
+
+	order, ifd, ok := tiffHeader(exif)
+	if !ok {
+		return 0, 0, false
+	}
+
+	// IFD0 holds a pointer to the GPS sub-IFD rather than the tags themselves.
+	gpsOffset, ok := ifdLongTag(exif, order, ifd, 0x8825)
+	if !ok {
+		return 0, 0, false
+	}
+
+	latRef, okLatRef := gpsRef(exif, order, gpsOffset, 0x0001)
+	latVal, okLat := gpsDegrees(exif, order, gpsOffset, 0x0002)
+	lngRef, okLngRef := gpsRef(exif, order, gpsOffset, 0x0003)
+	lngVal, okLng := gpsDegrees(exif, order, gpsOffset, 0x0004)
+	if !okLatRef || !okLat || !okLngRef || !okLng {
+		return 0, 0, false
+	}
+
+	switch latRef {
+	case 'N':
+	case 'S':
+		latVal = -latVal
+	default:
+		return 0, 0, false
+	}
+	switch lngRef {
+	case 'E':
+	case 'W':
+		lngVal = -lngVal
+	default:
+		return 0, 0, false
+	}
+
+	if latVal < -90 || latVal > 90 || lngVal < -180 || lngVal > 180 {
+		return 0, 0, false
+	}
+	// Exactly 0,0 is rejected. It is a legal coordinate in the Atlantic off Ghana and it is also what
+	// a camera with no fix writes, and the second is overwhelmingly more likely than a Nathejk
+	// photograph taken there. The same reasoning the checkpoint projection applies to an unset
+	// position.
+	if latVal == 0 && lngVal == 0 {
+		return 0, 0, false
+	}
+	return latVal, lngVal, true
+}
+
+// tiffHeader parses the byte order and first-IFD offset shared by every EXIF reader here.
+//
+// Factored out of ReadOrientation when ReadGPS needed the same three checks. One parser for the header
+// means the two cannot disagree about endianness — which would present as GPS working on Android
+// files and not iPhone ones, or the reverse.
+func tiffHeader(exif []byte) (binary.ByteOrder, int, bool) {
 	var order binary.ByteOrder
 	switch {
 	case exif[0] == 'I' && exif[1] == 'I':
@@ -500,41 +607,117 @@ func ReadOrientation(raw []byte) int {
 	case exif[0] == 'M' && exif[1] == 'M':
 		order = binary.BigEndian
 	default:
-		return upright
+		return nil, 0, false
 	}
 	if order.Uint16(exif[2:4]) != 42 {
-		return upright
+		return nil, 0, false
 	}
-
 	ifd := int(order.Uint32(exif[4:8]))
 	if ifd < 8 || ifd+2 > len(exif) {
-		return upright
+		return nil, 0, false
+	}
+	return order, ifd, true
+}
+
+// ifdEntry returns the 12-byte entry for a tag within the IFD at offset, or false.
+//
+// Bounds-checked at every step. This walks attacker-supplied bytes — an uploaded file — so "the
+// structure is not what we expect" must always mean "stop", never "guess", which is the rule
+// findExifSegment already states.
+func ifdEntry(exif []byte, order binary.ByteOrder, offset int, tag uint16) ([]byte, bool) {
+	if offset < 8 || offset+2 > len(exif) {
+		return nil, false
+	}
+	count := int(order.Uint16(exif[offset : offset+2]))
+	const entrySize = 12
+	entries := exif[offset+2:]
+	for i := 0; i < count; i++ {
+		at := i * entrySize
+		if at+entrySize > len(entries) {
+			return nil, false
+		}
+		entry := entries[at : at+entrySize]
+		if order.Uint16(entry[0:2]) == tag {
+			return entry, true
+		}
+	}
+	return nil, false
+}
+
+// ifdLongTag reads a tag whose value is a single LONG held inline — here, the GPS IFD pointer.
+func ifdLongTag(exif []byte, order binary.ByteOrder, offset int, tag uint16) (int, bool) {
+	entry, ok := ifdEntry(exif, order, offset, tag)
+	if !ok {
+		return 0, false
+	}
+	if order.Uint16(entry[2:4]) != 4 { // LONG
+		return 0, false
+	}
+	if order.Uint32(entry[4:8]) != 1 {
+		return 0, false
+	}
+	return int(order.Uint32(entry[8:12])), true
+}
+
+// gpsRef reads a one-character ASCII hemisphere tag (N/S/E/W).
+//
+// Type 2 with count 2 ("N\0"), which fits inline in the value field. A longer value would be stored
+// at an offset, and a hemisphere ref never legitimately is — so that case is refused rather than
+// followed.
+func gpsRef(exif []byte, order binary.ByteOrder, gpsIFD int, tag uint16) (byte, bool) {
+	entry, ok := ifdEntry(exif, order, gpsIFD, tag)
+	if !ok {
+		return 0, false
+	}
+	if order.Uint16(entry[2:4]) != 2 { // ASCII
+		return 0, false
+	}
+	if order.Uint32(entry[4:8]) != 2 {
+		return 0, false
+	}
+	return entry[8], true
+}
+
+// gpsDegrees reads a latitude or longitude: three RATIONALs — degrees, minutes, seconds.
+//
+// Three RATIONALs are 24 bytes, which cannot fit in the 4-byte value field, so the entry always holds
+// an offset. Each RATIONAL is two LONGs, numerator then denominator.
+func gpsDegrees(exif []byte, order binary.ByteOrder, gpsIFD int, tag uint16) (float64, bool) {
+	entry, ok := ifdEntry(exif, order, gpsIFD, tag)
+	if !ok {
+		return 0, false
+	}
+	if order.Uint16(entry[2:4]) != 5 { // RATIONAL
+		return 0, false
+	}
+	if order.Uint32(entry[4:8]) != 3 {
+		return 0, false
 	}
 
-	count := int(order.Uint16(exif[ifd : ifd+2]))
-	entries := exif[ifd+2:]
-	const entrySize = 12
-	for i := 0; i < count; i++ {
-		off := i * entrySize
-		if off+entrySize > len(entries) {
-			return upright
-		}
-		entry := entries[off : off+entrySize]
-		if order.Uint16(entry[0:2]) != 0x0112 { // Orientation
-			continue
-		}
-		// Type 3 is SHORT, and a SHORT value sits inline in the first two bytes of the
-		// value field rather than at an offset.
-		if order.Uint16(entry[2:4]) != 3 {
-			return upright
-		}
-		value := int(order.Uint16(entry[8:10]))
-		if value < 1 || value > 8 {
-			return upright
-		}
-		return value
+	at := int(order.Uint32(entry[8:12]))
+	const rationalSize = 8
+	if at < 8 || at+3*rationalSize > len(exif) {
+		return 0, false
 	}
-	return upright
+
+	parts := make([]float64, 3)
+	for i := range parts {
+		base := at + i*rationalSize
+		num := order.Uint32(exif[base : base+4])
+		den := order.Uint32(exif[base+4 : base+8])
+		if den == 0 {
+			// Seen in real files for the seconds component. Refused rather than treated as zero:
+			// a zero-denominator anywhere means the writer was not producing a coordinate we can
+			// trust the rest of.
+			return 0, false
+		}
+		parts[i] = float64(num) / float64(den)
+	}
+
+	if parts[0] < 0 || parts[1] < 0 || parts[2] < 0 {
+		return 0, false
+	}
+	return parts[0] + parts[1]/60 + parts[2]/3600, true
 }
 
 // findExifSegment returns the TIFF block inside the JPEG's APP1/Exif segment, or nil.

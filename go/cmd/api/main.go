@@ -32,6 +32,7 @@ import (
 	"nathejk.dk/internal/sms"
 	"nathejk.dk/internal/users"
 	"nathejk.dk/internal/vcs"
+	"nathejk.dk/nathejk/table/album"
 	"nathejk.dk/nathejk/table/checkgroup"
 	"nathejk.dk/nathejk/table/checkpoint"
 	"nathejk.dk/nathejk/table/glimt"
@@ -405,6 +406,11 @@ func run(logger *slog.Logger) error {
 	// their construction condition, but note it is the only one whose blobs are not
 	// rebuildable from the stream — the rows here replay, the media in the blob store do not.
 	var glimts *glimt.Table
+	// albums is the curated-album projection (PRD 011, task 333). Shares glimt's construction
+	// condition and its one caveat: the rows replay from the stream, the media in the blob store do
+	// not. It also shares glimt's *objects* — content addressing means an album photograph and a
+	// glimt can be the same bytes — which is why the delete path consults both (glimtdelete.go).
+	var albums *album.Table
 	if ev != nil && (err == nil || noBroker) {
 		if t, cerr := kort.New(ev.publisherOrNil(), ev.writer, ev.reader,
 			// A body we cannot decode is the one signal that our mirrored copy of hq's event shapes
@@ -450,6 +456,14 @@ func run(logger *slog.Logger) error {
 			logger.Error("glimt projection unavailable", "err", cerr)
 		} else {
 			glimts = t
+		}
+
+		// Albums (PRD 011). Same condition again: the public pages need only the database, and the
+		// broker decides whether new albums appear.
+		if t, cerr := album.New(ev.publisherOrNil(), ev.writer, ev.reader); cerr != nil {
+			logger.Error("album projection unavailable", "err", cerr)
+		} else {
+			albums = t
 		}
 	}
 
@@ -519,6 +533,9 @@ func run(logger *slog.Logger) error {
 			}
 			if glimts != nil {
 				projections = append(projections, glimts)
+			}
+			if albums != nil {
+				projections = append(projections, albums)
 			}
 
 			ev.registerProjections(logger, projections...)
@@ -622,7 +639,8 @@ func run(logger *slog.Logger) error {
 		models: data.NewModels(directory, scanSourceFor(scanProjection, peopleOrNil(persons), cfg.eventYear, logger),
 			raceAreasOrNil(checkpoints), peopleOrNil(persons), vehiclesOrNil(vehicles),
 			data.WithMapReads(mapReadsFor(mapReads, ev != nil, logger)),
-			data.WithGlimt(glimtQueriesOrNil(glimts))),
+			data.WithGlimt(glimtQueriesOrNil(glimts)),
+			data.WithAlbums(albumQueriesOrNil(albums))),
 		commands: commands.New(publisherFor(ev)),
 		vehicles: vehicleCommandsOrNil(vehicles),
 		db:       db,

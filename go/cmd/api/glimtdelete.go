@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -129,29 +130,43 @@ func glimtRefsOf(g glimt.Glimt) []string {
 	return refs
 }
 
-// purgeGlimtBlobs deletes the objects that no surviving glimt still references.
+// purgeGlimtBlobs deletes the objects that nothing surviving still references.
 //
 // # The trap this exists for
 //
 // The store is content-addressed, so identical bytes are **one object with one ref**. Deleting it for
-// one glimt therefore blanks the media of every other glimt that happens to reference it. That is
+// one glimt therefore blanks the media of everything else that happens to reference it. That is
 // not a contrived scenario: two members of a patrulje posting the same photo (one AirDropped it to
 // the other) produce the same hash, and so does one member posting the same picture twice. Without
 // the check below, deleting the newer post would silently break the older one, and the only evidence
 // would be a grey box in somebody else's feed.
 //
-// So every ref is checked against the other glimt first. A ref still in use is skipped and logged at
-// debug — that is a normal outcome, not a fault.
+// # Two owners now, not one (PRD 011, task 333)
+//
+// The check originally asked only the other *glimt*. That was complete when glimt were the only thing
+// in the blob store, and it stopped being complete the moment curated albums arrived: an organizer
+// building an album out of a photograph a participant also posted publicly is **the expected
+// workflow**, not an edge case, and it produces one object with two owners.
+//
+// Left alone, retention would eventually expire the glimt and delete bytes the album still shows —
+// blanking a public page months later, with nothing to connect the two events. So both tables are
+// asked, and a ref in use by either is kept.
+//
+// The lesson generalises and is worth stating for whoever adds the third owner: **anything that stores
+// a blob must be added here.** There is no way for this function to discover a new owner on its own,
+// which is why the sources are listed explicitly below rather than hidden behind one helper.
+//
+// A ref still in use is skipped and logged at debug — that is a normal outcome, not a fault.
 func (app *application) purgeGlimtBlobs(ctx context.Context, glimtID string, refs []string) {
 	if len(refs) == 0 {
 		return
 	}
 
-	inUse, err := app.models.Glimt.RefsUsedElsewhere(app.config.eventYear, glimtID, refs)
+	inUse, err := app.refsUsedElsewhere(glimtID, refs)
 	if err != nil {
 		// Cannot tell whether these are shared, so nothing is deleted. Leaking disk space is
-		// recoverable; blanking a photo in another member's feed is not, and it would be
-		// invisible to us.
+		// recoverable; blanking a photo in another member's feed — or on a public album page — is
+		// not, and it would be invisible to us.
 		app.Logger.Error("could not check whether glimt media is shared; leaving the objects in place",
 			"err", err, "glimtId", glimtID)
 		return
@@ -159,7 +174,7 @@ func (app *application) purgeGlimtBlobs(ctx context.Context, glimtID string, ref
 
 	for _, ref := range refs {
 		if inUse[ref] {
-			app.Logger.Debug("glimt media kept; another glimt references the same bytes",
+			app.Logger.Debug("glimt media kept; something else references the same bytes",
 				"glimtId", glimtID, "ref", ref)
 			continue
 		}
@@ -177,4 +192,39 @@ func (app *application) purgeGlimtBlobs(ctx context.Context, glimtID string, ref
 			app.Logger.Error("deleting glimt media", "err", derr, "glimtId", glimtID, "ref", ref)
 		}
 	}
+}
+
+// refsUsedElsewhere reports which refs anything other than this glimt still references.
+//
+// # Every owner of the blob store must be listed here
+//
+// One function asking each owner in turn, because there is no way to discover an owner automatically
+// and a missed one means deleted bytes on somebody else's live page. Today: other glimt, and album
+// items (PRD 011). Add the next one here, and add a test like
+// `TestGlimtDeleteKeepsBytesAnAlbumStillUses` with it.
+//
+// # It fails as a whole, on purpose
+//
+// If any source cannot be asked, the whole answer is an error and the caller deletes nothing. The
+// alternative — treating an unreachable source as "no references" — is how a database hiccup in one
+// projection becomes permanent data loss in another. Leaking disk is recoverable; this is not.
+func (app *application) refsUsedElsewhere(glimtID string, refs []string) (map[string]bool, error) {
+	inUse, err := app.models.Glimt.RefsUsedElsewhere(app.config.eventYear, glimtID, refs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Nil when there is no database or the projection did not build. Not an error here: with no album
+	// projection there are no album items to protect, so there is nothing this check would have found.
+	// That is different from a *failing* album read, which is an error above.
+	if app.models.Albums != nil {
+		albumRefs, aerr := app.models.Albums.RefsInUse(app.config.eventYear, refs)
+		if aerr != nil {
+			return nil, fmt.Errorf("checking album media: %w", aerr)
+		}
+		for ref := range albumRefs {
+			inUse[ref] = true
+		}
+	}
+	return inUse, nil
 }

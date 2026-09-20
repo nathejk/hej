@@ -9,6 +9,7 @@ import (
 	"nathejk.dk/internal/reveal"
 	"nathejk.dk/internal/scans"
 	"nathejk.dk/internal/users"
+	"nathejk.dk/nathejk/table/album"
 	"nathejk.dk/nathejk/table/checkpoint"
 	"nathejk.dk/nathejk/table/glimt"
 	"nathejk.dk/nathejk/table/person"
@@ -95,6 +96,21 @@ type Models struct {
 	// reachable through it can publish a glimt event or reach the blob store. Creating and hiding
 	// go through internal/commands, and the bytes through app.blobs.
 	Glimt glimt.Queries
+
+	// Albums is the curated photo albums shown on the public frontpage (PRD 011 §6 section 1).
+	//
+	// **May be nil**, like Glimt and Maps, and the handling differs from theirs in one place that
+	// matters. A public page with no albums simply shows its empty state — fine, and indistinguishable
+	// from "nobody has curated anything yet", which is the honest reading either way.
+	//
+	// But `RefsInUse` is also consulted by the **glimt delete path**, where nil and error are not
+	// interchangeable: nil means there are no album items to protect, while an error means we cannot
+	// tell — and deleting content-addressed bytes on "cannot tell" is how a takedown in one feature
+	// blanks a page in another. See cmd/api/glimtdelete.go's refsUsedElsewhere.
+	//
+	// Read-only here by construction, like Glimt: creating and removing go through internal/commands,
+	// and the bytes through app.blobs.
+	Albums album.Queries
 }
 
 // MapReads is the patrol-scoped map read API.
@@ -132,6 +148,15 @@ func WithMapReads(m MapReads) Option {
 // database is down is worse than an honest error.
 func WithGlimt(q glimt.Queries) Option {
 	return func(mo *Models) { mo.Glimt = q }
+}
+
+// WithAlbums supplies the album read model (PRD 011). Omit it and Models.Albums is nil.
+//
+// Unlike WithGlimt, a nil here is benign for the pages that read it — an empty albums section is the
+// truth when there are none. The field's doc records the one caller for which nil and error must stay
+// distinct.
+func WithAlbums(q album.Queries) Option {
+	return func(mo *Models) { mo.Albums = q }
 }
 
 // NewModels constructs the read-side facade with the given read sources.
