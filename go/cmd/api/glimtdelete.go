@@ -218,7 +218,9 @@ func (app *application) refsUsedElsewhere(glimtID string, refs []string) (map[st
 	// projection there are no album items to protect, so there is nothing this check would have found.
 	// That is different from a *failing* album read, which is an error above.
 	if app.models.Albums != nil {
-		albumRefs, aerr := app.models.Albums.RefsInUse(app.config.eventYear, refs)
+		// nil exclusion: no album item is being removed here, so every album item that references
+		// these bytes is a reason to keep them.
+		albumRefs, aerr := app.models.Albums.RefsInUse(app.config.eventYear, nil, refs)
 		if aerr != nil {
 			return nil, fmt.Errorf("checking album media: %w", aerr)
 		}

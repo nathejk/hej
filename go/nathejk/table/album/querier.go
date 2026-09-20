@@ -44,8 +44,23 @@ type Queries interface {
 	// means identical bytes are one object, so an album photograph and a glimt can share a ref — and
 	// the glimt delete path would otherwise delete the album's bytes. See cmd/api/glimtdelete.go.
 	//
+	// `excluding` names items whose references do not count, which is what makes the read usable by the
+	// *album* removal path as well. Without it, an item being removed would report its own refs as in
+	// use — and since the fold is asynchronous, the row is still live at the moment the check runs, so
+	// nothing would ever be deleted. The glimt path passes nil: no album is being removed there, so
+	// every album item that references the bytes is a reason to keep them.
+	//
+	// This mirrors glimt's `RefsUsedElsewhere(year, glimtID, refs)`, at item granularity rather than
+	// entity granularity — because one photograph can be removed from an album that keeps the rest.
+	//
 	// Both the full ref and the thumbnail count as a use: a thumbnail is as shareable as the image.
-	RefsInUse(year string, refs []string) (map[string]bool, error)
+	RefsInUse(year string, excluding []ItemKey, refs []string) (map[string]bool, error)
+}
+
+// ItemKey identifies one photograph, for the exclusion set above.
+type ItemKey struct {
+	AlbumID string
+	Ordinal int
 }
 
 // Album is one curated collection.
@@ -254,13 +269,25 @@ func (q querier) Plottable(year string) ([]PlottableItem, error) {
 // (an object deleted while a removed item still names it — and that item's photograph is already gone
 // from every view), while the other direction blanks a live album.
 //
-// Empty in, empty out, and no query. The same rule the checkpoint projection's bounded reads follow:
-// treating an empty filter as "everything" is how a narrow read becomes a table scan — and here it
-// would answer "every ref is in use", which would stop the purge from ever deleting anything.
-func (q querier) RefsInUse(year string, refs []string) (map[string]bool, error) {
+// # Why the exclusion is applied in Go rather than in SQL
+//
+// The set is one or two items for a single removal, or one album's worth for a deletion — never large.
+// Building a compound `NOT (albumId = ? AND ordinal = ?)` chain into the WHERE clause would add
+// per-call SQL construction and a second placeholder-counting bug waiting to happen, to save filtering
+// a handful of rows.
+//
+// Empty refs in, empty out, and no query. The same rule the checkpoint projection's bounded reads
+// follow: treating an empty filter as "everything" is how a narrow read becomes a table scan — and here
+// it would answer "every ref is in use", which would stop the purge from ever deleting anything.
+func (q querier) RefsInUse(year string, excluding []ItemKey, refs []string) (map[string]bool, error) {
 	inUse := map[string]bool{}
 	if len(refs) == 0 {
 		return inUse, nil
+	}
+
+	excluded := make(map[ItemKey]bool, len(excluding))
+	for _, k := range excluding {
+		excluded[k] = true
 	}
 
 	args := make([]any, 0, len(refs)*2+1)
@@ -274,7 +301,7 @@ func (q querier) RefsInUse(year string, refs []string) (map[string]bool, error) 
 
 	marks := placeholders(len(refs))
 	rows, err := q.db.Query(`
-		SELECT blobRef, thumbRef
+		SELECT albumId, ordinal, blobRef, thumbRef
 		FROM album_item
 		WHERE year = ? AND deleted = 0
 		  AND (blobRef IN (`+marks+`) OR thumbRef IN (`+marks+`))`, args...)
@@ -288,9 +315,13 @@ func (q querier) RefsInUse(year string, refs []string) (map[string]bool, error) 
 		wanted[ref] = true
 	}
 	for rows.Next() {
+		var key ItemKey
 		var full, thumb string
-		if err := rows.Scan(&full, &thumb); err != nil {
+		if err := rows.Scan(&key.AlbumID, &key.Ordinal, &full, &thumb); err != nil {
 			return nil, err
+		}
+		if excluded[key] {
+			continue
 		}
 		// Filtered against what was asked for, because a matching row carries both its refs and only
 		// one of them may be the one in question.

@@ -119,6 +119,17 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodGet, "/api/glimt/moderation", app.requireAuth(app.listGlimtModerationHandler))
 	router.HandlerFunc(http.MethodPost, "/api/glimt/items/:glimtId/hide", app.requireAuth(app.hideGlimtHandler))
 	router.HandlerFunc(http.MethodPost, "/api/glimt/items/:glimtId/unhide", app.requireAuth(app.unhideGlimtHandler))
+	// Album curation: removal (PRD 011 §0b.2, task 335). Gated on the **Team section**, re-checked per
+	// request by the same `isGlimtModerator` the glimt moderation routes use — not a second notion of
+	// "curator", which would be a second thing to assign and a second thing to get wrong.
+	//
+	// Authenticated, unlike everything else about albums. That asymmetry is the feature: albums are
+	// *read* by the open web and *changed* by the Team section.
+	//
+	// Where curation as a whole lives is still open (PRD 011 §11 Q5); removal could not wait for that
+	// answer, because it is the safety valve behind §0b.2's "permission is withdrawable".
+	router.HandlerFunc(http.MethodDelete, "/api/albums/:albumId", app.requireAuth(app.deleteAlbumHandler))
+	router.HandlerFunc(http.MethodDelete, "/api/albums/:albumId/items/:ordinal", app.requireAuth(app.removeAlbumItemHandler))
 	// The public Glimt page and its API (PRD 019 §0, task 323). Served by this service on
 	// hej.nathejk.dk, not exported into the marketing site — one store, one takedown.
 	//

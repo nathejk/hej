@@ -76,16 +76,25 @@ func (s *albumStore) BySlug(_, slug string) (album.Album, []album.Item, bool, er
 
 func (s *albumStore) Plottable(string) ([]album.PlottableItem, error) { return nil, s.err }
 
-func (s *albumStore) RefsInUse(_ string, refs []string) (map[string]bool, error) {
+// RefsInUse honours the exclusion set, because that is the property under test in task 335: without it
+// an item being removed reports its own bytes as in use and nothing is ever deleted.
+func (s *albumStore) RefsInUse(_ string, excluding []album.ItemKey, refs []string) (map[string]bool, error) {
 	out := map[string]bool{}
 	if s.err != nil {
 		return nil, s.err
+	}
+	excluded := map[album.ItemKey]bool{}
+	for _, k := range excluding {
+		excluded[k] = true
 	}
 	for _, e := range s.albums {
 		if e.deleted {
 			continue
 		}
 		for _, it := range e.items {
+			if excluded[album.ItemKey{AlbumID: e.album.ID, Ordinal: it.Ordinal}] {
+				continue
+			}
 			for _, ref := range refs {
 				if it.Ref == ref || it.ThumbRef == ref {
 					out[ref] = true
@@ -101,8 +110,19 @@ func albumApp(t *testing.T) (*application, *albumStore) {
 	t.Helper()
 
 	app, _, _ := publicApp(t)
+	store := seedAlbums(t, app)
+	app.models.Albums = store
+	return app, store
+}
 
-	// Real objects, so the media route can actually serve them and the ETag path is exercised.
+// seedAlbums builds the album fixture and puts its bytes in the app's blob store.
+//
+// Real objects rather than invented refs, so the media route can actually serve them, the ETag path is
+// exercised, and the removal tests can assert which bytes survived — which is the whole point of task
+// 335's sharing check.
+func seedAlbums(t *testing.T, app *application) *albumStore {
+	t.Helper()
+
 	put := func(body string) string {
 		ref, err := app.blobs.Put(context.Background(), []byte(body))
 		if err != nil {
@@ -112,7 +132,7 @@ func albumApp(t *testing.T) (*application, *albumStore) {
 	}
 
 	lat, lng := 55.7332, 12.2648
-	store := &albumStore{albums: []albumStoreEntry{
+	return &albumStore{albums: []albumStoreEntry{
 		{
 			album:     album.Album{ID: "al-1", Slug: "loerdag-morgen", Title: "Lørdag morgen", Description: "Da solen kom", SortOrder: 10},
 			published: true,
@@ -132,6 +152,7 @@ func albumApp(t *testing.T) (*application, *albumStore) {
 			},
 		},
 		{
+			// Deliberately unpublished. Nothing public may show this, which is the point of having it.
 			album:     album.Album{ID: "al-draft", Slug: "kladde", Title: "Kladde", SortOrder: 30},
 			published: false,
 			items: []album.Item{
@@ -140,8 +161,6 @@ func albumApp(t *testing.T) (*application, *albumStore) {
 			},
 		},
 	}}
-	app.models.Albums = store
-	return app, store
 }
 
 func TestFrontpageListsPublishedAlbums(t *testing.T) {

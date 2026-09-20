@@ -30,6 +30,9 @@ type stubAlbums struct {
 	// asked records the refs each call was given, so a test can assert the check actually ran rather
 	// than inferring it from an outcome that could also happen by accident.
 	asked [][]string
+	// excluded records the exclusion sets, so a test can assert the album removal path names the items
+	// it is removing — without that, they report their own bytes as in use and nothing is ever deleted.
+	excluded [][]album.ItemKey
 }
 
 func (s *stubAlbums) Published(string) ([]album.Album, error) { return nil, nil }
@@ -40,8 +43,9 @@ func (s *stubAlbums) BySlug(string, string) (album.Album, []album.Item, bool, er
 
 func (s *stubAlbums) Plottable(string) ([]album.PlottableItem, error) { return nil, nil }
 
-func (s *stubAlbums) RefsInUse(_ string, refs []string) (map[string]bool, error) {
+func (s *stubAlbums) RefsInUse(_ string, excluding []album.ItemKey, refs []string) (map[string]bool, error) {
 	s.asked = append(s.asked, refs)
+	s.excluded = append(s.excluded, excluding)
 	if s.err != nil {
 		return nil, s.err
 	}
