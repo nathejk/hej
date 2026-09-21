@@ -137,28 +137,12 @@ func (app *application) publicPatrolPageHandler(w http.ResponseWriter, r *http.R
 //
 // # One place decides whether to serve
 //
-// Every refusal — unknown number, closed gate, missing projection, failed read — returns `false` and the
-// caller renders the same not-yet page. That is the property PRD 011 §6 requires: the differences between
-// those cases are exactly what would leak which numbers are real and which patrols have finished.
+// The decision is `openPatrol` (patrolmap.go), shared with the map endpoint. Every refusal — unknown
+// number, closed gate, missing projection, failed read — comes back as `false` and the caller renders the
+// same not-yet page. That is the property PRD 011 §6 requires: the differences between those cases are
+// exactly what would leak which numbers are real and which patrols have finished.
 func (app *application) patrolPage(number string) (publicPatrolPageData, bool) {
-	// Nil fails closed rather than answering 503, for the reason in publicgate.go: on the open web an
-	// "exists but unavailable" confirms a patrol number is real.
-	if app.models.PublicPatrols == nil {
-		return publicPatrolPageData{}, false
-	}
-
-	patrol, found, err := app.models.PublicPatrols.ByNumber(app.config.eventYear, number)
-	if err != nil {
-		app.Logger.Error("reading a public patrol", "number", number, "err", err)
-		return publicPatrolPageData{}, false
-	}
-	if !found {
-		return publicPatrolPageData{}, false
-	}
-
-	// The gate is asked about the **team id**, never the number. The number is a public string a visitor
-	// typed; the id is what the scans and the tracks are keyed by.
-	verdict, open := app.patrolGateFor(patrol.TeamID)
+	patrol, verdict, open := app.openPatrol(number)
 	if !open {
 		return publicPatrolPageData{}, false
 	}
@@ -262,17 +246,25 @@ func (app *application) addPatrolDistance(data *publicPatrolPageData, teamID str
 
 // trackPointsForDistance flattens the merged segments for the distance calculation.
 //
-// # Why this loses the timestamps, and why that is a problem worth naming
+// Every point of every segment, because `distance.Compute` matches them into scan legs by time and does not
+// care which segment they came from — the segmentation exists for *drawing*, where a gap must stay a gap.
 //
-// `patroltrack.Point` carries only a latitude and a longitude — deliberately, because the map draws a line
-// and a field the map does not use is a field that ends up in a payload nobody audited. But
-// `distance.Compute` matches track points into scan legs **by time**, so without timestamps it cannot.
-//
-// So today the track raises nothing, and the distance is the pure scan-leg floor. That is correct but
-// weaker than PRD 011 §6 intends, and the fix belongs with the map endpoint (task 342), which will need a
-// timestamped shape anyway. Recorded here rather than silently returning nil, so the next reader knows the
-// figure is a floor by *omission* rather than by design.
-func trackPointsForDistance(patroltrack.Track) []distance.Point { return nil }
+// Task 341 shipped this returning nil, because `patroltrack.Point` had no timestamp and `Compute` matches
+// by time; task 342 added the timestamp for exactly this. The distance is now a floor raised by whatever
+// the track covers, which is what PRD 011 §6 asks for.
+func trackPointsForDistance(track patroltrack.Track) []distance.Point {
+	var out []distance.Point
+	for _, seg := range track.Segments {
+		for _, p := range seg.Points {
+			out = append(out, distance.Point{
+				Lat: p.Lat,
+				Lng: p.Lng,
+				At:  time.UnixMilli(p.TS).UTC(),
+			})
+		}
+	}
+	return out
+}
 
 // addPatrolTrackSummary records what the track covers, so the page can say so.
 func (app *application) addPatrolTrackSummary(data *publicPatrolPageData, teamID string) {

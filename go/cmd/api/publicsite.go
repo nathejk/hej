@@ -369,7 +369,18 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
          aspect-ratio: 1 / 1.414; display: flex; align-items: center; justify-content: center; }
   .diploma .soon { text-align: center; color: #94a3b8; font-size: .9rem; margin: 0; }
   .caveat { color: #555; font-size: .85rem; margin: .5rem 0 0; }
-  .maparea { height: 22rem; border-radius: .25rem; background: #eee; }
+  /* The map and the caveat that explains it are **hidden until the island draws** (task 342). A 22rem grey
+     box with nothing in it is a broken frame, and a caveat about a route nobody can see is noise — so
+     publicmap.js adds .ready to both, and a visitor without JavaScript sees neither. */
+  .maparea { display: none; height: 22rem; border-radius: .25rem; background: #eee; }
+  .maparea.ready { display: block; }
+  .mapcaveat { display: none; }
+  .mapcaveat.ready { display: block; }
+  /* The photograph pin (task 342). A white-ringed amber square, so it is a different shape as well as a
+     different colour from the round scan dots — legible on both the topographic and the aerial base
+     layer, which is why the ring is there at all. */
+  .photopin { background: #b45309; border: 2px solid #fff; border-radius: .15rem;
+         box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
   .scans { margin: 0; padding-left: 1.2rem; }
   .scans li { margin-bottom: .35rem; }
   .scans .what { font-weight: 600; }
@@ -534,11 +545,28 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
     kun lidt rute — det er helt normalt.
   </p>
   {{else if .TrackSegments}}
-  <div id="patrolmap" class="maparea"></div>
-  <p class="caveat">
+  <div id="patrolmap" class="maparea" data-patrol="{{.Patrol.Number}}"></div>
+  <p class="caveat mapcaveat">
     Ruten viser, hvor en telefon havde appen åben — ikke hele vejen I gik. Ligger telefonen i lommen,
     holder optagelsen pause, så ruten har huller. Det er ikke fejl.
   </p>
+  <!-- The map is a **progressive enhancement** (PRD 011 §8, task 342), and these assets are the only
+       script on the public site.
+
+       Everything above and below renders without them: the scan list, the distance, the header. Where
+       they do not load — JavaScript off, a browser too old for Leaflet, an asset blocked — the map
+       container and its caveat stay hidden (see .maparea in the stylesheet) and the scan list carries the
+       same information as a list.
+
+       The defer attribute keeps them from blocking the page, and same-origin means there is no third
+       party in a position to log who looked at which patrol's route. See scripts/vendor-leaflet.sh for why
+       Leaflet is vendored rather than fetched from a CDN. -->
+  <link rel="stylesheet" href="/vendor/leaflet.css">
+  <link rel="stylesheet" href="/vendor/MarkerCluster.css">
+  <link rel="stylesheet" href="/vendor/MarkerCluster.Default.css">
+  <script src="/vendor/leaflet.js" defer></script>
+  <script src="/vendor/leaflet.markercluster.js" defer></script>
+  <script src="/publicmap.js" defer></script>
   {{end}}
 </section>
 

@@ -77,10 +77,25 @@ const SimplifyMetres = 15.0
 
 // Point is one position on a drawn route.
 //
-// No accuracy and no person: the map draws a line, and a field the map does not use is a field that ends up
-// in a payload nobody audited.
+// # Why there is a timestamp here and none in the JSON
+//
+// The map draws a line and has no use for a time, so an earlier version of this type carried only a
+// coordinate. That turned out to break the distance estimate: `distance.Compute` matches track points into
+// scan legs **by time**, so a timeless point can raise nothing (task 341 shipped with the track
+// contributing zero, and said so).
+//
+// So the time is here, and the **map response does not serialise it** (task 342). That is not squeamishness:
+// precise times on a merged track would let a reader infer that two overlapping segments must belong to
+// different people, and from there how the patrol split up. `Recorders` already answers "how many
+// recorded?" as a count, which is the most that question should yield.
+//
+// The rule, for whoever adds the next consumer: **times may be used server-side and must not cross the
+// wire.** Task 337's route walk is what enforces it.
 type Point struct {
 	Lat, Lng float64
+
+	// TS is epoch milliseconds. Server-side only — see above.
+	TS int64
 }
 
 // Segment is one unbroken stretch of recorded route.
@@ -245,7 +260,7 @@ func perpendicularMetres(p, a, b trackpoint.Point) float64 {
 func toPoints(in []trackpoint.Point) []Point {
 	out := make([]Point, 0, len(in))
 	for _, p := range in {
-		out = append(out, Point{Lat: p.Lat, Lng: p.Lng})
+		out = append(out, Point{Lat: p.Lat, Lng: p.Lng, TS: p.TS})
 	}
 	return out
 }

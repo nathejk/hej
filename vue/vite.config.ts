@@ -325,6 +325,15 @@ export default defineConfig({
         target: 'http://api:4000',
         changeOrigin: true,
       },
+      // The public, login-free pages (PRD 011) are server-rendered by the BFF,
+      // not part of the SPA. They need proxying too, or they are unreachable in
+      // a dev browser — the island script and vendored Leaflet under
+      // vue/public/ are still served by Vite itself, same as in prod where the
+      // Go binary serves both from ./www.
+      '/offentligt': {
+        target: 'http://api:4000',
+        changeOrigin: true,
+      },
     },
   },
 })

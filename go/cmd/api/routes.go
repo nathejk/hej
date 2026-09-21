@@ -174,6 +174,11 @@ func (app *application) routes() http.Handler {
 	// /offentligt/, because it serves bytes rather than a page — and it shares `streamGlimtMedia`, so
 	// the ETag handling and the missing-object degradation cannot diverge between the two.
 	router.HandlerFunc(http.MethodGet, "/api/public/albums/:albumId/media/:ordinal", app.albumMediaHandler)
+	// The map's data (task 342). Two endpoints rather than one, because they answer to different gates: a
+	// patrol's route is gated on that patrol having finished, while the album photographs are published when
+	// a curator publishes them. One handler with two access rules is how the wrong one gets applied.
+	router.HandlerFunc(http.MethodGet, "/api/public/patrol/:number/map", app.patrolMapHandler)
+	router.HandlerFunc(http.MethodGet, "/api/public/albums", app.albumMapHandler)
 	// The contacts directory (PRD 007). Cached by the client and worked from offline, so
 	// it carries everything the pane needs and nothing it does not: no guardian numbers, no
 	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach

@@ -362,6 +362,9 @@ func TestAnAbsentTrackIsExplainedRatherThanShownEmpty(t *testing.T) {
 
 // The page is complete without JavaScript: the map is the only enhancement, and everything else is server
 // rendered.
+//
+// A patrol with no track has nothing to enhance, so its page carries no script at all — which is the case
+// this test uses, since it is also the common one (task 082 measured 2% coverage).
 func TestPatrolPageNeedsNoScript(t *testing.T) {
 	_, _, srv := patrolPageApp(t)
 
@@ -370,13 +373,78 @@ func TestPatrolPageNeedsNoScript(t *testing.T) {
 
 	for _, forbidden := range []string{"<script", "onclick=", "onload="} {
 		if strings.Contains(page, forbidden) {
-			t.Errorf("the patrol page must work without JavaScript, found %q", forbidden)
+			t.Errorf("a patrol page with no route must carry no script, found %q", forbidden)
 		}
 	}
 	// And the substance must be there without it.
 	for _, want := range []string{"<h1>", "<ol class=\"scans\">", "undervejs"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the page is missing %q without script", want)
+		}
+	}
+}
+
+// **The script on a patrol page may only ever be the map island.** Three files, same-origin, deferred — and
+// nothing inline, because an inline handler is how an enhancement becomes a requirement.
+func TestPatrolPageScriptIsOnlyTheMapIsland(t *testing.T) {
+	app, _, srv := patrolPageApp(t)
+	app.patrolTracks = trackReader(t,
+		&trackPeople{members: map[string][]string{"team-42": {"p1"}}},
+		&trackPoints{byPerson: map[string][]trackpoint.Point{"p1": walk(12.200, 10)}},
+	)
+
+	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	page := string(body)
+
+	for _, want := range []string{
+		`<script src="/vendor/leaflet.js" defer></script>`,
+		`<script src="/vendor/leaflet.markercluster.js" defer></script>`,
+		`<script src="/publicmap.js" defer></script>`,
+		`<link rel="stylesheet" href="/vendor/leaflet.css">`,
+		`<link rel="stylesheet" href="/vendor/MarkerCluster.css">`,
+		`<link rel="stylesheet" href="/vendor/MarkerCluster.Default.css">`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the map island is missing %s", want)
+		}
+	}
+
+	// Exactly three scripts, all with a src: no inline script, ever.
+	if got := strings.Count(page, "<script"); got != 3 {
+		t.Errorf("want exactly 3 script tags, got %d", got)
+	}
+	if strings.Count(page, "<script src=") != 3 {
+		t.Error("every script must be an external, deferred file — an inline script cannot be deferred and " +
+			"is how an enhancement becomes a requirement")
+	}
+	for _, forbidden := range []string{"onclick=", "onload=", "javascript:", "//unpkg", "//cdn"} {
+		if strings.Contains(page, forbidden) {
+			t.Errorf("the page contains %q; the island is same-origin and event-handler-free", forbidden)
+		}
+	}
+
+	// The container must carry the number the island needs, and nothing else.
+	if !strings.Contains(page, `data-patrol="42"`) {
+		t.Errorf("the map container must name the patrol for the island to fetch\n%s", page)
+	}
+}
+
+// And the substance survives the enhancement: a page *with* a map still carries the scan list and the
+// caveat, so a visitor who never runs the script loses nothing but the picture.
+func TestTheMapDoesNotReplaceTheScanList(t *testing.T) {
+	app, _, srv := patrolPageApp(t)
+	app.patrolTracks = trackReader(t,
+		&trackPeople{members: map[string][]string{"team-42": {"p1"}}},
+		&trackPoints{byPerson: map[string][]trackpoint.Point{"p1": walk(12.200, 10)}},
+	)
+
+	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	page := string(body)
+
+	for _, want := range []string{`<ol class="scans">`, "Post 4A", "hvor en telefon havde appen åben"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the page with a map is missing %q; the list is not the map's fallback, it is a "+
+				"requirement", want)
 		}
 	}
 }

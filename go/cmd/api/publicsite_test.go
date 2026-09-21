@@ -45,11 +45,22 @@ func TestPublicFrontpageRendersThreeSections(t *testing.T) {
 }
 
 // The whole justification for server-rendering this surface.
+//
+// # The property is "complete without script", not "contains no script"
+//
+// An earlier version of this test forbade a `<script` tag anywhere on the public site. That was the right
+// instinct stated too strongly: task 342's map is a **progressive enhancement**, which is a script tag by
+// definition, and forbidding one would have forbidden the enhancement rather than protecting the property.
+//
+// So the frontpage stays script-free — nothing on it needs one — and the patrol page is allowed exactly the
+// three lines that load the map, with `TestPatrolPageScriptIsOnlyTheMapIsland` pinning what they may be.
+// The substance of every page is asserted to be present without them.
 func TestPublicSitePagesCarryNoScript(t *testing.T) {
 	app, _, _ := publicApp(t)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
+	// The frontpage and a closed patrol page: neither has anything to enhance.
 	for _, path := range []string{"/offentligt", "/offentligt/patrulje/42"} {
 		_, body := getPublic(t, srv.URL+path, nil)
 		page := strings.ToLower(string(body))

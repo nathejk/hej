@@ -224,17 +224,30 @@ func TestSimplificationRemovesWobbleWithinAccuracy(t *testing.T) {
 
 // **No point in the output may identify a member.** Enforced by the type, asserted here so a future field
 // addition has to justify itself.
+//
+// The field list is pinned rather than counted, because task 342 legitimately added `TS` — needed by the
+// distance estimate, which matches track points into scan legs by time. A timestamp is **not** a person, but
+// it is close enough to one to be worth a rule: times may be used server-side and must not cross the wire,
+// because precise times on a merged track let a reader infer that two overlapping segments belong to
+// different people. `cmd/api`'s map-response test is what enforces the serialisation half.
 func TestTheOutputCarriesNoPersonAnywhere(t *testing.T) {
 	track := Merge([][]trackpoint.Point{
 		straightWalk(12.200, 0, 10),
 		straightWalk(12.300, 0, 10),
 	})
 
-	// Point has exactly two fields; Segment has exactly one. A person id would have to be one of them.
-	if got := structFields(Point{}); len(got) != 2 {
-		t.Errorf("patroltrack.Point has %v; a route point needs a latitude and a longitude and nothing "+
-			"that says whose it is", got)
+	wantPointFields := map[string]bool{"Lat": true, "Lng": true, "TS": true}
+	for _, f := range structFields(Point{}) {
+		if !wantPointFields[f] {
+			t.Errorf("patroltrack.Point gained %q. A route point is a coordinate and a time; anything else "+
+				"— an accuracy, a person, a device — belongs in a deliberate decision, not in this struct", f)
+		}
+		delete(wantPointFields, f)
 	}
+	for f := range wantPointFields {
+		t.Errorf("patroltrack.Point lost %q, which something depends on", f)
+	}
+
 	if got := structFields(Segment{}); len(got) != 1 {
 		t.Errorf("patroltrack.Segment has %v; a segment is a list of points", got)
 	}
