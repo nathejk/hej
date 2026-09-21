@@ -3,7 +3,7 @@
 **Status:** draft
 **Author:** agent session (Zed)
 **Created:** 2026-09-21
-**Last updated:** 2026-09-21
+**Last updated:** 2026-09-21 (deferred — see §0)
 **Approved:**
 **Shipped:**
 **Target users:** everyone who reaches `hej.nathejk.dk` without the app — parents, grandparents, participants on unsupported devices, anyone following a shared link — and, indirectly, the participants whose app becomes a separately deployable thing
@@ -15,6 +15,44 @@ moves to done/. See roadmap/prd/README.md for the lifecycle.
 -->
 
 ---
+
+## 0. Decision: deferred, with an interim step (2026-09-21, maintainer)
+
+> *"we will put the public pages in a subfolder /2026 for now, and do the complete directory mangling in a
+> few months when we have very little traffic."*
+
+**This PRD stays in `draft/` and is not being implemented now.** Two decisions, and both are better than what
+this document proposed:
+
+**1. The full restructure waits for a low-traffic window — months, not weeks.** §2 argued for "now, post-event"
+on the grounds that a stranded install self-heals cheaply. That reasoning is not wrong, but it weighed the
+*install* cost and ignored the *attention* cost: the week after an event is when families are actually looking
+at these pages, and it is also when the people who would have to fix a botched service-worker handover are
+least available. A quiet month is strictly better for a change whose hardest part is a migration nobody can
+fully predict (§8). Nothing in this PRD expires in the meantime.
+
+**2. The public pages move to `/2026` in the meantime.** A small, reversible step that takes the public surface
+out of `/offentligt` without touching the app's URL, its manifest, or its service-worker scope — so it carries
+**none** of Phase 0's risk.
+
+It is also a better interim address than `/offentligt` for a reason worth recording: **it is year-scoped.**
+These pages are a record of one event, and an album or a patrol page is only meaningful with a year attached.
+That prefigures the eventual structure rather than fighting it — the root site will want to be indexed by year
+(`/2026/patrulje/42`, `/2027/...`), so this interim move is a step along the final path instead of a detour.
+
+What the interim step still requires, none of it risky:
+
+- Permanent redirects from every `/offentligt*` path, which were already required by §6.
+- The app's `navigateFallbackDenylist` swaps its `/offentligt` entries for the year prefix. The list survives
+  until the full move deletes it — and task 332's bug (a missing bare-path entry silently serving the app
+  shell) is the thing to check for on the way past.
+- A request to an unknown path *under* the year prefix must get the public site's not-found page, not the app
+  shell — the same failure, one directory along.
+- The year in the path should be **validated against the configured event year**, not hard-coded, so next
+  year's deploy needs no code change and a stale `/2026` link cannot quietly render 2027 data.
+- PRD 011's §6 records `/offentligt/...` as the addresses; it needs updating when this lands.
+
+See §10, Phase −0, for the task. Everything else in this document describes the end state and is unchanged.
 
 ## 1. Summary
 
@@ -303,6 +341,12 @@ No schema changes. Two consumers of one database with different privileges; one 
 doing it while still one binary keeps that risk isolated. The binary split then becomes a pure refactor with no
 visible change — the safest possible second step. Doing them in one release would mean debugging a
 service-worker handover and a new process boundary at the same time.
+
+*Phase −0 — the interim move (§0), independent of everything below*
+
+- [ ] Task: serve the public pages under the event-year prefix (`/2026`) instead of `/offentligt`, with
+      permanent redirects, a year validated against the configured event year, a public not-found page for
+      unknown paths under the prefix, and the service-worker denylist updated
 
 *Phase 0 — answer the question that gates the rest*
 
