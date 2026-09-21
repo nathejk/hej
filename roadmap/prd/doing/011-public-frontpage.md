@@ -509,9 +509,17 @@ will never install the app.
 - [ ] It is **not** the sum of track segments. At 2% coverage (§0a) that sum is a fraction of the
       night and would under-report by an order of magnitude: a patrol that walked 30 km would be
       told it walked 600 m.
-- [ ] The base is the **sum of straight-line distances between consecutive positioned scans, in
-      time order**. Every leg is a real journey between two places the patrol demonstrably was, and
-      a straight line is the shortest it can have been — so the sum is a true lower bound.
+- [ ] The base is the **sum of straight-line distances between consecutive positioned scans, in time
+      order**. Every leg is a real journey between two places the patrol demonstrably was, and a
+      straight line is the shortest it can have been — so the sum is a true lower bound.
+- [x] **Amended 2026-09-19 (task 339), on 2025 data: a leg implying more than a walking pace is
+      excluded as a vehicle transfer.** The rule above is a floor on *distance travelled*, not on
+      distance walked, and patrols are transported between sections of the course. Summing every leg gave
+      2025 a median of 45.9 km and a **maximum of 157.9 km**; excluding vehicle legs gives 41.3 km and
+      41 km, which is 3.4 km/h over a twelve-hour night. Excluded rather than capped — capping invents a
+      walk of exactly the length the filter allows. A residual remains: a transfer slow enough to pass the
+      filter cannot be told from a long walk, which is in tension with the word *mindst* and is flagged
+      for the maintainer in task 339's log.
 - [ ] Within a leg where track points exist, the **measured track distance replaces the straight
       line if it is longer**, which it usually is. This is the only thing the track contributes to
       the number, and it can only move it up — never down.
