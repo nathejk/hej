@@ -67,11 +67,55 @@ func banditterOrNil(people person.Queries) scans.Banditter {
 // The year's banditter are a few dozen rows and the map refetches the registration list, so a single
 // indexed read plus set membership beats one read per registration. `ListByAppRoles` is the same query the
 // contacts directory already uses.
+//
+// # Why it refuses to answer for some years (task 344)
+//
+// `Classify` maps **the whole senior population** to `RoleBandit`, unconditionally. That is right for a year
+// where post personnel sign up as *crew*, and catastrophically wrong for a year where everybody who staffed
+// the event signed up as a senior — because then "senior" means "helped out", not "bandit".
+//
+// 2025 is such a year, measured rather than suspected:
+//
+//	3,588 scans — 1,280 (35.7%) scanner ids that resolve to nobody in the projection,
+//	2,308 (64.3%) that resolve, and **every single one** to appRole=bandit.
+//	2,465 people in the year: 1,366 bandit, 974 spejder, 125 gøgler, and **zero** crew,
+//	postmandskab, guide or samarit. Zero section slugs.
+//
+// So classifying by role alone would have told 2,308 registrations they were bandit catches — telling a
+// patrol they were caught at every post they visited. There is no corroborating signal to fall back on
+// either: `armNumber` is empty for all 2,465 of them, and `checkpersonnel` has **2** shift rows for the
+// whole of 2025, so "was this scanner on a post rota?" cannot be asked.
+//
+// The guard therefore asks whether the year distinguishes crew from seniors **at all**. If it does not, no
+// scan is called a bandit catch, and every registration reads as what we actually know: a registration, at a
+// time, in a place. 2026 has 160 crew-role people, so it classifies exactly as before.
+//
+// The asymmetry this protects is the one `kindFor` already records: missing a catch understates the night,
+// while inventing one tells a patrol something false that they would act on — and on the public page, that
+// they would send to their family.
 type banditter struct {
 	people person.Queries
 }
 
+// crewRoles are the roles whose presence proves a year separates staff from seniors.
+//
+// Any one of them is enough: they exist only where a crew signup with a recognised section slug happened,
+// which is precisely the condition under which "senior" narrows to "bandit".
+var crewRoles = []string{person.RoleCrew, person.RolePostmandskab, person.RoleGuide, person.RoleSamarit}
+
 func (b banditter) BanditIDs(year string) (map[string]bool, error) {
+	// The capability check first, because its answer can make the second query pointless.
+	crew, err := b.people.ListByAppRoles(year, crewRoles)
+	if err != nil {
+		return nil, err
+	}
+	if len(crew) == 0 {
+		// An undifferentiated year. Nil rather than an error: this is a fact about the event's signup
+		// data, not a failure, and `internal/scans` already treats an empty set as "no banditter known"
+		// and labels everything a checkpoint visit.
+		return nil, nil
+	}
+
 	rows, err := b.people.ListByAppRoles(year, []string{person.RoleBandit})
 	if err != nil {
 		return nil, err
