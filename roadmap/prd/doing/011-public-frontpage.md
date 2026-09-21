@@ -566,14 +566,21 @@ will never install the app.
       walk of exactly the length the filter allows. A residual remains: a transfer slow enough to pass the
       filter cannot be told from a long walk, which is in tension with the word *mindst* and is flagged
       for the maintainer in task 339's log.
-- [ ] **Amended again 2026-09-21 (§0b.6, maintainer): the transfer premise was wrong, and the fix is
+- [x] **Amended again 2026-09-21 (§0b.6, maintainer): the transfer premise was wrong, and the fix is
       status plus per-point outlier rejection.** There are no transfer sections. What produces a
-      car-shaped track is a person who is **no longer active** in the race, so their points must be
-      excluded from the estimate on that basis rather than by a speed threshold. Separately, the fleet is
-      a mixture of GPS units of varying quality, so where a coordinate is obviously wrong or suspicious
-      the **single point** is dropped — not the leg around it, which is what makes one bad fix inflate two
-      segments. The 7 km/h leg filter remains as a backstop for what those two rules do not catch; it is
-      no longer the primary mechanism, and it is no longer described as detecting transfers. Task 349.
+      car-shaped track is a person who is **no longer active** in the race, so their points are excluded
+      from that moment on (`person.memberStatusAt` → `cmd/api/patroltrack.go`); where the moment is
+      unknown the member is excluded entirely, which errs low as *mindst* permits. Separately, a
+      coordinate that is obviously wrong is dropped as a **single point** — reported accuracy over 250 m,
+      or a fix that jumps implausibly far and comes straight back — never the leg around it.
+      The 7 km/h leg filter stays as a **backstop**, because 2025 has no telemetry at all and speed is the
+      only signal available there.
+- [x] **And a third rule, found by measuring rather than reasoning (task 349): a leg longer than 4 hours
+      *and* further than 10 km is not one walk.** The overstating tail turned out not to be fast legs but
+      slow enormous ones — 38.7 km over 13.6 hours, and 10.4 km over **143 hours** — which a speed filter
+      waves through by construction. Both conditions are needed: a long gap alone is a patrol resting, and
+      2025 has six-hour legs covering two kilometres that are real walking. On 2025 this moves mean/max
+      from 44.8/103.5 km to **38.1/63.6 km**, and patrols credited with over 60 km from 26 to 1.
 - [ ] Within a leg where track points exist, the **measured track distance replaces the straight
       line if it is longer**, which it usually is. This is the only thing the track contributes to
       the number, and it can only move it up — never down.

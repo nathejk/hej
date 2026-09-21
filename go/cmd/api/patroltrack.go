@@ -14,10 +14,22 @@ import (
 //
 // # Three reads, one answer
 //
-// Who is in the patrol (`person.MemberIDs`), what those people recorded (`trackpoint.ByPeople`), and the
+// Who is in the patrol (`person.TrackMembers`), what those people recorded (`trackpoint.ByPeople`), and the
 // merge that turns it into unattributed segments (`internal/patroltrack`). The composition lives here
 // rather than in a projection for the reason `internal/reveal` records: a `nathejk/table/*` package may not
 // read another's tables, and this needs two.
+//
+// # A member who left the race stops counting (task 349)
+//
+// PRD 011 §0b.6: there are no transfer sections, and a person who is no longer active in the race may be
+// sitting in a car with their phone still recording. Their later points are not the patrol walking, so they
+// are cut off at the moment their status changed — and where that moment is unknown, all of their points
+// are excluded rather than guessed at.
+//
+// **This is the one filter that cannot live in `internal/patroltrack`**, and the reason is a property worth
+// keeping: `trackpoint.ByPeople` returns groups with the person id thrown away, precisely so the merge
+// cannot attribute a segment to anybody. So a per-person rule has to be applied *before* the points reach
+// the merge, which is here.
 //
 // # The cache is not an optimisation, it is the requirement
 //
@@ -87,25 +99,98 @@ func (r *patrolTrackReader) Track(teamID string) (patroltrack.Track, error) {
 		return cached, nil
 	}
 
-	memberIDs, err := r.people.MemberIDs(r.year, teamID)
+	members, err := r.people.TrackMembers(r.year, teamID)
 	if err != nil {
 		return patroltrack.Track{}, fmt.Errorf("reading patrol members: %w", err)
 	}
-	if len(memberIDs) == 0 {
-		// No members is not an error \u2014 a personnel "team", or a patrol whose records have gone. Cached
+	if len(members) == 0 {
+		// No members is not an error — a personnel "team", or a patrol whose records have gone. Cached
 		// like any other answer, so a page for a nonexistent patrol does not re-query on every refresh.
 		r.store(teamID, patroltrack.Track{})
 		return patroltrack.Track{}, nil
 	}
 
-	groups, err := r.points.ByPeople(r.year, memberIDs)
+	groups, err := r.groupsFor(members)
 	if err != nil {
-		return patroltrack.Track{}, fmt.Errorf("reading track points: %w", err)
+		return patroltrack.Track{}, err
 	}
 
 	track := patroltrack.Merge(groups)
 	r.store(teamID, track)
 	return track, nil
+}
+
+// groupsFor reads each member's points, applying the race-status cutoff per member.
+//
+// # Why the reads are split
+//
+// `ByPeople` is one query for the whole patrol and returns groups with **no person id on them** — by
+// design, since that is what makes the merged track unattributable. That means a per-member cutoff cannot
+// be applied to its result: there is no way to tell whose group is whose.
+//
+// So the members who need no cutoff (the usual case: everybody) are read in one query as before, and each
+// member who withdrew mid-race is read on their own so their points can be trimmed. A patrol has at most
+// eight members and withdrawals are rare, so this is one query plus a small number — and the whole result
+// is cached per patrol for an hour.
+func (r *patrolTrackReader) groupsFor(members []person.TrackMember) ([][]trackpoint.Point, error) {
+	var whole []string
+	var trimmed []person.TrackMember
+
+	for _, m := range members {
+		if m.PersonID == "" {
+			continue
+		}
+		if stillInRace(m.MemberStatus) {
+			whole = append(whole, m.PersonID)
+			continue
+		}
+		if m.StatusAt == nil {
+			// **Left the race, and we do not know when.** Excluded entirely. That loses the kilometres
+			// they did walk, which is a real cost — but the alternative is counting a car, and the label
+			// says *mindst*: the figure is allowed to be low and is not allowed to be high.
+			continue
+		}
+		trimmed = append(trimmed, m)
+	}
+
+	var groups [][]trackpoint.Point
+	if len(whole) > 0 {
+		read, err := r.points.ByPeople(r.year, whole)
+		if err != nil {
+			return nil, fmt.Errorf("reading track points: %w", err)
+		}
+		groups = append(groups, read...)
+	}
+
+	for _, m := range trimmed {
+		read, err := r.points.ByPeople(r.year, []string{m.PersonID})
+		if err != nil {
+			return nil, fmt.Errorf("reading track points: %w", err)
+		}
+		for _, group := range read {
+			if kept := untilStatusChange(group, *m.StatusAt); len(kept) > 0 {
+				groups = append(groups, kept)
+			}
+		}
+	}
+	return groups, nil
+}
+
+// untilStatusChange keeps the points recorded before a member left the race.
+//
+// Strictly before: a point stamped at the same millisecond as the withdrawal is the moment they stopped
+// walking, not a step they took. The points arrive in time order, so this is a prefix rather than a filter —
+// but it is written as a filter anyway, because relying on the ordering of somebody else's query result is
+// how a reasonable change to that query becomes a silent data bug here.
+func untilStatusChange(points []trackpoint.Point, leftAt time.Time) []trackpoint.Point {
+	cutoff := leftAt.UTC().UnixMilli()
+	kept := make([]trackpoint.Point, 0, len(points))
+	for _, p := range points {
+		if p.TS < cutoff {
+			kept = append(kept, p)
+		}
+	}
+	return kept
 }
 
 func (r *patrolTrackReader) cached(teamID string) (patroltrack.Track, bool) {

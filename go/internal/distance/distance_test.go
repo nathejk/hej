@@ -502,3 +502,62 @@ func indexFold(s, sub string) int {
 	}
 	return -1
 }
+
+// The implausible-leg rule (PRD 011 §0b.6, task 349).
+//
+// Measured on 2025: the overstating tail is not fast legs, it is **slow, enormous** ones — 38.7 km over
+// 13.6 hours, and 10.4 km over 143 hours. The speed filter waves those through, because dividing by a huge
+// number gives a walking pace.
+
+func TestALegThatSpansDaysIsExcluded(t *testing.T) {
+	// 10 km apart, six days between the scans: 0.07 km/h, so the speed filter is happy.
+	est := Compute([]Scan{
+		scan(55.700, 12.200, 0),
+		scan(55.790, 12.200, 6*24*60),
+	}, nil)
+
+	if est.HasFigure() {
+		t.Errorf("a leg spanning six days must not produce a figure, got %.1f km", est.Km)
+	}
+	if est.VehicleLegs != 1 {
+		t.Errorf("want the leg counted as excluded, got %d", est.VehicleLegs)
+	}
+}
+
+// **A long rest is not an implausible leg.** Patrols sleep: 2025 has six-hour legs covering two kilometres.
+// Rejecting those on duration alone would discard real walking, which is why the rule needs both conditions.
+func TestALongRestFollowedByAShortWalkStillCounts(t *testing.T) {
+	// ~2.2 km over six hours — the shape of a patrol that slept and then walked to the next post.
+	est := Compute([]Scan{
+		scan(55.700, 12.200, 0),
+		scan(55.720, 12.200, 6*60),
+	}, nil)
+
+	if !est.HasFigure() {
+		t.Fatal("a long, short leg is a real walk and must still count")
+	}
+	if est.VehicleLegs != 0 {
+		t.Errorf("want nothing excluded, got %d", est.VehicleLegs)
+	}
+	if est.Km < 2 {
+		t.Errorf("want ~2.2 km, got %.2f", est.Km)
+	}
+}
+
+// And the boundary in the other direction: far but quick is the *speed* filter's business, and a leg that is
+// neither long nor far is nobody's.
+func TestTheImplausibleLegRuleNeedsBothConditions(t *testing.T) {
+	// 12 km in three hours: 4 km/h, under the walking ceiling and under the duration bound. A long day's
+	// walk between two posts, and it must count.
+	est := Compute([]Scan{
+		scan(55.700, 12.200, 0),
+		scan(55.808, 12.200, 3*60),
+	}, nil)
+
+	if !est.HasFigure() {
+		t.Fatal("12 km in three hours is a walk; it must count")
+	}
+	if est.VehicleLegs != 0 {
+		t.Errorf("want nothing excluded, got %d", est.VehicleLegs)
+	}
+}

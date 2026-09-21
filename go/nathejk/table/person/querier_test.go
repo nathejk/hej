@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 )
@@ -278,4 +279,68 @@ func addPersonRow(rows *sqlmock.Rows, personID, name, phone string) {
 		}
 	}
 	rows.AddRow(values...)
+}
+
+// TrackMembers (PRD 011, tasks 340 and 349).
+//
+// Two properties, and the first is a privacy property: this read selects **three columns**, because its one
+// caller renders an unauthenticated page and the cheapest guarantee that a name cannot leak is that the
+// name never arrives.
+func TestTrackMembersSelectsOnlyWhatThePublicPathNeeds(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	at := time.Date(2026, 9, 20, 1, 30, 0, 0, time.UTC)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT personId, memberStatus, memberStatusAt")).
+		WithArgs("2026", "team-42").
+		WillReturnRows(sqlmock.NewRows([]string{"personId", "memberStatus", "memberStatusAt"}).
+			AddRow("p1", "racing", nil).
+			AddRow("p2", "released", at))
+
+	q := querier{db: db, normalizer: testNormalizer{}}
+	got, err := q.TrackMembers("2026", "team-42")
+	if err != nil {
+		t.Fatalf("TrackMembers: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 members, got %d", len(got))
+	}
+
+	// A member no lifecycle event has ended: no time, and the caller must not invent one.
+	if got[0].PersonID != "p1" || got[0].MemberStatus != "racing" || got[0].StatusAt != nil {
+		t.Errorf("unexpected first member: %+v", got[0])
+	}
+	// And one who left, with the moment they did — which is the whole reason this column exists.
+	if got[1].StatusAt == nil {
+		t.Fatalf("want a status time for the released member")
+	}
+	if !got[1].StatusAt.Equal(at) {
+		t.Errorf("StatusAt = %v, want %v", *got[1].StatusAt, at)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
+
+// An empty team id returns nothing rather than every member with no team — which is every personnel role in
+// the event. The same reading `reveal.Revealed` applies to an empty patrol id.
+func TestTrackMembersRefusesAnEmptyTeam(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	q := querier{db: db, normalizer: testNormalizer{}}
+	got, err := q.TrackMembers("2026", "")
+	if err != nil || got != nil {
+		t.Errorf("TrackMembers(\"\") = %v, %v; want no rows and no query", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
 }

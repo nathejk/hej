@@ -3,7 +3,10 @@ package person
 import (
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/jrgensen/cqrs"
+	"github.com/jrgensen/cqrs/cqrstest"
 	"github.com/nathejk/shared-go/messages"
 	"github.com/nathejk/shared-go/types"
 )
@@ -287,5 +290,85 @@ func TestTeamEventsReachAMovedMember(t *testing.T) {
 		messages.NathejkPatrolNumberAssigned{TeamID: "team-2", TeamNumber: "139"}))
 	if !strings.Contains(numberStmt, `teamId="team-2"`) {
 		t.Errorf("number assignment must key on teamId so a moved member is included: %s", numberStmt)
+	}
+}
+
+// `memberStatusAt` (PRD 011 §0b.6, task 349).
+//
+// The column exists so the post-race distance estimate can stop counting a withdrawn member's recorded
+// points **from the moment they left** rather than discarding their whole night. What matters here is where
+// the timestamp comes from: the event, never the clock.
+
+// handleAt is `handle` with a stream time on the message.
+func handleAt(t *testing.T, subject string, body any, at time.Time) []string {
+	t.Helper()
+
+	w := &cqrstest.Writer{}
+	c := consumer{w: w, normalizer: testNormalizer{}}
+
+	msg := cqrstest.NewMessage(cqrs.SubjectFromStr(subject))
+	if err := msg.SetBody(body); err != nil {
+		t.Fatalf("SetBody: %v", err)
+	}
+	if err := msg.SetTime(at); err != nil {
+		t.Fatalf("SetTime: %v", err)
+	}
+	if err := c.HandleMessage(msg); err != nil {
+		t.Fatalf("HandleMessage(%s): %v", subject, err)
+	}
+	return w.Statements
+}
+
+func TestAStatusTransitionRecordsWhenItHappened(t *testing.T) {
+	at := time.Date(2026, 9, 20, 1, 30, 0, 0, time.UTC)
+
+	stmts := handleAt(t, "NATHEJK:2026.spejder.member-1.handover.completed",
+		messages.NathejkMemberHandoverCompleted{MemberID: "member-1", To: types.MemberStatusReleased}, at)
+
+	if len(stmts) != 1 {
+		t.Fatalf("want 1 statement, got %d", len(stmts))
+	}
+	if !strings.Contains(stmts[0], `memberStatusAt="2026-09-20 01:30:00"`) {
+		t.Errorf("want the event's own time recorded, got: %s", stmts[0])
+	}
+	// **Never the clock.** These tables are rebuilt by replaying from sequence zero, so NOW() would
+	// restamp every withdrawal in the event's history with the time of the last deploy — which, for this
+	// column, silently means "they left just now" and counts everything.
+	if strings.Contains(stmts[0], "NOW()") || strings.Contains(stmts[0], "CURRENT_TIMESTAMP") {
+		t.Errorf("the status time must come off the event, not the clock: %s", stmts[0])
+	}
+}
+
+// A message with no stream time writes NULL rather than year 1. The caller has to be able to tell "we do
+// not know when" from "a very long time ago": the first excludes the member's points entirely, the second
+// would exclude nothing.
+func TestAStatusTransitionWithNoTimeWritesNull(t *testing.T) {
+	stmts := mustHandle(t, "NATHEJK:2026.spejder.member-1.handover.completed",
+		messages.NathejkMemberHandoverCompleted{MemberID: "member-1", To: types.MemberStatusReleased})
+
+	if len(stmts) != 1 {
+		t.Fatalf("want 1 statement, got %d", len(stmts))
+	}
+	if !strings.Contains(stmts[0], "memberStatusAt=NULL") {
+		t.Errorf("want NULL for an untimed event, got: %s", stmts[0])
+	}
+	if strings.Contains(stmts[0], `memberStatusAt="0001-`) {
+		t.Error("a zero time must not be written as a date")
+	}
+}
+
+// The team-moved handler writes the status too, so it must stamp the time as well — or a member moved into
+// another patrol would carry a status with no time and be excluded from the distance for no reason.
+func TestTeamMovedAlsoRecordsTheStatusTime(t *testing.T) {
+	at := time.Date(2026, 9, 20, 2, 0, 0, 0, time.UTC)
+
+	stmts := handleAt(t, "NATHEJK:2026.spejder.member-1.team.moved",
+		messages.NathejkMemberTeamMoved{MemberID: "member-1", ToTeamID: "team-9"}, at)
+
+	if len(stmts) != 1 {
+		t.Fatalf("want 1 statement, got %d", len(stmts))
+	}
+	if !strings.Contains(stmts[0], `memberStatusAt = "2026-09-20 02:00:00"`) {
+		t.Errorf("want the event's time on the move, got: %s", stmts[0])
 	}
 }

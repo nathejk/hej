@@ -61,6 +61,22 @@ CREATE TABLE IF NOT EXISTS person (
     -- confirmation step is skipped.
     memberStatus VARCHAR(32) NOT NULL DEFAULT "",
 
+    -- When that status was recorded, from the event's own stream time (PRD 011 §0b.6, task 349).
+    --
+    -- It exists for one question: a member who left the race may have been driven home, and their
+    -- phone keeps recording from the car — so the post-race distance estimate must stop counting
+    -- their points **from the moment they left**, not for the whole night. Without a time the only
+    -- safe reading is "discard all of their points", which throws away the kilometres they really
+    -- walked before withdrawing.
+    --
+    -- NULL means the status was never set, or was set before this column existed. Both are honest
+    -- "we do not know when" — see TrackMember.StatusAt for what the caller does about it.
+    --
+    -- The **event's** time rather than `CURRENT_TIMESTAMP`, because these tables are rebuilt by
+    -- replaying the stream on every boot: a wall-clock default would restamp every withdrawal in
+    -- the event's history with the time of the last deploy.
+    memberStatusAt TIMESTAMP NULL DEFAULT NULL,
+
     -- Bandits are identified in the field by arm number rather than by face, which
     -- is why it is carried here (PRD 007 §4 keeps it as the non-photo fallback).
     armNumber VARCHAR(32) NOT NULL DEFAULT "",

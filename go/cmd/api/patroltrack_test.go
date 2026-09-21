@@ -11,19 +11,33 @@ import (
 
 // The composed, cached patrol route (task 340).
 
-// trackPeople answers MemberIDs and counts the calls.
+// trackPeople answers TrackMembers and counts the calls.
 type trackPeople struct {
 	members map[string][]string
 	err     error
 	calls   int
+
+	// status and statusAt override a member's lifecycle, keyed by person id (task 349). Absent means
+	// "still racing", which is what most of these tests want.
+	status   map[string]string
+	statusAt map[string]time.Time
 }
 
-func (p *trackPeople) MemberIDs(_ string, teamID string) ([]string, error) {
+func (p *trackPeople) TrackMembers(_ string, teamID string) ([]person.TrackMember, error) {
 	p.calls++
 	if p.err != nil {
 		return nil, p.err
 	}
-	return p.members[teamID], nil
+	out := make([]person.TrackMember, 0, len(p.members[teamID]))
+	for _, id := range p.members[teamID] {
+		m := person.TrackMember{PersonID: id, MemberStatus: p.status[id]}
+		if at, ok := p.statusAt[id]; ok {
+			t := at
+			m.StatusAt = &t
+		}
+		out = append(out, m)
+	}
+	return out, nil
 }
 
 // The rest of person.Queries, unused here.
@@ -281,5 +295,138 @@ func TestNewPatrolTrackReaderRefusesPartialConstruction(t *testing.T) {
 func TestTrackPointQueriesOrNilIsAnHonestNil(t *testing.T) {
 	if q := trackPointQueriesOrNil(nil); q != nil {
 		t.Fatal("a nil table must convert to a nil interface, or the availability check passes and panics")
+	}
+}
+
+// The race-status cutoff (PRD 011 §0b.6, task 349).
+//
+// A person who left the race may be sitting in a car with their phone still recording, so their later
+// points are not the patrol walking. These tests pin the three cases: cut off at the moment they left,
+// excluded entirely when that moment is unknown, and — the one that would be easy to get wrong —
+// **`finished` is not a withdrawal**.
+
+func statusTime(sec int) time.Time {
+	return time.UnixMilli(trackBase + int64(sec)*1000).UTC()
+}
+
+func TestAWithdrawnMemberStopsCountingWhenTheyLeft(t *testing.T) {
+	people := &trackPeople{
+		members:  map[string][]string{"team-42": {"p1"}},
+		status:   map[string]string{"p1": "reunited"},
+		statusAt: map[string]time.Time{"p1": statusTime(150)},
+	}
+	// Twenty points at 30 s intervals: the first five fall before the withdrawal, the rest after.
+	points := &trackPoints{byPerson: map[string][]trackpoint.Point{"p1": walk(12.200, 20)}}
+	r := trackReader(t, people, points)
+
+	track, err := r.Track("team-42")
+	if err != nil {
+		t.Fatalf("Track: %v", err)
+	}
+	if track.SourcePoints != 5 {
+		t.Errorf("SourcePoints = %d, want the 5 recorded before they left", track.SourcePoints)
+	}
+	// And what remains is still drawable: the point of a cutoff is to keep the walk they did.
+	if track.IsEmpty() {
+		t.Error("the kilometres walked before withdrawing must survive the cutoff")
+	}
+}
+
+// **Left the race, and we do not know when: excluded entirely.** That loses ground they really covered,
+// which is a real cost — but the label says *mindst*, so the figure may be low and may not be high.
+func TestAWithdrawnMemberWithNoTimeIsExcludedEntirely(t *testing.T) {
+	people := &trackPeople{
+		members: map[string][]string{"team-42": {"p1", "p2"}},
+		status:  map[string]string{"p1": "released"},
+	}
+	points := &trackPoints{byPerson: map[string][]trackpoint.Point{
+		"p1": walk(12.200, 10),
+		"p2": walk(12.300, 10),
+	}}
+	r := trackReader(t, people, points)
+
+	track, err := r.Track("team-42")
+	if err != nil {
+		t.Fatalf("Track: %v", err)
+	}
+	if track.Recorders != 1 {
+		t.Errorf("Recorders = %d, want only the member still in the race", track.Recorders)
+	}
+	// p1 must not even be read: an excluded member's points are not fetched, so there is no window in
+	// which they could be merged by mistake.
+	for _, ids := range points.asked {
+		for _, id := range ids {
+			if id == "p1" {
+				t.Errorf("read points for an excluded member: %v", points.asked)
+			}
+		}
+	}
+}
+
+// **`finished` is not a withdrawal.** Finishing means walking the route to the end, and a rule that treated
+// it as leaving the race would zero out the distance of exactly the patrols this page celebrates.
+func TestAFinishedMemberStillCounts(t *testing.T) {
+	people := &trackPeople{
+		members:  map[string][]string{"team-42": {"p1"}},
+		status:   map[string]string{"p1": "finished"},
+		statusAt: map[string]time.Time{"p1": statusTime(150)},
+	}
+	points := &trackPoints{byPerson: map[string][]trackpoint.Point{"p1": walk(12.200, 20)}}
+	r := trackReader(t, people, points)
+
+	track, err := r.Track("team-42")
+	if err != nil {
+		t.Fatalf("Track: %v", err)
+	}
+	if track.SourcePoints != 20 {
+		t.Errorf("SourcePoints = %d, want all 20 — a finisher walked the whole route", track.SourcePoints)
+	}
+}
+
+// The reads stay bounded: one batched query for everybody who needs no cutoff, plus one per member who
+// does. The batch is what keeps the common case (nobody withdrew) to a single query.
+func TestTheCutoffCostsOneExtraReadPerWithdrawnMember(t *testing.T) {
+	people := &trackPeople{
+		members:  map[string][]string{"team-42": {"p1", "p2", "p3"}},
+		status:   map[string]string{"p3": "reunited"},
+		statusAt: map[string]time.Time{"p3": statusTime(150)},
+	}
+	points := &trackPoints{byPerson: map[string][]trackpoint.Point{
+		"p1": walk(12.200, 10),
+		"p2": walk(12.300, 10),
+		"p3": walk(12.400, 10),
+	}}
+	r := trackReader(t, people, points)
+
+	if _, err := r.Track("team-42"); err != nil {
+		t.Fatalf("Track: %v", err)
+	}
+	if points.calls != 2 {
+		t.Errorf("ByPeople calls = %d, want 2 (one batch + one trimmed member): %v", points.calls, points.asked)
+	}
+	if len(points.asked) != 2 || len(points.asked[0]) != 2 || len(points.asked[1]) != 1 {
+		t.Errorf("want a batch of two then a single read, got %v", points.asked)
+	}
+}
+
+// A patrol where *everybody* withdrew with no known time reads as "no route" rather than as an error, and
+// costs no telemetry read at all.
+func TestAPatrolThatWhollyWithdrewHasNoTrack(t *testing.T) {
+	people := &trackPeople{
+		members: map[string][]string{"team-42": {"p1"}},
+		status:  map[string]string{"p1": "released"},
+	}
+	points := &trackPoints{byPerson: map[string][]trackpoint.Point{"p1": walk(12.200, 10)}}
+	r := trackReader(t, people, points)
+
+	track, err := r.Track("team-42")
+	if err != nil {
+		t.Fatalf("Track: %v", err)
+	}
+	if !track.IsEmpty() {
+		t.Errorf("want an empty track, got %d segments", len(track.Segments))
+	}
+	if points.calls != 0 {
+		t.Errorf("ByPeople calls = %d, want none — there was nobody to read", points.calls)
 	}
 }

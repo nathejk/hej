@@ -125,6 +125,11 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, n PhoneNormalizer, opts
 		// Arrived with PRD 007's patrol lookup (task 176), which matches a typed patrol
 		// number. Empty for every klan and section, which is normal rather than missing.
 		{"teamNumber", `teamNumber VARCHAR(32) NOT NULL DEFAULT ""`},
+		// Arrived with PRD 011 §0b.6 (task 349): when the member's status was last recorded, so the
+		// post-race distance estimate can stop counting a withdrawn member's points from the moment
+		// they left rather than discarding their whole night. NULL on every existing row, which reads
+		// correctly as "we do not know when" — and is handled as such rather than guessed at.
+		{"memberStatusAt", `memberStatusAt TIMESTAMP NULL DEFAULT NULL`},
 	} {
 		if err := cqrs.EnsureColumn(r, w, "person", col.name, col.ddl); err != nil {
 			return nil, fmt.Errorf("person: ensure column %s: %w", col.name, err)

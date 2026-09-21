@@ -782,9 +782,14 @@ func (c consumer) handleMemberStatusChanged(msg cqrs.Message, year string) error
 	}
 
 	// UPDATE, not upsert, and idempotent: replaying the stream reapplies the same value.
+	//
+	// `memberStatusAt` comes from the **event's** stream time, not NOW(): these tables are rebuilt by
+	// replaying from sequence zero, so a wall clock would restamp every withdrawal in the event's
+	// history with the time of the last deploy — and the post-race distance estimate reads this column
+	// to decide from when a withdrawn member's points stop counting (task 349).
 	return c.w.Consume(fmt.Sprintf(
-		"UPDATE person SET memberStatus=%s WHERE personId=%s AND year=%s",
-		quote(string(status)), quote(memberID), quote(year),
+		"UPDATE person SET memberStatus=%s, memberStatusAt=%s WHERE personId=%s AND year=%s",
+		quote(string(status)), statusAtSQL(msg), quote(memberID), quote(year),
 	))
 }
 
@@ -854,8 +859,8 @@ func (c consumer) handleMemberTeamMoved(msg cqrs.Message, year string) error {
 		// racing) rather than dead-lettering a live event during a race, and leave the team
 		// alone rather than blanking it on the strength of a missing field.
 		return c.w.Consume(fmt.Sprintf(
-			"UPDATE person SET memberStatus=%s WHERE personId=%s AND year=%s",
-			quote(string(status)), quote(memberID), quote(year),
+			"UPDATE person SET memberStatus=%s, memberStatusAt=%s WHERE personId=%s AND year=%s",
+			quote(string(status)), statusAtSQL(msg), quote(memberID), quote(year),
 		))
 	}
 
@@ -867,9 +872,9 @@ func (c consumer) handleMemberTeamMoved(msg cqrs.Message, year string) error {
 	// their own values — harmless but confusing to read in a log.
 	return c.w.Consume(fmt.Sprintf(`UPDATE person AS p `+
 		`LEFT JOIN person AS s ON s.year = p.year AND s.teamId = %[1]s AND s.personId <> p.personId AND s.deleted = 0 `+
-		`SET p.teamId = %[1]s, p.teamName = COALESCE(s.teamName, ""), p.teamNumber = COALESCE(s.teamNumber, ""), p.memberStatus = %[2]s `+
+		`SET p.teamId = %[1]s, p.teamName = COALESCE(s.teamName, ""), p.teamNumber = COALESCE(s.teamNumber, ""), p.memberStatus = %[2]s, p.memberStatusAt = %[5]s `+
 		`WHERE p.personId = %[3]s AND p.year = %[4]s`,
-		quote(toTeam), quote(string(status)), quote(memberID), quote(year),
+		quote(toTeam), quote(string(status)), quote(memberID), quote(year), statusAtSQL(msg),
 	))
 }
 
@@ -983,7 +988,13 @@ func (c consumer) handleTeamStarted(msg cqrs.Message, year string) error {
 			continue
 		}
 
-		sets := []string{"memberStatus=" + quote(MemberStatusRacing)}
+		sets := []string{
+			"memberStatus=" + quote(MemberStatusRacing),
+			// Stamped like every other status write, so "racing" carries a time too. Not needed by
+			// task 349's rule — racing is not a withdrawal — but a column that is only sometimes
+			// filled is a column whose NULL means two things, and it already means enough.
+			"memberStatusAt=" + statusAtSQL(msg),
+		}
 		// Normalized with the same implementation as every other number in this projection, or
 		// the profile read would compare a raw "20 00 00 01" against a canonical one and treat a
 		// member's own number as somebody else's (task 229's rule reads these).

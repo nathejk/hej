@@ -28,18 +28,25 @@
 // rather than by reasoning (task 339's sanity check — the numbers are in that task's log). Summing every
 // leg gave a **median of 45.9 km and a maximum of 157.9 km**. Nobody walks 158 km in a night.
 //
-// The cause is not bad data, it is the event: patrols are moved between sections of the course. A
-// straight line between two scans either side of a bus ride is a real journey the patrol made, but it is
-// not a distance they *walked* — so the sum was a floor on the wrong quantity, and the word "mindst"
-// would have sat in front of a number that overstated the walk.
+// Patrols are moved between sections of the course. A straight line between two scans either side of a bus
+// ride is a real journey the patrol made, but it is not a distance they *walked* — so the sum was a floor
+// on the wrong quantity, and the word "mindst" would have sat in front of a number that overstated the
+// walk.
 //
-// So a leg whose implied speed exceeds a walking pace is **excluded**, not capped: it is evidence of a
-// vehicle, and a vehicle leg contributes nothing to how far somebody walked. With that, 2025's worst
-// case falls from 157.9 km to 41 km and the median to 41.3 km — which is 3.4 km/h over a twelve-hour
-// night, the pace the event actually runs at.
+// So a leg whose implied speed exceeds a walking pace is **excluded**, not capped: capping would invent a
+// walk of exactly the length the filter allows. With that, 2025's worst case falls from 157.9 km to 41 km
+// and the median to 41.3 km — which is 3.4 km/h over a twelve-hour night, the pace the event actually runs
+// at.
 //
-// A residual remains and is documented at MaxWalkingKmh: a slow enough vehicle leg is indistinguishable
-// from a fast walk.
+// **Amended by task 349:** the *explanation* above was wrong even though the filter was right. PRD 011
+// §0b.6 records that there are no transfer sections — what produces a car-shaped track is a person who is
+// no longer active in the race, which is now handled where that fact lives (`cmd/api/patroltrack.go`), and
+// a bad GPS fix, which is now dropped one coordinate at a time (`internal/patroltrack`). This filter
+// remains as a **backstop**, and 2025 is why it cannot be removed: that event has no telemetry, so neither
+// new rule can fire there and speed is the only signal available. See MaxWalkingKmh.
+//
+// A residual remains and is documented there: a slow enough vehicle leg is indistinguishable from a fast
+// walk.
 //
 // # And it is presented as a floor
 //
@@ -95,9 +102,13 @@ type Estimate struct {
 
 	// VehicleLegs is how many legs were excluded as too fast to have been walked.
 	//
+	// Named for what it was thought to detect. Task 349 corrected that (PRD 011 §0b.6): it counts legs the
+	// backstop filter rejected, which may be a car, a mis-stamped scan, or a scan attributed to the wrong
+	// post — the filter cannot tell, and the name should not pretend it can.
+	//
 	// Not shown to a visitor — "we think you were driven between post 6 and post 7" is not a sentence a
-	// public page should venture. Kept because it is the one diagnostic that says whether the speed
-	// filter is doing anything, and because a patrol whose figure looks low can be explained by it.
+	// public page should venture. Kept because it is the one diagnostic that says whether the filter is
+	// doing anything, and because a patrol whose figure looks low can be explained by it.
 	VehicleLegs int
 
 	// UnplottableScans is how many scans carried no position and so could not anchor a leg.
@@ -115,7 +126,20 @@ type Estimate struct {
 // HasFigure reports whether there is anything worth showing.
 func (e Estimate) HasFigure() bool { return e.Legs > 0 && e.Km > 0 }
 
-// MaxWalkingKmh is the implied speed above which a leg is taken to be a vehicle rather than a walk.
+// MaxWalkingKmh is the implied speed above which a leg is taken to be too fast to have been walked.
+//
+// # What this is for now (amended, task 349)
+//
+// It was introduced as **vehicle-transfer detection**, and that description was wrong: PRD 011 §0b.6
+// records the maintainer's correction that *there are no transfer sections*. What actually produces a
+// car-shaped track is a person who is **no longer active in the race** — handled by their race status, in
+// `cmd/api/patroltrack.go`, where their points stop counting from the moment they left — and what produces
+// wild geometry is a bad GPS fix, handled per coordinate in `internal/patroltrack`.
+//
+// So this is a **backstop**, not the mechanism: it catches legs those two rules cannot see. And there are
+// such legs, which is why it stays. The most important one: 2025 has **no telemetry at all** (the feature
+// shipped afterwards), so for that event neither new rule can fire and every leg here is scan-to-scan. A
+// patrol moved by car between two posts, with nobody's status changing, still shows up only as speed.
 //
 // # Why 7
 //
@@ -129,14 +153,57 @@ func (e Estimate) HasFigure() bool { return e.Legs > 0 && e.Km > 0 }
 //
 // # The residual, stated because it cannot be fixed here
 //
-// A vehicle leg slow enough to pass this filter — a 20 km transfer with a three-hour gap around it, which
-// implies 6.7 km/h — is indistinguishable from a long walk using only positions and times. 2025 still
-// has a tail of teams whose figure is consequently overstated (one reaches 103 km).
+// A leg slow enough to pass this filter — 20 km with a three-hour gap around it, which implies 6.7 km/h —
+// cannot be told from a long walk using only positions and times. Task 349 measured 2025 again and found
+// that this is where the whole overstating tail lives, and that it is better caught by **duration and
+// distance together** than by speed: see MaxLegHours. What remains after both is a transfer of a few
+// kilometres inside an ordinary gap, which is small and unknowable.
 //
-// Closing that gap needs something this package does not have: knowledge of which transfers the event
-// ran. Until then the page must not claim more precision than "built from the posts you were scanned
-// at", which is why the wording carries no route and no measurement.
+// Neither of task 349's other two rules helps here, and it is worth knowing why: they need telemetry and a
+// status change, and 2025 has no telemetry at all.
+//
+// Until then the page must not claim more precision than "built from the posts you were scanned at", which
+// is why the wording carries no route and no measurement.
 const MaxWalkingKmh = 7.0
+
+// MaxLegHours and MaxLegKm together reject a leg that is too long *and* too far to be one walk.
+//
+// # What this catches that the speed filter cannot
+//
+// Task 349 measured 2025 again and found the overstating tail is not made of fast legs — it is made of
+// **slow, enormous** ones. The worst patrol's biggest contributions were 38.7 km over 13.6 hours (2.8 km/h)
+// and 10.4 km over **143 hours**. Six days. Those are not journeys; they are two scans that do not belong to
+// the same night, and a speed filter waves them through precisely because dividing by a huge number gives a
+// walking pace.
+//
+// # Why both conditions, and not duration alone
+//
+// Because a long gap on its own is **normal**: patrols rest. The 2025 data has legs of six hours covering
+// two kilometres — a patrol that slept, then walked to the next post. Rejecting those on duration would
+// throw away real walking for no gain, since a leg that is long in time and short in distance contributes
+// almost nothing anyway. What is not normal is a gap of hours that also spans a county.
+//
+// # The numbers, measured rather than chosen (2025, 168 patrols, 3,232 legs)
+//
+// 87% of legs are under two hours; only 150 exceed four. Applying "over 4 h *and* over 10 km" on top of the
+// speed filter moves the event's figures from mean 44.8 km / max 103.5 km to **mean 38.1 km / max 63.6 km**,
+// and the number of patrols credited with over 60 km from 26 to 1. Variants measured at the same time:
+//
+//	duration alone:  4 h → max 57.4   6 h → max 63.6   8 h → max 73.4   12 h → max 90.8
+//	compound:        4 h + 8 km → max 57.4   4 h + 10 km → max 63.6   4 h + 15 km → max 64.8
+//
+// The compound rule at 10 km was chosen over the plain 6 h cut because both give the same maximum while the
+// compound one keeps ~2 km per patrol of genuine walking that the duration cut discards.
+//
+// # The direction of the error
+//
+// Excluding a leg can only make the figure **lower**, which is the direction the word *mindst* permits.
+// That is why a rule like this is allowed to be approximate: a real walk wrongly excluded understates a
+// number already labelled as a floor, while a transfer wrongly included makes the label false.
+const (
+	MaxLegHours = 4.0
+	MaxLegKm    = 10.0
+)
 
 // incompleteShare is the fraction of unplottable scans past which the figure is called incomplete.
 //
@@ -178,10 +245,10 @@ func Compute(scans []Scan, track []Point) Estimate {
 		from, to := positioned[i-1], positioned[i]
 		straight := Between(from.Lat, from.Lng, to.Lat, to.Lng)
 
-		// Excluded rather than capped. A leg covered faster than anybody walks is a vehicle, and a
-		// vehicle contributes nothing to how far somebody walked — capping it at a walking pace would
+		// Excluded rather than capped. A leg covered faster than anybody walks, or one spanning hours *and*
+		// tens of kilometres, is not a walk between two posts — and capping it at a walking pace would
 		// instead invent a walk of exactly the length the filter allows.
-		if isVehicleLeg(straight, from.At, to.At) {
+		if isVehicleLeg(straight, from.At, to.At) || isImplausibleLeg(straight, from.At, to.At) {
 			est.VehicleLegs++
 			continue
 		}
@@ -212,6 +279,18 @@ func isVehicleLeg(km float64, from, to time.Time) bool {
 		return false
 	}
 	return km/hours > MaxWalkingKmh
+}
+
+// isImplausibleLeg reports whether a leg lasted too long *and* covered too far to be one walk.
+//
+// The **and** is the rule: see MaxLegHours. A long gap alone is a rest, which is ordinary; a long gap that
+// also crosses tens of kilometres is two scans from different journeys.
+func isImplausibleLeg(km float64, from, to time.Time) bool {
+	hours := to.Sub(from).Hours()
+	if hours <= 0 {
+		return false
+	}
+	return hours > MaxLegHours && km > MaxLegKm
 }
 
 // Between is the great-circle distance between two coordinates, in kilometres.

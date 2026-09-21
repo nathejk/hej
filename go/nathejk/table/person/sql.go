@@ -3,6 +3,8 @@ package person
 import (
 	"fmt"
 	"strings"
+
+	"github.com/jrgensen/cqrs"
 )
 
 // The cqrs.Writer contract takes a finished SQL statement, not a statement plus
@@ -35,6 +37,27 @@ func nullableQuote(s string) string {
 		return "NULL"
 	}
 	return quote(s)
+}
+
+// statusAtSQL renders an event's stream time as a DATETIME literal, or NULL.
+//
+// **The event's time, never the clock.** These tables are rebuilt by replaying the
+// stream from sequence zero on every boot, so a `NOW()` here would restamp every
+// status transition in the event's history with the time of the last deploy — and the
+// post-race distance estimate reads this column to decide from when a withdrawn
+// member's recorded points stop counting (PRD 011 §0b.6, task 349). Getting it from
+// the clock would silently mean "they left just now", i.e. count everything.
+//
+// UTC, because the column is a TIMESTAMP and the comparison is against event times
+// that are also UTC. A zero time renders as NULL rather than as year 1: the caller has
+// to be able to tell "we do not know when" from "a very long time ago", and it treats
+// the two differently.
+func statusAtSQL(msg cqrs.Message) string {
+	t := msg.Time()
+	if t.IsZero() {
+		return "NULL"
+	}
+	return quote(t.UTC().Format("2006-01-02 15:04:05"))
 }
 
 // boolInt renders a bool as MariaDB's TINYINT(1).

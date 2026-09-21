@@ -333,3 +333,156 @@ func fieldNames(v any) []string {
 	}
 	return out
 }
+
+// The per-point outlier filter (PRD 011 §0b.6, task 349).
+//
+// The rule these tests pin is the one the maintainer asked for: **drop the coordinate, not the leg**. A
+// filter that removed the stretch around a bad fix would throw away ground the patrol really covered, and
+// that is the failure the old speed-based leg filter had.
+
+// pa is p with a reported accuracy.
+func pa(lat, lng float64, sec int, accuracy float64) trackpoint.Point {
+	pt := p(lat, lng, sec)
+	pt.Accuracy = accuracy
+	return pt
+}
+
+func TestAWildlyInaccurateFixIsDropped(t *testing.T) {
+	// A straight walk with one cell-tower fix in the middle, a kilometre off the line.
+	points := []trackpoint.Point{
+		pa(55.700, 12.200, 0, 8),
+		pa(55.7005, 12.200, 30, 12),
+		// 11.8 km accuracy — the worst value in the 2026 dev telemetry, and by its own admission not a
+		// position.
+		pa(55.710, 12.215, 60, 11820),
+		pa(55.7015, 12.200, 90, 9),
+		pa(55.7020, 12.200, 120, 10),
+	}
+
+	track := Merge([][]trackpoint.Point{points})
+
+	if track.DroppedPoints != 1 {
+		t.Errorf("DroppedPoints = %d, want 1", track.DroppedPoints)
+	}
+	// **One segment, not two.** The bad point is removed before the gaps are found, so its neighbours
+	// join up as the single walk they were.
+	if len(track.Segments) != 1 {
+		t.Fatalf("want 1 segment, got %d — the filter broke the walk instead of mending it", len(track.Segments))
+	}
+	for _, pt := range track.Segments[0].Points {
+		if pt.Lng > 12.21 {
+			t.Errorf("the discarded fix is still on the track: %v", pt)
+		}
+	}
+}
+
+// Accuracy 0 means **unknown, not perfect**. Dropping those would remove whole patrols whose phones report
+// no accuracy at all, which is a much worse failure than keeping a few imprecise points.
+func TestUnknownAccuracyIsKept(t *testing.T) {
+	track := Merge([][]trackpoint.Point{straightWalk(12.200, 0, 10)})
+
+	if track.DroppedPoints != 0 {
+		t.Errorf("DroppedPoints = %d; points with no reported accuracy must be kept", track.DroppedPoints)
+	}
+	if len(track.Segments) != 1 {
+		t.Fatalf("want 1 segment, got %d", len(track.Segments))
+	}
+}
+
+// **A spike costs one point, and the walk either side of it survives.** This is the acceptance criterion
+// task 349 is built around: the old filter would have dropped both legs.
+func TestASpikeCostsOnePointNotTwoSegments(t *testing.T) {
+	// A walk with one fix that jumps ~40 km away and back within 30 s each way — hundreds of km/h in
+	// both directions, which nothing physical does.
+	points := []trackpoint.Point{
+		p(55.700, 12.200, 0),
+		p(55.7005, 12.200, 30),
+		p(56.060, 12.200, 60), // the spike
+		p(55.7015, 12.200, 90),
+		p(55.7020, 12.200, 120),
+	}
+
+	track := Merge([][]trackpoint.Point{points})
+
+	if track.DroppedPoints != 1 {
+		t.Errorf("DroppedPoints = %d, want exactly the spike", track.DroppedPoints)
+	}
+	if len(track.Segments) != 1 {
+		t.Fatalf("want 1 segment, got %d", len(track.Segments))
+	}
+	for _, pt := range track.Segments[0].Points {
+		if pt.Lat > 55.8 {
+			t.Errorf("the spike is still on the track: %v", pt)
+		}
+	}
+}
+
+// **One-way fast is not a spike.** A phone that moves fast and stays there is a patrol in a car (or the
+// first fix after a long silence) — PRD 011 §0b.6 handles that by race status, not here. Deleting it as an
+// error would remove a real journey *and* make a car look like a problem we had solved.
+func TestAOneWayFastStepIsKept(t *testing.T) {
+	points := []trackpoint.Point{
+		p(55.700, 12.200, 0),
+		p(55.7005, 12.200, 30),
+		// 40 km in 30 s: absurd as a step, but the track *stays* up here afterwards, so it is movement
+		// (or a gap), not a fix that teleported and came back.
+		p(56.060, 12.200, 60),
+		p(56.0605, 12.200, 90),
+		p(56.0610, 12.200, 120),
+	}
+
+	track := Merge([][]trackpoint.Point{points})
+
+	if track.DroppedPoints != 0 {
+		t.Errorf("DroppedPoints = %d; a one-way fast step is movement, not a spike", track.DroppedPoints)
+	}
+}
+
+// Every point unusable is an empty track rather than a one-point segment or a panic. A patrol whose only
+// recorder had a broken GPS reads as "no route", which is a state the page already handles.
+func TestAllPointsUnusable(t *testing.T) {
+	points := []trackpoint.Point{
+		pa(55.700, 12.200, 0, 5000),
+		pa(55.701, 12.201, 30, 5000),
+	}
+
+	track := Merge([][]trackpoint.Point{points})
+
+	if !track.IsEmpty() {
+		t.Errorf("want an empty track, got %d segments", len(track.Segments))
+	}
+	if track.DroppedPoints != 2 {
+		t.Errorf("DroppedPoints = %d, want 2", track.DroppedPoints)
+	}
+	// The member still counts as a recorder: they *did* record, and the count is what tells the page
+	// "somebody tried" apart from "nobody recorded".
+	if track.Recorders != 1 {
+		t.Errorf("Recorders = %d, want 1", track.Recorders)
+	}
+}
+
+// Two bad fixes in a row must not shelter each other: the comparison is against the last **kept** point, so
+// the second one is judged against the walk rather than against its equally-bad predecessor.
+func TestTwoConsecutiveSpikesDoNotShelterEachOther(t *testing.T) {
+	points := []trackpoint.Point{
+		p(55.700, 12.200, 0),
+		p(55.7005, 12.200, 30),
+		p(56.060, 12.200, 60),  // spike
+		p(56.0601, 12.200, 90), // and another, right next to the first
+		p(55.7015, 12.200, 120),
+		p(55.7020, 12.200, 150),
+	}
+
+	track := Merge([][]trackpoint.Point{points})
+
+	if track.DroppedPoints != 2 {
+		t.Errorf("DroppedPoints = %d, want both spikes", track.DroppedPoints)
+	}
+	for _, seg := range track.Segments {
+		for _, pt := range seg.Points {
+			if pt.Lat > 55.8 {
+				t.Errorf("a spike survived: %v", pt)
+			}
+		}
+	}
+}

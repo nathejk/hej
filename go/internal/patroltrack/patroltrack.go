@@ -75,6 +75,55 @@ const GapThreshold = 5 * time.Minute
 // worst device.
 const SimplifyMetres = 15.0
 
+// MaxAccuracyMetres is the reported accuracy beyond which a point is not used.
+//
+// # Why a point is dropped for its accuracy at all
+//
+// The event runs on whatever phones the patrols brought (PRD 011 §0b.6). A fix with a 2 km radius is not
+// a position, it is a cell tower, and it does the most damage in the least visible way: it lands in the
+// middle of a walk, inflates the two segments either side of it, and draws a spike across a lake.
+//
+// # Why 250
+//
+// Measured rather than chosen (task 349). In the 2026 dev telemetry — 648 points, 63 people — the
+// distribution is: 542 points at or under 20 m, 46 under 35 m, 53 under 100 m, then **nothing at all
+// between 100 m and 500 m**, and 7 above it including one at 11.8 km. That gap is what a threshold
+// should sit in, and 250 m sits in the middle of it.
+//
+// It is deliberately far above task 082's measurements (10.5 m median on a phone, 35 m on a Wi-Fi-only
+// iPad) so that no real device is excluded for being ordinary. The bar is "obviously wrong", not "less
+// accurate than the best phone" — a 100 m fix in a forest is a fix.
+//
+// Accuracy 0 means *unknown*, not perfect, and is kept: some clients report nothing, and discarding
+// every point from those devices would silently remove whole patrols rather than bad fixes.
+const MaxAccuracyMetres = 250.0
+
+// SpikeKmh is the implied speed at which a single point is treated as a GPS spike rather than as travel.
+//
+// # Why this is not a walking-pace threshold
+//
+// Because it is not asking "was this walked?". `internal/distance` asks that. This asks "is this point
+// physically possible at all?", and it has to stay clear of every legitimate way a patrol's phone moves:
+// a patrol being driven is **not** a spike (that is handled by status — PRD 011 §0b.6), so the bar has to
+// be above a car. 200 km/h is above a car and a bus, and far below the hundreds or thousands implied by a
+// fix that jumps to another county and back.
+//
+// # And why speed alone is not enough
+//
+// A point is only dropped when the track **comes back** — see returnsSoon. Fast away and staying away is a
+// phone that moved; fast away and back is a receiver failing. Conflating the two is how a car journey gets
+// quietly deleted as an error, or a genuine error kept as a journey.
+const SpikeKmh = 200.0
+
+// SpikeLookahead is how many later points may be inspected when deciding whether a track *returned*.
+//
+// A GPS excursion is short — one fix, occasionally two or three while the receiver recovers. A journey is
+// not. So a small window is enough to tell them apart, and keeping it small is what makes the rule cheap
+// (the scan is O(n·SpikeLookahead), over every point of every member of every patrol) and conservative: a
+// long absurd stretch is left alone rather than deleted wholesale, which is the safe direction, because
+// that case is movement and belongs to the race-status rule instead.
+const SpikeLookahead = 5
+
 // Point is one position on a drawn route.
 //
 // # Why there is a timestamp here and none in the JSON
@@ -119,6 +168,13 @@ type Track struct {
 	// and for the page's honesty sentence.
 	Points int
 
+	// DroppedPoints is how many points were discarded as unusable before anything was drawn (task 349).
+	//
+	// A diagnostic, never shown to a visitor: "we threw away 3 of your positions" is not a sentence a
+	// public page should venture. It is here because a filter with no counter is a filter nobody can tell
+	// is working — and because a patrol whose track looks short can be explained by it.
+	DroppedPoints int
+
 	// SourcePoints is how many points went in, before dedup within a person and simplification.
 	//
 	// Kept so the page can say what the track covers rather than implying it is a route. A track of 180
@@ -155,7 +211,21 @@ func Merge(groups [][]trackpoint.Point) Track {
 		out.Recorders++
 		out.SourcePoints += len(points)
 
-		for _, run := range breakOnGaps(points) {
+		// **Unusable points go first, before the gaps are found.** Order matters: a wild fix sitting
+		// inside a run would otherwise break the run around itself, and a spike removed afterwards would
+		// leave the two halves as separate segments with a hole where the bad point was (PRD 011 §0b.6,
+		// task 349). Dropping first lets the neighbours join up as the single walk they were.
+		//
+		// This is also why the filter lives here rather than in `internal/distance`: both the map and the
+		// distance read this merge, and a point dropped in one place but not the other would draw a route
+		// that disagrees with the number printed above it.
+		usable, dropped := dropUnusable(points)
+		out.DroppedPoints += dropped
+		if len(usable) == 0 {
+			continue
+		}
+
+		for _, run := range breakOnGaps(usable) {
 			simplified := simplify(run, SimplifyMetres)
 			if len(simplified) < 2 {
 				// A single point is not a line. Dropped rather than emitted as a one-point segment,
@@ -167,6 +237,90 @@ func Merge(groups [][]trackpoint.Point) Track {
 		}
 	}
 	return out
+}
+
+// dropUnusable removes points that are not positions, one point at a time.
+//
+// # Why the unit of rejection is a single coordinate
+//
+// Task 339 filtered whole **legs** by speed, on the theory that a fast stretch was a vehicle transfer.
+// PRD 011 §0b.6 corrected that: there are no transfer sections, and the thing that actually goes wrong is
+// a mixed fleet of GPS units producing the occasional nonsense fix. One bad point corrupts the two
+// segments either side of it — so removing the point fixes both, while removing a leg throws away a
+// stretch the patrol really walked.
+//
+// # Two rules, in order
+//
+//  1. **Accuracy.** A fix whose own reported radius exceeds MaxAccuracyMetres is not a position. Cheap,
+//     independent of neighbours, and the only rule with a *self-reported* justification — the device is
+//     telling us it does not know where it is.
+//  2. **Spikes.** A point that is implausibly fast away from the previous kept point, where the track then
+//     **comes back** to somewhere plausible within the next few fixes. Judged against the previous *kept*
+//     point rather than the previous raw one, so two consecutive bad fixes cannot shelter each other by
+//     making the step between them look small.
+//
+// Returns the survivors and how many were dropped. The input is not modified.
+func dropUnusable(points []trackpoint.Point) ([]trackpoint.Point, int) {
+	kept := make([]trackpoint.Point, 0, len(points))
+	dropped := 0
+
+	for i, p := range points {
+		if p.Accuracy > MaxAccuracyMetres {
+			dropped++
+			continue
+		}
+		if len(kept) > 0 {
+			last := kept[len(kept)-1]
+			if impliedKmh(last, p) > SpikeKmh && returnsSoon(points, i+1, last) {
+				dropped++
+				continue
+			}
+		}
+		kept = append(kept, p)
+	}
+	return kept, dropped
+}
+
+// returnsSoon reports whether the track comes back to somewhere plausible shortly after `from`.
+//
+// **This is the test that separates an error from a journey**, and it is the whole reason the rule is not
+// just "too fast". A fix that jumps away and comes back is a receiver failing. A position that jumps away
+// and *stays* there is a phone that moved — a car, a train, or the first fix after a long silence — which
+// PRD 011 §0b.6 handles by the member's race status instead. Deleting that as an error would remove a real
+// journey, and would also make a car look like a data problem we had already dealt with.
+//
+// "Plausible" is measured from the same anchor the suspect point was measured from, so a long gap makes the
+// implied speed small and nothing is dropped — the desired outcome, since after a two-hour silence we know
+// nothing about what happened in between.
+func returnsSoon(points []trackpoint.Point, from int, anchor trackpoint.Point) bool {
+	for i := from; i < len(points) && i < from+SpikeLookahead; i++ {
+		if points[i].Accuracy > MaxAccuracyMetres {
+			// Not a witness to anything: this point is being dropped on its own account.
+			continue
+		}
+		if impliedKmh(anchor, points[i]) <= SpikeKmh {
+			return true
+		}
+	}
+	return false
+}
+
+// impliedKmh is the speed a straight line between two fixes implies, or 0 when it cannot be computed.
+//
+// Flat-earth distance at 55°N, like perpendicularMetres and for the same reason: this decides whether a
+// number is in the hundreds, and the projection error is metres.
+func impliedKmh(a, b trackpoint.Point) float64 {
+	hours := float64(b.TS-a.TS) / float64(time.Hour/time.Millisecond)
+	if hours <= 0 {
+		return 0
+	}
+
+	const metresPerDegreeLat = 111_320.0
+	metresPerDegreeLng := metresPerDegreeLat * math.Cos(a.Lat*math.Pi/180)
+	dx := (b.Lng - a.Lng) * metresPerDegreeLng
+	dy := (b.Lat - a.Lat) * metresPerDegreeLat
+
+	return math.Hypot(dx, dy) / 1000 / hours
 }
 
 // breakOnGaps splits one person's points wherever the recording stopped for too long.

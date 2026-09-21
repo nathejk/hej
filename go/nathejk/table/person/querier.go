@@ -254,18 +254,23 @@ type Queries interface {
 	// way for "no such patrol" as for "not allowed".
 	ListPatrolByNumber(year, number string) ([]Person, error)
 
-	// MemberIDs returns the person ids belonging to one team.
+	// TrackMembers returns who is on one team, with what the lifecycle says about each of them.
 	//
-	// # Why ids and not people
+	// # Why ids and a status, and nothing else
 	//
-	// The one caller is the post-race patrol route (PRD 011, task 340), which needs to ask the
-	// telemetry projection "whose points may I read?" and nothing else. `ListPatrolByNumber`
-	// would answer the same question and hand back whole `Person` values — names, phone numbers
-	// and `phoneParent` — into a code path that renders an **unauthenticated** page.
+	// The one caller is the post-race patrol route (PRD 011, tasks 340 and 349), which needs two
+	// things: whose points it may read, and **from when it must stop counting them**.
+	// `ListPatrolByNumber` would answer the first and hand back whole `Person` values — names, phone
+	// numbers and `phoneParent` — into a code path that renders an **unauthenticated** page.
 	//
-	// So this read is narrowed to the only field that path has any use for. It is the same
-	// discipline `ExpiredPortraits` follows: the retention job gets refs rather than people,
-	// because it has no business holding a member's address while it deletes an image.
+	// So this read is narrowed to the three fields that path has any use for. It is the same
+	// discipline `ExpiredPortraits` follows: the retention job gets refs rather than people, because
+	// it has no business holding a member's address while it deletes an image.
+	//
+	// This replaced a `MemberIDs` that returned ids alone. The status had to come with them because
+	// a person who left the race may have been driven home, and their phone keeps recording from the
+	// car — so their later points are not the patrol walking (PRD 011 §0b.6). Two reads would have
+	// been two chances for the ids and the statuses to disagree about who is in the patrol.
 	//
 	// Soft-deleted rows are excluded, as in every other read here. A member whose record was
 	// removed should not have their positions drawn.
@@ -273,7 +278,7 @@ type Queries interface {
 	// Empty slice, not an error, for an unknown team — and an empty team id returns nothing
 	// rather than every member with no team, which is the safe reading and the one personnel
 	// roles need.
-	MemberIDs(year, teamID string) ([]string, error)
+	TrackMembers(year, teamID string) ([]TrackMember, error)
 
 	// ExpiredPortraits returns the portraits that are due to be deleted: captured
 	// before `before`, or with no capture time recorded at all.
@@ -286,6 +291,31 @@ type Queries interface {
 	// forever" — for a photograph of a minor held on a safety basis, the failure that
 	// matters is the one where a row quietly becomes immortal.
 	ExpiredPortraits(year string, before time.Time, limit int) ([]ExpiredPortrait, error)
+}
+
+// TrackMember is one member of a team, as the post-race route path needs them.
+//
+// Deliberately three fields. A `Person` would carry a name and a guardian's number into the handler that
+// renders an unauthenticated page; this carries an id, a lifecycle value and a time.
+type TrackMember struct {
+	PersonID string
+
+	// MemberStatus is the raw `types.MemberStatus` value, or "" for a member no lifecycle event has
+	// touched.
+	//
+	// **Raw, not interpreted.** Whether a status means "left the race" is a question shared-go should own
+	// (task 175) and `cmd/api` currently answers in one place; this projection storing the answer would be
+	// a second definition of it, and two definitions of "left the race" is exactly what task 175 exists to
+	// prevent.
+	MemberStatus string
+
+	// StatusAt is when that status was recorded, or nil when it is unknown.
+	//
+	// Nil is common and means two different things that cannot be told apart here: no lifecycle event has
+	// ever arrived for this member, or one arrived before the column existed. Both leave the caller unable
+	// to say *when* a withdrawal happened, which is why PRD 011 §0b.6 has it exclude the member's points
+	// entirely in that case rather than guessing a cutoff.
+	StatusAt *time.Time
 }
 
 // ExpiredPortrait is one portrait the retention job should remove.
@@ -467,12 +497,12 @@ func (q querier) ListPatrolByNumber(year, number string) ([]Person, error) {
 	return out, rows.Err()
 }
 
-// MemberIDs returns the person ids belonging to one team.
+// TrackMembers returns who is on one team, with what the lifecycle says about each of them.
 //
-// Selects one column, deliberately: this read exists so the post-race route path never holds a `Person`.
-// See the interface's doc — the caller renders an unauthenticated page, and the cheapest way to guarantee
-// it cannot leak a name is for the name never to arrive.
-func (q querier) MemberIDs(year, teamID string) ([]string, error) {
+// Selects three columns, deliberately: this read exists so the post-race route path never holds a
+// `Person`. See the interface's doc — the caller renders an unauthenticated page, and the cheapest way to
+// guarantee it cannot leak a name is for the name never to arrive.
+func (q querier) TrackMembers(year, teamID string) ([]TrackMember, error) {
 	if teamID == "" {
 		// An empty team id would otherwise match every member with no team — which is every personnel
 		// role in the event. The same reading `reveal.Revealed` applies to an empty patrol id.
@@ -480,7 +510,7 @@ func (q querier) MemberIDs(year, teamID string) ([]string, error) {
 	}
 
 	rows, err := q.db.Query(`
-		SELECT personId
+		SELECT personId, memberStatus, memberStatusAt
 		FROM person
 		WHERE year = ? AND deleted = 0 AND teamId = ?
 		ORDER BY personId`, year, teamID)
@@ -489,13 +519,18 @@ func (q querier) MemberIDs(year, teamID string) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var out []string
+	var out []TrackMember
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var m TrackMember
+		var at sql.NullTime
+		if err := rows.Scan(&m.PersonID, &m.MemberStatus, &at); err != nil {
 			return nil, err
 		}
-		out = append(out, id)
+		if at.Valid {
+			t := at.Time
+			m.StatusAt = &t
+		}
+		out = append(out, m)
 	}
 	return out, rows.Err()
 }

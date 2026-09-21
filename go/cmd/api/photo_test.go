@@ -53,6 +53,10 @@ type stubPeople struct {
 	// team id is not.
 	memberIDs      map[string][]string
 	memberIDsAsked []string
+
+	// memberStatus overrides a member's lifecycle status, keyed by person id (task 349). Empty means
+	// "still racing", which is what almost every test wants.
+	memberStatus map[string]string
 }
 
 func (s *stubPeople) Get(year, personID string) (person.Person, bool, error) {
@@ -98,24 +102,34 @@ func (s *stubPeople) ListPatrolByNumber(_ string, number string) ([]person.Perso
 	return s.patrol[number], nil
 }
 
-// MemberIDs returns the ids of the team's members (task 340).
+// TrackMembers returns the team's members and their lifecycle status (tasks 340, 349).
 //
 // Answers from `memberIDs` when a test has set it, and otherwise derives the ids from whatever patrol the
 // stub already holds — so tests that only care about membership do not have to populate a second field,
-// and a test that cares about the *narrowness* of this read can set it explicitly.
-func (s *stubPeople) MemberIDs(_ string, teamID string) ([]string, error) {
+// and a test that cares about the *narrowness* of this read can set it explicitly. Everybody it returns is
+// still racing unless `memberStatus` says otherwise.
+func (s *stubPeople) TrackMembers(_ string, teamID string) ([]person.TrackMember, error) {
 	s.memberIDsAsked = append(s.memberIDsAsked, teamID)
 	if s.listedErr != nil {
 		return nil, s.listedErr
 	}
-	if ids, ok := s.memberIDs[teamID]; ok {
-		return ids, nil
+
+	member := func(id string) person.TrackMember {
+		return person.TrackMember{PersonID: id, MemberStatus: s.memberStatus[id]}
 	}
-	var out []string
+
+	if ids, ok := s.memberIDs[teamID]; ok {
+		out := make([]person.TrackMember, 0, len(ids))
+		for _, id := range ids {
+			out = append(out, member(id))
+		}
+		return out, nil
+	}
+	var out []person.TrackMember
 	for _, members := range s.patrol {
 		for _, m := range members {
 			if m.TeamID == teamID {
-				out = append(out, m.PersonID)
+				out = append(out, member(m.PersonID))
 			}
 		}
 	}
