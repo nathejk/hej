@@ -337,8 +337,15 @@ func TestPatrolPageShowsTheDistance(t *testing.T) {
 	}
 }
 
-// **The honesty sentence.** Without it, a gap in the drawn route reads as "they stood still here".
-func TestPatrolPageSaysWhatTheTrackCovers(t *testing.T) {
+// **The caption over the map.** Reworded by the maintainer on 2026-09-21 from a paragraph explaining that the
+// route only covers the minutes the app was open, to one sentence: *"Her vises alle de registreringer vi har om
+// patruljen."*
+//
+// The honesty PRD 011 §0a requires — that the drawing must not imply we know more than we do — is now carried
+// by **the drawing** instead of by prose: solid where there is a recording, dotted between two registrations
+// with nothing behind them (task 354). That is a better division of labour on a page a twelve-year-old reads,
+// and it is worth knowing that the sentence alone no longer makes the point.
+func TestPatrolPageSaysWhatTheMapShows(t *testing.T) {
 	app, _, srv := patrolPageApp(t)
 	// A track with something in it, so the map section renders.
 	app.patrolTracks = trackReader(t,
@@ -349,11 +356,14 @@ func TestPatrolPageSaysWhatTheTrackCovers(t *testing.T) {
 	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := string(body)
 
-	if !strings.Contains(page, "hvor en telefon havde appen åben") {
-		t.Errorf("the page must say what the track covers\n%s", page)
+	if !strings.Contains(page, "Her vises alle de registreringer vi har om patruljen") {
+		t.Errorf("the map needs its caption\n%s", page)
 	}
-	if !strings.Contains(page, "huller") {
-		t.Errorf("the page must say the route has gaps and that they are not faults\n%s", page)
+	// And it must not claim the route is the whole walk — the thing the old paragraph was there to prevent.
+	for _, forbidden := range []string{"hele vejen I gik", "jeres rute", "ruten I gik"} {
+		if strings.Contains(page, forbidden) {
+			t.Errorf("the caption claims more than the data supports: %q", forbidden)
+		}
 	}
 }
 
@@ -461,7 +471,11 @@ func TestTheMapDoesNotReplaceTheScanList(t *testing.T) {
 	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := string(body)
 
-	for _, want := range []string{`<ol class="scans">`, "Post 4A", "hvor en telefon havde appen åben"} {
+	for _, want := range []string{
+		`<ol class="scans">`,
+		"Post 4A",
+		"Her vises alle de registreringer vi har om patruljen",
+	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the page with a map is missing %q; the list is not the map's fallback, it is a "+
 				"requirement", want)

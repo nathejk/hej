@@ -140,6 +140,34 @@
       })
     }
 
+    // **Where there is no recording: a dotted line between the two registrations either side.**
+    //
+    // The commonest case by far — task 082 measured 2% track coverage — used to draw as a handful of
+    // unconnected pins, which reads as missing data rather than as travel we did not measure. A dotted line
+    // says the true thing instead: the patrol was registered here and then there, and we do not know the way
+    // between.
+    //
+    // Same blue as the route, because it is the same patrol going the same way; dotted and thinner, because
+    // it is a weaker claim. That contrast is the whole point — solid means "we recorded this", dotted means
+    // "we are joining two things we know" — so if these ever start looking alike, the honesty goes with it.
+    if (map_.untracked && map_.untracked.length) {
+      L.polyline(map_.untracked, {
+        color: '#1d4ed8',
+        weight: 3,
+        opacity: 0.55,
+        // Dots rather than dashes: a dashed line still reads as a route, and this is not one. Round caps
+        // turn each 1 px segment into a dot.
+        dashArray: '1 7',
+        lineCap: 'round',
+      }).addTo(map)
+
+      map_.untracked.forEach(function (leg) {
+        leg.forEach(function (point) {
+          bounds.extend(point)
+        })
+      })
+    }
+
     // Scan pins. Checkpoints and bandit catches get different colours, because they are different kinds of
     // thing that happened and a single marker would flatten the night's story.
     var scanLayer = L.layerGroup().addTo(map)

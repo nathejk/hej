@@ -192,6 +192,12 @@ type patrolRegistrations struct {
 	rows        []publicScanRow
 	unplottable int
 	forDistance []distance.Scan
+	// pins are the plottable registrations as the map draws them.
+	//
+	// Built here rather than by the map handler reading the projection again: one read means the list, the
+	// pins and the dotted legs cannot disagree about which registrations a patrol has — which they would,
+	// visibly, on the same screen, if a scan arrived between two queries.
+	pins []patrolMapScan
 }
 
 func (app *application) patrolRegistrations(teamID string) patrolRegistrations {
@@ -218,6 +224,14 @@ func (app *application) patrolRegistrations(teamID string) patrolRegistrations {
 		out.forDistance = append(out.forDistance, distance.Scan{
 			Lat: s.Lat, Lng: s.Lng, At: s.ScannedAt,
 		})
+		if plottable {
+			out.pins = append(out.pins, patrolMapScan{
+				Lat:   *s.Lat,
+				Lng:   *s.Lng,
+				Label: scanRowLabel(s),
+				Kind:  string(s.Kind),
+			})
+		}
 	}
 	return out
 }

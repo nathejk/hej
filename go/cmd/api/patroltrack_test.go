@@ -110,9 +110,15 @@ func tp(lat, lng float64, sec int) trackpoint.Point {
 }
 
 func walk(lng float64, n int) []trackpoint.Point {
+	return walkFrom(lng, n, 0)
+}
+
+// walkFrom is walk starting at a given minute of the night, for tests about *when* a track was recorded —
+// coverage of a scan leg is decided by time, not by place (task 354).
+func walkFrom(lng float64, n, startMinute int) []trackpoint.Point {
 	out := make([]trackpoint.Point, 0, n)
 	for i := 0; i < n; i++ {
-		out = append(out, tp(55.700+float64(i)*0.0009, lng, i*30))
+		out = append(out, tp(55.700+float64(i)*0.0009, lng, startMinute*60+i*30))
 	}
 	return out
 }

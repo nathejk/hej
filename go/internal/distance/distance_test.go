@@ -561,3 +561,135 @@ func TestTheImplausibleLegRuleNeedsBothConditions(t *testing.T) {
 		t.Errorf("want nothing excluded, got %d", est.VehicleLegs)
 	}
 }
+
+// UncoveredLegs — the legs the public map draws dotted (task 354).
+//
+// The rule they must obey is not "looks reasonable" but **the same rule the figure uses**: a leg is covered
+// when the track has at least two points inside it, which is exactly when `Compute` raises it above the
+// straight line. A map that dotted a leg the number had measured would be a page nobody could explain.
+
+func TestUncoveredLegsAreTheLegsTheTrackDoesNotCover(t *testing.T) {
+	// Three positioned scans: the first leg is walked with the phone open — and wandering, so the measured
+	// path is longer than the straight line — while the second is not recorded at all.
+	first, second, third := scan(55.700, 12.200, 0), scan(55.720, 12.200, 60), scan(55.740, 12.200, 120)
+	track := []Point{
+		{Lat: 55.705, Lng: 12.200, At: at(10)},
+		{Lat: 55.710, Lng: 12.230, At: at(25)},
+		{Lat: 55.715, Lng: 12.200, At: at(40)},
+		{Lat: 55.720, Lng: 12.200, At: at(55)},
+	}
+
+	legs := UncoveredLegs([]Scan{first, second, third}, track)
+
+	if len(legs) != 1 {
+		t.Fatalf("want 1 uncovered leg, got %d", len(legs))
+	}
+	if !closeTo(legs[0].From.Lat, 55.720, 0.0001) || !closeTo(legs[0].To.Lat, 55.740, 0.0001) {
+		t.Errorf("the uncovered leg is the wrong one: %+v", legs[0])
+	}
+
+	// And the covered leg is the one the figure raised — the agreement between the drawing and the number.
+	est := Compute([]Scan{first, second, third}, track)
+	if est.RaisedLegs != 1 {
+		t.Errorf("want the covered leg raised by the track, got %d raised", est.RaisedLegs)
+	}
+}
+
+// **Covered is not the same as raised, and the map asks the first question.** A leg whose track wandered less
+// than the straight line keeps the straight line in the figure — but it is still a leg we recorded, so it must
+// not be dotted. Getting this wrong is how the map ends up claiming ignorance about ground it has a trace of.
+func TestALegWithATraceIsNotDottedEvenWhenItRaisesNothing(t *testing.T) {
+	scans := []Scan{scan(55.700, 12.200, 0), scan(55.740, 12.200, 60)}
+	// Two samples, 200 m apart, inside a 4.4 km leg: a phone that woke up briefly.
+	track := []Point{
+		{Lat: 55.710, Lng: 12.200, At: at(20)},
+		{Lat: 55.712, Lng: 12.200, At: at(25)},
+	}
+
+	if got := len(UncoveredLegs(scans, track)); got != 0 {
+		t.Errorf("a leg with a trace must not be dotted, got %d uncovered", got)
+	}
+	if est := Compute(scans, track); est.RaisedLegs != 0 {
+		t.Errorf("and the figure should not have been raised by it, got %d", est.RaisedLegs)
+	}
+}
+
+// A single track point inside a leg leaves it **uncovered**, following `alongTrack`: one point says nothing
+// about how the leg was walked, and the map should not imply it does.
+func TestOneTrackPointInsideALegIsNotCoverage(t *testing.T) {
+	scans := []Scan{scan(55.700, 12.200, 0), scan(55.740, 12.200, 60)}
+	track := []Point{{Lat: 55.710, Lng: 12.200, At: at(20)}}
+
+	if got := len(UncoveredLegs(scans, track)); got != 1 {
+		t.Errorf("one point is not coverage; want the leg dotted, got %d uncovered", got)
+	}
+}
+
+// A patrol with no track at all — the common case, at 2% coverage — has every leg dotted. That is the
+// situation the feature exists for: pins alone read as missing data rather than as unmeasured travel.
+func TestWithNoTrackEveryLegIsUncovered(t *testing.T) {
+	scans := []Scan{
+		scan(55.700, 12.200, 0),
+		scan(55.720, 12.200, 60),
+		scan(55.740, 12.200, 120),
+	}
+
+	if got := len(UncoveredLegs(scans, nil)); got != 2 {
+		t.Errorf("want both legs uncovered, got %d", got)
+	}
+}
+
+// **An unplottable scan anchors nothing**, exactly as on the page's list and in the estimate: a leg needs two
+// positions. A hand-written registration must not become a dotted line to nowhere.
+func TestAnUnplottableScanBreaksNoLegOpen(t *testing.T) {
+	legs := UncoveredLegs([]Scan{
+		scan(55.700, 12.200, 0),
+		unpositioned(60),
+		scan(55.740, 12.200, 120),
+	}, nil)
+
+	if len(legs) != 1 {
+		t.Fatalf("want one leg between the two positioned scans, got %d", len(legs))
+	}
+	if !closeTo(legs[0].From.Lat, 55.700, 0.0001) || !closeTo(legs[0].To.Lat, 55.740, 0.0001) {
+		t.Errorf("the leg should span the unplottable scan: %+v", legs[0])
+	}
+}
+
+// **A filtered leg is still drawn.** The map's claim is about what was registered, not about what was
+// counted: the patrol was scanned at both ends and we have no track between, which is true whether or not the
+// distance estimate excluded the leg as a vehicle (MaxWalkingKmh) or as too long and too far (MaxLegHours).
+func TestALegTheEstimateExcludedIsStillUncovered(t *testing.T) {
+	// 30 km in half an hour: excluded from the figure as far too fast to walk.
+	driven := []Scan{scan(55.70, 12.20, 0), scan(55.97, 12.20, 30)}
+
+	if est := Compute(driven, nil); est.HasFigure() {
+		t.Fatalf("the fixture should be excluded from the figure, got %.1f km", est.Km)
+	}
+	if got := len(UncoveredLegs(driven, nil)); got != 1 {
+		t.Errorf("want the leg drawn anyway, got %d", got)
+	}
+}
+
+func TestOnePositionedScanMakesNoLeg(t *testing.T) {
+	if got := UncoveredLegs([]Scan{scan(55.70, 12.20, 0)}, nil); got != nil {
+		t.Errorf("one place is not a journey, got %v", got)
+	}
+}
+
+// Order is time order, not the order the projection returned them — the same normalisation `Compute` does,
+// and for the same reason: the source returns scans newest-first.
+func TestUncoveredLegsAreInTimeOrder(t *testing.T) {
+	legs := UncoveredLegs([]Scan{
+		scan(55.740, 12.200, 120),
+		scan(55.700, 12.200, 0),
+		scan(55.720, 12.200, 60),
+	}, nil)
+
+	if len(legs) != 2 {
+		t.Fatalf("want 2 legs, got %d", len(legs))
+	}
+	if !closeTo(legs[0].From.Lat, 55.700, 0.0001) || !closeTo(legs[1].From.Lat, 55.720, 0.0001) {
+		t.Errorf("legs are not in time order: %+v", legs)
+	}
+}

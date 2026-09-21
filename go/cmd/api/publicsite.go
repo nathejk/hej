@@ -701,8 +701,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   {{else if .TrackSegments}}
   <div id="patrolmap" class="maparea" data-patrol="{{.Patrol.Number}}"></div>
   <p class="caveat mapcaveat">
-    Ruten viser, hvor en telefon havde appen åben — ikke hele vejen I gik. Ligger telefonen i lommen,
-    holder optagelsen pause, så ruten har huller. Det er ikke fejl.
+    Her vises alle de registreringer vi har om patruljen.
   </p>
   <!-- The map is a **progressive enhancement** (PRD 011 §8, task 342), and these assets are the only
        script on the public site.

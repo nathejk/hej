@@ -132,6 +132,23 @@ describe('the public map island', () => {
     expect(CODE).toContain('retry.limit')
   })
 
+  // **Solid is “we recorded this”; dotted is “we are joining two things we know”** (task 354). The distinction
+  // is the honesty of the drawing, so the dotted legs must be their own stroke rather than more segments in
+  // the route — and they must be visibly weaker: dashed, thinner, fainter.
+  it('draws the untracked legs as a separate, dotted stroke', () => {
+    expect(CODE).toContain('map_.untracked')
+    expect(CODE).toContain('dashArray')
+    expect(CODE).toContain("lineCap: 'round'")
+
+    // The two polylines must not share their options object: one set of weights for both would let a later
+    // tidy-up make the guess look like the record.
+    const solid = CODE.indexOf('map_.track && map_.track.length')
+    const dotted = CODE.indexOf('map_.untracked && map_.untracked.length')
+    expect(solid).toBeGreaterThan(-1)
+    expect(dotted).toBeGreaterThan(solid)
+    expect(CODE.slice(solid, dotted)).not.toContain('dashArray')
+  })
+
   // The app stores the member's choice under `hej.map.baseLayer`. This page is read by people who are not
   // members, and the island holds no state by design.
   it('does not touch the app’s persisted layer choice', () => {

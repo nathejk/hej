@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"nathejk.dk/internal/scans"
 	"nathejk.dk/nathejk/table/album"
 	"nathejk.dk/nathejk/table/trackpoint"
 )
@@ -424,4 +425,115 @@ func assetRefs(page string) []string {
 		}
 	}
 	return out
+}
+
+// The dotted legs (task 354).
+//
+// The map now draws a dotted line between two registrations it has no recording between. The tests that matter
+// are about **what must not be drawn**: no bridge between track segments, and no timestamps on the wire.
+
+func TestTheMapCarriesTheLegsWithNoTrackBehindThem(t *testing.T) {
+	app, srv := mapApp(t)
+	// Two positioned scans early in the night, and a track that only starts hours later: coverage is decided
+	// **by time**, so the leg between these two has nothing behind it.
+	app.models.Scans = pageScans{byPatrol: map[string][]scans.Scan{
+		"team-42": {
+			{ID: "s-2", Kind: scans.KindCheckpoint, Label: "Post 7", CheckpointID: "cp-2",
+				Lat: coord(55.7400), Lng: coord(12.2000), ScannedAt: nightAt(60)},
+			{ID: "s-1", Kind: scans.KindCheckpoint, Label: "Post 4A", CheckpointID: "cp-1",
+				Lat: coord(55.7000), Lng: coord(12.2000), ScannedAt: nightAt(0)},
+		},
+	}}
+	app.patrolTracks = trackReader(t,
+		&trackPeople{members: map[string][]string{"team-42": {"p1"}}},
+		&trackPoints{byPerson: map[string][]trackpoint.Point{"p1": walkFrom(12.200, 10, 300)}},
+	)
+
+	_, body := getPublic(t, srv.URL+"/api/public/patrol/42/map", nil)
+	out := decodeMap(t, body)
+
+	if len(out.Untracked) != 1 {
+		t.Fatalf("want 1 untracked leg, got %d: %s", len(out.Untracked), body)
+	}
+	leg := out.Untracked[0]
+	if leg[0] == leg[1] {
+		t.Error("a leg from a place to itself is not a leg")
+	}
+	for _, point := range leg {
+		if point[0] == 0 || point[1] == 0 {
+			t.Errorf("a leg endpoint has no position: %v", leg)
+		}
+	}
+}
+
+// **Coverage is temporal, and that is worth knowing.** A leg whose window contains track points is not dotted,
+// even if those points are somewhere else entirely — the same property the distance estimate has had since task
+// 339, because both ask `alongTrack`. Pinned so nobody "fixes" it into a geographic test without deciding to.
+func TestALegIsCoveredByTimeNotByPlace(t *testing.T) {
+	app, srv := mapApp(t)
+	app.models.Scans = pageScans{byPatrol: map[string][]scans.Scan{
+		"team-42": {
+			{ID: "s-2", Kind: scans.KindCheckpoint, Label: "Post 7", CheckpointID: "cp-2",
+				Lat: coord(55.7400), Lng: coord(12.2000), ScannedAt: nightAt(60)},
+			{ID: "s-1", Kind: scans.KindCheckpoint, Label: "Post 4A", CheckpointID: "cp-1",
+				Lat: coord(55.7000), Lng: coord(12.2000), ScannedAt: nightAt(0)},
+		},
+	}}
+	// Recorded inside the leg's window, but a degree of longitude away.
+	app.patrolTracks = trackReader(t,
+		&trackPeople{members: map[string][]string{"team-42": {"p1"}}},
+		&trackPoints{byPerson: map[string][]trackpoint.Point{"p1": walkFrom(13.200, 10, 10)}},
+	)
+
+	_, body := getPublic(t, srv.URL+"/api/public/patrol/42/map", nil)
+	out := decodeMap(t, body)
+
+	if len(out.Untracked) != 0 {
+		t.Errorf("want the leg treated as covered, got %d: %s", len(out.Untracked), body)
+	}
+}
+
+// **The dotted legs join scans, never track segments.** Joining one member's segment to another's would draw
+// travel that never happened; joining segments within one member's chronology would reconstruct that member's
+// own path, which is what the merged, unattributed track exists to prevent (PRD 011 §0b.1).
+//
+// Asserted by construction: a patrol with a track and **one** positioned scan can have no leg at all, however
+// many segments its track has.
+func TestNoLegIsDrawnBetweenTrackSegments(t *testing.T) {
+	app, srv := mapApp(t)
+	// One positioned scan, and a track broken into several segments by gaps.
+	app.models.Scans = pageScans{byPatrol: map[string][]scans.Scan{
+		"team-42": {
+			{ID: "s-1", Kind: scans.KindCheckpoint, Label: "Post 4A", CheckpointID: "cp-1",
+				Lat: coord(55.7000), Lng: coord(12.2000), ScannedAt: nightAt(0)},
+		},
+	}}
+	app.patrolTracks = trackReader(t,
+		&trackPeople{members: map[string][]string{"team-42": {"p1", "p2"}}},
+		&trackPoints{byPerson: map[string][]trackpoint.Point{
+			"p1": walk(12.200, 10),
+			"p2": walk(12.300, 10),
+		}},
+	)
+
+	_, body := getPublic(t, srv.URL+"/api/public/patrol/42/map", nil)
+	out := decodeMap(t, body)
+
+	if len(out.Track) < 2 {
+		t.Fatalf("the fixture should have several segments, got %d", len(out.Track))
+	}
+	if len(out.Untracked) != 0 {
+		t.Errorf("segments must never be bridged; got %d legs from one scan: %s", len(out.Untracked), body)
+	}
+}
+
+// Empty rather than null, like every other list here, so the island can iterate unconditionally.
+func TestUntrackedIsAnEmptyArrayWhenThereAreNoLegs(t *testing.T) {
+	app, srv := mapApp(t)
+	app.models.Scans = pageScans{}
+
+	_, body := getPublic(t, srv.URL+"/api/public/patrol/42/map", nil)
+	if !strings.Contains(string(body), `"untracked":[]`) {
+		t.Errorf("want an empty array\n%s", body)
+	}
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/julienschmidt/httprouter"
 
+	"nathejk.dk/internal/distance"
 	"nathejk.dk/internal/publicgate"
 	"nathejk.dk/nathejk/table/publicpatrol"
 )
@@ -36,6 +37,25 @@ type patrolMapResponse struct {
 	// draws an array of arrays as separate strokes, so a two-hour silence renders as a break rather than as
 	// a confident line through terrain nobody walked (PRD 011 §0a).
 	Track [][][2]float64 `json:"track"`
+
+	// Untracked are the scan-to-scan legs the track says nothing about, each a [from, to] pair.
+	//
+	// # What they are for, and why they are not part of Track
+	//
+	// The map draws them as a **dotted** line: the patrol was registered at both ends and we have no
+	// recording in between, so the honest statement is "they went from here to there, we do not know how".
+	// Drawing nothing at all left the commonest case — a patrol with 2% track coverage (PRD 011 §0a) — looking
+	// like a handful of unconnected dots, which reads as missing data rather than as unmeasured travel.
+	//
+	// A separate field rather than more segments in `Track`, because they are a different claim and must not
+	// be drawn with the same stroke: solid is "we recorded this", dotted is "we are joining two things we
+	// know". Merging them would be the invention PRD 011 §0a forbids.
+	//
+	// **These are legs between scans, never bridges between track segments.** Joining one member's segment to
+	// another's would draw travel that never happened, and joining segments within one member's chronology
+	// would reconstruct that member's own path — which is exactly what the merged, unattributed track exists
+	// to prevent (§0b.1). Scans are facts about the patrol and are already public, in this order, on the page.
+	Untracked [][2][2]float64 `json:"untracked"`
 
 	// Scans are the plottable registrations.
 	Scans []patrolMapScan `json:"scans"`
@@ -85,10 +105,12 @@ func (app *application) patrolMapHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	resp := patrolMapResponse{
-		Track: [][][2]float64{},
-		Scans: []patrolMapScan{},
+		Track:     [][][2]float64{},
+		Untracked: [][2][2]float64{},
+		Scans:     []patrolMapScan{},
 	}
 
+	var trackPoints []distance.Point
 	if app.patrolTracks != nil {
 		track, err := app.patrolTracks.Track(patrol.TeamID)
 		if err != nil {
@@ -104,22 +126,23 @@ func (app *application) patrolMapHandler(w http.ResponseWriter, r *http.Request)
 			}
 			resp.Track = append(resp.Track, line)
 		}
+		// Times, kept on this side of the wire: they decide which legs the track covers and never leave the
+		// process. The same conversion the distance estimate uses, for the same reason — one definition.
+		trackPoints = trackPointsForDistance(track)
 	}
 
-	if app.models.Scans != nil {
-		for _, s := range app.models.Scans.ByPatrol(patrol.TeamID) {
-			if s.Lat == nil || s.Lng == nil {
-				// Listed on the page, not plotted here. A post can register a patrol by hand, and the
-				// page explains why the list is longer than the map.
-				continue
-			}
-			resp.Scans = append(resp.Scans, patrolMapScan{
-				Lat:   *s.Lat,
-				Lng:   *s.Lng,
-				Label: scanRowLabel(s),
-				Kind:  string(s.Kind),
-			})
-		}
+	// The registrations, read through the same helper the page uses (task 341), so the pins, the list and the
+	// dotted legs cannot disagree about which scans the patrol has.
+	registrations := app.patrolRegistrations(patrol.TeamID)
+	resp.Scans = append(resp.Scans, registrations.pins...)
+
+	// The legs with no recording behind them, drawn dotted. `distance.UncoveredLegs` owns the "covered"
+	// rule so the drawing and the number agree — see its doc.
+	for _, leg := range distance.UncoveredLegs(registrations.forDistance, trackPoints) {
+		resp.Untracked = append(resp.Untracked, [2][2]float64{
+			{leg.From.Lat, leg.From.Lng},
+			{leg.To.Lat, leg.To.Lng},
+		})
 	}
 
 	// **Shareable and short**, the same window as the pages (task 347). Identical for every caller by

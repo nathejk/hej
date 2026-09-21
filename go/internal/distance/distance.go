@@ -310,6 +310,61 @@ func Between(lat1, lng1, lat2, lng2 float64) float64 {
 	return 2 * earthRadiusKm * math.Asin(math.Min(1, math.Sqrt(a)))
 }
 
+// Leg is one journey between two positioned scans.
+//
+// Used by the public map to draw the legs the track does not cover — see UncoveredLegs.
+type Leg struct {
+	From, To Point
+}
+
+// UncoveredLegs returns the scan-to-scan journeys the track says nothing about.
+//
+// # Why this lives next to the estimate rather than in the handler
+//
+// Because it must use **the same definition of "covered"** the figure uses: `alongTrack` — at least two
+// track points inside the leg's time window. The public map draws an uncovered leg as a dotted line meaning
+// "we know you went from here to there, not how", and the number above the map is built from the same test
+// (Compute asks the track what it has to say about each leg, and can only use the answer where there is one).
+// Two definitions would let the map dot a leg the distance had measured, which is a page nobody can explain.
+//
+// Note that covered is **not** the same as *raised*: a leg can have track inside it whose measured path is
+// shorter than the straight line — a phone that woke for two samples — in which case `Compute` keeps the
+// straight line and this function still calls the leg covered. That is the right split for both: the figure
+// takes the longer of the two, while the map's question is only whether we recorded anything at all.
+//
+// And coverage is **by time, not by place**: a leg whose window contains track points is covered even if those
+// points are somewhere else, which happens when one member recorded while the patrol walked elsewhere. The
+// estimate has had that property since task 339 and it is inherited here deliberately rather than fixed in one
+// place — a geographic test would be a different rule, and two rules is the thing this function exists to
+// avoid.
+//
+// Legs the filters exclude (too fast, or too long *and* too far — see MaxWalkingKmh and MaxLegHours) are
+// **included** here, deliberately. The map's claim is about what we recorded, not about what we counted: the
+// patrol was registered at both ends, and we have no track in between. Leaving them out would draw nothing
+// where the honest answer is "we do not know".
+//
+// Order is time order, and a leg needs two positioned scans — an unplottable scan anchors nothing, as on the
+// page's list.
+func UncoveredLegs(scans []Scan, track []Point) []Leg {
+	positioned, _ := splitByPosition(scans)
+	if len(positioned) < 2 {
+		return nil
+	}
+
+	sortByTime(positioned)
+	sortPointsByTime(track)
+
+	var out []Leg
+	for i := 1; i < len(positioned); i++ {
+		from, to := positioned[i-1], positioned[i]
+		if alongTrack(track, from.At, to.At) > 0 {
+			continue
+		}
+		out = append(out, Leg{From: from, To: to})
+	}
+	return out
+}
+
 // alongTrack measures the recorded path between two instants, or 0 when the track does not cover it.
 //
 // # Why a partial window contributes nothing rather than something
