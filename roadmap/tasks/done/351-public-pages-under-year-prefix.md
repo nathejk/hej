@@ -27,7 +27,9 @@ stays deferred to a quiet month; this carries none of its service-worker risk.
 
 - [x] The public pages are served under the configured event year: `/2026`, `/2026/patrulje/{number}`,
       `/2026/album/{slug}`, `/2026/glimt`, `/2026/patrulje/{number}/anmeld`.
-- [x] Every `/offentligt*` path answers **301** to the same page under the new prefix, query string included.
+- [x] ~~Every `/offentligt*` path answers **301** to the same page under the new prefix, query string
+      included.~~ **Superseded the same day:** the paths were never published, so they were deleted outright
+      rather than redirected — see the log.
 - [x] Links inside the pages are built from the prefix rather than written out, so the next move is one change.
 - [x] An unknown path under a year prefix — including a year this deployment does not serve — gets the public
       site's own 404, never the app shell.
@@ -123,3 +125,37 @@ stays deferred to a quiet month; this carries none of its service-worker risk.
   - The full restructure remains PRD 021, unstarted, gated on its Phase 0 device test.
 
   `gofmt`, `go vet`, `go test ./...` clean; `npm run type-check` and 944 frontend tests pass.
+- 2026-09-21 — **The `/offentligt` redirects are deleted.** Maintainer: *"just delete paths on /offentligt
+  they have never been pushed anywhere and are not in use"*.
+
+  I had kept them as permanent 301s on the reasoning that "those URLs went round family group chats" — which
+  I assumed rather than checked. They never left the repository: PRD 011 shipped days ago and nothing external
+  ever linked to them. So the compatibility argument that justifies a permanent redirect does not apply, and
+  what remained was an extra address to carry in every template, test, proxy and denylist.
+
+  **The consequence I had to solve rather than route around:** `/offentligt` was also how the app named "the
+  public site", because the bundle cannot be told the event year — that is runtime configuration on the BFF,
+  and the desktop gate decides during the router's first navigation, before anything is fetched. Waiting for
+  `/api/config` would make the one navigation a desktop visitor gets depend on a request that can fail, and
+  would reopen the boot-ordering race `main.ts` documents at length.
+
+  So `gates.ts` now derives it: `` `/${new Date().getFullYear()}` `` — **the same default the server uses**
+  (`currentYear()` in env.go). They agree unless somebody overrides `EVENT_YEAR` to serve a past event, and
+  that degradation is bounded and self-correcting: the visitor gets the public site's own not-found page,
+  which links to the frontpage of the year actually being served. It cannot loop back into the app, because
+  every year-shaped path is answered by the public site. Recorded in PRD 021 as one more small argument for
+  finishing the move to `/`, which removes the guessing entirely.
+
+  **A stale build caught by its own test.** `navigationFallback.spec.ts` checks the **built** `sw.js`, not
+  just the config that produces it — and it failed, showing a denylist from an older build that still had
+  `/^\/offentligt\//` and lacked even task 332's bare-path entry. The config had been right for two commits
+  and the artifact was wrong. Rebuilt; the denylist now reads
+  `[/^\/desktop\.html$/,/^\/\d{4}$/,/^\/\d{4}\//,/^\/api\//]`. That test is worth more than it looks.
+
+  Also: both route guards' scope predicates lost their `/offentligt` clause and now match the year prefix by
+  shape alone, and the redirect test became its inverse — asserting the alias is **gone**, because a deletion
+  like this is the kind of thing a later change reintroduces out of habit.
+
+  Verified in the dev stack: `/2026`, `/2026/patrulje/71`, `/2026/privatliv` answer 200, `/2026/nonsense`
+  answers the public 404, and `/offentligt*` is now just another unknown path. `go test ./...` clean;
+  type-check and 943 frontend tests pass.

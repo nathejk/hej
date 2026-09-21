@@ -42,14 +42,26 @@ That prefigures the eventual structure rather than fighting it — the root site
 
 What the interim step still requires, none of it risky:
 
-- Permanent redirects from every `/offentligt*` path, which were already required by §6.
-- The app's `navigateFallbackDenylist` swaps its `/offentligt` entries for the year prefix. The list survives
-  until the full move deletes it — and task 332's bug (a missing bare-path entry silently serving the app
-  shell) is the thing to check for on the way past.
+- ~~Permanent redirects from every `/offentligt*` path, which were already required by §6.~~ **Not needed
+  (2026-09-21):** those URLs were never published anywhere, so there is nothing to keep compatible with and
+  the paths were deleted outright. Worth recording because §6 below still lists the redirects as a
+  requirement for the *eventual* move — and there the argument does hold, since `/2026` links will have been
+  shared by then.
+- The app's `navigateFallbackDenylist` swaps its `/offentligt` entries for the year prefix, **matched by
+  shape** (`/^\/\d{4}/`) so next year needs no frontend change. The list survives until the full move deletes
+  it — and task 332's bug (a missing bare-path entry silently serving the app shell) is the thing to check
+  for on the way past.
 - A request to an unknown path *under* the year prefix must get the public site's not-found page, not the app
   shell — the same failure, one directory along.
 - The year in the path should be **validated against the configured event year**, not hard-coded, so next
   year's deploy needs no code change and a stale `/2026` link cannot quietly render 2027 data.
+- **The app has to name the public site without knowing the year.** It cannot be told: the year is runtime
+  configuration on the BFF, and the desktop gate decides during the router's first navigation, before
+  anything is fetched. Task 351 derives it from the calendar — the same default the server uses — and accepts
+  a bounded degradation if somebody overrides `EVENT_YEAR`: the visitor lands on the public site's own
+  not-found page, which links onward, and cannot bounce back into the app because every year-shaped path
+  belongs to the public site. **The full move to `/` removes this problem entirely**, which is one more small
+  argument for it.
 - PRD 011's §6 records `/offentligt/...` as the addresses; it needs updating when this lands.
 
 See §10, Phase −0, for the task. Everything else in this document describes the end state and is unchanged.

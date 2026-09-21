@@ -74,12 +74,16 @@ describe('device / install / onboarding gates', () => {
     expect(settle('maps', { authenticated: true })).toBe('(left the app)')
   })
 
-  // **Where it leaves to is the public site, not the old placeholder** (task 351). `/desktop.html` said
-  // "more to come…" while PRD 011's real pages sat one directory away, so a desktop visitor was being left
-  // at a dead end. The destination is the alias rather than `/2026` because this bundle cannot know the
-  // event year — the server resolves it (see gates.ts).
-  it('leaves for the public site rather than a placeholder page', () => {
-    expect(WEBSITE_PAGE).toBe('/offentligt')
+  // **Where it leaves to is the public site** (task 351). `/desktop.html` said "more to come…" while PRD
+  // 011's real pages sat one directory away, so a desktop visitor was being left at a dead end.
+  //
+  // The path is derived from the calendar year, which is the same default the server uses — there is no
+  // alias to ask instead, and no config to wait for at this point in the boot. A mismatch (somebody
+  // serving a past event via EVENT_YEAR) lands on the public site's own not-found page, which links
+  // onward; it cannot bounce back into the app, because every year-shaped path is the public site's.
+  it('leaves for the public site under the event-year prefix', () => {
+    expect(WEBSITE_PAGE).toMatch(/^\/\d{4}$/)
+    expect(WEBSITE_PAGE).toBe(`/${new Date().getFullYear()}`)
     expect(WEBSITE_PAGE).not.toContain('.html')
   })
 

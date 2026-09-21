@@ -72,13 +72,12 @@ type registeredRoute struct {
 // Widening this to the rest of the API remains task 328.
 // isInScope reports whether a route belongs to the surface this guard covers.
 //
-// The **year prefix** is in scope since task 351: the public pages moved there, and without this line
-// `/2026/patrulje/{number}` would have quietly left the annotation check — the scope predicate matching
-// "contains glimt" would have kept only the glimt page.
+// The **year prefix** is in scope since task 351: the public pages moved there, and without it
+// `/2026/patrulje/{number}` would quietly leave the annotation check — a predicate matching "contains
+// glimt" would keep only the glimt page.
 func isInScope(path string) bool {
 	return strings.HasPrefix(path, "/api/glimt") || strings.Contains(path, "glimt") ||
-		strings.HasPrefix(path, "/offentligt") || strings.HasPrefix(path, "/api/public/") ||
-		looksLikeYearPrefix(path)
+		strings.HasPrefix(path, "/api/public/") || looksLikeYearPrefix(path)
 }
 
 // glimtRoutes parses routes.go and returns every in-scope registration.
@@ -354,8 +353,8 @@ func TestGlimtRouterAnnotationsMatchTheRegisteredPaths(t *testing.T) {
 		//
 		// A route that is *not* under /api — the server-rendered public page — documents its literal
 		// path instead, and `TrimPrefix` is a no-op for it. There is no tidy alternative: swaggo has
-		// one basePath, and writing `/../offentligt/glimt` to satisfy the arithmetic would be a lie in
-		// the rendered spec.
+		// one basePath, and writing `/../2026/glimt` to satisfy the arithmetic would be a lie in the
+		// rendered spec.
 		want := strings.TrimPrefix(route.path, "/api")
 		for _, segment := range strings.Split(want, "/") {
 			if strings.HasPrefix(segment, ":") {
@@ -482,7 +481,7 @@ func TestPublicGlimtRoutesAreNotBehindAuth(t *testing.T) {
 	saw := 0
 
 	for _, route := range glimtRoutes(t) {
-		if !strings.Contains(route.path, "/public/") && route.path != "/offentligt/glimt" {
+		if !strings.Contains(route.path, "/public/") && !looksLikeYearPrefix(route.path) {
 			continue
 		}
 		saw++

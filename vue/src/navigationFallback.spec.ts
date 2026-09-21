@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 // It has now cost two real bugs, and the reason it keeps happening is that **it fails
 // asymmetrically** — never for the developer, always for the installed member:
 //
-//  1. **`/offentligt/glimt`** (task 323). A parent following a shared link has no service worker and
+//  1. **The public glimt page** (task 323). A parent following a shared link has no service worker and
 //     gets the real page, so the bug is invisible to everyone who would naturally test it. Only
 //     installed members would have got the app shell instead of the page they clicked.
 //  2. **`/api/`** (task 318, found on an iPhone 2026-09-17). Tapping *Gem* in the viewer downloaded a
@@ -35,13 +35,9 @@ describe('the service worker navigation fallback', () => {
     return found ?? ''
   }
 
-  it('excludes the public glimt page in the config', () => {
-    expect(denylist()).toContain('offentligt')
-  })
-
-  // The public site moved under the event year (task 351), so the denylist matches a four-digit first
-  // segment. Asserted by *shape* rather than by this year's number, for the same reason the pattern is:
-  // next year's deployment must not need a frontend change to stay out of the way.
+  // The public site is denied the navigation fallback by the **shape** of its prefix — a four-digit
+  // first segment — rather than by this year's number (task 351), so next year's deployment needs no
+  // frontend change to stay out of the way.
   it('excludes the public site under any event-year prefix', () => {
     expect(
       denylist(),
@@ -75,8 +71,11 @@ describe('the service worker navigation fallback', () => {
   // build runs in the same command as these tests before every commit.
   it.skipIf(!existsSync(BUILT_SW))('is present in the built service worker', () => {
     const sw = readFileSync(BUILT_SW, 'utf8')
-    expect(sw, 'the built service worker has no denylist entry for /offentligt/, so an installed ' +
-      'member following a public link gets the app shell instead of the page').toContain('offentligt')
+    expect(
+      sw,
+      'the built service worker has no denylist entry for the year-prefixed public pages, so an ' +
+        'installed member following a public link gets the app shell instead of the page',
+    ).toContain('d{4}')
     expect(sw).toContain('desktop')
     expect(sw, 'the built service worker does not deny /api/ the navigation fallback').toMatch(
       /\\\/api\\\/|\/api\\\//,

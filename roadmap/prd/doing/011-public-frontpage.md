@@ -678,9 +678,8 @@ will never install the app.
 ## 7. UX / UI Notes
 
 **Where this lives.** The **event year** as the public root, since task 351 — `/2026`, with the glimt
-page moving under it. It was `/offentligt` when this PRD was written, and every one of those paths
-answers a permanent 301 to its new address (PRD 021 §0 records why the year, and why not the domain
-root yet):
+page moving under it. It was `/offentligt` for the few days between PRD 011 shipping and that task
+(PRD 021 §0 records why the year, and why not the domain root yet):
 
 | path | what |
 |---|---|
@@ -689,7 +688,12 @@ root yet):
 | `/2026/patrulje/{number}` | patruljens egen side *(address shape: §11 Q2)* |
 | `/2026/glimt` | the full public feed *(exists, PRD 019)* |
 | `/2026/privatliv` | what the public pages show, and what they do not *(task 351)* |
-| `/offentligt*` | permanent 301 to the above; also how the app names "the public site" |
+
+**There is no alias.** `/offentligt` was the site's first address for a few days, before anything
+linked to it, and it was deleted on 2026-09-21 rather than kept as a redirect — nothing external held
+those URLs, so the compatibility argument that would have justified a permanent 301 does not exist,
+and an address nobody needs is a second one to remember in every template, test and denylist. The app
+derives the year from the calendar instead (see the note below).
 
 **The privacy page is the site's own, and that is a correction to this section.** This PRD originally
 had the public pages link to the app's `/privatliv` view. That view is a Vue route: a parent on a

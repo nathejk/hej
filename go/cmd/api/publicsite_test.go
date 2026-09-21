@@ -411,10 +411,16 @@ func TestEveryPublicSitePageCarriesTheTakedownLine(t *testing.T) {
 // The move to the event-year prefix (PRD 021 §0, task 351).
 //
 // What matters here is not that `/2026` works — every other test in this file exercises that now — but the
-// three things that are easy to get wrong when a surface changes address: the old links, the paths *inside*
-// the pages, and what happens one directory off target.
+// two things that are easy to get wrong when a surface changes address: the paths *inside* the pages, and
+// what happens one directory off target.
 
-func TestTheFormerAddressRedirectsPermanently(t *testing.T) {
+// **There is no alias for the public site.** `/offentligt` was its first address for a few days before
+// anything linked to it, so it was deleted rather than kept as a redirect: an address nobody holds is not
+// compatibility, it is a second thing to remember in every template, test and denylist.
+//
+// Asserted rather than assumed, because a tidy-up like this is exactly what a later change reintroduces out
+// of habit — and because the app derives the year itself now, so an alias would have no caller.
+func TestTheFormerAddressIsGone(t *testing.T) {
 	app, _, _ := publicApp(t)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
@@ -423,26 +429,15 @@ func TestTheFormerAddressRedirectsPermanently(t *testing.T) {
 		return http.ErrUseLastResponse
 	}}
 
-	for from, want := range map[string]string{
-		"/offentligt":                       "/2026",
-		"/offentligt/glimt":                 "/2026/glimt",
-		"/offentligt/patrulje/42":           "/2026/patrulje/42",
-		"/offentligt/album/loerdag":         "/2026/album/loerdag",
-		"/offentligt/patrulje/42?anmeldt=1": "/2026/patrulje/42?anmeldt=1",
-	} {
-		resp, err := client.Get(srv.URL + from)
+	for _, path := range []string{"/offentligt", "/offentligt/glimt", "/offentligt/patrulje/42"} {
+		resp, err := client.Get(srv.URL + path)
 		if err != nil {
-			t.Fatalf("GET %s: %v", from, err)
+			t.Fatalf("GET %s: %v", path, err)
 		}
 		resp.Body.Close()
 
-		// **301, not 302.** The move is not provisional, and a permanent redirect is what lets a browser
-		// and a search engine stop asking.
-		if resp.StatusCode != http.StatusMovedPermanently {
-			t.Errorf("%s: status = %d, want 301", from, resp.StatusCode)
-		}
-		if got := resp.Header.Get("Location"); got != want {
-			t.Errorf("%s: Location = %q, want %q", from, got, want)
+		if resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusSeeOther {
+			t.Errorf("%s still redirects (%d); the alias was meant to be deleted", path, resp.StatusCode)
 		}
 	}
 }

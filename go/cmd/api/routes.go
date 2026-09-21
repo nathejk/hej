@@ -164,11 +164,16 @@ func (app *application) routes() http.Handler {
 	//
 	// # Why the paths are built as strings instead of using a `:year` parameter
 	//
-	// httprouter refuses to have a wildcard segment as a sibling of static ones — `/:year` next to `/api`,
-	// `/offentligt` and `/privatliv` **panics** at registration rather than resolving by precedence. So the
-	// prefix is interpolated from the configured event year, which also means this deployment serves exactly
-	// one year: a request for another year's prefix falls through to `renderPublicNotFound` rather than being
-	// answered from this year's data (see spaHandler).
+	// httprouter refuses to have a wildcard segment as a sibling of static ones — `/:year` next to `/api`
+	// and `/privatliv` **panics** at registration rather than resolving by precedence. So the prefix is
+	// interpolated from the configured event year, which also means this deployment serves exactly one year:
+	// a request for another year's prefix falls through to `renderPublicNotFound` rather than being answered
+	// from this year's data (see spaHandler).
+	//
+	// There is deliberately **no alias** — no `/offentligt`, no `/web`. The site's first address was
+	// `/offentligt` for a few days before anything linked to it, so there is nothing to keep compatible with,
+	// and an alias nobody needs is a second address to remember in every template and test. The app derives
+	// the year from the calendar instead (see gates.ts).
 	//
 	// Note the ordering constraint httprouter imposes: `…/patrulje` (the form's target) and
 	// `…/patrulje/:number` (the page) are different routes, not one with an optional segment, which is why
@@ -187,16 +192,6 @@ func (app *application) routes() http.Handler {
 	// JavaScript disabled — and registered bare like every other public route, so no session can be read
 	// even though this one writes. It reports; it hides nothing (see patrolreport.go).
 	router.HandlerFunc(http.MethodPost, publicRoot+"/patrulje/:number/anmeld", app.reportPatrolPageHandler)
-
-	// **The old addresses, kept permanently.** `/offentligt*` was the public site until 2026-09-21 and those
-	// URLs went round family group chats; a link in somebody's message thread is not something to break
-	// because we tidied a path. 301 rather than 302, because the move is not provisional.
-	//
-	// It is also the app's stable way of saying "the public site" — the SPA cannot know the event year, so
-	// `gates.ts` sends a desktop visitor here and the server resolves it. That is the reason this is an alias
-	// rather than only a legacy redirect, and the reason it survives the move to the root.
-	router.HandlerFunc(http.MethodGet, "/offentligt", app.legacyPublicRedirectHandler)
-	router.HandlerFunc(http.MethodGet, "/offentligt/*rest", app.legacyPublicRedirectHandler)
 	// Album media (task 334). Under /api/public/ with the glimt media route rather than under
 	// /offentligt/, because it serves bytes rather than a page — and it shares `streamGlimtMedia`, so
 	// the ETag handling and the missing-object degradation cannot diverge between the two.
@@ -263,27 +258,6 @@ func (app *application) routes() http.Handler {
 	}
 
 	return router
-}
-
-// legacyPublicRedirectHandler sends an old `/offentligt*` address to the same page under the year prefix.
-//
-// @Summary      The public site's former address
-// @Description  Permanent redirect from `/offentligt...` to the same page under the event-year prefix, e.g. `/offentligt/patrulje/42` to `/2026/patrulje/42` (PRD 021 §0, task 351). Kept indefinitely because those links were shared in messages and printed in copy, and it doubles as the app's stable way of reaching the public site without knowing the event year.
-// @Tags         public-site
-// @Produce      html
-// @Success      301  {string}  string  "the page's current address"
-// @Router       /offentligt [get]
-// @Router       /offentligt/{rest} [get]
-func (app *application) legacyPublicRedirectHandler(w http.ResponseWriter, r *http.Request) {
-	rest := strings.TrimPrefix(r.URL.Path, "/offentligt")
-	target := app.publicRoot() + rest
-	if r.URL.RawQuery != "" {
-		// The query survives the move: `?anmeldt=1` is how the takedown form acknowledges itself, and
-		// `?fejl=nummer` how the lookup reports a mistyped number. Dropping it would turn a redirect into a
-		// silent loss of the only state these pages carry.
-		target += "?" + r.URL.RawQuery
-	}
-	http.Redirect(w, r, target, http.StatusMovedPermanently)
 }
 
 // spaHandler serves the built single-page app from the configured web root. In

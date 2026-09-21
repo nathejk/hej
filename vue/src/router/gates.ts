@@ -15,23 +15,23 @@ import { useOnboardingStore } from '@/stores/onboarding.store'
 // no Vue, no bundle, and **anonymous — there is no login on it**. So leaving for it is a full-page
 // navigation, not a route change; routing to it inside the SPA is precisely what task 140 removed.
 //
-// # Why `/offentligt` and not `/desktop.html` (task 351)
+// # Why the year is computed here (task 351)
 //
-// It used to be `/desktop.html`, a static file that said "more to come…". PRD 011 built the real thing
-// — albums, patrol pages, public glimt — so sending a desktop visitor to the placeholder was leaving
-// them at a dead end one directory away from the site they wanted.
+// The public site lives under the **event year** (`/2026`), and this bundle has no way to be told which
+// year the server is serving: that value is runtime configuration on the BFF, and this decision is taken
+// during the router's first navigation, before anything has been fetched. Waiting for `/api/config`
+// would make the one navigation a desktop visitor gets depend on a request that can fail — and would
+// reopen the boot-ordering race `main.ts` documents at length.
 //
-// # Why the alias and not the real address
+// So the year is derived from the calendar, which is **the same default the server uses**
+// (`currentYear()` in env.go). The two agree unless somebody overrides `EVENT_YEAR` to serve a past
+// event, and the degradation in that case is bounded and self-correcting: the visitor gets the public
+// site's own "not found" page, which links to the frontpage of the year actually being served. A wrong
+// guess cannot loop back into the app, because every year-shaped path is answered by the public site.
 //
-// The public site lives under the **event year** (`/2026`), and this bundle has no way to know which
-// year the server is serving: the value is runtime configuration, and this decision is taken during the
-// router's first navigation, before anything has been fetched. So the app names the alias and the server
-// owns the mapping — `/offentligt` 301s to the current year (see routes.go).
-//
-// **It must not be a path the SPA fallback would answer with `index.html`**, or the app would boot,
-// redirect here again, and loop. `/offentligt` is a real server route, and the service worker's
-// navigation fallback excludes it for the same reason (see vite.config.ts).
-export const WEBSITE_PAGE = '/offentligt'
+// An earlier version sent visitors to `/desktop.html`, a placeholder reading "more to come…", and then
+// briefly to `/offentligt`, the site's first address. Both are gone.
+export const WEBSITE_PAGE = `/${new Date().getFullYear()}`
 
 /**
  * "Leave the SPA for the website." Distinct from a redirect, because it is not a route: the

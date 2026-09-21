@@ -42,9 +42,9 @@ import (
 
 // publicRoutePaths returns every route registered under the public surface, with its method.
 //
-// `/offentligt*` and `/api/public/*`. Both prefixes, because the surface is split across them by
-// content type rather than by audience — the pages are under one and the bytes and JSON under the other,
-// and a leak is equally bad in either.
+// The event-year prefix and `/api/public/*`. Both, because the surface is split across them by content
+// type rather than by audience — the pages are under one and the bytes and JSON under the other, and a
+// leak is equally bad in either.
 func publicRoutePaths(t *testing.T) []registeredRoute {
 	t.Helper()
 
@@ -91,14 +91,12 @@ func publicRoutePaths(t *testing.T) []registeredRoute {
 // isPublicSurface reports whether a path is served to the open web.
 //
 // Deliberately broader than "the routes task 332 added": it catches anything a later task registers
-// under any of these prefixes, which is the whole reason this is a predicate rather than a list.
+// under either prefix, which is the whole reason this is a predicate rather than a list.
 //
-// The **year prefix** is matched by shape (`/2026`, `/2027`), because that is how the public pages are
-// addressed since task 351 and because next year's rename must not quietly empty this guard.
+// The pages are matched by the **shape** of a year prefix (`/2026`, `/2027`) rather than by this year's
+// number, because next year's deployment must not quietly empty this guard.
 func isPublicSurface(path string) bool {
-	return strings.HasPrefix(path, "/offentligt") ||
-		strings.HasPrefix(path, "/api/public/") ||
-		looksLikeYearPrefix(path)
+	return strings.HasPrefix(path, "/api/public/") || looksLikeYearPrefix(path)
 }
 
 // The personal values the fixtures carry. Distinctive enough that a substring match means a real leak
@@ -246,10 +244,6 @@ func TestPublicRouteEnumerationCoversTheKnownSurface(t *testing.T) {
 		guardYear + "/glimt",
 		guardYear + "/album/:slug",
 		guardYear + "/patrulje/:number",
-		// The former address, kept as a permanent redirect and used by the app to mean "the public site".
-		// It is in the walk because a redirect writes a body, and a body on a public route is a body that
-		// could carry a name.
-		"/offentligt",
 		"/api/public/glimt",
 		"/api/public/albums/:albumId/media/:ordinal",
 	} {
