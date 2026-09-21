@@ -384,9 +384,13 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   .patrolhead .group { color: #555; margin: .1rem 0 0; }
   .patrolhead .distance { font-size: 1.4rem; font-weight: 600; margin: .6rem 0 0; }
   .patrolhead .finished { color: #555; margin: .2rem 0 0; font-size: .9rem; }
-  .diploma { flex: 0 0 9rem; border: 1px solid #ddd; border-radius: .25rem; background: #fafafa;
-         aspect-ratio: 1 / 1.414; display: flex; align-items: center; justify-content: center; }
-  .diploma .soon { text-align: center; color: #94a3b8; font-size: .9rem; margin: 0; }
+  /* The diploma slot (task 345). A4 aspect so the thumbnail fills it exactly rather than letterboxing, and
+     the artwork's own edge does the visual work — hence a hairline border and nothing else. */
+  .diploma { flex: 0 0 9rem; }
+  .diploma a { display: block; text-decoration: none; color: #555; }
+  .diploma img { display: block; width: 100%; aspect-ratio: 1 / 1.414; object-fit: cover;
+         border: 1px solid #ddd; border-radius: .25rem; background: #fafafa; }
+  .diploma .label { display: block; text-align: center; font-size: .85rem; margin-top: .35rem; }
   .caveat { color: #555; font-size: .85rem; margin: .5rem 0 0; }
   /* The map and the caveat that explains it are **hidden until the island draws** (task 342). A 22rem grey
      box with nothing in it is a broken frame, and a caveat about a route nobody can see is noise — so
@@ -555,11 +559,22 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   </div>
 
   {{if .HasDiploma}}
-  <!-- The diploma slot. Rendered only where the patrol finished: a page the backstop opened has nothing
-       to certify, and an empty frame would point at what is missing (task 346). The artwork itself is
-       task 345 — until then the slot is a link, not an image, so nothing here pretends to be a diploma. -->
+  <!-- The diploma. Rendered only where the patrol finished: a page the backstop opened has nothing to
+       certify, and an empty frame would point at what is missing (task 346).
+
+       A link to the PDF wrapped around a thumbnail of the artwork — no script, so it works exactly as far as
+       the browser's own PDF viewer does, and it opens in a new tab because a visitor opening a certificate has
+       not finished with the page they were reading. rel="noopener" for the usual reason.
+
+       **There is no photograph on it**, unlike the diplom service's version: this surface is
+       unauthenticated and a photograph of eight children has been through no consent gate (PRD 011 §0b.2).
+       See internal/diploma. -->
   <div class="diploma">
-    <p class="soon">Diplom<br><span>kommer</span></p>
+    <a href="/api/public/patrol/{{.Patrol.Number}}/diploma" target="_blank" rel="noopener">
+      <img src="/api/public/patrol/{{.Patrol.Number}}/diploma/thumb"
+           alt="Patruljens diplom" loading="lazy" decoding="async">
+      <span class="label">Diplom</span>
+    </a>
   </div>
   {{end}}
 </div>

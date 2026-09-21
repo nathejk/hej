@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	// Embed the timezone database in the binary. The prod image is bare alpine with
@@ -182,6 +183,13 @@ type application struct {
 	//
 	// May be nil, in which case no limit applies.
 	publicMediaReadLimiter *ratelimit.Limiter
+	// The diploma thumbnail, rendered once from the artwork embedded in the binary (task 345).
+	//
+	// Held on the application rather than in a package-level variable so a test gets a fresh one, and so the
+	// error is remembered too: a broken asset should not be retried on every request of a burst.
+	diplomaThumbOnce  sync.Once
+	diplomaThumbBytes []byte
+	diplomaThumbErr   error
 	// confirmLimiter throttles the guardian-number confirmation and report endpoints
 	// (PRD 005, tasks 135/136), keyed by IP like the PIN limiter.
 	//

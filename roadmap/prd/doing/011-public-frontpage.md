@@ -840,6 +840,21 @@ The old recommendation was (b), on the grounds that bouncing a 12-year-old to an
 in again would kill the feature. **That argument is gone with the login**, so **(a) is now the
 better first ship** — provided a thumbnail exists and 2026 data reaches `diplom`.
 
+**Decided 2026-09-21 (maintainer): (c).** *"a sibling repo 'diplom' can be used as guideline to how we
+create a diploma — the diploma generation logic should be moved here, use an old graphic as mock, we
+will replace before launch."* Shipped in task 345 as `internal/diploma`, and the argument that
+settles it is not architectural but editorial: the diploma is one element on a page this repo already
+renders, gated by a verdict it already computes, from a finish time it already has — so linking out
+would have meant a second origin, a second deployment and a year hardcoded in another codebase, for a
+PDF that is a background image and four lines of text.
+
+**One thing did not come with the logic: the patrol photograph.** `diplom` places a `natpas` portrait
+in the middle of the page. On this surface that would publish eight children's faces through no
+consent gate, which §0b.2 forbids and which would make §8's "names no person" work pointless — a
+photograph is a stronger identifier than any name. So the public diploma carries the patrol's name,
+the event, the route and the finish minute, and nothing else. **The 2026 artwork should be designed
+for a diploma without a photograph**, rather than around a hole where one used to be.
+
 **API endpoints (all new, all unauthenticated, all requiring OpenAPI annotations):**
 
 | endpoint | purpose |
@@ -1008,9 +1023,13 @@ undecided.
    and "a directory on disk and a deploy" is a weaker answer than it looks. Options: a Team-section
    surface in the app (the moderation-queue precedent, PRD 019 tasks 300/308/309), or a small admin
    page on the public service. Related: the curator also needs the removal path §6 now requires.
-6. **Who owns the diploma** — link out to `diplom` (a), render in `hej` (b), or move generation
-   here (c)? §8 now leans **(a)**. Also: does the 2026 artwork exist, who makes it, and who makes
-   the thumbnail?
+6. ~~**Who owns the diploma** — link out to `diplom` (a), render in `hej` (b), or move generation
+   here (c)?~~ **Resolved (§8, 2026-09-21, maintainer): (c).** Generation moved into
+   `internal/diploma`, following `diplom`'s layout as a guideline; the 2024 poster stands in as a
+   **mock** until 2026's artwork exists. What remains is a launch checklist rather than a question,
+   and it is recorded in code as `diploma.ReplaceBeforeLaunch`: the artwork, the headline font (the
+   Impact file `diplom` embeds is not ours to redistribute), and the route line. **The patrol
+   photograph is not on the list — it is excluded on purpose** (§8, §0b.2).
 7. **Should public glimt ever carry a location?** §6 says no, because EXIF is stripped and the
    composer's "Offentligt" never offered to share a place. Note this is a *different* permission to
    the one §0b records: album photographs are cleared by a curator, while a glimt is cleared by the

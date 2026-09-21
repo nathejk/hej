@@ -146,6 +146,21 @@ type config struct {
 	// require a code change (PRD 006 §11 Q7).
 	eventYear string
 
+	// eventRoute is the route line on a diploma: "fra Lundby til Glumsø" (task 345).
+	//
+	// # Why configuration and not a projection
+	//
+	// Because nothing upstream carries it. `diplom` hardcoded 2024's start and destination in Go, which is how
+	// a diploma ends up naming last year's villages — so this is at least an override an operator can set
+	// without a release. It is one line of ceremonial text, not data the app reasons about.
+	//
+	// **Empty omits the line**, which is the default. A diploma with no route reads fine; one naming the wrong
+	// places is a certificate somebody frames with a mistake in it.
+	//
+	// Written as the whole phrase rather than as a start and a destination, because the Danish is a phrase
+	// ("fra X til Y") and splitting it would put grammar in the renderer for no gain.
+	eventRoute string
+
 	// portraitRetention is how long a portrait is kept after it was captured, before the
 	// purge job deletes it (task 109).
 	//
@@ -388,6 +403,7 @@ func loadConfig() config {
 	flag.StringVar(&cfg.smsDSN, "sms-dsn", envStr("SMS_DSN", ""), "SMS provider DSN, e.g. cpsms://<api-key>@api.cpsms.dk (empty logs messages instead of sending)")
 	flag.StringVar(&cfg.blobPath, "blob-path", envStr("BLOB_PATH", ""), "Directory for binary objects such as portraits (empty keeps them in memory)")
 	flag.StringVar(&cfg.eventYear, "event-year", envStr("EVENT_YEAR", currentYear()), "Event year the member directory reads (defaults to the current year)")
+	flag.StringVar(&cfg.eventRoute, "event-route", envStr("EVENT_ROUTE", ""), "The route line printed on a diploma, e.g. \"fra Lundby til Glums\u00f8\" (empty omits the line)")
 	flag.DurationVar(&cfg.portraitRetention, "portrait-retention", envDuration("PORTRAIT_RETENTION", 30*24*time.Hour), "How long a portrait is kept after capture before it is purged (0 disables the purge)")
 	flag.DurationVar(&cfg.cachedDirectoryTTL, "cached-directory-ttl", envDuration("CACHED_DIRECTORY_TTL", 14*24*time.Hour), "How long a device may keep its cached contacts directory (0 disables the deadline)")
 	flag.BoolVar(&cfg.portraitKeepOriginal, "portrait-keep-original", envBool("PORTRAIT_KEEP_ORIGINAL", true), "Retain the uploaded image at full resolution (metadata stripped) so renditions can be regenerated later")

@@ -1,0 +1,267 @@
+// Package diploma renders a patrol's diploma (PRD 011 §6, §11 Q6; task 345).
+//
+// # Why this lives in hej at all
+//
+// There is a sibling service, `diplom`, that has produced these since 2024, and PRD 011 §8 originally leaned
+// on linking a visitor's browser to it — a link is not a service-to-service call, so the org's architecture
+// rule held. The maintainer decided otherwise on 2026-09-21: *"the diploma generation logic should be moved
+// here"*. So this is §11 Q6 option (c), and the reasoning behind the choice is worth keeping: the diploma is
+// now one element on a page this repo already renders, gated by a verdict this repo already computes, from a
+// finish time this repo already has. Linking out would have meant a second origin, a second deployment and a
+// year hardcoded in another codebase — for a PDF that is a background image and four lines of text.
+//
+// # What was deliberately **not** ported
+//
+// **The patrol photograph.** `diplom`'s version fetches one from `natpas` and places it in the middle of the
+// page. It cannot come with the logic, and that is not a detail — it is the whole reason to read this comment:
+//
+//   - This surface is **unauthenticated**. `diplom`'s diplomas are reached by people who know the link;
+//     these sit on a public page whose address is a patrol number anybody can type (PRD 011 §11 Q2).
+//   - PRD 011 §0b.2 settled that photographs are publishable only where **consent was obtained upstream**, by
+//     a curator, at the point a photograph enters an album. A `natpas` portrait has been through no such
+//     gate.
+//   - The public surface's rule is that it **names no person** (§0b.1, task 337). A photograph of eight
+//     children's faces is a stronger identifier than any name we are careful about elsewhere, so putting one
+//     here would make the rest of that work pointless.
+//
+// The middle of the page is therefore empty in the mock, and the artwork that replaces it should be designed
+// for a diploma without a photograph rather than around a hole where one used to be.
+//
+// # The background is a mock
+//
+// `assets/mock-background.jpg` is the **2024** poster, downscaled to 150 dpi, standing in until the real
+// artwork arrives — the maintainer's instruction: *"use an old graphic as mock, we will replace before
+// launch"*. It therefore says 2024 on it, deliberately and visibly, so nobody mistakes it for finished work.
+// See ReplaceBeforeLaunch.
+//
+// # Why a package rather than a handler
+//
+// Rendering is a pure function of a patrol's facts plus an image, which is worth testing without a database,
+// a request or a broker — the same reasoning that put `internal/distance` and `internal/imaging` here.
+package diploma
+
+import (
+	"bytes"
+	"fmt"
+	"image"
+	"image/jpeg"
+	"io"
+	"strings"
+	"time"
+
+	"github.com/go-pdf/fpdf"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/charmap"
+
+	"nathejk.dk/internal/imaging"
+
+	_ "embed"
+)
+
+// ReplaceBeforeLaunch is what still has to happen before this is shown to a family for real.
+//
+// A constant rather than a comment so it appears in `go doc` and in a grep for "launch": the mock is
+// recognisable to us and would not be to a parent, and the failure mode of forgetting is a 2025 patrol
+// receiving a diploma that says 2024.
+//
+//   - **The artwork.** 2026's design, at 300 dpi, A4 portrait, laid out for no photograph.
+//   - **The headline font.** `diplom` embeds `impact.ttf`; Impact is a Microsoft core font whose
+//     redistribution is restricted, so this renders in fpdf's built-in Helvetica instead. If the real artwork
+//     wants Impact in the *text* (the artwork's own headline is part of the image, so it does not), the
+//     licence question has to be answered rather than inherited.
+//   - **The route line.** `diplom` hardcodes "fra Lundby til Glumsø" for 2024. This renders it only when
+//     configured, so the mock omits it rather than inventing places (see Diploma.Route).
+const ReplaceBeforeLaunch = "artwork, headline font, route line"
+
+//go:embed assets/mock-background.jpg
+var mockBackground []byte
+
+// Diploma is everything a diploma says.
+//
+// Note what it cannot hold: no person, no photograph, no phone number. The type is the enforcement, the same
+// way `patroltrack.Segment` has nowhere to put a person id.
+type Diploma struct {
+	// Number is the patrol's number, as the public page addresses it.
+	Number string
+
+	// Name is the patrol's own name — "Ørnene". A *patrol's* name, never a person's.
+	Name string
+
+	// Title is the event as it is written on the page: "Nathejk 2026".
+	Title string
+
+	// Route is "fra Lundby til Glumsø", or empty to omit the line.
+	//
+	// Empty by default and omitted rather than guessed: `diplom` hardcoded 2024's start and destination, and
+	// a diploma naming the wrong places is worse than one naming none.
+	Route string
+
+	// FinishedAt is when the patrol crossed the line, in the event's own timezone, or nil.
+	//
+	// Nil renders the participation wording instead of the finish wording — `diplom` does the same. In this
+	// app a diploma is only produced for a patrol that finished (task 346: a backstop-opened page has no
+	// diploma slot at all), so nil should be unreachable from the handler; the branch exists because the
+	// renderer must not depend on its caller's gate being correct.
+	FinishedAt *time.Time
+}
+
+// Background returns the image the diploma is drawn on.
+//
+// A function rather than a field so a caller cannot forget it, and so replacing the artwork is a change in one
+// place. Returns the embedded mock until 2026's design exists.
+func Background() []byte { return mockBackground }
+
+// PDF renders the diploma as an A4 portrait PDF.
+//
+// # Millimetres, and why the numbers look arbitrary
+//
+// They belong to the **artwork**, not to any layout logic: the background is a full-page bleed and the text has
+// to sit in the gap the image leaves. `diplom`'s coordinates put the name at y=210mm, which is where its 2024
+// layout had a photograph above and clear paper below; on this mock that lands on top of the poster's own
+// "Vi ses i mørket!" band — caught by looking at a rendered sample rather than by reading the code. So the
+// text now sits in the large clear middle instead, and these constants move with the artwork.
+func PDF(d Diploma, w io.Writer) error {
+	const (
+		pageWidthMM  = 210.0
+		pageHeightMM = 297.0
+
+		// The patrol's name, centred across the page.
+		nameY        = 150.0
+		nameFontSize = 28.0
+
+		// The sentence block beneath it.
+		textY        = 168.0
+		textFontSize = 14.0
+		lineHeight   = 7.0
+		sideMarginMM = 30.0
+	)
+
+	pdf := fpdf.New("P", "mm", "A4", "")
+	pdf.SetTitle(fmt.Sprintf("Nathejk diplom \u2014 patrulje %s", d.Number), true)
+	// No author or creator beyond this: a PDF's metadata is a place personal data hides, and the default would
+	// name the library rather than a person — but being explicit costs nothing and means nobody has to check.
+	pdf.SetAuthor("Nathejk", true)
+	pdf.AddPage()
+
+	// The background, as a registered image rather than a file path: `diplom` reads from disk
+	// (`/app/assets/...`), which makes the binary depend on a mount being present. Embedded bytes cannot go
+	// missing in a deploy.
+	pdf.RegisterImageOptionsReader("background", fpdf.ImageOptions{ImageType: "JPG"},
+		bytes.NewReader(Background()))
+	pdf.ImageOptions("background", 0, 0, pageWidthMM, pageHeightMM, false,
+		fpdf.ImageOptions{ImageType: "JPG"}, 0, "")
+
+	// Helvetica, not Impact. See ReplaceBeforeLaunch: the font `diplom` embeds is not ours to redistribute,
+	// and the artwork's own headline is part of the image anyway.
+	pdf.SetFont("Helvetica", "B", nameFontSize)
+	pdf.SetXY(sideMarginMM, nameY)
+	pdf.MultiCell(pageWidthMM-2*sideMarginMM, 12, latin1(d.Name), "", "C", false)
+
+	pdf.SetFont("Helvetica", "", textFontSize)
+	pdf.SetY(textY)
+	for _, line := range sentences(d) {
+		pdf.SetX(sideMarginMM)
+		pdf.MultiCell(pageWidthMM-2*sideMarginMM, lineHeight, latin1(line), "", "C", false)
+	}
+
+	return pdf.Output(w)
+}
+
+// latin1 re-encodes a Danish string for fpdf's built-in fonts.
+//
+// # Why this is needed at all
+//
+// fpdf's core fonts (Helvetica and friends) are single-byte, so handing them UTF-8 prints mojibake: "Ørnene"
+// arrives as "Ã˜rnene". `diplom` solved it the same way — its `utf8_decode` is this function — and dropping it
+// was the first thing a rendered sample caught, which is why a sample gets looked at rather than trusted.
+//
+// Latin-1 covers every character Danish needs (æ, ø, å and their capitals). Anything outside it becomes a
+// replacement character rather than failing the render: a patrol name we cannot spell is a blemish on one
+// diploma, while an error is no diploma at all.
+//
+// **The real fix is an embedded UTF-8 font**, which is part of ReplaceBeforeLaunch — with the artwork will come
+// a decision about the font, and `pdf.AddUTF8Font` makes this function unnecessary the moment there is one.
+func latin1(s string) string {
+	// Typographic punctuation first. Latin-1 has no em dash, curly quote or ellipsis, and the encoder's
+	// substitute for an unmappable rune is 0x1A — a **control** character, which a PDF viewer draws as a box or
+	// as nothing. A patrol called “Rævene” would have printed wearing two boxes. Folding to the ASCII cousin
+	// keeps the text readable, which matters more here than the typography.
+	s = typography.Replace(s)
+
+	encoder := encoding.ReplaceUnsupported(charmap.ISO8859_1.NewEncoder())
+	out, err := encoder.String(s)
+	if err != nil {
+		// Unreachable with ReplaceUnsupported, and if it ever is reached the original string is a better
+		// answer than an empty one.
+		return s
+	}
+	return out
+}
+
+// typography folds the punctuation a copy-pasted name tends to carry into what Latin-1 can express.
+var typography = strings.NewReplacer(
+	"\u2014", "-", // em dash
+	"\u2013", "-", // en dash
+	"\u2018", "'", "\u2019", "'", // curly single quotes
+	"\u201c", `"`, "\u201d", `"`, // curly double quotes
+	"\u2026", "...", // ellipsis
+	"\u00a0", " ", // non-breaking space
+)
+
+// sentences is what the diploma says, in Danish.
+//
+// Separated from the drawing so the wording can be tested without producing a PDF and reading bytes back out
+// of it — the same reason `distance.Label` is its own function.
+//
+// **No time on the page beyond the clock.** `diplom` prints "og gik i mål lørdag nat kl. 03:42", which is the
+// nicest sentence in the whole feature: the *day* is fixed by the event and the minute is the patrol's own.
+// Kept as it was, including "lørdag nat", because that is what a night race's finish is called and the date
+// would be pedantic on a certificate.
+func sentences(d Diploma) []string {
+	title := d.Title
+	if title == "" {
+		title = "Nathejk"
+	}
+
+	if d.FinishedAt == nil {
+		// The participation wording. Unreachable from the public page (a patrol with no finish has no
+		// diploma slot — task 346), and correct rather than blank if anything else ever renders one.
+		if d.Route != "" {
+			return []string{fmt.Sprintf("deltog i %s %s!", title, d.Route)}
+		}
+		return []string{fmt.Sprintf("deltog i %s!", title)}
+	}
+
+	out := []string{fmt.Sprintf("har gennemført %s", title)}
+	if d.Route != "" {
+		out = append(out, d.Route)
+	}
+	out = append(out, fmt.Sprintf("og gik i mål lørdag nat kl. %02d:%02d",
+		d.FinishedAt.Hour(), d.FinishedAt.Minute()))
+	return out
+}
+
+// Thumbnail renders the artwork at `edge` pixels on its longest side, as JPEG.
+//
+// # Why the thumbnail carries no text
+//
+// It is a picture of the diploma, not a small diploma. The patrol's name at thumbnail size would be a few
+// pixels tall and illegible, so drawing it would cost a text renderer and an embedded font — the licence
+// question above — to produce something nobody can read. The page labels the slot, the click gives the real
+// thing, and when the artwork is replaced the thumbnail follows with no code change.
+//
+// Quality 80 and area-average scaling, via `internal/imaging.Fit`, so this matches how every other image on
+// the public surface is minified rather than introducing a second filter. The JPEG encode is done here rather
+// than by exporting `imaging.encode`, because one caller is not a reason to widen that package's API.
+func Thumbnail(edge int) ([]byte, error) {
+	img, _, err := image.Decode(bytes.NewReader(Background()))
+	if err != nil {
+		return nil, fmt.Errorf("decoding the diploma background: %w", err)
+	}
+
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, imaging.Fit(img, edge), &jpeg.Options{Quality: 80}); err != nil {
+		return nil, fmt.Errorf("encoding the diploma thumbnail: %w", err)
+	}
+	return out.Bytes(), nil
+}

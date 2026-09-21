@@ -183,6 +183,11 @@ func (app *application) routes() http.Handler {
 	// a curator publishes them. One handler with two access rules is how the wrong one gets applied.
 	router.HandlerFunc(http.MethodGet, "/api/public/patrol/:number/map", app.patrolMapHandler)
 	router.HandlerFunc(http.MethodGet, "/api/public/albums", app.albumMapHandler)
+	// The diploma (task 345), generated here rather than fetched from the `diplom` service. Gated twice: the
+	// page must be open *and* the patrol must have finished — a backstop-opened page has no diploma, and "har
+	// gennemført" is not a sentence to print for a patrol that did not.
+	router.HandlerFunc(http.MethodGet, "/api/public/patrol/:number/diploma", app.patrolDiplomaHandler)
+	router.HandlerFunc(http.MethodGet, "/api/public/patrol/:number/diploma/thumb", app.patrolDiplomaThumbHandler)
 	// The contacts directory (PRD 007). Cached by the client and worked from offline, so
 	// it carries everything the pane needs and nothing it does not: no guardian numbers, no
 	// postal addresses. Spejdere are refused — they do not get this pane, and crew reach
