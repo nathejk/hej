@@ -267,6 +267,52 @@ event. Two implementation notes worth recording now:
   person" should be impossible to break by adding a field to a template, and one careless `SELECT *`
   is otherwise all it takes.
 
+**5. The map stays interactive. Zoom is a requirement, not a nicety.**
+
+> *"people want to be able to zoom in, that points to leaflet"*
+
+This closes §11 Q8, which had been left open deliberately until the island was built and weighed. The
+measurement came in at **≈60 KB gzipped** (Leaflet 42.4, markercluster 8.7, CSS 4.2, the island 4.2)
+and I put it forward as an argument *against* the island, because a server-rendered static image would
+have cost comparable bytes with no JavaScript at all.
+
+**The argument was about the wrong axis.** A static image and an interactive map are not two
+implementations of one feature at different weights — they are different features. What a family does
+with this page is zoom in on the bit of forest they know, and a PNG cannot do that at any size. So the
+bytes are the price of the feature rather than a reason to reconsider it, and there is no second
+implementation to maintain as a fallback: where the script does not run the page still carries the scan
+list, which is the honest degradation and already shipped (task 342).
+
+**6. There are no transfer sections. An inactive patrol's track is what a car looks like.**
+
+> *"there are no such thing as a transfer section. if a user is no longer active, their track should
+> not be taken into account, and then they might be transfered by car"*
+>
+> *"we are relying on a lot of different gps units, some more accurate than others, if we can identify
+> an outlyer or something obvious wrong or just suspecious, then drop that single coordinate from
+> calculation"*
+
+This corrects an assumption the distance estimate was built on. Task 339 filtered legs faster than
+7 km/h as "vehicle transfer" and recorded a residual overstatement — one 2025 patrol reaching 103 km —
+as an accepted cost, on the theory that a slow transfer is indistinguishable from a long walk. **The
+real signal is not speed, it is status.** A patrol still in the race walks; a patrol that has left the
+race may be sitting in a car, and it is that predicate rather than a velocity threshold that separates
+the two cases.
+
+Two consequences for the estimate:
+
+- **Points recorded while a person is no longer active do not count.** Not smoothed, not down-weighted —
+  excluded, because they are not the patrol walking.
+- **Outliers are dropped per coordinate, not per leg.** The fleet is a mixture of phones of varying
+  quality, so a single wild fix is the common failure and it currently inflates two segments at once.
+  The unit of rejection is therefore **one point**, and the bar is "obviously wrong or suspicious"
+  rather than a speed limit on a whole stretch.
+
+This also settles what the label may claim. *"mindst"* ("at least") was in tension with a figure that
+could overstate; once a car is excluded by status and bad fixes are dropped individually, the remaining
+error is dominated by **missing** data rather than spurious data — which is the direction *mindst*
+honestly describes. The word stays, and the reasoning for it is now true rather than aspirational.
+
 ## 1. Summary
 
 A public, login-free frontpage for Nathejk that shows what the event looked like: a handful of
@@ -520,6 +566,14 @@ will never install the app.
       walk of exactly the length the filter allows. A residual remains: a transfer slow enough to pass the
       filter cannot be told from a long walk, which is in tension with the word *mindst* and is flagged
       for the maintainer in task 339's log.
+- [ ] **Amended again 2026-09-21 (§0b.6, maintainer): the transfer premise was wrong, and the fix is
+      status plus per-point outlier rejection.** There are no transfer sections. What produces a
+      car-shaped track is a person who is **no longer active** in the race, so their points must be
+      excluded from the estimate on that basis rather than by a speed threshold. Separately, the fleet is
+      a mixture of GPS units of varying quality, so where a coordinate is obviously wrong or suspicious
+      the **single point** is dropped — not the leg around it, which is what makes one bad fix inflate two
+      segments. The 7 km/h leg filter remains as a backstop for what those two rules do not catch; it is
+      no longer the primary mechanism, and it is no longer described as detecting transfers. Task 349.
 - [ ] Within a leg where track points exist, the **measured track distance replaces the straight
       line if it is longer**, which it usually is. This is the only thing the track contributes to
       the number, and it can only move it up — never down.
@@ -889,6 +943,8 @@ independently of section 2**.
       `patroltrack.Point` carries no time and `distance.Compute` matches legs by time)*
 - [ ] **343** — the takedown affordance on the patrol page
 - [ ] **344** — confirm scan-kind classification against 2025 before the list labels a kind
+- [ ] **349** — the distance, corrected per §0b.6: exclude points recorded after a member left the race,
+      and drop suspicious coordinates one point at a time rather than filtering whole legs by speed
 
 *Phase 3 — the diploma and the backstop-opened page*
 
@@ -954,10 +1010,13 @@ undecided.
    member who posted it, and they agreed to share a photograph rather than a position. If located
    glimt are wanted later it needs a deliberate opt-in in the composer and its own copy — not a
    pipeline change.
-8. **Is a JS map island acceptable on a page whose virtue is being dumb?** The alternative is a
-   server-rendered static map image (no dependency, works everywhere, no clustering, no zoom) —
-   which might be *better* for the parent on the old laptop and worse for everyone else. Both, with
-   the image as the no-JS fallback, is possible and costs two implementations.
+8. ~~**Is a JS map island acceptable on a page whose virtue is being dumb?**~~ **Resolved (§0b.5,
+   2026-09-21):** yes — the island stays, because **zoom is the feature**. Built and measured first
+   (≈60 KB gzipped, task 342), and the measurement was put forward as an argument for the static
+   image instead: comparable bytes, no JavaScript. The maintainer's answer reframed it — a PNG and an
+   interactive map are different features, not two weights of one, and a family's whole use of this
+   page is zooming in on the forest they know. No second implementation as a fallback either: where
+   the script does not run, the scan list already carries the same facts.
 9. **How long does this stay up** — until the next event, or indefinitely? `TELEMETRY` retention is
    indefinite (task 081), so the data outlives any decision here. A public page has a stronger
    argument for expiry than an in-app one did, and PRD 019 already has a public retention window
