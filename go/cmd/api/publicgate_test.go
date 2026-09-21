@@ -49,9 +49,9 @@ func gateTestApp(t *testing.T, gate *publicgate.Gate) *application {
 func TestPatrolGateNilFailsClosed(t *testing.T) {
 	app := gateTestApp(t, nil)
 
-	reason, open := app.patrolGateFor("team-42")
-	if open || reason.Open() {
-		t.Fatalf("a nil gate must fail closed, got reason %q open %v", reason, open)
+	v, open := app.patrolGateFor("team-42")
+	if open || v.Open() {
+		t.Fatalf("a nil gate must fail closed, got reason %q open %v", v.Reason, open)
 	}
 }
 
@@ -64,12 +64,12 @@ func TestPatrolGateErrorFailsClosed(t *testing.T) {
 	)
 	app := gateTestApp(t, gate)
 
-	reason, open := app.patrolGateFor("team-42")
+	v, open := app.patrolGateFor("team-42")
 	if open {
-		t.Fatalf("a gate error must fail closed, got reason %q", reason)
+		t.Fatalf("a gate error must fail closed, got reason %q", v.Reason)
 	}
-	if reason != publicgate.Closed {
-		t.Fatalf("a gate error must be indistinguishable from a closed gate, got %q", reason)
+	if v.Reason != publicgate.Closed {
+		t.Fatalf("a gate error must be indistinguishable from a closed gate, got %q", v.Reason)
 	}
 }
 
@@ -81,9 +81,9 @@ func TestPatrolGateOpensForAFinishedPatrol(t *testing.T) {
 	)
 	app := gateTestApp(t, gate)
 
-	reason, open := app.patrolGateFor("team-42")
-	if !open || reason != publicgate.Finished {
-		t.Fatalf("a patrol scanned at the finish must be open as Finished, got %q open %v", reason, open)
+	v, open := app.patrolGateFor("team-42")
+	if !open || v.Reason != publicgate.Finished {
+		t.Fatalf("a patrol scanned at the finish must be open as Finished, got %q open %v", v.Reason, open)
 	}
 }
 
@@ -95,8 +95,8 @@ func TestPatrolGateStaysClosedForAPatrolStillWalking(t *testing.T) {
 	)
 	app := gateTestApp(t, gate)
 
-	if reason, open := app.patrolGateFor("team-42"); open {
-		t.Fatalf("a patrol still walking must stay closed, got %q", reason)
+	if v, open := app.patrolGateFor("team-42"); open {
+		t.Fatalf("a patrol still walking must stay closed, got %q", v.Reason)
 	}
 }
 
@@ -108,9 +108,9 @@ func TestPatrolGateBackstopOpensEveryone(t *testing.T) {
 	)
 	app := gateTestApp(t, gate)
 
-	reason, open := app.patrolGateFor("team-99")
-	if !open || reason != publicgate.RaceOver {
-		t.Fatalf("after the last checkpoint closes every patrol must be open, got %q open %v", reason, open)
+	v, open := app.patrolGateFor("team-99")
+	if !open || v.Reason != publicgate.RaceOver {
+		t.Fatalf("after the last checkpoint closes every patrol must be open, got %q open %v", v.Reason, open)
 	}
 }
 
@@ -162,10 +162,10 @@ func TestPatrolGateOverrideOpensOnePatrol(t *testing.T) {
 	)
 	app := gateTestApp(t, gate)
 
-	if reason, open := app.patrolGateFor("team-42"); !open || reason != publicgate.Override {
-		t.Fatalf("the overridden patrol must be open as Override, got %q open %v", reason, open)
+	if v, open := app.patrolGateFor("team-42"); !open || v.Reason != publicgate.Override {
+		t.Fatalf("the overridden patrol must be open as Override, got %q open %v", v.Reason, open)
 	}
-	if reason, open := app.patrolGateFor("team-43"); open {
-		t.Fatalf("the override must not open any other patrol, got %q", reason)
+	if v, open := app.patrolGateFor("team-43"); open {
+		t.Fatalf("the override must not open any other patrol, got %q", v.Reason)
 	}
 }

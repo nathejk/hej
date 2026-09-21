@@ -42,6 +42,10 @@ machine-readable form.
 
 - [ ] `GET /api/public/patrol/{number}/map` returns the merged track and plottable scans; gated by task
       330's shared check. OpenAPI annotated.
+- [ ] The endpoint's point shape carries a **timestamp**, and `trackPointsForDistance` in
+      `cmd/api/patrolpage.go` is wired to use it. Task 341 left the track raising no distance leg because
+      `patroltrack.Point` has no time and `distance.Compute` matches legs by time — so the distance is
+      currently a floor by omission as well as by design. The function says so; this is where it is fixed.
 - [ ] `GET /api/public/albums` returns albums' located items for plotting; bounds-rejected coordinates are
       absent. OpenAPI annotated.
 - [ ] The island loads only where JS runs; with JS off the container shows the scan list and no broken

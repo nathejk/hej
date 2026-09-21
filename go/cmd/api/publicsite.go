@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"html/template"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // The public site: `/offentligt` and the pages under it (PRD 011 §7, task 332).
@@ -216,42 +218,12 @@ func patrolSearchError(flag string) string {
 	return ""
 }
 
-// publicPatrolPageHandler serves a patrol's own page.
+// A note on the patrol page, which lives in patrolpage.go.
 //
-// # Today it always answers "not yet", and that is correct rather than a stub
-//
-// The page itself is task 341 and the map is 342. Until they land there is nothing to show for any
-// patrol, so "den er ikke klar endnu" is the honest answer for every number — which is also what this
-// route will answer for most of the year once the page exists (PRD 011 §5: the not-yet page is the
-// most-served version of this route by far).
-//
-// **The gate is deliberately not consulted here yet.** Calling `patrolGateFor` and then rendering the
-// same page whatever it said would be a call that looks like a check and is not one — worse than no
-// call, because the next reader would believe the route was gated. Task 341 adds the gate and the open
-// branch together, as one change, with the tests that prove the closed path stays closed.
-//
-// # Why one function produces the closed answer
-//
-// Every closed path must answer identically — same status, same body — for a patrol that has not
-// finished, a patrol that does not exist, and a patrol we cannot resolve. Otherwise the differences
-// between them leak which numbers are real and which patrols have finished, live, during the race
-// (PRD 011 §6). One function, called from every closed branch, is how that stays true as branches are
-// added.
-//
-// @Summary      A patrol's public page (HTML)
-// @Description  The patrol's own page: name, gruppe and korps, an estimated distance, its diploma and a map of its route. Appears only once that patrol has finished, or once the last checkpoint has closed. Before that it answers a "not yet" page that is **identical to the answer for a patrol number that does not exist** — deliberately, so the URL space cannot be used to discover which numbers are real or to watch the field finish in real time. Unauthenticated; ignores the session cookie entirely. Not indexed.
-// @Tags         public-site
-// @Produce      html
-// @Param        number  path      string  true  "patrol number"
-// @Success      200  {string}  string  "the page, or the not-yet page"
-// @Failure      429  {object}  map[string]string  "read rate limit, by IP"
-// @Router       /offentligt/patrulje/{number} [get]
-func (app *application) publicPatrolPageHandler(w http.ResponseWriter, r *http.Request) {
-	if !app.allowPublicSiteRead(w, r) {
-		return
-	}
-	app.renderPatrolNotYet(w)
-}
+// Task 332 registered `/offentligt/patrulje/:number` here answering the not-yet page for every number, and
+// task 341 moved the handler out once there was something to gate. What stayed behind is
+// `renderPatrolNotYet` — the single closed answer, called from every refusal, which is the property that
+// keeps "not yet", "no such patrol" and "we cannot tell" indistinguishable.
 
 // renderPatrolNotYet is the single closed-gate answer.
 //
@@ -307,6 +279,21 @@ func (app *application) renderPublicPage(w http.ResponseWriter, name string, dat
 // public surface is where that would be most visible.
 var publicSiteFuncs = template.FuncMap{
 	"hold": publicHoldLabel,
+	"date": publicDanishDateTime,
+}
+
+// publicDanishDateTime renders an instant the way the public pages say it.
+//
+// Danish month names and a 24-hour clock, matching the glimt page's format so the two surfaces do not
+// spell a date two ways. Takes a pointer as well as a value through the template's own nil handling: a nil
+// `*time.Time` never reaches here, because every call site guards on the field being set.
+func publicDanishDateTime(t time.Time) string {
+	months := []string{
+		"januar", "februar", "marts", "april", "maj", "juni",
+		"juli", "august", "september", "oktober", "november", "december",
+	}
+	return fmt.Sprintf("%d. %s %d kl. %02d:%02d",
+		t.Day(), months[int(t.Month())-1], t.Year(), t.Hour(), t.Minute())
 }
 
 // publicSiteTemplates is the whole site: one layout plus one template per page.
@@ -370,6 +357,24 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   .photos figure { margin: 0; }
   .photos img { width: 100%; height: auto; border-radius: .25rem; background: #eee; display: block; }
   .photos figcaption { color: #555; font-size: .9rem; margin-top: .35rem; }
+  /* The patrol page's header: who they are on the left, the diploma on the right. Flex rather than
+     grid so it collapses to one column on a narrow screen without a media query. */
+  .patrolhead { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start;
+         justify-content: space-between; }
+  .patrolhead .who { flex: 1 1 18rem; }
+  .patrolhead .group { color: #555; margin: .1rem 0 0; }
+  .patrolhead .distance { font-size: 1.4rem; font-weight: 600; margin: .6rem 0 0; }
+  .patrolhead .finished { color: #555; margin: .2rem 0 0; font-size: .9rem; }
+  .diploma { flex: 0 0 9rem; border: 1px solid #ddd; border-radius: .25rem; background: #fafafa;
+         aspect-ratio: 1 / 1.414; display: flex; align-items: center; justify-content: center; }
+  .diploma .soon { text-align: center; color: #94a3b8; font-size: .9rem; margin: 0; }
+  .caveat { color: #555; font-size: .85rem; margin: .5rem 0 0; }
+  .maparea { height: 22rem; border-radius: .25rem; background: #eee; }
+  .scans { margin: 0; padding-left: 1.2rem; }
+  .scans li { margin-bottom: .35rem; }
+  .scans .what { font-weight: 600; }
+  .scans .when { color: #666; font-size: .85rem; margin-left: .4rem; }
+  .scans .nopos { color: #94a3b8; font-size: .8rem; margin-left: .4rem; }
   .find label { display: block; font-weight: 600; margin-bottom: .35rem; }
   .find input { font-size: 1.1rem; padding: .5rem; width: 8rem; border: 1px solid #94a3b8;
          border-radius: .25rem; }
@@ -484,6 +489,81 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 {{else}}
 <p class="empty">Der er ingen billeder i dette album.</p>
 {{end}}
+
+<p class="more"><a href="/offentligt">Tilbage til forsiden</a></p>
+{{template "layout-foot" .}}{{end}}
+
+{{define "patrol"}}{{template "layout-head" .}}
+<div class="patrolhead">
+  <div class="who">
+    <h1>Patrulje {{.Patrol.Number}}{{if .Patrol.Name}} · {{.Patrol.Name}}{{end}}</h1>
+    {{if or .Patrol.GroupName .KorpsLabel}}
+    <p class="group">
+      {{.Patrol.GroupName}}{{if and .Patrol.GroupName .KorpsLabel}} · {{end}}{{.KorpsLabel}}
+    </p>
+    {{end}}
+    {{if .Distance}}
+    <p class="distance">{{.Distance}}</p>
+    {{if .DistanceIncomplete}}
+    <p class="caveat">
+      Nogle af jeres registreringer havde ingen position, så tallet er lavere end det I gik.
+    </p>
+    {{end}}
+    {{end}}
+    {{if .FinishedLabel}}<p class="finished">I mål {{.FinishedLabel}}</p>{{end}}
+  </div>
+
+  {{if .HasDiploma}}
+  <!-- The diploma slot. Rendered only where the patrol finished: a page the backstop opened has nothing
+       to certify, and an empty frame would point at what is missing (task 346). The artwork itself is
+       task 345 — until then the slot is a link, not an image, so nothing here pretends to be a diploma. -->
+  <div class="diploma">
+    <p class="soon">Diplom<br><span>kommer</span></p>
+  </div>
+  {{end}}
+</div>
+
+<section>
+  <h2>Kortet</h2>
+  <!-- The map is a progressive enhancement (task 342). This paragraph is what a visitor without it sees,
+       and it is also what the page says *about* the track — see the handler comment: a gap in a recorded
+       route means the phone was in a pocket, not that the patrol stood still. -->
+  {{if .TrackAbsent}}
+  <p class="empty">
+    Der er ingen rute at vise. Appen optager kun, mens den er åben, så mange patruljer har ingen eller
+    kun lidt rute — det er helt normalt.
+  </p>
+  {{else if .TrackSegments}}
+  <div id="patrolmap" class="maparea"></div>
+  <p class="caveat">
+    Ruten viser, hvor en telefon havde appen åben — ikke hele vejen I gik. Ligger telefonen i lommen,
+    holder optagelsen pause, så ruten har huller. Det er ikke fejl.
+  </p>
+  {{end}}
+</section>
+
+<section>
+  <h2>Undervejs</h2>
+  {{if .Scans}}
+  <ol class="scans">
+    {{range .Scans}}
+    <li>
+      <span class="what">{{.Label}}</span>
+      <span class="when">{{date .At}}</span>
+      {{if not .Plottable}}<span class="nopos">ikke på kortet</span>{{end}}
+    </li>
+    {{end}}
+  </ol>
+  {{if .UnplottableScans}}
+  <p class="caveat">
+    En post kan registrere en patrulje i hånden. De registreringer har ingen position, så de står på
+    listen men ikke på kortet.
+  </p>
+  {{end}}
+  {{else}}
+  <p class="empty">Der er ingen registreringer på denne patrulje.</p>
+  {{end}}
+</section>
 
 <p class="more"><a href="/offentligt">Tilbage til forsiden</a></p>
 {{template "layout-foot" .}}{{end}}

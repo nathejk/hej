@@ -55,6 +55,36 @@ import (
 	"nathejk.dk/nathejk/table/scan"
 )
 
+// Verdict is the gate's answer: whether the page may be served, and the facts that decided it.
+//
+// # Why the finish time comes from here
+//
+// Finding it is the same work as opening the gate — both are "the patrol's scan at the last checkgroup" —
+// so returning it costs nothing and having the page re-derive it would mean **two definitions of
+// "finished"** that can disagree. PRD 011 §0b.3 is explicit that the gate, the page and the diploma must
+// share one, and this is how: there is only one place that looks.
+type Verdict struct {
+	// Reason is why the page is open, or Closed.
+	Reason Reason
+
+	// FinishedAt is when the patrol was scanned at the last checkgroup, or nil.
+	//
+	// **Nil is not the same as "not open".** A page opened by the backstop has no finish time, because the
+	// patrol never reached the finish — that is precisely the state task 346 renders without a diploma.
+	// So the two fields answer different questions and neither implies the other.
+	FinishedAt *time.Time
+}
+
+// Open reports whether the page exists publicly.
+func (v Verdict) Open() bool { return v.Reason.Open() }
+
+// Finished reports whether this patrol crossed the line.
+//
+// Reads the timestamp rather than comparing the reason, because an override may have opened the page for a
+// patrol that *did* finish but whose scan could not be attributed — in which case there is no finish time
+// and the page must not claim one.
+func (v Verdict) Finished() bool { return v.FinishedAt != nil }
+
 // Reason is why a patrol's page is open, or that it is not.
 //
 // **A reason rather than a boolean**, because the two open states are not interchangeable: a page
@@ -163,55 +193,69 @@ func New(checkgroups Checkgroups, scans Scans, closing Closing, opts ...Option) 
 //
 // Finished is reported in preference to RaceOver when both hold: "this patrol finished" is the stronger
 // statement, and it is the one that decides whether a diploma appears.
-func (g *Gate) For(year, patrolID string) (Reason, error) {
+func (g *Gate) For(year, patrolID string) (Verdict, error) {
 	if patrolID == "" {
-		return Closed, nil
-	}
-	if g.overridden(patrolID) {
-		return Override, nil
+		return Verdict{}, nil
 	}
 
-	finished, err := g.finished(year, patrolID)
+	// The finish scan is looked for first even when an override is in play, so the page can show a finish
+	// time for a patrol that finished *and* was opened by hand. An override is about visibility, not about
+	// whether the patrol reached the line.
+	finishedAt, err := g.finishedAt(year, patrolID)
 	if err != nil {
-		return Closed, err
+		return Verdict{}, err
 	}
-	if finished {
-		return Finished, nil
+
+	if g.overridden(patrolID) {
+		return Verdict{Reason: Override, FinishedAt: finishedAt}, nil
+	}
+	if finishedAt != nil {
+		return Verdict{Reason: Finished, FinishedAt: finishedAt}, nil
 	}
 
 	over, err := g.raceOver(year)
 	if err != nil {
-		return Closed, err
+		return Verdict{}, err
 	}
 	if over {
-		return RaceOver, nil
+		return Verdict{Reason: RaceOver}, nil
 	}
-	return Closed, nil
+	return Verdict{}, nil
 }
 
-// finished reports whether the patrol has a scan attributed to the last checkgroup.
+// finishedAt returns when the patrol was scanned at the last checkgroup, or nil.
 //
-// Note both halves fail closed by returning false rather than an error where the data is merely absent:
-// no checkgroups yet is the normal state of the projection for most of the year, and it is not a fault.
-func (g *Gate) finished(year, patrolID string) (bool, error) {
+// Note both halves fail closed by returning nil rather than an error where the data is merely absent: no
+// checkgroups yet is the normal state of the projection for most of the year, and it is not a fault.
+//
+// The **earliest** matching scan is taken, not the latest. A patrol scanned twice at the finish — a
+// re-scan, a second post in the same group — finished when it first arrived; reporting the later time
+// would quietly add the minutes it stood there to its night.
+func (g *Gate) finishedAt(year, patrolID string) (*time.Time, error) {
 	last, ok, err := g.lastCheckgroup(year)
 	if err != nil || !ok {
-		return false, err
+		return nil, err
 	}
 
 	patrolScans, err := g.scans.ByTeam(year, patrolID)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
+
+	var earliest *time.Time
 	for _, s := range patrolScans {
 		// An unattributed scan has no CheckgroupID and cannot satisfy this. That is a normal outcome
 		// rather than an error (see scan.Scan's doc): the checkpoint is recovered from the scanner's
 		// shift, and the rota is fed from outside this repo. Such a patrol waits for the backstop.
-		if s.CheckgroupID != "" && types.CheckgroupID(s.CheckgroupID) == last {
-			return true, nil
+		if s.CheckgroupID == "" || types.CheckgroupID(s.CheckgroupID) != last {
+			continue
+		}
+		at := time.Unix(s.Uts, 0).UTC()
+		if earliest == nil || at.Before(*earliest) {
+			earliest = &at
 		}
 	}
-	return false, nil
+	return earliest, nil
 }
 
 // lastCheckgroup returns the final group in route order — the finish line.

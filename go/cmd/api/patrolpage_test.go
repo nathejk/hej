@@ -1,0 +1,479 @@
+package main
+
+import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"nathejk.dk/internal/publicgate"
+	"nathejk.dk/internal/scans"
+	"nathejk.dk/nathejk/table/checkgroup"
+	"nathejk.dk/nathejk/table/publicpatrol"
+	"nathejk.dk/nathejk/table/scan"
+	"nathejk.dk/nathejk/table/trackpoint"
+)
+
+// Patruljens egen side (task 341). The gate is finally consulted here, so about half of this file is about
+// what a *closed* page must not reveal.
+
+// patrolStore answers ByNumber from a fixed set.
+type patrolStore struct {
+	patrols map[string]publicpatrol.Patrol
+	err     error
+	asked   []string
+}
+
+func (s *patrolStore) ByNumber(_ string, number string) (publicpatrol.Patrol, bool, error) {
+	s.asked = append(s.asked, number)
+	if s.err != nil {
+		return publicpatrol.Patrol{}, false, s.err
+	}
+	p, ok := s.patrols[number]
+	return p, ok, nil
+}
+
+// pageScans is a scans.Source over a fixed list.
+type pageScans struct{ byPatrol map[string][]scans.Scan }
+
+func (s pageScans) ByPatrol(patrolID string) []scans.Scan { return s.byPatrol[patrolID] }
+
+func coord(v float64) *float64 { return &v }
+
+var raceNight = time.Date(2026, 9, 19, 21, 0, 0, 0, time.UTC)
+
+func nightAt(min int) time.Time { return raceNight.Add(time.Duration(min) * time.Minute) }
+
+// patrolPageApp wires a patrol that finished, with scans and a gate that opens on the last checkgroup.
+func patrolPageApp(t *testing.T) (*application, *patrolStore, *httptest.Server) {
+	t.Helper()
+
+	app, _, _ := publicApp(t)
+	app.config.eventYear = "2026"
+
+	store := &patrolStore{patrols: map[string]publicpatrol.Patrol{
+		"42": {TeamID: "team-42", Number: "42", Name: "Ørnene",
+			GroupName: "1. Søllerød Gruppe", Korps: "dds"},
+		// A patrol that has not finished: its gate stays closed.
+		"43": {TeamID: "team-43", Number: "43", Name: "Ulvene", GroupName: "2. Gruppe", Korps: "kfum"},
+		// A patrol with no group and an unspecified korps: the header must omit the whole line.
+		"44": {TeamID: "team-44", Number: "44", Name: "Bjørnene", Korps: "andet"},
+	}}
+	app.models.PublicPatrols = store
+
+	app.models.Scans = pageScans{byPatrol: map[string][]scans.Scan{
+		"team-42": {
+			// Newest first, as the source returns them.
+			{ID: "s-3", Kind: scans.KindCheckpoint, Label: "Mål", CheckpointID: "cp-9",
+				Lat: coord(55.7500), Lng: coord(12.2000), ScannedAt: nightAt(600)},
+			// A bandit catch with no position.
+			{ID: "s-2", Kind: scans.KindBandit, ScannedAt: nightAt(300)},
+			{ID: "s-1", Kind: scans.KindCheckpoint, Label: "Post 4A", CheckpointID: "cp-1",
+				Lat: coord(55.7000), Lng: coord(12.2000), ScannedAt: nightAt(0)},
+		},
+	}}
+
+	// The gate: team-42 scanned at the last checkgroup, team-43 did not.
+	app.publicGate = publicgate.New(
+		gateCheckgroups{groups: []checkgroup.Checkgroup{
+			{ID: "cg-1", SortOrder: 10}, {ID: "cg-mål", SortOrder: 20},
+		}},
+		gateScans{byTeam: map[string][]scan.Scan{
+			"team-42": {{QrID: "q1", Uts: nightAt(600).Unix(), CheckgroupID: "cg-mål"}},
+			"team-43": {{QrID: "q2", Uts: nightAt(120).Unix(), CheckgroupID: "cg-1"}},
+		}},
+		gateClosing{},
+	)
+
+	srv := httptest.NewServer(app.routes())
+	t.Cleanup(srv.Close)
+	return app, store, srv
+}
+
+func TestPatrolPageRendersTheHeader(t *testing.T) {
+	_, _, srv := patrolPageApp(t)
+
+	resp, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	page := string(body)
+
+	for _, want := range []string{
+		"Patrulje 42", "Ørnene",
+		"1. Søllerød Gruppe",
+		// The korps as its label, never the slug.
+		"Det Danske Spejderkorps",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the header is missing %q\n%s", want, page)
+		}
+	}
+	if strings.Contains(page, ">dds<") || strings.Contains(page, " dds ") {
+		t.Error("the korps slug leaked into the page instead of its label")
+	}
+}
+
+// `andet` and an absent group must omit the line rather than printing "Andet", which tells a visitor
+// nothing and looks like a bug.
+func TestPatrolPageOmitsAnUnspecifiedKorpsAndGroup(t *testing.T) {
+	app, _, srv := patrolPageApp(t)
+	// Open 44's gate by finishing it.
+	app.publicGate = publicgate.New(
+		gateCheckgroups{groups: []checkgroup.Checkgroup{{ID: "cg-mål", SortOrder: 20}}},
+		gateScans{byTeam: map[string][]scan.Scan{
+			"team-44": {{QrID: "q", Uts: nightAt(600).Unix(), CheckgroupID: "cg-mål"}},
+		}},
+		gateClosing{},
+	)
+
+	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/44", nil)
+	page := string(body)
+
+	if !strings.Contains(page, "Bjørnene") {
+		t.Fatalf("want the patrol rendered\n%s", page)
+	}
+	for _, forbidden := range []string{"Andet", "andet", `class="group"`} {
+		if strings.Contains(page, forbidden) {
+			t.Errorf("an unspecified korps and no group must omit the line, found %q", forbidden)
+		}
+	}
+}
+
+// **The finish time comes from the gate**, so the page and the diploma cannot disagree about whether the
+// patrol finished (PRD 011 §0b.3).
+func TestPatrolPageShowsTheFinishTimeAndTheDiplomaSlot(t *testing.T) {
+	_, _, srv := patrolPageApp(t)
+
+	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	page := string(body)
+
+	if !strings.Contains(page, "I mål") {
+		t.Errorf("want the finish time\n%s", page)
+	}
+	// 21:00 plus ten hours is the *next* morning — which is what a night race does, and worth pinning so a
+	// timezone or date-rollover bug shows up here rather than on a patrol's page.
+	if !strings.Contains(page, "20. september 2026 kl. 07:00") {
+		t.Errorf("want the Danish-formatted finish time, rolled into the next morning\n%s", page)
+	}
+	if !strings.Contains(page, `class="diploma"`) {
+		t.Error("a patrol that finished should have a diploma slot")
+	}
+}
+
+// **A backstop-opened page has no diploma slot at all** — absent, not empty. An empty frame where a
+// diploma should be is a page pointing at what is missing (task 346).
+func TestABackstopOpenedPageHasNoDiplomaSlot(t *testing.T) {
+	app, _, srv := patrolPageApp(t)
+	// The race is over, and 43 never reached the finish.
+	app.publicGate = publicgate.New(
+		gateCheckgroups{groups: []checkgroup.Checkgroup{
+			{ID: "cg-1", SortOrder: 10}, {ID: "cg-mål", SortOrder: 20},
+		}},
+		gateScans{byTeam: map[string][]scan.Scan{
+			"team-43": {{QrID: "q", Uts: nightAt(120).Unix(), CheckgroupID: "cg-1"}},
+		}},
+		gateClosing{uts: time.Now().Add(-time.Hour).Unix(), ok: true},
+	)
+
+	resp, body := getPublic(t, srv.URL+"/offentligt/patrulje/43", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("the backstop should have opened the page, got %d", resp.StatusCode)
+	}
+	page := string(body)
+
+	if !strings.Contains(page, "Ulvene") {
+		t.Fatalf("want the patrol rendered\n%s", page)
+	}
+	if strings.Contains(page, `class="diploma"`) {
+		t.Error("a patrol that did not finish must have no diploma slot")
+	}
+	if strings.Contains(page, "I mål") {
+		t.Error("a patrol that did not finish must not claim a finish time")
+	}
+	// And nothing on the page may say they gave up.
+	for _, forbidden := range []string{"udgået", "opgav", "gennemførte ikke", "retired"} {
+		if strings.Contains(strings.ToLower(page), forbidden) {
+			t.Errorf("the page must not announce that a patrol did not finish, found %q", forbidden)
+		}
+	}
+}
+
+// **The closed gate.** A patrol that has not finished, while the race runs, must be indistinguishable from
+// one that does not exist.
+func TestAPatrolThatHasNotFinishedIsIndistinguishableFromAnUnknownOne(t *testing.T) {
+	_, _, srv := patrolPageApp(t)
+
+	var first string
+	for i, number := range []string{"43", "999999"} {
+		resp, body := getPublic(t, srv.URL+"/offentligt/patrulje/"+number, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: want 200 with the not-yet page, got %d", number, resp.StatusCode)
+		}
+		if !strings.Contains(string(body), "ikke klar endnu") {
+			t.Errorf("%s: want the not-yet page", number)
+		}
+		if i == 0 {
+			first = string(body)
+		} else if string(body) != first {
+			t.Errorf("%s: the closed answer must be byte-identical to an unknown patrol", number)
+		}
+	}
+}
+
+// And a closed page must leak nothing about the patrol behind it — not its name, not its group.
+func TestAClosedPageLeaksNothingAboutARealPatrol(t *testing.T) {
+	_, _, srv := patrolPageApp(t)
+
+	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/43", nil)
+	page := string(body)
+
+	for _, forbidden := range []string{"Ulvene", "2. Gruppe", "KFUM", "43", "team-43"} {
+		if strings.Contains(page, forbidden) {
+			t.Errorf("the closed page leaks %q", forbidden)
+		}
+	}
+}
+
+// Registrations are listed in **race order, oldest first**: a page read afterwards is a story, and a story
+// is read forwards. The app's own list is newest-first, so this is a deliberate difference.
+func TestPatrolPageListsRegistrationsInRaceOrder(t *testing.T) {
+	_, _, srv := patrolPageApp(t)
+
+	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	page := string(body)
+
+	first := strings.Index(page, "Post 4A")
+	bandit := strings.Index(page, "Fanget af en bandit")
+	last := strings.Index(page, "Mål")
+	if first < 0 || bandit < 0 || last < 0 {
+		t.Fatalf("want all three registrations listed\n%s", page)
+	}
+	if !(first < bandit && bandit < last) {
+		t.Errorf("registrations are out of race order: %d, %d, %d", first, bandit, last)
+	}
+}
+
+// An unattributed scan has no label, because the checkpoint is recovered from the scanner's rota. The row
+// must say what kind of thing happened rather than inventing a post name.
+func TestAnUnattributedScanIsStillListed(t *testing.T) {
+	app, _, srv := patrolPageApp(t)
+	app.models.Scans = pageScans{byPatrol: map[string][]scans.Scan{
+		"team-42": {
+			{ID: "s-2", Kind: scans.KindCheckpoint, ScannedAt: nightAt(120)},
+			{ID: "s-1", Kind: scans.KindBandit, ScannedAt: nightAt(60)},
+		},
+	}}
+
+	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	page := string(body)
+
+	if !strings.Contains(page, "En post") {
+		t.Errorf("an unattributed checkpoint scan should read as a post\n%s", page)
+	}
+	if !strings.Contains(page, "Fanget af en bandit") {
+		t.Errorf("a bandit catch should say so\n%s", page)
+	}
+	for _, forbidden := range []string{"Post ?", "cp-", "ukendt"} {
+		if strings.Contains(page, forbidden) {
+			t.Errorf("an unattributed scan must not invent a post name, found %q", forbidden)
+		}
+	}
+}
+
+// A registration with no position is listed and marked, because the list is not the map's fallback — it is
+// a requirement (PRD 011 §6).
+func TestUnplottableRegistrationsAreListedAndExplained(t *testing.T) {
+	_, _, srv := patrolPageApp(t)
+
+	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	page := string(body)
+
+	if !strings.Contains(page, "ikke på kortet") {
+		t.Errorf("want the un-plottable registration marked\n%s", page)
+	}
+	if !strings.Contains(page, "registrere en patrulje i hånden") {
+		t.Errorf("want the explanation of why a registration has no position\n%s", page)
+	}
+}
+
+func TestPatrolPageShowsTheDistance(t *testing.T) {
+	_, _, srv := patrolPageApp(t)
+
+	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	page := string(body)
+
+	// Two positioned scans ~5.5 km apart over ten hours: a walk, and a figure.
+	if !strings.Contains(page, "mindst ~5 km") {
+		t.Errorf("want the distance floor\n%s", page)
+	}
+	// Never a decimal, and never a comparison.
+	for _, forbidden := range []string{"5,5", "5.5", "længst", "rekord"} {
+		if strings.Contains(page, forbidden) {
+			t.Errorf("the distance must be a plain floor, found %q", forbidden)
+		}
+	}
+}
+
+// **The honesty sentence.** Without it, a gap in the drawn route reads as "they stood still here".
+func TestPatrolPageSaysWhatTheTrackCovers(t *testing.T) {
+	app, _, srv := patrolPageApp(t)
+	// A track with something in it, so the map section renders.
+	app.patrolTracks = trackReader(t,
+		&trackPeople{members: map[string][]string{"team-42": {"p1"}}},
+		&trackPoints{byPerson: map[string][]trackpoint.Point{"p1": walk(12.200, 10)}},
+	)
+
+	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	page := string(body)
+
+	if !strings.Contains(page, "hvor en telefon havde appen åben") {
+		t.Errorf("the page must say what the track covers\n%s", page)
+	}
+	if !strings.Contains(page, "huller") {
+		t.Errorf("the page must say the route has gaps and that they are not faults\n%s", page)
+	}
+}
+
+// **An empty track is the common case** (task 082 measured 2% coverage), and the page must say so rather
+// than showing an unexplained empty map.
+func TestAnAbsentTrackIsExplainedRatherThanShownEmpty(t *testing.T) {
+	app, _, srv := patrolPageApp(t)
+	app.patrolTracks = trackReader(t,
+		&trackPeople{members: map[string][]string{"team-42": {"p1"}}},
+		&trackPoints{},
+	)
+
+	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	page := string(body)
+
+	if !strings.Contains(page, "ingen rute at vise") {
+		t.Errorf("want the absent-track explanation\n%s", page)
+	}
+	if !strings.Contains(page, "helt normalt") {
+		t.Errorf("the page must say an absent route is normal, not a fault\n%s", page)
+	}
+	if strings.Contains(page, `id="patrolmap"`) {
+		t.Error("no map container should be rendered when there is no route")
+	}
+}
+
+// The page is complete without JavaScript: the map is the only enhancement, and everything else is server
+// rendered.
+func TestPatrolPageNeedsNoScript(t *testing.T) {
+	_, _, srv := patrolPageApp(t)
+
+	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	page := strings.ToLower(string(body))
+
+	for _, forbidden := range []string{"<script", "onclick=", "onload="} {
+		if strings.Contains(page, forbidden) {
+			t.Errorf("the patrol page must work without JavaScript, found %q", forbidden)
+		}
+	}
+	// And the substance must be there without it.
+	for _, want := range []string{"<h1>", "<ol class=\"scans\">", "undervejs"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the page is missing %q without script", want)
+		}
+	}
+}
+
+// The gate must be asked about the **team id**, never the number a visitor typed.
+func TestTheGateIsAskedAboutTheTeamIDNotTheNumber(t *testing.T) {
+	app, _, srv := patrolPageApp(t)
+
+	asked := map[string]bool{}
+	app.publicGate = publicgate.New(
+		gateCheckgroups{groups: []checkgroup.Checkgroup{{ID: "cg-mål", SortOrder: 20}}},
+		recordingScans{asked: asked, byTeam: map[string][]scan.Scan{
+			"team-42": {{QrID: "q", Uts: nightAt(600).Unix(), CheckgroupID: "cg-mål"}},
+		}},
+		gateClosing{},
+	)
+
+	getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+
+	if !asked["team-42"] {
+		t.Errorf("the gate should have been asked about the team id, was asked about %v", asked)
+	}
+	if asked["42"] {
+		t.Error("the gate was asked about the public number instead of the team id")
+	}
+}
+
+// A failing patrol read must answer not-yet rather than an error page: an error is distinguishable, and a
+// distinguishable answer is a probe.
+func TestAFailingPatrolReadAnswersNotYet(t *testing.T) {
+	_, store, srv := patrolPageApp(t)
+	store.err = errPatrolReadFailed
+
+	resp, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200 with the not-yet page, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(string(body), "ikke klar endnu") {
+		t.Error("want the not-yet page")
+	}
+}
+
+// With no patrol projection at all, every page is closed — failing closed rather than answering 503, since
+// an "exists but unavailable" confirms a number is real.
+func TestNoPatrolProjectionClosesEveryPage(t *testing.T) {
+	app, _, srv := patrolPageApp(t)
+	app.models.PublicPatrols = nil
+
+	resp, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200 with the not-yet page, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(string(body), "ikke klar endnu") {
+		t.Error("want the not-yet page")
+	}
+}
+
+// Leading zeros and stray whitespace must reach the same page, so a number read off a sign works however
+// it is typed.
+func TestPatrolPageNormalisesTheNumber(t *testing.T) {
+	_, store, srv := patrolPageApp(t)
+
+	resp, _ := getPublic(t, srv.URL+"/offentligt/patrulje/042", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	for _, asked := range store.asked {
+		if asked != "42" {
+			t.Errorf("the projection was asked for %q; the number should be normalised to 42", asked)
+		}
+	}
+}
+
+// The session must be ignored here as everywhere else on this surface.
+func TestPatrolPageIgnoresTheSession(t *testing.T) {
+	app, _, srv := patrolPageApp(t)
+	cookies := authedCookies(t, app, srv, "30000001", "+4530000001")
+
+	for _, number := range []string{"42", "43"} {
+		_, anonymous := getPublic(t, srv.URL+"/offentligt/patrulje/"+number, nil)
+		_, signedIn := getPublic(t, srv.URL+"/offentligt/patrulje/"+number, cookies)
+		if string(anonymous) != string(signedIn) {
+			t.Errorf("patrol %s differs for a signed-in member", number)
+		}
+	}
+}
+
+// recordingScans records which teams the gate asked about.
+type recordingScans struct {
+	byTeam map[string][]scan.Scan
+	asked  map[string]bool
+}
+
+func (s recordingScans) ByTeam(_, teamID string) ([]scan.Scan, error) {
+	s.asked[teamID] = true
+	return s.byTeam[teamID], nil
+}
+
+// errPatrolReadFailed stands in for a database problem in the patrol read.
+var errPatrolReadFailed = errors.New("database is down")

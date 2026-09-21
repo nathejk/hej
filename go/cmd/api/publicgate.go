@@ -40,23 +40,23 @@ import (
 // able to tell "not yet" from "does not exist" from "we cannot tell", because the differences between
 // them leak exactly what §6 says must not leak — which patrol numbers are real, and which patrols have
 // finished, live, during the race.
-func (app *application) patrolGateFor(patrolID string) (publicgate.Reason, bool) {
+func (app *application) patrolGateFor(patrolID string) (publicgate.Verdict, bool) {
 	// Nil when the app runs without a database or the projections failed to build. Fails closed,
 	// unlike most nil-projection paths in this service, which answer 503. The difference is what the two
 	// answers publish: a 503 here would confirm that a patrol number exists and that we simply cannot
 	// serve it yet, which is one bit more than a stranger should get from a closed gate.
 	if app.publicGate == nil {
-		return publicgate.Closed, false
+		return publicgate.Verdict{}, false
 	}
 
-	reason, err := app.publicGate.For(app.config.eventYear, patrolID)
+	verdict, err := app.publicGate.For(app.config.eventYear, patrolID)
 	if err != nil {
 		// Logged, not surfaced. The gate failing is our problem; the visitor gets the same answer they
 		// would get before the race, because any distinguishable error response is a probe.
 		app.Logger.Error("evaluating the public patrol gate", "patrol", patrolID, "err", err)
-		return publicgate.Closed, false
+		return publicgate.Verdict{}, false
 	}
-	return reason, reason.Open()
+	return verdict, verdict.Open()
 }
 
 // publicGateOverride builds the override predicate from configuration.

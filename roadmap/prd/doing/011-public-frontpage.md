@@ -882,8 +882,11 @@ independently of section 2**.
 - [ ] Task: the patrol page — header, distance, diploma thumbnail, scan list, no-JS complete
       *(also carries the finish time, moved here from 338: it is derived from the last-checkgroup scan
       rather than projected, so it belongs with the page that renders it)*
-- [ ] **342** — the map island: Leaflet + clustering, scans, merged track, located photographs, with a
-      working fallback where it cannot run
+- [ ] Task: the map island — Leaflet + clustering, scans, merged track, located photographs, with
+      a working fallback where it cannot run
+      *(also: give the map endpoint a **timestamped** point shape and wire
+      `trackPointsForDistance` — task 341 left the track raising no distance leg, because
+      `patroltrack.Point` carries no time and `distance.Compute` matches legs by time)*
 - [ ] **343** — the takedown affordance on the patrol page
 - [ ] **344** — confirm scan-kind classification against 2025 before the list labels a kind
 
