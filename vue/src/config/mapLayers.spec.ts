@@ -149,6 +149,15 @@ describe('the public map island', () => {
     expect(CODE.slice(solid, dotted)).not.toContain('dashArray')
   })
 
+  // The page states a distance in kilometres; a map with no scale next to it cannot be read against that
+  // number. Metric only, and bottom left — the one corner the zoom, the switcher and the attribution leave
+  // free.
+  it('shows a metric scale bar in the free corner', () => {
+    expect(CODE).toContain('L.control.scale(')
+    expect(CODE).toContain("position: 'bottomleft'")
+    expect(CODE).toMatch(/imperial:\s*false/)
+  })
+
   // The app stores the member's choice under `hej.map.baseLayer`. This page is read by people who are not
   // members, and the island holds no state by design.
   it('does not touch the app’s persisted layer choice', () => {

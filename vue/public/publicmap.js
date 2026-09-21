@@ -119,6 +119,12 @@
 
     addBaseLayers(map, mapConfig, config.dataforsyningen_token || '')
 
+    // A scale bar, bottom left. The page states a distance in kilometres; without a scale the map next to it
+    // is unitless, and "how far is that gap" has no answer. Metric only — the event is in Denmark, and an
+    // imperial row would just be a second number to read past. Bottom left is the one corner with nothing in
+    // it: zoom sits top left, the layer switcher top right, the attribution bottom right.
+    L.control.scale({ position: 'bottomleft', metric: true, imperial: false, maxWidth: 120 }).addTo(map)
+
     var bounds = L.latLngBounds([])
 
     // **The route, as separate strokes.** The endpoint sends a list of segments precisely so a gap in the
