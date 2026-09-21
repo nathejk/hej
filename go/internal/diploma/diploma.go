@@ -24,15 +24,22 @@
 //     children's faces is a stronger identifier than any name we are careful about elsewhere, so putting one
 //     here would make the rest of that work pointless.
 //
-// The middle of the page is therefore empty in the mock, and the artwork that replaces it should be designed
-// for a diploma without a photograph rather than around a hole where one used to be.
+// The middle of the page is therefore empty in the artwork, and it was designed that way rather than around a
+// hole where a photograph used to be.
 //
-// # The background is a mock
+// # The background
 //
-// `assets/mock-background.jpg` is the **2024** poster, downscaled to 150 dpi, standing in until the real
-// artwork arrives — the maintainer's instruction: *"use an old graphic as mock, we will replace before
-// launch"*. It therefore says 2024 on it, deliberately and visibly, so nobody mistakes it for finished work.
-// See ReplaceBeforeLaunch.
+// `assets/background-2026.jpg` is **2026's artwork**, supplied by the maintainer on 2026-09-21 as a
+// print-ready A4 PDF and rasterised to 300 dpi by `go/scripts/render-diploma-background.sh`. The vector source
+// is kept beside it in `assets/source/`, because it is the thing that gets edited; the JPEG is a derivative and
+// the script says how to remake it.
+//
+// It replaced the 2024 poster that stood in as a visible mock until then. Note what it is: **the event poster**,
+// which carries the wordmark, the year and "Vi ses i mørket!" — it is not a diploma-specific design and the word
+// *Diplom* appears nowhere on it. The rendered text therefore has to say what the page is, and the empty band
+// it prints into runs roughly 128-244 mm down the page, between the artwork's own two blocks.
+//
+// See ReplaceBeforeLaunch for what is still outstanding.
 //
 // # Why a package rather than a handler
 //
@@ -60,21 +67,24 @@ import (
 
 // ReplaceBeforeLaunch is what still has to happen before this is shown to a family for real.
 //
-// A constant rather than a comment so it appears in `go doc` and in a grep for "launch": the mock is
-// recognisable to us and would not be to a parent, and the failure mode of forgetting is a 2025 patrol
-// receiving a diploma that says 2024.
+// A constant rather than a comment so it appears in `go doc` and in a grep for "launch". **The artwork is no
+// longer on the list** — 2026's design landed on 2026-09-21 — and what is left is deliberately small:
 //
-//   - **The artwork.** 2026's design, at 300 dpi, A4 portrait, laid out for no photograph.
-//   - **The headline font.** `diplom` embeds `impact.ttf`; Impact is a Microsoft core font whose
-//     redistribution is restricted, so this renders in fpdf's built-in Helvetica instead. If the real artwork
-//     wants Impact in the *text* (the artwork's own headline is part of the image, so it does not), the
-//     licence question has to be answered rather than inherited.
 //   - **The route line.** `diplom` hardcodes "fra Lundby til Glumsø" for 2024. This renders it only when
-//     configured, so the mock omits it rather than inventing places (see Diploma.Route).
-const ReplaceBeforeLaunch = "artwork, headline font, route line"
+//     configured, and nothing configures it yet, so the line is omitted rather than inventing places (see
+//     Diploma.Route). 2026's start and finish are not written down anywhere this package can reach.
+//   - **A check that the text belongs on this artwork.** The background is the event *poster*: it says NATHEJK
+//     2026 and "Vi ses i mørket!", not "Diplom". The name and the sentence block print into the empty band
+//     between those two, which fits — measured on a rendered sample, not assumed — but whether a poster is what
+//     a diploma should look like is the maintainer's call, not this package's.
+//
+// The headline font question is **closed**: `diplom` embeds `impact.ttf`, whose redistribution is restricted, and
+// this renders in fpdf's built-in Helvetica. The artwork carries its own headline as outlines, so nothing here
+// needs Impact.
+const ReplaceBeforeLaunch = "route line, and whether a poster is the right diploma"
 
-//go:embed assets/mock-background.jpg
-var mockBackground []byte
+//go:embed assets/background-2026.jpg
+var background []byte
 
 // Diploma is everything a diploma says.
 //
@@ -108,8 +118,8 @@ type Diploma struct {
 // Background returns the image the diploma is drawn on.
 //
 // A function rather than a field so a caller cannot forget it, and so replacing the artwork is a change in one
-// place. Returns the embedded mock until 2026's design exists.
-func Background() []byte { return mockBackground }
+// place — which is exactly how 2026's design replaced the mock: one embed line and one asset.
+func Background() []byte { return background }
 
 // PDF renders the diploma as an A4 portrait PDF.
 //
@@ -117,9 +127,12 @@ func Background() []byte { return mockBackground }
 //
 // They belong to the **artwork**, not to any layout logic: the background is a full-page bleed and the text has
 // to sit in the gap the image leaves. `diplom`'s coordinates put the name at y=210mm, which is where its 2024
-// layout had a photograph above and clear paper below; on this mock that lands on top of the poster's own
-// "Vi ses i mørket!" band — caught by looking at a rendered sample rather than by reading the code. So the
-// text now sits in the large clear middle instead, and these constants move with the artwork.
+// layout had a photograph above and clear paper below; on these posters that lands on top of the artwork's own
+// "Vi ses i mørket!" band — caught by looking at a rendered sample rather than by reading the code. So the text
+// sits in the large clear middle instead, and these constants move with the artwork.
+//
+// 2026's design keeps that shape: its wordmark block ends around y=125mm and the "Vi ses i mørket!" band starts
+// around y=250mm, so the numbers below did not have to change — confirmed on a rendered sample.
 func PDF(d Diploma, w io.Writer) error {
 	const (
 		pageWidthMM  = 210.0

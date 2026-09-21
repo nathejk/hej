@@ -118,8 +118,8 @@ func TestPDFRendersAnA4Document(t *testing.T) {
 	if !bytes.Contains(out, []byte("595.28 841.89")) {
 		t.Error("want an A4 portrait MediaBox")
 	}
-	// The background is a 619 kB JPEG, so anything much smaller means it did not make it in.
-	if len(out) < 300_000 {
+	// The background is a ~1.4 MB JPEG, so anything much smaller means it did not make it in.
+	if len(out) < 700_000 {
 		t.Errorf("the PDF is %d bytes; the artwork appears to be missing", len(out))
 	}
 }
@@ -140,6 +140,15 @@ func TestTheBackgroundIsADecodableA4Image(t *testing.T) {
 	// A4 is 1:1.414. Allow a little slack for an artwork that is trimmed differently.
 	if ratio < 1.35 || ratio > 1.48 {
 		t.Errorf("the artwork is %dx%d (ratio %.3f); A4 portrait is ~1.414", b.Dx(), b.Dy(), ratio)
+	}
+
+	// **And it has to be print resolution.** A diploma is a thing people print and put on a fridge, and the one
+	// way to get that wrong invisibly is to drop in a screen-sized image: it renders fine on a phone and comes
+	// out of a printer soft. 3000 px on the long edge is ~260 dpi on A4; 2026's artwork is 3508, i.e. 300 dpi
+	// exactly (see go/scripts/render-diploma-background.sh). The mock this replaced was 150 dpi and would have
+	// failed this.
+	if b.Dy() < 3000 {
+		t.Errorf("the artwork is %dx%d; want at least 3000 px on the long edge for print", b.Dx(), b.Dy())
 	}
 }
 
