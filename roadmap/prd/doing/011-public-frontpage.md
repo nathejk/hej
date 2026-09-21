@@ -853,7 +853,9 @@ independently of section 2**.
       check, tested in one place
 - [ ] **340** — merged track reader: `TELEMETRY` by subject filter, dedup on (person, timestamp),
       union-of-segments merge, gap breaks, simplification, cached per patrol
-- [ ] **341** — the patrol page: header, distance, diploma thumbnail, scan list, no-JS complete
+- [ ] Task: the patrol page — header, distance, diploma thumbnail, scan list, no-JS complete
+      *(also carries the finish time, moved here from 338: it is derived from the last-checkgroup scan
+      rather than projected, so it belongs with the page that renders it)*
 - [ ] **342** — the map island: Leaflet + clustering, scans, merged track, located photographs, with a
       working fallback where it cannot run
 - [ ] **343** — the takedown affordance on the patrol page

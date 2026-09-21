@@ -39,6 +39,7 @@ import (
 	"nathejk.dk/nathejk/table/kort"
 	"nathejk.dk/nathejk/table/maphandout"
 	"nathejk.dk/nathejk/table/person"
+	"nathejk.dk/nathejk/table/publicpatrol"
 	"nathejk.dk/nathejk/table/scan"
 )
 
@@ -411,6 +412,11 @@ func run(logger *slog.Logger) error {
 	// not. It also shares glimt's *objects* — content addressing means an album photograph and a
 	// glimt can be the same bytes — which is why the delete path consults both (glimtdelete.go).
 	var albums *album.Table
+	// publicPatrols is the narrow public patrol projection (PRD 011, task 338). Folds the same upstream
+	// team events shared-go's `patrulje` projection folds, and writes four columns — deliberately dropping
+	// the contact block, so the public page cannot name a person even by accident. See the package doc for
+	// why that is worth a second consumer.
+	var publicPatrols *publicpatrol.Table
 	if ev != nil && (err == nil || noBroker) {
 		if t, cerr := kort.New(ev.publisherOrNil(), ev.writer, ev.reader,
 			// A body we cannot decode is the one signal that our mirrored copy of hq's event shapes
@@ -464,6 +470,12 @@ func run(logger *slog.Logger) error {
 			logger.Error("album projection unavailable", "err", cerr)
 		} else {
 			albums = t
+		}
+
+		if t, cerr := publicpatrol.New(ev.publisherOrNil(), ev.writer, ev.reader); cerr != nil {
+			logger.Error("public patrol projection unavailable", "err", cerr)
+		} else {
+			publicPatrols = t
 		}
 	}
 
@@ -536,6 +548,9 @@ func run(logger *slog.Logger) error {
 			}
 			if albums != nil {
 				projections = append(projections, albums)
+			}
+			if publicPatrols != nil {
+				projections = append(projections, publicPatrols)
 			}
 
 			ev.registerProjections(logger, projections...)
@@ -640,7 +655,8 @@ func run(logger *slog.Logger) error {
 			raceAreasOrNil(checkpoints), peopleOrNil(persons), vehiclesOrNil(vehicles),
 			data.WithMapReads(mapReadsFor(mapReads, ev != nil, logger)),
 			data.WithGlimt(glimtQueriesOrNil(glimts)),
-			data.WithAlbums(albumQueriesOrNil(albums))),
+			data.WithAlbums(albumQueriesOrNil(albums)),
+			data.WithPublicPatrols(publicPatrolQueriesOrNil(publicPatrols))),
 		commands: commands.New(publisherFor(ev)),
 		vehicles: vehicleCommandsOrNil(vehicles),
 		db:       db,

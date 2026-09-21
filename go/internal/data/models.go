@@ -13,6 +13,7 @@ import (
 	"nathejk.dk/nathejk/table/checkpoint"
 	"nathejk.dk/nathejk/table/glimt"
 	"nathejk.dk/nathejk/table/person"
+	"nathejk.dk/nathejk/table/publicpatrol"
 )
 
 // Models is the read-only facade passed to handlers.
@@ -111,6 +112,17 @@ type Models struct {
 	// Read-only here by construction, like Glimt: creating and removing go through internal/commands,
 	// and the bytes through app.blobs.
 	Albums album.Queries
+
+	// PublicPatrols is what a patrol's public page may say about it (PRD 011 §8).
+	//
+	// **May be nil**, like the projections above. A nil must be treated as "closed", not as "unavailable":
+	// the patrol page's refusal has to be indistinguishable from a patrol that has not finished and from
+	// one that does not exist (PRD 011 §6), and a 503 here would confirm that a number is real.
+	//
+	// Note what the *type* guarantees rather than the handler: `publicpatrol.Patrol` carries a number, a
+	// patrol name, a group and a korps, and has no field for a person. The upstream event this is folded
+	// from carries a leader's name, phone and email — they reach no column. See the package doc.
+	PublicPatrols publicpatrol.Queries
 }
 
 // MapReads is the patrol-scoped map read API.
@@ -157,6 +169,12 @@ func WithGlimt(q glimt.Queries) Option {
 // distinct.
 func WithAlbums(q album.Queries) Option {
 	return func(mo *Models) { mo.Albums = q }
+}
+
+// WithPublicPatrols supplies the public patrol read model (PRD 011). Omit it and Models.PublicPatrols is
+// nil, which handlers must treat as "closed" rather than "unavailable" — see the field's doc.
+func WithPublicPatrols(q publicpatrol.Queries) Option {
+	return func(mo *Models) { mo.PublicPatrols = q }
 }
 
 // NewModels constructs the read-side facade with the given read sources.

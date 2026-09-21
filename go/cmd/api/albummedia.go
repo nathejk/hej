@@ -8,6 +8,7 @@ import (
 	"nathejk.dk/internal/imaging"
 	"nathejk.dk/nathejk/table/album"
 	"nathejk.dk/nathejk/table/checkpoint"
+	"nathejk.dk/nathejk/table/publicpatrol"
 )
 
 // Album media ingest (PRD 011 §6 section 1, §8; task 333).
@@ -166,6 +167,18 @@ func withinRaceBounds(area checkpoint.RaceArea, lat, lng float64) bool {
 // would pass and then panic on the first call. Converting here is what makes those checks honest —
 // and one of them is in the glimt delete path, where a panic would take out a takedown.
 func albumQueriesOrNil(t *album.Table) album.Queries {
+	if t == nil {
+		return nil
+	}
+	return t
+}
+
+// publicPatrolQueriesOrNil narrows the projection to its read API, or nil.
+//
+// The same typed-nil guard, and here the consequence of getting it wrong is specific: the patrol page's
+// availability check decides whether to serve or to answer not-yet, and a typed nil would pass that check
+// and panic inside a request on an unauthenticated route.
+func publicPatrolQueriesOrNil(t *publicpatrol.Table) publicpatrol.Queries {
 	if t == nil {
 		return nil
 	}

@@ -14,6 +14,7 @@ import (
 	"nathejk.dk/nathejk/table/album"
 	"nathejk.dk/nathejk/table/glimt"
 	"nathejk.dk/nathejk/table/person"
+	"nathejk.dk/nathejk/table/publicpatrol"
 )
 
 // The public surface names no person (PRD 011 §6, §8; task 337).
@@ -288,6 +289,45 @@ func TestPublicViewTypesHaveNowhereToPutAPerson(t *testing.T) {
 			if isPersonShaped(field) {
 				t.Errorf("%s gained a person-shaped field %q", name, field)
 			}
+		}
+	}
+}
+
+// **The patrol read model, which is where this check earns its keep** (task 338).
+//
+// The row `publicpatrol` is folded from carries a leader's name, phone, email, role, address and
+// postcode — `messages.NathejkTeamUpdated` has all of them, and shared-go's own `patrulje` projection
+// stores them because the organizers need them. This projection drops them, and this test is what stops
+// somebody adding one back "just for the header".
+func TestPublicPatrolTypeHasNowhereToPutAPerson(t *testing.T) {
+	fields := structFieldNames(publicpatrol.Patrol{})
+	if len(fields) == 0 {
+		t.Fatal("no fields found: the reflection is broken, which would make this pass while asserting nothing")
+	}
+
+	for _, field := range fields {
+		if isPersonShaped(field) {
+			t.Errorf("publicpatrol.Patrol gained a person-shaped field %q. The event it is folded from "+
+				"carries contactName, contactPhone and contactEmail; this projection exists to drop them", field)
+		}
+	}
+
+	// The header's fields must all still be there, so "no person" cannot be achieved by removing the
+	// feature. A reviewer reads five names and is done.
+	want := map[string]bool{"TeamID": true, "Number": true, "Name": true, "GroupName": true, "Korps": true}
+	got := map[string]bool{}
+	for _, f := range fields {
+		got[f] = true
+	}
+	for f := range want {
+		if !got[f] {
+			t.Errorf("publicpatrol.Patrol lost %q, which the page header needs", f)
+		}
+	}
+	for f := range got {
+		if !want[f] {
+			t.Errorf("publicpatrol.Patrol gained %q. Not necessarily wrong — but this type is the public "+
+				"surface's boundary, so a new field belongs in this test's list deliberately", f)
 		}
 	}
 }
