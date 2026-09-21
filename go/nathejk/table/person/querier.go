@@ -311,10 +311,16 @@ type TrackMember struct {
 
 	// StatusAt is when that status was recorded, or nil when it is unknown.
 	//
-	// Nil is common and means two different things that cannot be told apart here: no lifecycle event has
-	// ever arrived for this member, or one arrived before the column existed. Both leave the caller unable
-	// to say *when* a withdrawal happened, which is why PRD 011 §0b.6 has it exclude the member's points
-	// entirely in that case rather than guessing a cutoff.
+	// Taken from the event's own envelope time, which **every** event in the stream carries — verified across
+	// the whole 2026 stream rather than assumed (task 349's correction). So nil is not the normal case: on
+	// current data every status write is stamped.
+	//
+	// It happens for one real reason, and it is worth knowing because it looks like a bug: these projections
+	// are never truncated, so a status written from an **earlier state of the stream** outlives the event
+	// that produced it, and a column added later stays NULL on such a row because nothing current rewrites
+	// it. Task 350. Both readings — no event, or an event from a stream state that no longer exists — leave
+	// the caller unable to say *when* a withdrawal happened, which is why PRD 011 §0b.6 has it exclude that
+	// member's points entirely rather than guess a cutoff.
 	StatusAt *time.Time
 }
 

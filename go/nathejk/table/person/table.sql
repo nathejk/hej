@@ -69,8 +69,11 @@ CREATE TABLE IF NOT EXISTS person (
     -- safe reading is "discard all of their points", which throws away the kilometres they really
     -- walked before withdrawing.
     --
-    -- NULL means the status was never set, or was set before this column existed. Both are honest
-    -- "we do not know when" — see TrackMember.StatusAt for what the caller does about it.
+    -- NULL means the status was never set, or the row is a leftover from an earlier state of the stream:
+    -- these tables are never truncated, so a status can outlive the event that wrote it (task 350). Both
+    -- are honest "we do not know when" — see TrackMember.StatusAt for what the caller does about it. Every
+    -- event in the stream carries an envelope time, so this is NULL for that reason and not for want of a
+    -- timestamp upstream.
     --
     -- The **event's** time rather than `CURRENT_TIMESTAMP`, because these tables are rebuilt by
     -- replaying the stream on every boot: a wall-clock default would restamp every withdrawal in

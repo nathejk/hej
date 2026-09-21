@@ -68,7 +68,8 @@ honestly. Do not change the wording in this task.
       still contributes.
 - [x] The status **transition time** is available to the calculation, not just the current status; where it
       is unknown the member's points are excluded entirely and a comment says why that direction was chosen.
-      **⚠ The mechanism works; the data does not exist yet — see the log and task 350.**
+      **⚠ See the 2026-09-21 correction at the end of this log: the mechanism works and so does the data.
+      My first reading of it was wrong.**
 - [x] `Accuracy` survives from `trackpoint.Point` into the merge and reaches the outlier filter.
 - [x] A single implausible coordinate is dropped **without** dropping the legs either side of it; a test
       demonstrates a spike costing one point rather than two segments.
@@ -199,3 +200,40 @@ honestly. Do not change the wording in this task.
 
   `gofmt`, `go vet`, `go test ./...` clean; dev stack restarted, schema drift applied, the patrol page and
   its map endpoint still render.
+- 2026-09-21 — **Correction to §4 above, from the maintainer. Section 4 was wrong.**
+
+  > *"every event has a publish timestamp, this can be used for tracking time"* — *"not in the message body,
+  > but in the message envelope"*
+
+  Correct, and checkable: `jetstreamMessage` in `stream/jetstream/envelope.go` carries `"time"`,
+  `createMessage` copies it into `msg.Time()`, and a sweep of the entire 2026 dev stream found it present on
+  **every** event — 15,000+ messages across ~120 subject patterns, `withTime == n` for all of them. There is
+  no missing-timestamp problem upstream, and there never was.
+
+  **What the NULLs actually were.** `person` is created `IF NOT EXISTS` and folded with upserts; nothing ever
+  truncates it. So a status written from an *earlier state of the stream* survives even after the event that
+  produced it is gone — and a column added later stays NULL on such a row, because nothing current rewrites
+  it. Backing the table up, truncating it and letting it rebuild proves it:
+
+  | 2026 rows | before truncate | after a clean replay |
+  |---|---|---|
+  | `racing` | 85 (73 timed) | **73, all 73 timed** |
+  | `waiting`/`transit`/`sheltered`/`reunited`/`released` | 5 (0 timed) | **gone** |
+  | all rows, all years | 4,251 | 4,229 |
+
+  So the five withdrawn members were **ghost rows**, and on real data the stamp is **100%**. The cutoff
+  therefore does fire, and the shipped behaviour is the intended one rather than the fallback.
+
+  **What I got wrong, and why it is worth writing down.** I measured a real thing (NULLs in a column),
+  inferred a cause I had not tested (upstream omits a timestamp), and wrote a task asking another team to fix
+  a problem they did not have. The measurement was fine; the *explanation* was a guess wearing a
+  measurement's clothes. The check that would have caught it — truncate and replay before trusting a count —
+  took four minutes.
+
+  Task 350 has been rewritten accordingly: it is now about projections never truncating, which is a real
+  hazard affecting every table here and which made this dev database misleading in the first place.
+
+  **Nothing in the code changes.** The fallback ("status with no time → exclude that member's points") stays,
+  and is now justified by a real case rather than an imagined one: a ghost row is precisely a status whose
+  time we do not know. `TrackMember.StatusAt`'s doc already named this case — "one arrived before the column
+  existed" — which is exactly what these rows are.
