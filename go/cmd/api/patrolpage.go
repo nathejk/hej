@@ -7,6 +7,7 @@ import (
 	"github.com/julienschmidt/httprouter"
 
 	"nathejk.dk/internal/distance"
+	"nathejk.dk/internal/eventtime"
 	"nathejk.dk/internal/patroltrack"
 	"nathejk.dk/internal/scans"
 	"nathejk.dk/nathejk/table/publicpatrol"
@@ -171,7 +172,7 @@ func (app *application) patrolPage(number string) (publicPatrolPageData, bool) {
 		HasDiploma: verdict.Finished(),
 	}
 	if verdict.FinishedAt != nil {
-		data.FinishedLabel = publicDanishDateTime(*verdict.FinishedAt)
+		data.FinishedLabel = eventtime.Danish(*verdict.FinishedAt)
 	}
 
 	registrations := app.patrolRegistrations(patrol.TeamID)

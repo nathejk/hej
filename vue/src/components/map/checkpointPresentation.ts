@@ -1,4 +1,5 @@
 import type { Checkpoint } from '@/stores/checkpoints.store'
+import { clock } from '@/helpers/eventTime'
 
 // What a checkpoint marker looks like and says (PRD 016).
 //
@@ -126,8 +127,6 @@ export function clearedCheckgroupsFor(
   return out
 }
 
-const clockFormat = new Intl.DateTimeFormat('da-DK', { hour: '2-digit', minute: '2-digit' })
-
 /**
  * The window a post is open, as a patrol reads it, or '' when none is recorded.
  *
@@ -140,8 +139,8 @@ const clockFormat = new Intl.DateTimeFormat('da-DK', { hour: '2-digit', minute: 
  */
 export function checkpointWindowText(cp: Pick<Checkpoint, 'openFrom' | 'openUntil'>): string {
   if (cp.openFrom <= 0 || cp.openUntil <= 0) return ''
-  const from = clockFormat.format(new Date(cp.openFrom * 1000))
-  const until = clockFormat.format(new Date(cp.openUntil * 1000))
+  const from = clock(new Date(cp.openFrom * 1000))
+  const until = clock(new Date(cp.openUntil * 1000))
   return `${from}–${until}`
 }
 

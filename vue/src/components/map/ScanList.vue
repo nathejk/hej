@@ -14,6 +14,7 @@ import type { Handout } from '@/stores/handouts.store'
 import { verdictBadge } from './scanVerdict'
 import { scanVariant } from './scanAppearance'
 import { handoutStatus, handoutSticker } from './handoutPresentation'
+import { weekdayClock } from '@/helpers/eventTime'
 
 // The patrol's registrations and the map sheets it has been handed, in one Drawer — the same primitive the
 // nav overflow uses (see .rules: prefer a standard shadcn component). The map stays visible behind it, so a
@@ -42,12 +43,6 @@ const handoutRows = computed(() =>
     status: handoutStatus(handout),
   })),
 )
-
-const timeFormat = new Intl.DateTimeFormat('da-DK', {
-  weekday: 'short',
-  hour: '2-digit',
-  minute: '2-digit',
-})
 
 function onOpenChange(value: boolean) {
   if (!value) {
@@ -115,7 +110,7 @@ function pick(scan: Scan) {
               <span class="min-w-0 flex-1">
                 <span class="block truncate text-slate-800">{{ row.scan.label }}</span>
                 <span class="block text-xs text-slate-500">
-                  {{ timeFormat.format(row.scan.scannedAt) }}
+                  {{ weekdayClock(row.scan.scannedAt) }}
                 </span>
               </span>
 
@@ -162,7 +157,7 @@ function pick(scan: Scan) {
                 <span class="block text-xs text-slate-500">
                   <!-- Sticker line only when there is one, so a synthesised (QR-less) row leaves no gap. -->
                   <template v-if="row.sticker">Nr. {{ row.sticker }} · </template>
-                  {{ timeFormat.format(row.handout.handedOut) }}
+                  {{ weekdayClock(row.handout.handedOut) }}
                 </span>
               </span>
 

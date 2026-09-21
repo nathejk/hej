@@ -18,6 +18,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Copy, Check, Trash2 } from '@lucide/vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { clockWithSeconds } from '@/helpers/eventTime'
 import {
   LOOP_EVENTS,
   PROBED_EVENTS,
@@ -215,12 +216,7 @@ function clear() {
   write([])
 }
 
-const clock = (ms: number) =>
-  new Date(ms).toLocaleTimeString('da-DK', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
+const clock = (ms: number) => clockWithSeconds(ms)
 </script>
 
 <template>

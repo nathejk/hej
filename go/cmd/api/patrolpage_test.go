@@ -170,8 +170,14 @@ func TestPatrolPageShowsTheFinishTimeAndTheDiplomaSlot(t *testing.T) {
 	}
 	// 21:00 plus ten hours is the *next* morning — which is what a night race does, and worth pinning so a
 	// timezone or date-rollover bug shows up here rather than on a patrol's page.
-	if !strings.Contains(page, "20. september 2026 kl. 07:00") {
-		t.Errorf("want the Danish-formatted finish time, rolled into the next morning\n%s", page)
+	//
+	// **This assertion used to read 07:00 and was wrong** (task 358). The fixture finishes at 07:00 UTC, which
+	// is 09:00 in Copenhagen, and `TestTheDiplomaUsesTheGatesFinishTimeInLocalTime` has asserted hour 9 from the
+	// same fixture all along. Two tests, two files, one instant, two answers — and the one guarding the page was
+	// the one written against the UTC output it saw. A test that pins current behaviour is not a test of
+	// anything; this one now pins the clock a Dane reads.
+	if !strings.Contains(page, "20. september 2026 kl. 09:00") {
+		t.Errorf("want the finish time in the event's timezone (CEST), rolled into the next morning\n%s", page)
 	}
 	if !strings.Contains(page, `class="diploma"`) {
 		t.Error("a patrol that finished should have a diploma slot")

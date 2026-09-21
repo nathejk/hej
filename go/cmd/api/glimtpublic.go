@@ -12,6 +12,7 @@ import (
 
 	"nathejk.dk/internal/blob"
 	"nathejk.dk/internal/commands"
+	"nathejk.dk/internal/eventtime"
 	"nathejk.dk/nathejk/table/glimt"
 )
 
@@ -420,7 +421,11 @@ type publicGlimtPageData struct {
 // unauthenticated page.
 var publicGlimtPageTemplate = template.Must(template.New("publicGlimt").Funcs(template.FuncMap{
 	"hold": publicHoldLabel,
-	"date": func(t time.Time) string { return t.Format("2. januar 2006 kl. 15:04") },
+	// The same helper the rest of the public site uses (task 358). This used to be a one-line closure over a
+	// Go layout string, and it had **two** bugs that a reader would not see: `januar` is not a layout token, so
+	// Go copied it through as a literal and every glimt was dated in January; and nothing converted the
+	// instant, so the clock was UTC. Both were invisible because the code looked like a format string.
+	"date": eventtime.Danish,
 }).Parse(`<!DOCTYPE html>
 <html lang="da">
 <head>

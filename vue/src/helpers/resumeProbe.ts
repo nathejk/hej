@@ -16,6 +16,8 @@
 // So they can be tested without a DOM, in the same spirit as `config/nudge.ts` and
 // `components/map/*Presentation.ts`. The view is a table and two buttons.
 
+import { clockWithSeconds } from '@/helpers/eventTime'
+
 /** Everything worth listening for on a resume, in the order it tends to fire. */
 export const PROBED_EVENTS = [
   'pagehide',
@@ -182,12 +184,7 @@ export function navigationType(): string {
   }
 }
 
-const clock = (ms: number) =>
-  new Date(ms).toLocaleTimeString('da-DK', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
+const clock = (ms: number) => clockWithSeconds(ms)
 
 /**
  * The log as a Markdown table, for pasting into task 280's Progress Log.

@@ -26,6 +26,7 @@ import {
   type CheckpointState,
   checkpointPopupHtml,
 } from '@/components/map/checkpointPresentation'
+import { weekdayClock } from '@/helpers/eventTime'
 
 // Leaflet owns its DOM and mutates it imperatively, so the map is deliberately
 // kept outside Vue's reactivity: props are watched and translated into Leaflet
@@ -184,12 +185,6 @@ function scanIcon(kind: Scan['kind']): L.DivIcon {
   })
 }
 
-const timeFormat = new Intl.DateTimeFormat('da-DK', {
-  weekday: 'short',
-  hour: '2-digit',
-  minute: '2-digit',
-})
-
 // The window a post is open, for the marker popup. Date-less on purpose: a patrol reading this at 02:00
 // knows what night it is, and "fre 22:40–23:40" is quicker to read than a full timestamp.
 
@@ -261,7 +256,7 @@ function renderScans() {
     }).bindPopup(
       `<strong>${scan.label}</strong><br>${
         scan.kind === 'bandit' ? 'Fanget af bandit' : 'Post'
-      } &middot; ${timeFormat.format(scan.scannedAt)}`,
+      } &middot; ${weekdayClock(scan.scannedAt)}`,
     )
     marker.addTo(scanLayer)
     scanMarkers.set(scan.id, marker)

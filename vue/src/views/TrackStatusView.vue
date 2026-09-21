@@ -20,6 +20,7 @@ import { useTrackStore } from '@/stores/track.store'
 import { useLocationStore } from '@/stores/location.store'
 import { useSessionStore } from '@/stores/session.store'
 import { useAppStore } from '@/stores/app.store'
+import { clockWithSeconds } from '@/helpers/eventTime'
 
 const track = useTrackStore()
 const location = useLocationStore()
@@ -34,7 +35,7 @@ const loading = ref(true)
 const copied = ref(false)
 
 const clock = (ms: number) =>
-  new Date(ms).toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  clockWithSeconds(ms)
 const dur = (ms: number) => {
   const s = Math.round(ms / 1000)
   if (s < 60) return `${s}s`

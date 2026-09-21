@@ -34,6 +34,7 @@ import { searchContacts } from '@/helpers/contactSearch'
 import { useContactsStore, type ContactEntry } from '@/stores/contacts.store'
 import { useFavouritesStore } from '@/stores/favourites.store'
 import { useSessionStore } from '@/stores/session.store'
+import { clock } from '@/helpers/eventTime'
 
 const router = useRouter()
 const contacts = useContactsStore()
@@ -127,10 +128,7 @@ const syncLabel = computed(() => {
   const age = Date.now() - contacts.syncedAt
   if (age < 2 * 60_000) return 'Opdateret nu'
 
-  const time = new Date(contacts.syncedAt).toLocaleTimeString('da-DK', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  const time = clock(contacts.syncedAt)
   return `Opdateret kl. ${time}`
 })
 

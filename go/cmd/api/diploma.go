@@ -8,6 +8,7 @@ import (
 	"github.com/julienschmidt/httprouter"
 
 	"nathejk.dk/internal/diploma"
+	"nathejk.dk/internal/eventtime"
 )
 
 // The diploma on a patrol's public page (PRD 011 §6, §11 Q6; task 345).
@@ -202,17 +203,16 @@ func (app *application) diplomaRoute() string {
 
 // eventLocation is the timezone the event happens in.
 //
-// Fixed to Copenhagen rather than configurable: Nathejk is a Danish night race, the diploma prints a local
-// clock time, and a configurable timezone would be a knob with exactly one correct setting. Falls back to UTC
-// if the zoneinfo database is missing from the image, which would be a deployment fault rather than a reason
-// to fail a render — an hour's error on a certificate beats no certificate.
+// Now a thin wrapper over `internal/eventtime`, which every rendered timestamp in this app goes through (task
+// 358). It was the first place to get this right — the diploma has converted since task 345 — and being the only
+// one is what made the public pages' UTC clocks hard to notice: one surface was correct.
+//
+// Kept as a method rather than inlined at the call site because the conversion there reads as *the diploma's*
+// decision, and because the reason it is Copenhagen and not configurable belongs next to the certificate: a
+// diploma prints the clock the patrol looked at when they crossed the line, and a configurable timezone would be
+// a knob with exactly one correct setting. The UTC fallback and its reasoning now live in eventtime.
 func (app *application) eventLocation() *time.Location {
-	loc, err := time.LoadLocation("Europe/Copenhagen")
-	if err != nil {
-		app.Logger.Error("loading Europe/Copenhagen; diploma times will be UTC", "err", err)
-		return time.UTC
-	}
-	return loc
+	return eventtime.Location()
 }
 
 // diplomaThumbnail renders the thumbnail once and keeps it.

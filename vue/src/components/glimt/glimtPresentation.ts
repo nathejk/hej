@@ -1,4 +1,5 @@
 import type { Glimt, GlimtHold } from '@/stores/glimt.store'
+import { dayMonth } from '@/helpers/eventTime'
 
 // How a glimt is presented (PRD 019 §7, task 316).
 //
@@ -279,7 +280,7 @@ export function relativeTime(createdAt: number, now: number = Date.now()): strin
   const days = Math.floor(hours / 24)
   if (days < 7) return `for ${days} ${days === 1 ? 'dag' : 'dage'}`
 
-  return new Date(createdAt).toLocaleDateString('da-DK', { day: 'numeric', month: 'short' })
+  return dayMonth(new Date(createdAt))
 }
 
 // The narrowest and widest shapes a media strip may take, as width/height.

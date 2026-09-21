@@ -1,11 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"html/template"
 	"net/http"
 	"strings"
-	"time"
+
+	"nathejk.dk/internal/eventtime"
 )
 
 // The public site: the pages under the event-year prefix (PRD 011 §7, task 332; moved by task 351).
@@ -406,23 +406,14 @@ func (app *application) renderPublicPageStatus(w http.ResponseWriter, name strin
 // `hold` is `publicHoldLabel`, the same attribution the glimt page uses — shared rather than
 // re-implemented, because two renderings of "Patrulje 42 · Ørnene" would eventually disagree and the
 // public surface is where that would be most visible.
+//
+// `date` is `eventtime.Danish`, which is the **only** way a timestamp reaches a page here. It used to be a
+// local function with its own month table, next to a second one in glimtpublic.go that spelled dates through
+// a Go layout string — and neither converted the instant, so both printed UTC (task 358). One function, one
+// timezone, one month table.
 var publicSiteFuncs = template.FuncMap{
 	"hold": publicHoldLabel,
-	"date": publicDanishDateTime,
-}
-
-// publicDanishDateTime renders an instant the way the public pages say it.
-//
-// Danish month names and a 24-hour clock, matching the glimt page's format so the two surfaces do not
-// spell a date two ways. Takes a pointer as well as a value through the template's own nil handling: a nil
-// `*time.Time` never reaches here, because every call site guards on the field being set.
-func publicDanishDateTime(t time.Time) string {
-	months := []string{
-		"januar", "februar", "marts", "april", "maj", "juni",
-		"juli", "august", "september", "oktober", "november", "december",
-	}
-	return fmt.Sprintf("%d. %s %d kl. %02d:%02d",
-		t.Day(), months[int(t.Month())-1], t.Year(), t.Hour(), t.Minute())
+	"date": eventtime.Danish,
 }
 
 // publicSiteTemplates is the whole site: one layout plus one template per page.
