@@ -16,13 +16,17 @@
 // Leaflet, the CDN blocked — the container simply stays as the server rendered it, and the scan list
 // carries the same information as a list. Nothing here throws a visitor a broken frame.
 //
-// # The duplication, named rather than hidden
+// # The duplication, removed rather than named (task 353)
 //
-// The WMS layer below is duplicated from `src/config/map.ts`, which is the app's source of truth and is
-// TypeScript inside the bundle this file may not load. A build-time generator (the pattern PRD 013
-// recommends for the rulebook, following `scripts/generate-icons.sh`) would remove the duplication, and
-// was judged too much machinery for one URL and one layer name. If a second layer ever appears here,
-// that judgement should be revisited.
+// This file used to carry a hand-copied WMS URL, with a comment admitting the duplication and saying the
+// judgement should be revisited "if a second layer ever appears here". It should have been revisited sooner:
+// the copy had drifted to a **different Dataforsyningen service** from any of the app's three, so the public
+// map showed a base map no participant had ever seen.
+//
+// The layers, the zoom limits and the tile-retry policy now come from `/maplayers.json`, which
+// `src/config/map.ts` imports at build time and this file fetches at runtime. One source, no code generation.
+// If that fetch fails the map still draws, on the default layer, with the switcher missing — degrading the
+// same way everything else here does.
 
 (function () {
   'use strict'
@@ -34,11 +38,25 @@
     return
   }
 
-  // Duplicated from src/config/map.ts — see the header. `dtk25` is the topographic layer the app opens
-  // with, so the public map is recognisably the same place as the one participants used.
-  var WMS_URL = 'https://api.dataforsyningen.dk/dkskaermkort_DAF'
-  var WMS_LAYER = 'dtk_skaermkort_daempet'
-  var ATTRIBUTION = 'Kort: <a href="https://dataforsyningen.dk">Dataforsyningen</a>'
+  // Duplicated from src/config/map.ts — REMOVED, see the header. Kept only as the last-resort fallback for a
+  // failed fetch of the shared file, and deliberately the *same* layer the app opens with rather than a
+  // different service — the mistake this change exists to correct.
+  var FALLBACK_MAP_CONFIG = {
+    attribution:
+      '&copy; <a target="_blank" rel="noopener" href="https://dataforsyningen.dk/">Styrelsen for Dataforsyning og Infrastruktur</a>',
+    default: 'dtk25',
+    minZoom: 7,
+    maxZoom: 19,
+    retry: { limit: 3, baseDelayMs: 400, jitterMs: 250 },
+    layers: {
+      dtk25: {
+        label: 'Topografisk 1:25.000',
+        url: 'https://api.dataforsyningen.dk/dtk_25_DAF',
+        layer: 'dtk25',
+        format: 'image/png',
+      },
+    },
+  }
 
   var patrolNumber = container.getAttribute('data-patrol')
   if (!patrolNumber) return
@@ -55,10 +73,14 @@
           return { photos: [] }
         }),
         config,
+        // Same treatment for the layer definitions: losing them costs the switcher, not the map.
+        fetchJSON('/maplayers.json').catch(function () {
+          return FALLBACK_MAP_CONFIG
+        }),
       ])
     })
     .then(function (results) {
-      draw(results[0], results[1], results[2])
+      draw(results[0], results[1], results[2], results[3])
     })
     .catch(function () {
       // Deliberately silent to the visitor. The scan list below already carries what the map would have
@@ -75,7 +97,7 @@
     })
   }
 
-  function draw(map_, albums, config) {
+  function draw(map_, albums, config, mapConfig) {
     var L = window.L
 
     // Revealed before Leaflet initialises, because Leaflet measures the container: a display:none element
@@ -91,18 +113,11 @@
       // The public map is for looking at, not for navigating. Keyboard panning stays on for
       // accessibility; the rest of the interaction is drag and pinch, which need no configuration.
       scrollWheelZoom: true,
+      minZoom: mapConfig.minZoom,
+      maxZoom: mapConfig.maxZoom,
     })
 
-    L.tileLayer
-      .wms(WMS_URL, {
-        layers: WMS_LAYER,
-        format: 'image/png',
-        transparent: false,
-        attribution: ATTRIBUTION,
-        token: config.dataforsyningen_token || '',
-        maxZoom: 19,
-      })
-      .addTo(map)
+    addBaseLayers(map, mapConfig, config.dataforsyningen_token || '')
 
     var bounds = L.latLngBounds([])
 
@@ -200,6 +215,110 @@
       // container in that case, so this is belt and braces rather than an expected path.
       map.setView([55.6, 11.85], 8)
     }
+  }
+
+  // addBaseLayers builds the app's base layers and puts a switcher on the map.
+  //
+  // # Why all of them and not just the default
+  //
+  // The maintainer's instruction (2026-09-21): the public map should have the same layers as the app's. A
+  // family looking at a patrol's route wants the aerial photograph for the same reason a patrol did — to see
+  // the field they walked across — and the 1:50.000 sheet is what some of them will have had on paper.
+  //
+  // Leaflet's own `L.control.layers` does the switching, so this costs no code of ours. The choice is
+  // deliberately **not persisted**: the app stores it under `hej.map.baseLayer` for a member, and this page is
+  // read by people who are not members. Sharing that key would let a stranger's browsing change what a
+  // member's app opens with, and the island holds no state by design (see the header).
+  function addBaseLayers(map, mapConfig, token) {
+    var L = window.L
+    var switcher = {}
+    var chosen = null
+    var first = null
+
+    Object.keys(mapConfig.layers).forEach(function (key) {
+      var cfg = mapConfig.layers[key]
+      // Every option here matches `wmsLayerOptions` in src/config/map.ts, including the two that look
+      // omissible and are not:
+      //
+      //   - no `version`: Leaflet emits lowercase parameter values, and WMS 1.3.0 makes this service answer
+      //     `ServiceException: TRANSPARENT must be either TRUE or FALSE` on *every* tile — as a 200
+      //     containing XML, not an HTTP error, so it would fail as blank tiles rather than as an error.
+      //   - `crossOrigin`: keeps tiles CORS-readable. The app needs it so its service worker can store them
+      //     as ordinary rather than opaque responses; here it costs nothing and keeps the URLs identical,
+      //     which is what lets one HTTP cache serve both surfaces.
+      var layer = L.tileLayer.wms(cfg.url, {
+        layers: cfg.layer,
+        format: cfg.format,
+        crossOrigin: 'anonymous',
+        transparent: false,
+        attribution: mapConfig.attribution,
+        token: token,
+        maxZoom: mapConfig.maxZoom,
+      })
+      attachTileRetry(layer, mapConfig.retry)
+
+      var label = cfg.note ? cfg.label + ' (' + cfg.note + ')' : cfg.label
+      switcher[label] = layer
+
+      if (!first) first = layer
+      if (key === mapConfig.default) chosen = layer
+    })
+
+    // A `default` naming a layer the file does not contain would otherwise leave the map with no tiles at
+    // all — the one failure here that reads as a broken page rather than as a missing nicety.
+    var base = chosen || first
+    if (base) base.addTo(map)
+
+    if (Object.keys(switcher).length > 1) {
+      L.control.layers(switcher, {}, { position: 'topright', collapsed: true }).addTo(map)
+    }
+  }
+
+  // attachTileRetry re-requests a tile that failed, with backoff.
+  //
+  // # Why this is here at all
+  //
+  // Leaflet has no built-in retry: one failed image request leaves that tile **grey until the visitor pans
+  // away and back**. The app carries the same mechanism (EventMap.vue) because on patchy rural mobile data a
+  // failed tile is the normal case — and the morning after the event this page is opened by a hundred people
+  // at once on whatever connection they have, which is the same problem from the other end.
+  //
+  // # Ported faithfully, including the parts that look incidental
+  //
+  //   - **The same `<img>` is reused**, with its `src` re-assigned. Leaflet's own load/error handlers stay
+  //     attached, so a late success still marks the tile loaded and fades it in normally. A fresh image would
+  //     leave Leaflet believing the tile never arrived.
+  //   - **`_retry=N` busts any negative caching** of the failed response by the browser or an intermediary.
+  //     The app's service worker strips this parameter from its cache key (`TILE_CACHE_KEY_IGNORED_PARAMS`),
+  //     so a retried tile still matches the cached one — irrelevant on this page, which has no worker, and
+  //     kept identical so both surfaces produce the same URLs.
+  //   - **Exponential backoff with jitter**, so a whole screen of failed tiles does not retry in lockstep and
+  //     hammer a service that is already struggling.
+  //   - **A disconnected tile is dropped**: panning or a layer switch discards tiles, and re-assigning `src`
+  //     on one Leaflet has thrown away would fetch bytes nobody will see.
+  //
+  // No timer bookkeeping, unlike the app's version: that cancels pending retries when the component unmounts,
+  // and this map lives until the page is navigated away from — which cancels everything anyway.
+  function attachTileRetry(layer, retry) {
+    var limit = retry && retry.limit ? retry.limit : 0
+    if (limit < 1) return
+
+    layer.on('tileerror', function (event) {
+      var tile = event && event.tile
+      if (!tile) return
+
+      var attempt = (tile._hejRetries || 0) + 1
+      if (attempt > limit) return
+      tile._hejRetries = attempt
+
+      var delay = retry.baseDelayMs * Math.pow(2, attempt - 1) + Math.random() * (retry.jitterMs || 0)
+      var original = tile.src.replace(/&_retry=\d+$/, '')
+
+      window.setTimeout(function () {
+        if (!tile.isConnected) return
+        tile.src = original + '&_retry=' + attempt
+      }, delay)
+    })
   }
 
   // escapeHTML keeps a post's name from becoming markup.

@@ -1,0 +1,70 @@
+{
+  "_comment": [
+    "The map's base layers and tile-retry policy, shared by the app and the public map island.",
+    "",
+    "WHY THIS IS JSON AND NOT TYPESCRIPT (task 353):",
+    "The app's map is a Vue component in a bundle; the public map (PRD 011 §8) is a ~200-line vanilla",
+    "island on a page that deliberately loads no bundle. Both must draw the same layers — the",
+    "maintainer's instruction on 2026-09-21 — and until now the island had a fourth, different WMS",
+    "copied by hand, so the public map showed a base map nobody in the app had ever seen.",
+    "",
+    "So the definitions live in a plain file that both sides can read: src/config/map.ts imports it at",
+    "build time, and publicmap.js fetches it at runtime. No code generation, no parsing of TypeScript,",
+    "and no second copy to keep in step. The island falls back to the default layer if this file cannot",
+    "be fetched, so a missing asset costs the layer switcher rather than the map.",
+    "",
+    "The service paths and WMS layer names were verified against live GetCapabilities + GetMap responses",
+    "on 2026-08-24 — do NOT infer them by analogy: dtk_25_DAF answers to DTK25/dtk25/dtk_25, but",
+    "dtk_50_DAF rejects DTK50 and only accepts dtk_50. See PRD 002 §11.",
+    "",
+    "FORMAT IS PER LAYER, AND THE DIFFERENCE IS LARGE. Measured against the live service (256 px tiles,",
+    "central Zealand, 2026-08-26): orto_foraar is ~137 kB/tile as PNG and ~9-14 kB/tile as JPEG, ~15x.",
+    "PNG stores photographic detail losslessly, which is exactly the wrong trade for aerial imagery on",
+    "rural mobile data — and tiles are the largest cached dataset in PRD 009's offline budget. The",
+    "topographic layers stay PNG deliberately: they are line art and text, where JPEG's block artefacts",
+    "smear thin contours and place names.",
+    "",
+    "No key inside 'layers' may be anything but a layer: both sides map over its entries."
+  ],
+
+  "attribution": "&copy; <a target=\"_blank\" rel=\"noopener\" href=\"https://dataforsyningen.dk/\">Styrelsen for Dataforsyning og Infrastruktur</a>",
+
+  "default": "dtk25",
+  "minZoom": 7,
+  "maxZoom": 19,
+
+  "retry": {
+    "_comment": [
+      "Leaflet has no built-in retry: one failed image request leaves that tile grey until the user pans",
+      "away and back. On patchy rural mobile data that is the normal case, not the exception.",
+      "",
+      "Backoff is baseDelayMs * 2^(attempt-1) plus up to jitterMs, so a whole screen of failed tiles does",
+      "not retry in lockstep and hammer the service."
+    ],
+    "limit": 3,
+    "baseDelayMs": 400,
+    "jitterMs": 250
+  },
+
+  "layers": {
+    "dtk25": {
+      "label": "Topografisk 1:25.000",
+      "url": "https://api.dataforsyningen.dk/dtk_25_DAF",
+      "layer": "dtk25",
+      "format": "image/png"
+    },
+    "dtk50": {
+      "label": "Topografisk 1:50.000",
+      "url": "https://api.dataforsyningen.dk/dtk_50_DAF",
+      "layer": "dtk_50",
+      "format": "image/png",
+      "note": "Kortdata fra 2017"
+    },
+    "orto": {
+      "label": "Luftfoto",
+      "url": "https://api.dataforsyningen.dk/orto_foraar_DAF",
+      "layer": "orto_foraar",
+      "format": "image/jpeg"
+    }
+  }
+}

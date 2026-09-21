@@ -1,10 +1,20 @@
 // Map configuration: base layers, default view and zoom limits.
 //
-// All three base layers are Dataforsyningen WMS services. The service paths and
-// WMS layer names below were verified against live GetCapabilities + GetMap
-// responses on 2026-08-24 — do NOT infer them by analogy: `dtk_25_DAF` answers
-// to `DTK25`/`dtk25`/`dtk_25`, but `dtk_50_DAF` rejects `DTK50` and only accepts
-// `dtk_50`. See PRD 002 §11.
+// # The layer definitions live in `public/maplayers.json`, not here (task 353)
+//
+// Because two maps have to draw the same thing: this app's `EventMap.vue`, and the **public map island**
+// (PRD 011 §8) — a ~200-line vanilla script on a page that deliberately loads no bundle, so it cannot
+// import anything from `src/`. It used to carry a hand-copied WMS URL, and the copy had drifted to a
+// *fourth* service nobody in the app had ever seen.
+//
+// So the values sit in a plain JSON file that this module imports at build time and the island fetches at
+// runtime. The reasoning for each value — which service answers to which layer name, and why the aerial
+// layer is JPEG while the topographic ones are PNG — is in that file, next to the values it explains.
+//
+// The service paths and WMS layer names were verified against live GetCapabilities + GetMap responses on
+// 2026-08-24. See PRD 002 §11.
+
+import mapLayersFile from '../../public/maplayers.json'
 
 export interface BaseLayerConfig {
   /** Label shown in the layer switcher (Danish). */
@@ -15,21 +25,10 @@ export interface BaseLayerConfig {
   layer: string
   attribution: string
   /**
-   * WMS output format.
+   * WMS output format — `image/png` for the topographic layers, `image/jpeg` for the aerial one.
    *
-   * Per layer, not global, because the right answer differs by content type and the
-   * difference is large. Measured against the live service (256 px tiles, central
-   * Zealand, 2026-08-26):
-   *
-   *   orto_foraar   PNG ~137 kB/tile   JPEG ~9-14 kB/tile   (~15x)
-   *
-   * PNG stores photographic detail losslessly, which is exactly the wrong trade for
-   * aerial imagery — and this app is used on rural mobile data, so it is a real cost
-   * rather than a theoretical one. It also matters for PRD 009's offline budget, where
-   * tiles are the largest cached dataset.
-   *
-   * The topographic layers stay PNG deliberately: they are line art and text, where
-   * JPEG's block artefacts smear thin contours and place names.
+   * Per layer rather than global, because the difference is ~15× in bytes for aerial imagery. The
+   * measurement and the reasoning are in `public/maplayers.json`.
    */
   format: 'image/png' | 'image/jpeg'
   /** Extra note surfaced in the switcher, e.g. data currency caveats. */
@@ -41,42 +40,41 @@ export interface BaseLayerConfig {
 // deployed with a different key. When it is missing the map reports it instead
 // of silently showing grey tiles.
 
-const DATAFORSYNINGEN_ATTRIBUTION =
-  '&copy; <a target="_blank" rel="noopener" href="https://dataforsyningen.dk/">Styrelsen for Dataforsyning og Infrastruktur</a>'
-
 // Keys are stable identifiers persisted in localStorage — renaming one resets
-// the user's layer choice, so don't. Typed as a Record so every entry exposes the
-// full config shape (including the optional `note`) rather than being narrowed to
-// its own literal.
+// the user's layer choice, so don't.
 export type BaseLayerKey = 'dtk25' | 'dtk50' | 'orto'
 
-export const baseLayers: Record<BaseLayerKey, BaseLayerConfig> = {
-  dtk25: {
-    label: 'Topografisk 1:25.000',
-    url: 'https://api.dataforsyningen.dk/dtk_25_DAF',
-    layer: 'dtk25',
-    attribution: DATAFORSYNINGEN_ATTRIBUTION,
-    format: 'image/png',
-  },
-  dtk50: {
-    label: 'Topografisk 1:50.000',
-    url: 'https://api.dataforsyningen.dk/dtk_50_DAF',
-    layer: 'dtk_50',
-    attribution: DATAFORSYNINGEN_ATTRIBUTION,
-    format: 'image/png',
-    // The service itself states it is not updated after 2017.
-    note: 'Kortdata fra 2017',
-  },
-  orto: {
-    label: 'Luftfoto',
-    url: 'https://api.dataforsyningen.dk/orto_foraar_DAF',
-    layer: 'orto_foraar',
-    attribution: DATAFORSYNINGEN_ATTRIBUTION,
-    format: 'image/jpeg',
-  },
-} as const satisfies Record<BaseLayerKey, BaseLayerConfig>
+// The shared file's shape, as far as this module cares. A JSON import is typed structurally, so `format`
+// arrives as `string` and is narrowed once, here, rather than asserted at every use.
+interface MapLayersFile {
+  attribution: string
+  default: string
+  minZoom: number
+  maxZoom: number
+  retry: { limit: number; baseDelayMs: number; jitterMs: number }
+  layers: Record<string, { label: string; url: string; layer: string; format: string; note?: string }>
+}
 
-export const DEFAULT_BASE_LAYER: BaseLayerKey = 'dtk25'
+const file = mapLayersFile as unknown as MapLayersFile
+
+// The attribution is stored once in the file and attached to every layer here, because Leaflet takes it per
+// layer. `mapLayers.spec.ts` asserts every key in `BaseLayerKey` is present — the check the old
+// `satisfies Record<BaseLayerKey, BaseLayerConfig>` gave for free and a JSON import cannot.
+export const baseLayers = Object.fromEntries(
+  Object.entries(file.layers).map(([key, cfg]) => [
+    key,
+    {
+      label: cfg.label,
+      url: cfg.url,
+      layer: cfg.layer,
+      attribution: file.attribution,
+      format: cfg.format as BaseLayerConfig['format'],
+      ...(cfg.note ? { note: cfg.note } : {}),
+    } satisfies BaseLayerConfig,
+  ]),
+) as Record<BaseLayerKey, BaseLayerConfig>
+
+export const DEFAULT_BASE_LAYER = file.default as BaseLayerKey
 
 /**
  * The WMS options a tile layer is built with — shared by the map and the offline downloader.
@@ -119,9 +117,10 @@ export function wmsLayerOptions(cfg: BaseLayerConfig, token: string) {
 export const BASE_LAYER_STORAGE_KEY = 'hej.map.baseLayer'
 
 // Opening view: see FALLBACK_BOUNDS below — the map centres on the user when a
-// position is available.
-export const MIN_ZOOM = 7
-export const MAX_ZOOM = 19
+// position is available. Both zoom limits come from the shared file, so the public map cannot open at a
+// zoom this one refuses.
+export const MIN_ZOOM = file.minZoom
+export const MAX_ZOOM = file.maxZoom
 /** Zoom used when recentring on the user's own position. */
 export const LOCATE_ZOOM = 15
 
@@ -138,12 +137,14 @@ export const FALLBACK_BOUNDS: [[number, number], [number, number]] = [
 export const FALLBACK_CENTER: [number, number] = [55.6, 11.85]
 export const FALLBACK_ZOOM = 8
 
-// Tile retry policy. Leaflet has no built-in retry: a single failed image request
-// leaves that tile grey until the user pans away and back. On patchy rural mobile
-// data that is the normal case, not the exception, so failed tiles are retried
+// Tile retry policy, shared with the public map island through `public/maplayers.json`. Leaflet has no
+// built-in retry: a single failed image request leaves that tile grey until the user pans away and back.
+// On patchy rural mobile data that is the normal case, not the exception, so failed tiles are retried
 // with backoff before we admit defeat.
-export const TILE_RETRY_LIMIT = 3
-export const TILE_RETRY_BASE_DELAY_MS = 400
+export const TILE_RETRY_LIMIT = file.retry.limit
+export const TILE_RETRY_BASE_DELAY_MS = file.retry.baseDelayMs
+/** Upper bound on the random jitter added to each backoff, so a screen of tiles does not retry in lockstep. */
+export const TILE_RETRY_JITTER_MS = file.retry.jitterMs
 
 // Where the map's floating controls sit, so edge arrows can avoid them (PRD 016, task 264; corrected task
 // 276).

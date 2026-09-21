@@ -53,7 +53,8 @@ machine-readable form.
 - [x] Merged track drawn as multi-segment polyline; a test or fixture demonstrates a gap is not bridged.
 - [x] Scan pins, photograph markers and clusters are visually distinguishable; clusters show counts.
 - [x] Base layers shared in configuration with the app's map (PRD 002), not duplicated by hand.
-      **Partly — the duplication is named, not removed.** See the log.
+      **Partly — the duplication is named, not removed.** See the log. *(Completed by task 353 on the same
+      day: the duplication is gone, and it turned out the copy had drifted to a service the app never used.)*
 - [x] Legible on topographic and aerial backgrounds.
 - [x] No glimt appears on the map (task 336) — only curated album photographs.
 - [x] The island holds no application state; no router, no store.
@@ -113,8 +114,13 @@ machine-readable form.
 
   **Base layers: the duplication is named, not removed.** The WMS URL and layer name are copied from
   `src/config/map.ts` into the island, with a header comment saying so. `map.ts` is TypeScript inside the
-  bundle these pages may not load; a build-time generator (the `generate-icons.sh` pattern) would remove
-  the copy and was judged too much machinery for one URL and one layer. Revisit if a second layer appears.
+  bundle these pages may not load; a build-time generator (the `generate-icons.sh` pattern) would remove the
+  copy and was judged too much machinery for one URL and one layer. Revisit if a second layer appears.
+
+  **— Revisited the same day (task 353), and the judgement was wrong.** Not because a second layer appeared,
+  but because the copy had already drifted: the island pointed at `dkskaermkort_DAF`, which is not one of the
+  app's three layers, so the public map was showing a base map no participant had seen. The fix needed no
+  generator — a plain JSON file both sides read — which means the machinery argument was also wrong.
 
   **Verified in the dev stack:** `/api/public/patrol/71/map` returns 8 track segments for a real patrol,
   the page emits the three deferred scripts and three stylesheets, and Vite serves `/vendor/leaflet.js`

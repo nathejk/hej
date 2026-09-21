@@ -11,6 +11,7 @@ import {
   MAX_ZOOM,
   MIN_ZOOM,
   TILE_RETRY_BASE_DELAY_MS,
+  TILE_RETRY_JITTER_MS,
   TILE_RETRY_LIMIT,
   wmsLayerOptions,
   type BaseLayerKey,
@@ -126,7 +127,8 @@ function attachTileRetry(layer: L.TileLayer.WMS) {
 
     // Exponential backoff with jitter, so a whole screen of failed tiles does not
     // retry in lockstep and hammer the service.
-    const delay = TILE_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1) + Math.random() * 250
+    const delay =
+      TILE_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1) + Math.random() * TILE_RETRY_JITTER_MS
     const original = tile.src.replace(/&_retry=\d+$/, '')
 
     const timer = window.setTimeout(() => {
