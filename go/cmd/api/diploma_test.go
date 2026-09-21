@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -174,10 +175,91 @@ func TestTheDiplomaUsesTheGatesFinishTimeInLocalTime(t *testing.T) {
 	if got, want := d.Title, "Nathejk 2026"; got != want {
 		t.Errorf("title = %q, want %q", got, want)
 	}
-	// Unset by default, so the mock prints no route rather than 2024's villages.
+	// Unset by default — no override, and the test app has no year projection — so no route is printed rather
+	// than 2024's villages.
 	if d.Route != "" {
 		t.Errorf("route = %q, want empty by default", d.Route)
 	}
+}
+
+// The route line's two sources (task 357).
+//
+// hq's year entity carries the two cities, and this app now folds them (`nathejk/table/year`). `EVENT_ROUTE`
+// survives as an operator override and wins, because it is the only one of the two that can fix a wrong line
+// without waiting for upstream data and a replay.
+func TestTheRouteLineComesFromTheYearProjection(t *testing.T) {
+	app, _, _ := patrolPageApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	app.models.Years = fixedRoute{from: "Lundby", to: "Glumsø"}
+
+	d, ok := app.patrolDiploma(mustRequest(t, srv.URL+"/api/public/patrol/42/diploma", "42"))
+	if !ok {
+		t.Fatal("want a diploma")
+	}
+	if got, want := d.Route, "fra Lundby til Glumsø"; got != want {
+		t.Errorf("route = %q, want %q", got, want)
+	}
+}
+
+func TestTheOperatorOverrideBeatsTheProjection(t *testing.T) {
+	app, _, _ := patrolPageApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	app.models.Years = fixedRoute{from: "Lundby", to: "Glumsø"}
+	app.config.eventRoute = "fra Sorø til Ringsted"
+
+	d, _ := app.patrolDiploma(mustRequest(t, srv.URL+"/api/public/patrol/42/diploma", "42"))
+	if got, want := d.Route, "fra Sorø til Ringsted"; got != want {
+		t.Errorf("route = %q, want the override %q", got, want)
+	}
+}
+
+// **Half a route is no route.** One city without the other must not print "fra Lundby til " on something a
+// family frames — the projection reports it as absent, and this pins that the handler does not paper over it.
+func TestHalfARouteIsOmitted(t *testing.T) {
+	app, _, _ := patrolPageApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	app.models.Years = fixedRoute{from: "Lundby"}
+
+	d, _ := app.patrolDiploma(mustRequest(t, srv.URL+"/api/public/patrol/42/diploma", "42"))
+	if d.Route != "" {
+		t.Errorf("route = %q, want empty", d.Route)
+	}
+}
+
+// A broken projection costs the line, not the diploma.
+func TestAFailingYearReadOmitsTheLine(t *testing.T) {
+	app, _, _ := patrolPageApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	app.models.Years = fixedRoute{err: errors.New("database on fire")}
+
+	d, ok := app.patrolDiploma(mustRequest(t, srv.URL+"/api/public/patrol/42/diploma", "42"))
+	if !ok {
+		t.Fatal("a failed route read must not cost the diploma")
+	}
+	if d.Route != "" {
+		t.Errorf("route = %q, want empty", d.Route)
+	}
+}
+
+// fixedRoute is a year projection with one answer.
+type fixedRoute struct {
+	from, to string
+	err      error
+}
+
+// Mirrors the real querier's contract: both cities or nothing (see year.Queries.Route).
+func (f fixedRoute) Route(string) (string, string, bool, error) {
+	if f.err != nil {
+		return "", "", false, f.err
+	}
+	if f.from == "" || f.to == "" {
+		return "", "", false, nil
+	}
+	return f.from, f.to, true, nil
 }
 
 // mustRequest builds a request carrying the httprouter param the handler reads.

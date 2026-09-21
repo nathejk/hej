@@ -14,6 +14,7 @@ import (
 	"nathejk.dk/nathejk/table/glimt"
 	"nathejk.dk/nathejk/table/person"
 	"nathejk.dk/nathejk/table/publicpatrol"
+	"nathejk.dk/nathejk/table/year"
 )
 
 // Models is the read-only facade passed to handlers.
@@ -123,6 +124,13 @@ type Models struct {
 	// patrol name, a group and a korps, and has no field for a person. The upstream event this is folded
 	// from carries a leader's name, phone and email — they reach no column. See the package doc.
 	PublicPatrols publicpatrol.Queries
+
+	// Years is what this app knows about the event year: where the walk starts and ends (task 357).
+	//
+	// **May be nil**, and a nil means "no route line" rather than an error. The only caller is the diploma,
+	// which omits the line when there is nothing to print — so an absent projection degrades to exactly the
+	// behaviour that shipped before this table existed.
+	Years year.Queries
 }
 
 // MapReads is the patrol-scoped map read API.
@@ -175,6 +183,12 @@ func WithAlbums(q album.Queries) Option {
 // nil, which handlers must treat as "closed" rather than "unavailable" — see the field's doc.
 func WithPublicPatrols(q publicpatrol.Queries) Option {
 	return func(mo *Models) { mo.PublicPatrols = q }
+}
+
+// WithYears supplies the event-year read model (task 357). Omit it and Models.Years is nil, which means the
+// diploma prints no route line — the behaviour before the projection existed.
+func WithYears(q year.Queries) Option {
+	return func(mo *Models) { mo.Years = q }
 }
 
 // NewModels constructs the read-side facade with the given read sources.

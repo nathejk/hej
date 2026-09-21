@@ -44,6 +44,7 @@ import (
 	"nathejk.dk/nathejk/table/publicpatrol"
 	"nathejk.dk/nathejk/table/scan"
 	"nathejk.dk/nathejk/table/trackpoint"
+	"nathejk.dk/nathejk/table/year"
 )
 
 // application is the root dependency container for the API binary. It embeds
@@ -452,6 +453,9 @@ func run(logger *slog.Logger) error {
 	// the contact block, so the public page cannot name a person even by accident. See the package doc for
 	// why that is worth a second consumer.
 	var publicPatrols *publicpatrol.Table
+	// years is the event-year projection, copied from hq and narrowed to the two cities (task 357). It exists
+	// for one line on a diploma — "fra Lundby til Glumsø" — which had no source in this repo before it.
+	var years *year.Table
 	// trackPoints is the recorded position points (PRD 011, task 340). The first reader the TELEMETRY
 	// stream has ever had — it has been published to since task 084 and consumed by nothing.
 	var trackPoints *trackpoint.Table
@@ -518,6 +522,12 @@ func run(logger *slog.Logger) error {
 			logger.Error("public patrol projection unavailable", "err", cerr)
 		} else {
 			publicPatrols = t
+		}
+
+		if t, cerr := year.New(ev.publisherOrNil(), ev.writer, ev.reader); cerr != nil {
+			logger.Error("year projection unavailable", "err", cerr)
+		} else {
+			years = t
 		}
 
 		if t, cerr := trackpoint.New(ev.publisherOrNil(), ev.writer, ev.reader); cerr != nil {
@@ -605,6 +615,9 @@ func run(logger *slog.Logger) error {
 			}
 			if publicPatrols != nil {
 				projections = append(projections, publicPatrols)
+			}
+			if years != nil {
+				projections = append(projections, years)
 			}
 			if trackPoints != nil {
 				projections = append(projections, trackPoints)
@@ -716,7 +729,8 @@ func run(logger *slog.Logger) error {
 			data.WithMapReads(mapReadsFor(mapReads, ev != nil, logger)),
 			data.WithGlimt(glimtQueriesOrNil(glimts)),
 			data.WithAlbums(albumQueriesOrNil(albums)),
-			data.WithPublicPatrols(publicPatrolQueriesOrNil(publicPatrols))),
+			data.WithPublicPatrols(publicPatrolQueriesOrNil(publicPatrols)),
+			data.WithYears(yearQueriesOrNil(years))),
 		commands: commands.New(publisherFor(ev)),
 		vehicles: vehicleCommandsOrNil(vehicles),
 		db:       db,

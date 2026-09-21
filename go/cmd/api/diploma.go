@@ -153,9 +153,51 @@ func (app *application) patrolDiploma(r *http.Request) (diploma.Diploma, bool) {
 		Number:     patrol.Number,
 		Name:       patrol.Name,
 		Title:      fmt.Sprintf("Nathejk %s", app.config.eventYear),
-		Route:      app.config.eventRoute,
+		Route:      app.diplomaRoute(),
 		FinishedAt: finishedAt,
 	}, true
+}
+
+// diplomaRoute is the route line, or "" to omit it.
+//
+// # Two sources, and why the operator's wins
+//
+// The **projection** is the data: hq's year entity carries `cityDeparture` and `cityDestination`, and task 357
+// copied that fold into this app precisely so a diploma stops depending on a place name hardcoded in a sibling
+// service. That is the normal path.
+//
+// `EVENT_ROUTE` stays as an override, and it takes precedence when set, because it is the only thing that can
+// fix a wrong line without a release — the same argument as every other operational override here. An operator
+// setting it has seen the diploma; the projection has only seen an event.
+//
+// # Every failure omits the line rather than breaking the diploma
+//
+// A missing projection, a database error, a year nobody has filled in, one city without the other: all of them
+// return "", which is exactly what shipped before this existed. A certificate with no route reads fine; one
+// that fails to render, or names half a journey, does not.
+func (app *application) diplomaRoute() string {
+	if app.config.eventRoute != "" {
+		return app.config.eventRoute
+	}
+	if app.models.Years == nil {
+		return ""
+	}
+
+	from, to, ok, err := app.models.Years.Route(app.config.eventYear)
+	if err != nil {
+		// Logged rather than returned: the caller's job is to produce a diploma, and this line is decoration on
+		// it. Silence here would hide a broken projection, so it is logged once per request that needed it.
+		app.Logger.Error("reading the event route", "year", app.config.eventYear, "err", err)
+		return ""
+	}
+	if !ok {
+		return ""
+	}
+
+	// The Danish phrase is composed here rather than in the renderer or the table: the table stores what the
+	// organizers typed, and `internal/diploma` prints the line it is given. This is the one place that knows
+	// two place names make a sentence.
+	return fmt.Sprintf("fra %s til %s", from, to)
 }
 
 // eventLocation is the timezone the event happens in.

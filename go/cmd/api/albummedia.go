@@ -9,6 +9,7 @@ import (
 	"nathejk.dk/nathejk/table/album"
 	"nathejk.dk/nathejk/table/checkpoint"
 	"nathejk.dk/nathejk/table/publicpatrol"
+	"nathejk.dk/nathejk/table/year"
 )
 
 // Album media ingest (PRD 011 §6 section 1, §8; task 333).
@@ -179,6 +180,17 @@ func albumQueriesOrNil(t *album.Table) album.Queries {
 // availability check decides whether to serve or to answer not-yet, and a typed nil would pass that check
 // and panic inside a request on an unauthenticated route.
 func publicPatrolQueriesOrNil(t *publicpatrol.Table) publicpatrol.Queries {
+	if t == nil {
+		return nil
+	}
+	return t
+}
+
+// yearQueriesOrNil is the same guard for the event-year projection (task 357).
+//
+// A typed nil in an interface is not nil, which is the bug this shape exists to prevent — and here the cost of
+// getting it wrong is a panic while rendering a diploma rather than a missing route line.
+func yearQueriesOrNil(t *year.Table) year.Queries {
 	if t == nil {
 		return nil
 	}

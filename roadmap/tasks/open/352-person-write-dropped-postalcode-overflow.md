@@ -65,3 +65,14 @@ exceeds 32.
 - 2026-09-21 — Found while rebuilding all projections from the stream for task 350. Worth recording *how* it
   surfaced: not from a bug report, and not from the dead-letter table being monitored, but because a replay was
   run for an unrelated reason and the table happened to be non-empty.
+
+- 2026-09-21 — **The failure path logs the whole row, guardian phone included.** Seen while replaying for task
+  357: the rejected statement is printed to the container log verbatim — name, email, `phone` **and**
+  `phoneParent` — because the write library logs the SQL it could not execute. One line per failing row, so
+  today that is a handful, not the directory.
+
+  It does not break `.rules`, which is about the PWA, and a log is not a surface. But it is the most sensitive
+  field in the record sitting in `docker compose logs` and in whatever aggregates them, for a reason unrelated
+  to guardians: a column being too narrow. Added to this task's scope — when the write is fixed, check what the
+  library logs on failure and whether a statement carrying `phoneParent` should be redacted before it gets
+  there. Fixing the overflow removes today's instance of it, not the mechanism.
