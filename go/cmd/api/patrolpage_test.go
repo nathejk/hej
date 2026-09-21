@@ -550,3 +550,108 @@ func (s recordingScans) ByTeam(_, teamID string) ([]scan.Scan, error) {
 
 // errPatrolReadFailed stands in for a database problem in the patrol read.
 var errPatrolReadFailed = errors.New("database is down")
+
+// The page for a patrol that did not finish (PRD 011 §11 Q4, task 346).
+//
+// Plenty of Nathejk patrols do not finish, and they still walked most of a night. The gate's backstop gives
+// them a page when the last checkpoint closes, and the whole design question is what that page *says*: the
+// answer is that it says nothing about it. These tests hold that line, because it is the kind of thing a
+// well-meaning copy change breaks.
+
+// backstopOpenedApp opens every page via the backstop: the race is over and nobody reached the finish.
+func backstopOpenedApp(t *testing.T) (*application, *httptest.Server) {
+	t.Helper()
+
+	app, _, srv := patrolPageApp(t)
+	// A track, because "complete" below includes the map: a patrol that did not finish still recorded a
+	// route, and the page must show it.
+	app.patrolTracks = trackReader(t,
+		&trackPeople{members: map[string][]string{"team-42": {"p1"}}},
+		&trackPoints{byPerson: map[string][]trackpoint.Point{"p1": walk(12.200, 10)}},
+	)
+	app.publicGate = publicgate.New(
+		gateCheckgroups{groups: []checkgroup.Checkgroup{
+			{ID: "cg-1", SortOrder: 10}, {ID: "cg-mål", SortOrder: 20},
+		}},
+		// 43 was scanned at an intermediate post only. 42's own scans are in the fixture but its gate
+		// verdict now comes from the backstop, not from a finish.
+		gateScans{byTeam: map[string][]scan.Scan{
+			"team-43": {{QrID: "q", Uts: nightAt(120).Unix(), CheckgroupID: "cg-1"}},
+		}},
+		gateClosing{uts: time.Now().Add(-time.Hour).Unix(), ok: true},
+	)
+	return app, srv
+}
+
+// **A backstop-opened page is a first-class page, not a degraded one.** Everything the page is for — the
+// header, the distance, the registrations, the map — is there; only the diploma is not.
+func TestABackstopOpenedPageIsComplete(t *testing.T) {
+	_, srv := backstopOpenedApp(t)
+
+	resp, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	page := string(body)
+
+	for _, want := range []string{
+		"Ørnene",             // the header
+		"1. Søllerød Gruppe", // gruppe and korps
+		"mindst",             // the distance, as a floor
+		"Post 4A",            // the registrations
+		`id="patrolmap"`,     // the map container
+		"Undervejs",          // the section that carries the list
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("a backstop-opened page is missing %q — it must be a whole page, not a stub", want)
+		}
+	}
+	// And the one thing it does not have.
+	if strings.Contains(page, `class="diploma"`) {
+		t.Error("a patrol that did not finish must have no diploma slot")
+	}
+}
+
+// **Nothing on the page draws attention to what is missing.** A patrol that walked seven hours and got
+// driven home does not need a page explaining that to their family: the absence of a diploma is information
+// enough for anyone looking for it, and silence is kinder than a sentence about retiring.
+func TestABackstopOpenedPageSaysNothingAboutNotFinishing(t *testing.T) {
+	_, srv := backstopOpenedApp(t)
+
+	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	page := strings.ToLower(string(body))
+
+	for _, forbidden := range []string{
+		"udgået", "udgik", "opgav", "opgivet", "gennemførte ikke", "nåede ikke",
+		"ikke i mål", "intet diplom", "uden diplom", "afbrudt", "retired",
+	} {
+		if strings.Contains(page, forbidden) {
+			t.Errorf("the page says %q; a patrol that did not finish is not announced", forbidden)
+		}
+	}
+	// Nor may it claim a finish it does not have.
+	if strings.Contains(page, "i mål") {
+		t.Error("a backstop-opened page must not claim a finish time")
+	}
+}
+
+// **The copy must not tell a family that not finishing means no page.** Both the frontpage hint and the
+// not-yet page used to say a patrol's page appears "når patruljen er i mål" — true of the first trigger and
+// misleading about the second, which is precisely the reading that excludes the patrols this task is about.
+func TestTheCopyNamesBothWaysAPageOpens(t *testing.T) {
+	_, _, srv := patrolPageApp(t)
+
+	for _, path := range []string{"/offentligt", "/offentligt/patrulje/43"} {
+		_, body := getPublic(t, srv.URL+path, nil)
+		page := string(body)
+
+		if !strings.Contains(page, "i mål") {
+			t.Errorf("%s: the copy should still say a page appears when a patrol finishes", path)
+		}
+		// The second trigger has to be named too, or the first reads as a condition.
+		if !strings.Contains(page, "løbet er slut") {
+			t.Errorf("%s: the copy does not say every patrol gets a page when the race ends; a patrol "+
+				"that was driven home would read this as \"not for us\"\n%s", path, page)
+		}
+	}
+}

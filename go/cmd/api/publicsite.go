@@ -464,8 +464,8 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   </form>
   {{if .SearchError}}<p class="problem">{{.SearchError}}</p>{{end}}
   <p class="hint">
-    Patruljens side kommer frem, når patruljen er i mål. Den viser holdets rute, hvor de blev
-    scannet, og hvor langt de gik.
+    Patruljens side kommer frem, når patruljen er i mål — og senest når løbet er slut. Den viser holdets
+    rute, hvor de blev scannet, og hvor langt de gik.
   </p>
 </section>
 
@@ -640,8 +640,8 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   Den er ikke klar endnu.
 </p>
 <p>
-  Hver patrulje får sin egen side, når de er i mål. Den viser holdets rute på kortet, hvor de blev
-  scannet undervejs, og hvor langt de gik.
+  Hver patrulje får sin egen side, når de er i mål — og når løbet er slut, får alle patruljer deres.
+  Den viser holdets rute på kortet, hvor de blev scannet undervejs, og hvor langt de gik.
 </p>
 <p>
   Prøv igen efter løbet. Tjek også, at nummeret er skrevet rigtigt.
