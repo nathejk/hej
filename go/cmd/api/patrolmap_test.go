@@ -509,13 +509,15 @@ func TestALegIsCoveredByTimeNotByPlace(t *testing.T) {
 	}
 }
 
-// **The dotted legs join scans, never track segments.** Joining one member's segment to another's would draw
-// travel that never happened; joining segments within one member's chronology would reconstruct that member's
-// own path, which is what the merged, unattributed track exists to prevent (PRD 011 §0b.1).
+// **The chain needs two positioned scans**, however much track there is.
 //
-// Asserted by construction: a patrol with a track and **one** positioned scan can have no leg at all, however
-// many segments its track has.
-func TestNoLegIsDrawnBetweenTrackSegments(t *testing.T) {
+// This test used to assert something stronger and now overruled: that segments are *never* joined to each other.
+// The maintainer's instruction on 2026-09-21 was that two track segments should be connected with a dotted line,
+// so they are — across a real silence, in `distance.UncoveredLegs`. What survives is this: the scans bound the
+// night, and with fewer than two of them positioned there is no chain to draw at all. The privacy reasoning that
+// motivated the old rule is preserved differently — a join says *nobody was recording*, never whose phone
+// resumed, and overlapping recorders are never joined to each other (see the unit tests).
+func TestNoChainWithoutTwoPositionedScans(t *testing.T) {
 	app, srv := mapApp(t)
 	// One positioned scan, and a track broken into several segments by gaps.
 	app.models.Scans = pageScans{byPatrol: map[string][]scans.Scan{
@@ -539,7 +541,51 @@ func TestNoLegIsDrawnBetweenTrackSegments(t *testing.T) {
 		t.Fatalf("the fixture should have several segments, got %d", len(out.Track))
 	}
 	if len(out.Untracked) != 0 {
-		t.Errorf("segments must never be bridged; got %d legs from one scan: %s", len(out.Untracked), body)
+		t.Errorf("one scan cannot anchor a chain; got %d legs: %s", len(out.Untracked), body)
+	}
+}
+
+// **Two segments of one recording are joined**, end to end, through the handler (the maintainer's instruction,
+// 2026-09-21). The unit tests cover the rule; this covers the wiring, which is where the second attempt went
+// wrong — the handler was flattening the segments before passing them, so the boundaries the rule needs were
+// gone by the time it saw them.
+func TestTheMapJoinsTwoTrackSegments(t *testing.T) {
+	app, srv := mapApp(t)
+	app.models.Scans = pageScans{byPatrol: map[string][]scans.Scan{
+		"team-42": {
+			{ID: "s-1", Kind: scans.KindCheckpoint, Label: "Post 4A", CheckpointID: "cp-1",
+				Lat: coord(55.7000), Lng: coord(12.2000), ScannedAt: nightAt(0)},
+			{ID: "s-2", Kind: scans.KindCheckpoint, Label: "Post 7", CheckpointID: "cp-2",
+				Lat: coord(55.7600), Lng: coord(12.2000), ScannedAt: nightAt(180)},
+		},
+	}}
+	// One phone, two stretches: it recorded, went into a pocket for an hour, and came out again. `walkFrom`
+	// samples like the client, so each stretch is one segment and the hour between them is one silence.
+	app.patrolTracks = trackReader(t,
+		&trackPeople{members: map[string][]string{"team-42": {"p1"}}},
+		&trackPoints{byPerson: map[string][]trackpoint.Point{
+			"p1": append(walkFrom(12.200, 10, 10), walkFrom(12.200, 10, 100)...),
+		}},
+	)
+
+	_, body := getPublic(t, srv.URL+"/api/public/patrol/42/map", nil)
+	out := decodeMap(t, body)
+
+	if len(out.Track) != 2 {
+		t.Fatalf("the fixture should be two segments, got %d: %s", len(out.Track), body)
+	}
+
+	// The join: the end of the first drawn line to the start of the second.
+	endOfFirst := out.Track[0][len(out.Track[0])-1]
+	startOfSecond := out.Track[1][0]
+	var joined bool
+	for _, leg := range out.Untracked {
+		if leg[0] == endOfFirst && leg[1] == startOfSecond {
+			joined = true
+		}
+	}
+	if !joined {
+		t.Errorf("want the two segments joined %v → %v: %s", endOfFirst, startOfSecond, body)
 	}
 }
 

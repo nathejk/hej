@@ -291,6 +291,27 @@ func trackPointsForDistance(track patroltrack.Track) []distance.Point {
 	return out
 }
 
+// trackSegmentsForDistance is the same conversion, kept **segment by segment**.
+//
+// For `distance.UncoveredLegs`, which joins the ends of the lines the map draws and therefore has to see where
+// one line stops and the next begins. Flattening for that was the bug behind the second round of task 354: the
+// merge segments per recorder, so a flat time-ordered list interleaves two phones and hides every boundary.
+func trackSegmentsForDistance(track patroltrack.Track) [][]distance.Point {
+	var out [][]distance.Point
+	for _, seg := range track.Segments {
+		line := make([]distance.Point, 0, len(seg.Points))
+		for _, p := range seg.Points {
+			line = append(line, distance.Point{
+				Lat: p.Lat,
+				Lng: p.Lng,
+				At:  time.UnixMilli(p.TS).UTC(),
+			})
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
 // addPatrolTrackSummary records what the track covers, so the page can say so.
 func (app *application) addPatrolTrackSummary(data *publicPatrolPageData, teamID string) {
 	if app.patrolTracks == nil {

@@ -562,29 +562,33 @@ func TestTheImplausibleLegRuleNeedsBothConditions(t *testing.T) {
 	}
 }
 
-// UncoveredLegs — the legs the public map draws dotted (task 354).
+// UncoveredLegs — the dotted chain the public map draws (task 354).
 //
-// The rule they must obey is not "looks reasonable" but **the same rule the figure uses**: a leg is covered
-// when the track has at least two points inside it, which is exactly when `Compute` raises it above the
-// straight line. A map that dotted a leg the number had measured would be a page nobody could explain.
+// The unit is a **segment**, not a point: a dotted leg joins the ends of the lines the map actually draws. The
+// first implementation walked a flat point list and measured wrong on real data — see the function's doc.
 
 func TestUncoveredLegsAreTheLegsTheTrackDoesNotCover(t *testing.T) {
 	// Three positioned scans: the first leg is walked with the phone open — and wandering, so the measured
 	// path is longer than the straight line — while the second is not recorded at all.
+	//
+	// **Sampled every two minutes, like the client does** (task 083). An earlier version of this fixture
+	// sampled every fifteen, which is three times `patroltrack.GapThreshold`, so `patroltrack` would have made
+	// every sample its own segment — it tested the gap rule instead of the thing it meant to. The same trap is
+	// recorded in patrolmap_test.go.
 	first, second, third := scan(55.700, 12.200, 0), scan(55.720, 12.200, 60), scan(55.740, 12.200, 120)
-	track := []Point{
-		{Lat: 55.705, Lng: 12.200, At: at(10)},
-		{Lat: 55.710, Lng: 12.230, At: at(25)},
-		{Lat: 55.715, Lng: 12.200, At: at(40)},
-		{Lat: 55.720, Lng: 12.200, At: at(55)},
-	}
+	// A wandering walk, recorded as one segment: north-east, then north-west back to the second scan. 3.0 km
+	// across a 2.2 km leg, at 4.5 km/h — so the track raises the figure, the agreement asserted at the end.
+	segment := append(
+		recordedWalk(55.705, 12.200, 55.712, 12.220, 10, 30, 2),
+		recordedWalk(55.713, 12.219, 55.720, 12.200, 32, 50, 2)...,
+	)
 
-	legs := UncoveredLegs([]Scan{first, second, third}, track)
+	legs := UncoveredLegs([]Scan{first, second, third}, [][]Point{segment})
 
-	// Three scans, one recorded leg and one not — and the recorded one contributes an **approach**: the
-	// recording starts 550 m after the first scan, so that stretch is unrecorded and gets dotted. Its other
-	// end needs nothing: the last sample sits on the second scan, so the departure leg is below minDottedKm
-	// and is dropped rather than smudged under the pin.
+	// Two dotted legs. The recorded leg contributes an **approach** — the recording starts 550 m after the
+	// first scan — and a **departure**: the last sample is on the second scan's position but forty minutes
+	// earlier, so the patrol stood or wandered there unrecorded. Below minDottedKm, so it is dropped rather
+	// than smudged under the pin. What is left is the approach and the leg with no recording at all.
 	if len(legs) != 2 {
 		t.Fatalf("want the approach and the unrecorded leg, got %d: %+v", len(legs), legs)
 	}
@@ -601,8 +605,9 @@ func TestUncoveredLegsAreTheLegsTheTrackDoesNotCover(t *testing.T) {
 		}
 	}
 
-	// And the covered leg is the one the figure raised — the agreement between the drawing and the number.
-	est := Compute([]Scan{first, second, third}, track)
+	// And the recorded leg is the one the figure raised — the agreement between the drawing and the number.
+	// Compute takes the flat points, because it sums a path rather than joining lines.
+	est := Compute([]Scan{first, second, third}, segment)
 	if est.RaisedLegs != 1 {
 		t.Errorf("want the covered leg raised by the track, got %d raised", est.RaisedLegs)
 	}
@@ -623,7 +628,7 @@ func TestALegWithATraceIsNotDottedAcross(t *testing.T) {
 		{Lat: 55.712, Lng: 12.200, At: at(25)},
 	}
 
-	legs := UncoveredLegs(scans, track)
+	legs := UncoveredLegs(scans, [][]Point{track})
 	if len(legs) != 2 {
 		t.Fatalf("want the two ends dotted, got %d: %+v", len(legs), legs)
 	}
@@ -644,19 +649,19 @@ func TestALegWithATraceIsNotDottedAcross(t *testing.T) {
 	}
 }
 
-// A recording made **somewhere else** during the leg's window must not drag a dotted line out to it. Coverage
-// is temporal (task 339), so this happens for real: a member who is no longer with the patrol, or a phone whose
-// clock is off. The join could not have been walked, so the leg falls back to the scan-to-scan line — the one
-// claim we can stand behind.
+// A recording made **somewhere else** during the night must not drag a dotted line out to it. Nothing but time
+// ties a recording to a scan (task 339), so this happens for real: a member who is no longer with the patrol, or
+// a phone whose clock is off. The step into it could not have been walked, so the stretch is dropped from the
+// chain and the leg falls back to the scan-to-scan line — the one claim we can stand behind.
 func TestADisplacedRecordingFallsBackToTheScanToScanLine(t *testing.T) {
 	scans := []Scan{scan(55.700, 12.200, 0), scan(55.740, 12.200, 60)}
 	// Inside the window, a degree of longitude away: ~60 km in under an hour, on foot.
-	track := []Point{
+	displaced := []Point{
 		{Lat: 55.700, Lng: 13.200, At: at(10)},
 		{Lat: 55.708, Lng: 13.200, At: at(20)},
 	}
 
-	legs := UncoveredLegs(scans, track)
+	legs := UncoveredLegs(scans, [][]Point{displaced})
 	if len(legs) != 1 {
 		t.Fatalf("want one scan-to-scan leg, got %d: %+v", len(legs), legs)
 	}
@@ -665,30 +670,127 @@ func TestADisplacedRecordingFallsBackToTheScanToScanLine(t *testing.T) {
 	}
 }
 
+// **Two recorded stretches are joined to each other**, on the maintainer's instruction (2026-09-21). A patrol
+// whose phone slept in the middle of a leg used to get two floating lines; the page now reads as one chain.
+//
+// The join is between **segments**, which is what the map draws, and it is made only where there is a real
+// silence — no recorder covering that stretch of the night. That is what keeps it from reconstructing any one
+// member's path (PRD 011 §0b.1): it says nobody was recording, not whose phone resumed.
+func TestTwoRecordedStretchesAreJoinedToEachOther(t *testing.T) {
+	scans := []Scan{scan(55.700, 12.200, 0), scan(55.760, 12.200, 120)}
+	// Two segments with a 40-minute silence between them — a phone that went into a pocket and came out.
+	segments := [][]Point{
+		recordedWalk(55.705, 12.200, 55.720, 12.200, 10, 30, 2),
+		recordedWalk(55.740, 12.200, 55.755, 12.200, 70, 90, 2),
+	}
+
+	legs := UncoveredLegs(scans, segments)
+
+	// Three: scan to the first stretch, the silence between the two stretches, the second stretch to the scan.
+	if len(legs) != 3 {
+		t.Fatalf("want the two ends and the silence between the stretches, got %d: %+v", len(legs), legs)
+	}
+
+	var joinsTheStretches bool
+	for _, leg := range legs {
+		if closeTo(leg.From.Lat, 55.720, 0.0001) && closeTo(leg.To.Lat, 55.740, 0.0001) {
+			joinsTheStretches = true
+		}
+		if closeTo(leg.From.Lat, 55.700, 0.0001) && closeTo(leg.To.Lat, 55.760, 0.0001) {
+			t.Error("no leg may span the whole leg: we have a track for part of it")
+		}
+	}
+	if !joinsTheStretches {
+		t.Errorf("want the end of one stretch joined to the start of the next: %+v", legs)
+	}
+}
+
+// **Two recorders overlapping in time leave no silence to draw**, and this is the case the first implementation
+// got wrong. It walked the flat, time-ordered point list, where two phones recording at once interleave: every
+// consecutive pair was close in time, so it concluded "recording" for pairs of points with no line between them
+// at all, and left segments floating. Measured on patrol 71: 44 of 80 segments unjoined.
+//
+// Here two phones cover the whole leg between them, from different places. Nobody was ever not recording, so the
+// only dotted legs are the two ends — and nothing is drawn between the two segments, which would be a line
+// between two members.
+func TestOverlappingRecordersLeaveNoSilence(t *testing.T) {
+	scans := []Scan{scan(55.700, 12.200, 0), scan(55.760, 12.200, 120)}
+	segments := [][]Point{
+		recordedWalk(55.705, 12.200, 55.750, 12.200, 10, 100, 2),
+		recordedWalk(55.706, 12.201, 55.752, 12.201, 12, 102, 2),
+	}
+
+	legs := UncoveredLegs(scans, segments)
+
+	if len(legs) != 2 {
+		t.Fatalf("want only the two ends, got %d: %+v", len(legs), legs)
+	}
+	// Neither leg may join one recorder's line to the other's.
+	for _, leg := range legs {
+		if closeTo(leg.From.Lng, 12.201, 0.0001) || closeTo(leg.To.Lng, 12.201, 0.0001) {
+			continue // the second recorder's own end, joined to a scan, which is fine
+		}
+		if closeTo(leg.From.Lat, 55.750, 0.0001) && closeTo(leg.To.Lat, 55.706, 0.0001) {
+			t.Error("a leg joins one recorder's line to another's")
+		}
+	}
+}
+
+// The counterpart: **inside** a recorded segment nothing is dotted. Dotting over it would draw a guess on top
+// of a measurement.
+func TestNothingIsDottedInsideARecordedStretch(t *testing.T) {
+	scans := []Scan{scan(55.700, 12.200, 0), scan(55.740, 12.200, 60)}
+	segment := recordedWalk(55.705, 12.200, 55.735, 12.200, 5, 55, 2)
+
+	legs := UncoveredLegs(scans, [][]Point{segment})
+
+	// Only the two ends, and nothing between: 550 m in at the start, 550 m out at the end.
+	if len(legs) != 2 {
+		t.Fatalf("want only the two ends, got %d: %+v", len(legs), legs)
+	}
+}
+
 // The smudge guard: a phone that was already recording when the patrol reached the checkpoint puts a sample
 // within metres of the scan, and a dotted leg that short is a mark on the map with nothing to say.
 func TestARecordingThatStartsAtTheScanGetsNoDottedStub(t *testing.T) {
 	scans := []Scan{scan(55.700, 12.200, 0), scan(55.740, 12.200, 60)}
-	track := []Point{
-		// ~1 m from the first scan, and the last sample lands on the second.
-		{Lat: 55.70001, Lng: 12.200, At: at(1)},
-		{Lat: 55.720, Lng: 12.200, At: at(30)},
-		{Lat: 55.740, Lng: 12.200, At: at(59)},
-	}
+	segment := recordedWalk(55.70001, 12.200, 55.740, 12.200, 1, 59, 2)
 
-	if legs := UncoveredLegs(scans, track); len(legs) != 0 {
+	if legs := UncoveredLegs(scans, [][]Point{segment}); len(legs) != 0 {
 		t.Errorf("want no dotted stubs, got %d: %+v", len(legs), legs)
 	}
 }
 
-// A single track point inside a leg leaves it **uncovered**, following `alongTrack`: one point says nothing
-// about how the leg was walked, and the map should not imply it does.
-func TestOneTrackPointInsideALegIsNotCoverage(t *testing.T) {
-	scans := []Scan{scan(55.700, 12.200, 0), scan(55.740, 12.200, 60)}
-	track := []Point{{Lat: 55.710, Lng: 12.200, At: at(20)}}
+// recordedWalk is a straight leg sampled at a fixed interval, the way the client records one.
+//
+// A helper rather than a literal because the interval is load-bearing: anything above
+// `patroltrack.GapThreshold` turns each sample into its own segment, and the fixture then exercises the gap
+// rule instead of whatever it was written for. That mistake has now been made twice.
+//
+// Both ends inclusive, so two calls can be concatenated into a wandering walk — start the second one interval
+// after the first ends, or the junction carries a duplicate instant.
+func recordedWalk(fromLat, fromLng, toLat, toLng float64, fromMin, toMin, everyMin int) []Point {
+	var out []Point
+	span := float64(toMin - fromMin)
+	for m := fromMin; m <= toMin; m += everyMin {
+		progress := float64(m-fromMin) / span
+		out = append(out, Point{
+			Lat: fromLat + (toLat-fromLat)*progress,
+			Lng: fromLng + (toLng-fromLng)*progress,
+			At:  at(m),
+		})
+	}
+	return out
+}
 
-	if got := len(UncoveredLegs(scans, track)); got != 1 {
-		t.Errorf("one point is not coverage; want the leg dotted, got %d uncovered", got)
+// A one-point segment is **not a stretch**, and the map does not draw it either: `patroltrack.Merge` drops a
+// run it cannot make a line from. So there is nothing to join to, and the leg is dotted scan to scan.
+func TestAOnePointSegmentIsNotAStretch(t *testing.T) {
+	scans := []Scan{scan(55.700, 12.200, 0), scan(55.740, 12.200, 60)}
+	lonely := [][]Point{{{Lat: 55.710, Lng: 12.200, At: at(20)}}}
+
+	if got := len(UncoveredLegs(scans, lonely)); got != 1 {
+		t.Errorf("one point is not a stretch; want the leg dotted, got %d", got)
 	}
 }
 

@@ -110,7 +110,7 @@ func (app *application) patrolMapHandler(w http.ResponseWriter, r *http.Request)
 		Scans:     []patrolMapScan{},
 	}
 
-	var trackPoints []distance.Point
+	var trackSegments [][]distance.Point
 	if app.patrolTracks != nil {
 		track, err := app.patrolTracks.Track(patrol.TeamID)
 		if err != nil {
@@ -126,9 +126,11 @@ func (app *application) patrolMapHandler(w http.ResponseWriter, r *http.Request)
 			}
 			resp.Track = append(resp.Track, line)
 		}
-		// Times, kept on this side of the wire: they decide which legs the track covers and never leave the
-		// process. The same conversion the distance estimate uses, for the same reason — one definition.
-		trackPoints = trackPointsForDistance(track)
+		// Times, kept on this side of the wire: they decide where the recording has gaps and never leave the
+		// process. **Segment by segment**, because the dotted legs join the ends of the lines the map draws, and
+		// those only exist as segments — flattening them was a bug (see distance.UncoveredLegs). The page's
+		// figure flattens the same merge for its own sum, which is a different question.
+		trackSegments = trackSegmentsForDistance(track)
 	}
 
 	// The registrations, read through the same helper the page uses (task 341), so the pins, the list and the
@@ -136,9 +138,9 @@ func (app *application) patrolMapHandler(w http.ResponseWriter, r *http.Request)
 	registrations := app.patrolRegistrations(patrol.TeamID)
 	resp.Scans = append(resp.Scans, registrations.pins...)
 
-	// The legs with no recording behind them, drawn dotted. `distance.UncoveredLegs` owns the "covered"
-	// rule so the drawing and the number agree — see its doc.
-	for _, leg := range distance.UncoveredLegs(registrations.forDistance, trackPoints) {
+	// The steps of the chain we did not record, drawn dotted. `distance.UncoveredLegs` owns the rule; note it
+	// takes the **segments**, because a dotted line joins the ends of drawn lines.
+	for _, leg := range distance.UncoveredLegs(registrations.forDistance, trackSegments) {
 		resp.Untracked = append(resp.Untracked, [2][2]float64{
 			{leg.From.Lat, leg.From.Lng},
 			{leg.To.Lat, leg.To.Lng},
