@@ -117,7 +117,7 @@ type publicScanRow struct {
 // @Param        number  path      string  true  "patrol number"
 // @Success      200  {string}  string  "the page, or the not-yet page"
 // @Failure      429  {object}  map[string]string  "read rate limit, by IP"
-// @Router       /offentligt/patrulje/{number} [get]
+// @Router       /{year}/patrulje/{number} [get]
 func (app *application) publicPatrolPageHandler(w http.ResponseWriter, r *http.Request) {
 	if !app.allowPublicSiteRead(w, r) {
 		return
@@ -161,6 +161,7 @@ func (app *application) patrolPage(number string) (publicPatrolPageData, bool) {
 		publicPageData: publicPageData{
 			Year:  app.config.eventYear,
 			Title: patrolPageTitle(patrol),
+			Root:  app.publicRoot(),
 		},
 		Patrol:     patrol,
 		KorpsLabel: patrol.KorpsLabel(),

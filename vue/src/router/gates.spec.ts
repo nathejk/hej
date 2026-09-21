@@ -12,7 +12,7 @@ vi.mock('@/helpers/platform', () => ({
 let mobile = true
 let standalone = true
 
-import { LEAVE_APP, deviceAndInstallGates } from '@/router/gates'
+import { LEAVE_APP, WEBSITE_PAGE, deviceAndInstallGates } from '@/router/gates'
 import { useOnboardingStore } from '@/stores/onboarding.store'
 
 // A minimal stand-in for what the guard actually reads off a route.
@@ -72,6 +72,15 @@ describe('device / install / onboarding gates', () => {
   it('leaves the app entirely on a desktop computer', () => {
     mobile = false
     expect(settle('maps', { authenticated: true })).toBe('(left the app)')
+  })
+
+  // **Where it leaves to is the public site, not the old placeholder** (task 351). `/desktop.html` said
+  // "more to come…" while PRD 011's real pages sat one directory away, so a desktop visitor was being left
+  // at a dead end. The destination is the alias rather than `/2026` because this bundle cannot know the
+  // event year — the server resolves it (see gates.ts).
+  it('leaves for the public site rather than a placeholder page', () => {
+    expect(WEBSITE_PAGE).toBe('/offentligt')
+    expect(WEBSITE_PAGE).not.toContain('.html')
   })
 
   // There is no way past the wall in a browser any more (task 143): the website is anonymous

@@ -42,7 +42,7 @@ func postReport(t *testing.T, base, number, reason string) *http.Response {
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}}
-	resp, err := client.PostForm(base+"/offentligt/patrulje/"+number+"/anmeld",
+	resp, err := client.PostForm(base+"/2026/patrulje/"+number+"/anmeld",
 		url.Values{"reason": {reason}})
 	if err != nil {
 		t.Fatalf("POST report: %v", err)
@@ -69,7 +69,7 @@ func TestPatrolReport_PublishesAReportAndRedirectsBack(t *testing.T) {
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303", resp.StatusCode)
 	}
-	if got, want := resp.Header.Get("Location"), "/offentligt/patrulje/42?anmeldt=1"; got != want {
+	if got, want := resp.Header.Get("Location"), "/2026/patrulje/42?anmeldt=1"; got != want {
 		t.Errorf("Location = %q, want %q", got, want)
 	}
 
@@ -134,9 +134,9 @@ func TestPatrolReport_RecordsASentinelAndNoAddress(t *testing.T) {
 func TestPatrolReport_HidesNothing(t *testing.T) {
 	_, pub, srv := reportApp(t)
 
-	_, before := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, before := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	postReport(t, srv.URL, "42", "tag den ned")
-	afterResp, after := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	afterResp, after := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 
 	if afterResp.StatusCode != http.StatusOK {
 		t.Fatalf("the page answered %d after a report; it must not be hidden", afterResp.StatusCode)
@@ -225,11 +225,11 @@ func TestPatrolReport_AcceptsNoReason(t *testing.T) {
 func TestPatrolPage_CarriesAWorkingTakedownForm(t *testing.T) {
 	_, _, srv := reportApp(t)
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := string(body)
 
 	for _, want := range []string{
-		`<form method="post" action="/offentligt/patrulje/42/anmeld">`,
+		`<form method="post" action="/2026/patrulje/42/anmeld">`,
 		`name="reason"`,
 		`<button type="submit">`,
 	} {
@@ -242,7 +242,7 @@ func TestPatrolPage_CarriesAWorkingTakedownForm(t *testing.T) {
 		t.Error("the page thanks a visitor who reported nothing")
 	}
 
-	_, reported := getPublic(t, srv.URL+"/offentligt/patrulje/42?anmeldt=1", nil)
+	_, reported := getPublic(t, srv.URL+"/2026/patrulje/42?anmeldt=1", nil)
 	if !strings.Contains(string(reported), "Tak. Vi har fået din besked") {
 		t.Error("the page does not acknowledge a report after the redirect")
 	}
@@ -253,7 +253,7 @@ func TestPatrolPage_CarriesAWorkingTakedownForm(t *testing.T) {
 func TestPatrolPage_TakedownCopyDoesNotPromiseImmediateRemoval(t *testing.T) {
 	_, _, srv := reportApp(t)
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42?anmeldt=1", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42?anmeldt=1", nil)
 	page := strings.ToLower(string(body))
 
 	for _, forbidden := range []string{"med det samme", "straks", "fjernet nu"} {

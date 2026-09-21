@@ -677,18 +677,30 @@ will never install the app.
 
 ## 7. UX / UI Notes
 
-**Where this lives.** `/offentligt` as the public root, with `/offentligt/glimt` already under it:
+**Where this lives.** The **event year** as the public root, since task 351 — `/2026`, with the glimt
+page moving under it. It was `/offentligt` when this PRD was written, and every one of those paths
+answers a permanent 301 to its new address (PRD 021 §0 records why the year, and why not the domain
+root yet):
 
 | path | what |
 |---|---|
-| `/offentligt` | the frontpage: albums, find-your-patrol, recent glimt |
-| `/offentligt/album/{slug}` | one album |
-| `/offentligt/patrulje/{number}` | patruljens egen side *(address shape: §11 Q2)* |
-| `/offentligt/glimt` | the full public feed *(exists, PRD 019)* |
+| `/2026` | the frontpage: albums, find-your-patrol, recent glimt |
+| `/2026/album/{slug}` | one album |
+| `/2026/patrulje/{number}` | patruljens egen side *(address shape: §11 Q2)* |
+| `/2026/glimt` | the full public feed *(exists, PRD 019)* |
+| `/2026/privatliv` | what the public pages show, and what they do not *(task 351)* |
+| `/offentligt*` | permanent 301 to the above; also how the app names "the public site" |
 
-`/desktop.html` (PRD 013) stays what it is and links here; this page links there for the rules and
-the privacy text. Two surfaces, one each for *what the event is* and *what the event was*. The
-duplication to avoid is content, not navigation.
+**The privacy page is the site's own, and that is a correction to this section.** This PRD originally
+had the public pages link to the app's `/privatliv` view. That view is a Vue route: a parent on a
+laptop who followed it got the app shell, which sent them to `/desktop.html` — and once the app's
+desktop gate pointed at the public site (task 351), it became a loop. The two pages answer different
+questions and both should exist; PRD 021 §11 Q3 asks which owns the shared wording.
+
+`/desktop.html` (PRD 013) is no longer linked from here: it still reads *"more to come…"*, and a link
+to a placeholder is worse than no link. PRD 013's content belongs on this site now — see PRD 021 §10,
+Phase 3. Two surfaces, one each for *what the event is* and *what the event was*, remains the intent;
+the navigation between them waits for the content to exist.
 
 **The frontpage, in order.** Albums first: they are the most inviting thing and need no input.
 Then find-your-patrol, because the visitor who came for that came with a number in their hand.

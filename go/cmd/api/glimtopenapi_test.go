@@ -70,9 +70,15 @@ type registeredRoute struct {
 // disagrees with the code is how a rate limit or a closed gate becomes a surprise.
 //
 // Widening this to the rest of the API remains task 328.
+// isInScope reports whether a route belongs to the surface this guard covers.
+//
+// The **year prefix** is in scope since task 351: the public pages moved there, and without this line
+// `/2026/patrulje/{number}` would have quietly left the annotation check — the scope predicate matching
+// "contains glimt" would have kept only the glimt page.
 func isInScope(path string) bool {
 	return strings.HasPrefix(path, "/api/glimt") || strings.Contains(path, "glimt") ||
-		strings.HasPrefix(path, "/offentligt") || strings.HasPrefix(path, "/api/public/")
+		strings.HasPrefix(path, "/offentligt") || strings.HasPrefix(path, "/api/public/") ||
+		looksLikeYearPrefix(path)
 }
 
 // glimtRoutes parses routes.go and returns every in-scope registration.
@@ -100,7 +106,7 @@ func glimtRoutes(t *testing.T) []registeredRoute {
 		}
 
 		method := httpMethodName(call.Args[0])
-		path, ok := stringLit(call.Args[1])
+		path, ok := parseRegisteredPath(t, call.Args[1], fset)
 		if !ok || method == "" || !isInScope(path) {
 			return true
 		}
@@ -130,7 +136,35 @@ func httpMethodName(e ast.Expr) string {
 	return strings.ToUpper(strings.TrimPrefix(sel.Sel.Name, "Method"))
 }
 
+// stringLit unquotes a string literal, or resolves the one non-literal path form routes.go uses.
+//
+// # Why this has to understand more than a literal
+//
+// The public pages are registered as `publicRoot + "/patrulje/:number"` (task 351), because httprouter cannot
+// take a `:year` parameter as a sibling of static segments and the prefix therefore comes from configuration.
+// A parser that only accepted literals would quietly stop seeing those routes — and since **both guards that
+// read this file exist to catch what nobody remembered to check**, a silent gap in them is worse than no guard
+// at all: the privacy walk would report success over an empty list.
+//
+// So `publicRoot + "…"` resolves to a representative year. The year's value does not matter to either guard
+// (one asks what a route leaks, the other whether it is annotated); what matters is that the route is *seen*.
+//
+// Anything else non-literal returns false, and `parseRegisteredPath` turns that into a test failure rather
+// than a shrug.
 func stringLit(e ast.Expr) (string, bool) {
+	// The bare prefix: `router.HandlerFunc(http.MethodGet, publicRoot, …)` for the frontpage.
+	if root, ok := e2PublicRoot(e); ok {
+		return root, true
+	}
+	if bin, ok := e.(*ast.BinaryExpr); ok && bin.Op == token.ADD {
+		left, lok := e2PublicRoot(bin.X)
+		right, rok := stringLit(bin.Y)
+		if lok && rok {
+			return left + right, true
+		}
+		return "", false
+	}
+
 	lit, ok := e.(*ast.BasicLit)
 	if !ok || lit.Kind != token.STRING {
 		return "", false
@@ -139,7 +173,43 @@ func stringLit(e ast.Expr) (string, bool) {
 	return s, err == nil
 }
 
+// guardYear is the event year the guards resolve `publicRoot` to.
+//
+// A constant rather than the app's configured value, because these guards read *source text* and never build
+// an application. It only has to be year-shaped: `looksLikeYearPrefix` and `isPublicSurface` both match the
+// shape, not the value.
+const guardYear = "/2026"
+
+// e2PublicRoot recognises the `publicRoot` identifier from routes.go.
+func e2PublicRoot(e ast.Expr) (string, bool) {
+	ident, ok := e.(*ast.Ident)
+	if !ok || ident.Name != "publicRoot" {
+		return "", false
+	}
+	return guardYear, true
+}
+
+// parseRegisteredPath is stringLit with a **loud** failure for a form it does not understand.
+//
+// The guards' whole value is that a route added later is covered without anybody remembering. A route whose
+// path this parser cannot read is therefore not a route to skip — it is a hole in both guards, and the only
+// safe response is to stop the build and make somebody teach the parser.
+func parseRegisteredPath(t *testing.T, e ast.Expr, fset *token.FileSet) (string, bool) {
+	t.Helper()
+	if path, ok := stringLit(e); ok {
+		return path, true
+	}
+	t.Errorf("routes.go:%d registers a route whose path this guard cannot parse. Teach stringLit about it "+
+		"— an unreadable route is invisible to the privacy walk and to the OpenAPI check, which is exactly "+
+		"what they exist to prevent.", fset.Position(e.Pos()).Line)
+	return "", false
+}
+
 // handlerName digs the handler method out of whatever wraps it.
+//
+// **Only names ending in `Handler` are recognised**, which makes that suffix a convention this guard
+// enforces rather than merely observes: a registration pointing at `app.doSomething` is invisible here, and an
+// invisible route is an unannotated one. Task 351 found this out by naming a handler without the suffix.
 //
 // Registrations look like `app.requireAuth(app.listGlimtHandler)`, sometimes with more than one
 // wrapper, so this takes the **innermost** `app.X` selector rather than the first one it meets —
@@ -270,8 +340,12 @@ func TestGlimtRouterAnnotationsMatchTheRegisteredPaths(t *testing.T) {
 
 	for _, route := range glimtRoutes(t) {
 		doc := docs[route.handler]
-		match := routerLine.FindStringSubmatch(doc)
-		if match == nil {
+		// **All** @Router lines, not the first. swag allows a handler to document several paths, and one
+		// handler answering two addresses is a real case here: the public site's former address is served
+		// both bare and as a catch-all (task 351). Matching only the first line would have forced a second
+		// identical handler to exist purely to satisfy this test.
+		matches := routerLine.FindAllStringSubmatch(doc, -1)
+		if len(matches) == 0 {
 			// Reported by the test above; nothing to compare here.
 			continue
 		}
@@ -287,15 +361,37 @@ func TestGlimtRouterAnnotationsMatchTheRegisteredPaths(t *testing.T) {
 			if strings.HasPrefix(segment, ":") {
 				want = strings.Replace(want, segment, "{"+strings.TrimPrefix(segment, ":")+"}", 1)
 			}
+			if strings.HasPrefix(segment, "*") {
+				// httprouter's catch-all. swag has no notation for one, so the documented form is a
+				// plain parameter with the same name.
+				want = strings.Replace(want, segment, "{"+strings.TrimPrefix(segment, "*")+"}", 1)
+			}
+		}
+		// The **event year** is a path parameter as far as the documentation is concerned, even though
+		// httprouter cannot express it as one (see routes.go): the annotation says `/{year}/patrulje/{number}`
+		// because next year the same handler answers at `/2027/…`, and a spec naming one year would be wrong
+		// twelve months later. So the registered path's year segment is normalised before comparing.
+		if looksLikeYearPrefix(want) {
+			want = "/{year}" + strings.TrimPrefix(want, guardYear)
 		}
 
-		if match[1] != want {
-			t.Errorf("%s documents @Router %s but is registered at %s",
-				route.handler, match[1], want)
+		documentedPath := false
+		for _, match := range matches {
+			if match[1] == want {
+				documentedPath = true
+				if !strings.EqualFold(match[2], route.method) {
+					t.Errorf("%s documents method %s for %s but is registered as %s",
+						route.handler, match[2], want, route.method)
+				}
+			}
 		}
-		if !strings.EqualFold(match[2], route.method) {
-			t.Errorf("%s documents method %s but is registered as %s",
-				route.handler, match[2], route.method)
+		if !documentedPath {
+			var documented []string
+			for _, match := range matches {
+				documented = append(documented, match[1])
+			}
+			t.Errorf("%s is registered at %s but documents @Router %s",
+				route.handler, want, strings.Join(documented, ", "))
 		}
 	}
 }
@@ -586,9 +682,18 @@ func TestGlimtFailureCodesMatchTheHandlers(t *testing.T) {
 			}
 
 			written := statusesWritten(bodies, route.handler, 2)
+			if len(written) == 0 && len(documented) > 0 {
+				t.Fatalf("documents @Failure but has no error branches — did the handler move, or the "+
+					"response helpers get renamed? (%s %s)", route.method, route.path)
+			}
 			if len(written) == 0 {
-				t.Fatalf("found no error branches at all — did the handler move, or the response "+
-					"helpers get renamed? (%s %s)", route.method, route.path)
+				// Coherent: a handler that cannot fail and documents no failure. The redirect from the
+				// public site's former address is the case that makes this legitimate — it parses nothing
+				// and reads nothing, so there is no branch to answer with.
+				//
+				// Kept narrow on purpose: the loud version above still fires for the failure this check
+				// exists to catch, which is an annotation left behind by a handler that was rewritten.
+				return
 			}
 
 			var undocumented, unreachable []string

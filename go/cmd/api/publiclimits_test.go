@@ -35,9 +35,9 @@ func publicRoutes() []struct {
 		path      string
 		wantCache string
 	}{
-		{"/offentligt", "public, max-age=60"},
-		{"/offentligt/patrulje/42", "public, max-age=60"},
-		{"/offentligt/patrulje/999999", "public, max-age=60"}, // the not-yet page
+		{"/2026", "public, max-age=60"},
+		{"/2026/patrulje/42", "public, max-age=60"},
+		{"/2026/patrulje/999999", "public, max-age=60"}, // the not-yet page
 		{"/api/public/patrol/42/map", publicJSONCacheControl},
 		{"/api/public/albums", publicJSONCacheControl},
 	}
@@ -121,7 +121,7 @@ func TestAMorningAfterBurstCostsOneTrackRead(t *testing.T) {
 		wg.Add(2)
 		go func(i int) {
 			defer wg.Done()
-			resp, _ := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+			resp, _ := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 			codes[i*2] = resp.StatusCode
 		}(i)
 		go func(i int) {
@@ -160,7 +160,7 @@ func TestOnePageLoadCannotTripTheLimits(t *testing.T) {
 
 	// Sixty-one requests: one page and the thumbnails an album of sixty would ask for.
 	for i := 0; i < 61; i++ {
-		resp, _ := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+		resp, _ := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 		if resp.StatusCode == http.StatusTooManyRequests {
 			t.Fatalf("request %d of a single page load was throttled", i+1)
 		}
@@ -174,10 +174,10 @@ func TestAThrottledPublicRequestExplainsItselfInDanish(t *testing.T) {
 	app, srv := mapApp(t)
 	app.publicGlimtReadLimiter = limiterOrNil(1, time.Hour)
 
-	if resp, _ := getPublic(t, srv.URL+"/offentligt", nil); resp.StatusCode != http.StatusOK {
+	if resp, _ := getPublic(t, srv.URL+"/2026", nil); resp.StatusCode != http.StatusOK {
 		t.Fatalf("the first request should pass, got %d", resp.StatusCode)
 	}
-	resp, body := getPublic(t, srv.URL+"/offentligt", nil)
+	resp, body := getPublic(t, srv.URL+"/2026", nil)
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want 429 past the limit", resp.StatusCode)
 	}
@@ -205,7 +205,7 @@ func TestMediaAndPagesDoNotShareABudget(t *testing.T) {
 	}
 
 	// And the page is still served, which is the whole point of the split.
-	page, _ := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	page, _ := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	if page.StatusCode != http.StatusOK {
 		t.Errorf("page status = %d; an exhausted media budget must not take the pages down",
 			page.StatusCode)

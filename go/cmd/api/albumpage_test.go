@@ -168,12 +168,12 @@ func TestFrontpageListsPublishedAlbums(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, body := getPublic(t, srv.URL+"/offentligt", nil)
+	_, body := getPublic(t, srv.URL+"/2026", nil)
 	page := string(body)
 
 	for _, want := range []string{
-		"Lørdag morgen", "Da solen kom", `href="/offentligt/album/loerdag-morgen"`,
-		"Natten", `href="/offentligt/album/natten"`,
+		"Lørdag morgen", "Da solen kom", `href="/2026/album/loerdag-morgen"`,
+		"Natten", `href="/2026/album/natten"`,
 		// The cover is the album's first item, addressed through the media route.
 		"/api/public/albums/al-1/media/0?variant=thumb",
 		"2 billeder",
@@ -195,7 +195,7 @@ func TestFrontpageHidesUnpublishedAlbums(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, body := getPublic(t, srv.URL+"/offentligt", nil)
+	_, body := getPublic(t, srv.URL+"/2026", nil)
 	page := string(body)
 
 	for _, forbidden := range []string{"Kladde", "kladde", "al-draft", "Hemmelig"} {
@@ -210,7 +210,7 @@ func TestAlbumPageRendersItsPhotographs(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	resp, body := getPublic(t, srv.URL+"/offentligt/album/loerdag-morgen", nil)
+	resp, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("want 200, got %d", resp.StatusCode)
 	}
@@ -236,7 +236,7 @@ func TestAlbumPageRendersEveryItemWithoutACarousel(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, body := getPublic(t, srv.URL+"/offentligt/album/loerdag-morgen", nil)
+	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
 	page := string(body)
 
 	if got := strings.Count(page, "<img "); got != 2 {
@@ -256,7 +256,7 @@ func TestAlbumPageOmitsAnAbsentCaption(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, body := getPublic(t, srv.URL+"/offentligt/album/loerdag-morgen", nil)
+	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
 	page := string(body)
 
 	if got := strings.Count(page, "<figcaption>"); got != 1 {
@@ -275,7 +275,7 @@ func TestAlbumPageCarriesNoCoordinates(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	for _, path := range []string{"/offentligt", "/offentligt/album/loerdag-morgen"} {
+	for _, path := range []string{"/2026", "/2026/album/loerdag-morgen"} {
 		_, body := getPublic(t, srv.URL+path, nil)
 		page := string(body)
 		for _, forbidden := range []string{"55.7332", "12.2648", "latitude", "longitude",
@@ -296,7 +296,7 @@ func TestAlbumPageAnswers404IdenticallyForDraftsAndUnknowns(t *testing.T) {
 
 	var first string
 	for i, slug := range []string{"kladde", "natten", "findes-ikke"} {
-		resp, body := getPublic(t, srv.URL+"/offentligt/album/"+slug, nil)
+		resp, body := getPublic(t, srv.URL+"/2026/album/"+slug, nil)
 		if resp.StatusCode != http.StatusNotFound {
 			t.Fatalf("%s: want 404, got %d", slug, resp.StatusCode)
 		}
@@ -313,7 +313,7 @@ func TestAlbumPageIsNotIndexedAndShortCached(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	resp, _ := getPublic(t, srv.URL+"/offentligt/album/loerdag-morgen", nil)
+	resp, _ := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
 	if got := resp.Header.Get("X-Robots-Tag"); !strings.Contains(got, "noindex") {
 		t.Errorf("want noindex, got %q", got)
 	}
@@ -411,7 +411,7 @@ func TestAlbumPagesIgnoreTheSession(t *testing.T) {
 	defer srv.Close()
 	cookies := authedCookies(t, app, srv, "30000001", "+4530000001")
 
-	for _, path := range []string{"/offentligt/album/loerdag-morgen", "/offentligt/album/kladde"} {
+	for _, path := range []string{"/2026/album/loerdag-morgen", "/2026/album/kladde"} {
 		_, anonymous := getPublic(t, srv.URL+path, nil)
 		_, signedIn := getPublic(t, srv.URL+path, cookies)
 		if string(anonymous) != string(signedIn) {
@@ -427,7 +427,7 @@ func TestFrontpageSurvivesAFailingAlbumRead(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	resp, body := getPublic(t, srv.URL+"/offentligt", nil)
+	resp, body := getPublic(t, srv.URL+"/2026", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("want 200 with a degraded section, got %d", resp.StatusCode)
 	}
@@ -448,12 +448,12 @@ func TestAlbumPageIsUnavailableRatherThanMissingWithoutAProjection(t *testing.T)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	resp, _ := getPublic(t, srv.URL+"/offentligt/album/loerdag-morgen", nil)
+	resp, _ := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Errorf("want 503, got %d", resp.StatusCode)
 	}
 
-	resp, body := getPublic(t, srv.URL+"/offentligt", nil)
+	resp, body := getPublic(t, srv.URL+"/2026", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("the frontpage must still render, got %d", resp.StatusCode)
 	}
@@ -472,7 +472,7 @@ func TestFrontpageAlbumsFollowCuratorOrder(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, body := getPublic(t, srv.URL+"/offentligt", nil)
+	_, body := getPublic(t, srv.URL+"/2026", nil)
 	page := string(body)
 
 	first := strings.Index(page, "loerdag-morgen")

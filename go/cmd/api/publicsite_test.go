@@ -23,7 +23,7 @@ func TestPublicFrontpageRendersThreeSections(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	resp, body := getPublic(t, srv.URL+"/offentligt", nil)
+	resp, body := getPublic(t, srv.URL+"/2026", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("want 200, got %d", resp.StatusCode)
 	}
@@ -61,7 +61,7 @@ func TestPublicSitePagesCarryNoScript(t *testing.T) {
 	defer srv.Close()
 
 	// The frontpage and a closed patrol page: neither has anything to enhance.
-	for _, path := range []string{"/offentligt", "/offentligt/patrulje/42"} {
+	for _, path := range []string{"/2026", "/2026/patrulje/42"} {
 		_, body := getPublic(t, srv.URL+path, nil)
 		page := strings.ToLower(string(body))
 		for _, forbidden := range []string{"<script", "onclick=", "onload=", "javascript:"} {
@@ -78,7 +78,7 @@ func TestPublicFrontpageUsesRealHeadingsAndAForm(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, body := getPublic(t, srv.URL+"/offentligt", nil)
+	_, body := getPublic(t, srv.URL+"/2026", nil)
 	page := string(body)
 
 	for _, want := range []string{"<h1>", "<h2>", "<form method=\"get\"", "<label for=\"nummer\"", "<footer>"} {
@@ -93,7 +93,7 @@ func TestPublicSitePagesAreNotIndexed(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	for _, path := range []string{"/offentligt", "/offentligt/patrulje/42"} {
+	for _, path := range []string{"/2026", "/2026/patrulje/42"} {
 		resp, body := getPublic(t, srv.URL+path, nil)
 		if got := resp.Header.Get("X-Robots-Tag"); !strings.Contains(got, "noindex") {
 			t.Errorf("%s: want a noindex X-Robots-Tag, got %q", path, got)
@@ -115,7 +115,7 @@ func TestPublicSiteIgnoresTheSessionCookie(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	for _, path := range []string{"/offentligt", "/offentligt/patrulje/42"} {
+	for _, path := range []string{"/2026", "/2026/patrulje/42"} {
 		_, anonymous := getPublic(t, srv.URL+path, nil)
 		_, signedIn := getPublic(t, srv.URL+path, authedCookies(t, app, srv, "30000001", "+4530000001"))
 		if string(anonymous) != string(signedIn) {
@@ -131,7 +131,7 @@ func TestPatrolLookupRedirectsToThePathForm(t *testing.T) {
 	defer srv.Close()
 
 	client := noRedirectClient()
-	resp, err := client.Get(srv.URL + "/offentligt/patrulje?nummer=42")
+	resp, err := client.Get(srv.URL + "/2026/patrulje?nummer=42")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestPatrolLookupRedirectsToThePathForm(t *testing.T) {
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("want 303 so the browser re-requests with GET, got %d", resp.StatusCode)
 	}
-	if got := resp.Header.Get("Location"); got != "/offentligt/patrulje/42" {
+	if got := resp.Header.Get("Location"); got != "/2026/patrulje/42" {
 		t.Fatalf("want a redirect to the shareable path form, got %q", got)
 	}
 }
@@ -156,7 +156,7 @@ func TestPatrolLookupDoesNotRevealWhetherAPatrolExists(t *testing.T) {
 	client := noRedirectClient()
 	locations := map[string]string{}
 	for _, number := range []string{"42", "999999"} {
-		resp, err := client.Get(srv.URL + "/offentligt/patrulje?nummer=" + number)
+		resp, err := client.Get(srv.URL + "/2026/patrulje?nummer=" + number)
 		if err != nil {
 			t.Fatalf("GET %s: %v", number, err)
 		}
@@ -170,7 +170,7 @@ func TestPatrolLookupDoesNotRevealWhetherAPatrolExists(t *testing.T) {
 		t.Fatal("the two should differ only in the number itself")
 	}
 	for number, loc := range locations {
-		if loc != "/offentligt/patrulje/"+number {
+		if loc != "/2026/patrulje/"+number {
 			t.Errorf("%s: want a plain redirect, got %q", number, loc)
 		}
 	}
@@ -185,12 +185,12 @@ func TestPatrolLookupRejectsNonNumericWithoutAnErrorPage(t *testing.T) {
 	// Escaped, because some of these are not legal in a raw URL — and the point is what the *handler*
 	// does with the value, not what a malformed request line does.
 	for _, entry := range []string{"", "   ", "abc", "42a", "../../etc/passwd", "999999999"} {
-		resp, err := client.Get(srv.URL + "/offentligt/patrulje?nummer=" + url.QueryEscape(entry))
+		resp, err := client.Get(srv.URL + "/2026/patrulje?nummer=" + url.QueryEscape(entry))
 		if err != nil {
 			t.Fatalf("GET %q: %v", entry, err)
 		}
 		resp.Body.Close()
-		if got := resp.Header.Get("Location"); got != "/offentligt?fejl=nummer" {
+		if got := resp.Header.Get("Location"); got != "/2026?fejl=nummer" {
 			t.Errorf("%q: want a redirect back to the form, got %q", entry, got)
 		}
 	}
@@ -227,12 +227,12 @@ func TestFrontpageErrorFlagIsNotReflectedText(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, body := getPublic(t, srv.URL+"/offentligt?fejl=nummer", nil)
+	_, body := getPublic(t, srv.URL+"/2026?fejl=nummer", nil)
 	if !strings.Contains(string(body), "Skriv patruljens nummer med tal.") {
 		t.Error("the known flag should render its message")
 	}
 
-	_, body = getPublic(t, srv.URL+"/offentligt?fejl=%3Cb%3Ehallo%3C%2Fb%3E", nil)
+	_, body = getPublic(t, srv.URL+"/2026?fejl=%3Cb%3Ehallo%3C%2Fb%3E", nil)
 	page := string(body)
 	if strings.Contains(page, "hallo") {
 		t.Errorf("an unknown flag must render nothing at all, not its own text\n%s", page)
@@ -248,7 +248,7 @@ func TestPatrolPageAnswersNotYetIdenticallyForEveryNumber(t *testing.T) {
 
 	var first string
 	for i, number := range []string{"42", "43", "999999"} {
-		resp, body := getPublic(t, srv.URL+"/offentligt/patrulje/"+number, nil)
+		resp, body := getPublic(t, srv.URL+"/2026/patrulje/"+number, nil)
 		if resp.StatusCode != http.StatusOK {
 			// 200 rather than 404 on purpose: "404" in a browser reads as broken, and a parent who
 			// followed a link would go and ask a leader why. Equal friendly answers achieve the same
@@ -272,7 +272,7 @@ func TestNotYetPageCarriesNoPatrolData(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := string(body)
 
 	// The requested number itself is patrol data on a closed page: echoing it back is how "is 42 real?"
@@ -290,7 +290,7 @@ func TestFrontpageEmptyStatesReadAsNotYet(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, body := getPublic(t, srv.URL+"/offentligt", nil)
+	_, body := getPublic(t, srv.URL+"/2026", nil)
 	page := string(body)
 
 	for _, want := range []string{
@@ -311,7 +311,7 @@ func TestFrontpageSurvivesGlimtBeingUnavailable(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	resp, body := getPublic(t, srv.URL+"/offentligt", nil)
+	resp, body := getPublic(t, srv.URL+"/2026", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("want 200 with a degraded section, got %d", resp.StatusCode)
 	}
@@ -331,7 +331,7 @@ func TestFrontpageGlimtStripShowsOnlyPubliclyVisibleGlimt(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, body := getPublic(t, srv.URL+"/offentligt", nil)
+	_, body := getPublic(t, srv.URL+"/2026", nil)
 	page := string(body)
 
 	if !strings.Contains(page, "/api/public/glimt/g-public/media/0") {
@@ -351,7 +351,7 @@ func TestFrontpageGlimtStripUsesLazyThumbnails(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, body := getPublic(t, srv.URL+"/offentligt", nil)
+	_, body := getPublic(t, srv.URL+"/2026", nil)
 	page := string(body)
 
 	if !strings.Contains(page, "variant=thumb") {
@@ -366,17 +366,29 @@ func TestFrontpageGlimtStripUsesLazyThumbnails(t *testing.T) {
 }
 
 // The two public surfaces must link to each other rather than duplicate content (PRD 013).
-func TestFrontpageLinksToTheGlimtPageAndTheManual(t *testing.T) {
+// The frontpage links onward to the glimt page and to the site's own privacy page.
+//
+// **Not to `/privatliv` or `/desktop.html` any more** (task 351). Both were links *into the app*: a browser
+// visitor following either got the app shell, which sent them to a placeholder reading "more to come…" — and
+// once the desktop gate pointed at the public site, that became a loop. The site now has its own privacy page
+// and the placeholder link is gone until PRD 013's content exists here.
+func TestFrontpageLinksToTheGlimtPageAndTheSitesOwnPages(t *testing.T) {
 	app, _, _ := publicApp(t)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, body := getPublic(t, srv.URL+"/offentligt", nil)
+	_, body := getPublic(t, srv.URL+"/2026", nil)
 	page := string(body)
 
-	for _, want := range []string{`href="/offentligt/glimt"`, `href="/desktop.html"`, `href="/privatliv"`} {
+	for _, want := range []string{`href="/2026/glimt"`, `href="/2026/privatliv"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the frontpage should link to %s", want)
+		}
+	}
+	// And no link that leaves the public site for a page its audience cannot use.
+	for _, forbidden := range []string{`href="/privatliv"`, `href="/desktop.html"`} {
+		if strings.Contains(page, forbidden) {
+			t.Errorf("the frontpage links to %s, which boots the app for a browser visitor", forbidden)
 		}
 	}
 }
@@ -388,10 +400,130 @@ func TestEveryPublicSitePageCarriesTheTakedownLine(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	for _, path := range []string{"/offentligt", "/offentligt/patrulje/42"} {
+	for _, path := range []string{"/2026", "/2026/patrulje/42"} {
 		_, body := getPublic(t, srv.URL+path, nil)
 		if !strings.Contains(string(body), "så tager vi det ned") {
 			t.Errorf("%s is missing the takedown line", path)
 		}
+	}
+}
+
+// The move to the event-year prefix (PRD 021 §0, task 351).
+//
+// What matters here is not that `/2026` works — every other test in this file exercises that now — but the
+// three things that are easy to get wrong when a surface changes address: the old links, the paths *inside*
+// the pages, and what happens one directory off target.
+
+func TestTheFormerAddressRedirectsPermanently(t *testing.T) {
+	app, _, _ := publicApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	for from, want := range map[string]string{
+		"/offentligt":                       "/2026",
+		"/offentligt/glimt":                 "/2026/glimt",
+		"/offentligt/patrulje/42":           "/2026/patrulje/42",
+		"/offentligt/album/loerdag":         "/2026/album/loerdag",
+		"/offentligt/patrulje/42?anmeldt=1": "/2026/patrulje/42?anmeldt=1",
+	} {
+		resp, err := client.Get(srv.URL + from)
+		if err != nil {
+			t.Fatalf("GET %s: %v", from, err)
+		}
+		resp.Body.Close()
+
+		// **301, not 302.** The move is not provisional, and a permanent redirect is what lets a browser
+		// and a search engine stop asking.
+		if resp.StatusCode != http.StatusMovedPermanently {
+			t.Errorf("%s: status = %d, want 301", from, resp.StatusCode)
+		}
+		if got := resp.Header.Get("Location"); got != want {
+			t.Errorf("%s: Location = %q, want %q", from, got, want)
+		}
+	}
+}
+
+// **Every link inside the pages uses the current prefix.** A page that renders its own address wrongly is a
+// page that 301s on every click at best, and 404s at worst — which is why the templates build links from a
+// field rather than having the prefix typed into them.
+func TestThePagesLinkToThemselvesUnderTheYearPrefix(t *testing.T) {
+	app, _, _ := publicApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body := getPublic(t, srv.URL+"/2026", nil)
+	page := string(body)
+
+	for _, want := range []string{
+		`href="/2026"`,            // the wordmark
+		`action="/2026/patrulje"`, // the lookup form
+		`href="/2026/glimt"`,      // the glimt strip's link
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the frontpage is missing %s", want)
+		}
+	}
+	// And nothing still points at the old prefix, which would work only because of the redirect.
+	if strings.Contains(page, `href="/offentligt`) || strings.Contains(page, `action="/offentligt`) {
+		t.Error("the page still links to the former address")
+	}
+}
+
+// **A path under the prefix that is not a page gets the public site's 404, never the app shell.**
+//
+// The SPA fallback answers anything unmatched with index.html so a client-side route survives a reload. Under
+// the public prefix that would boot the app, which on a desktop sends the visitor straight back out to the
+// public site — a loop. This is the same class of bug task 332 shipped through the service worker's denylist.
+func TestAnUnknownPathUnderTheYearPrefixIsNotTheAppShell(t *testing.T) {
+	app, _, _ := publicApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	for _, path := range []string{
+		"/2026/patruljer",   // a typo
+		"/2026/album",       // a real prefix, no slug
+		"/2025/patrulje/42", // a year this deployment does not serve
+		"/1999",             // nonsense, year-shaped
+	} {
+		resp, body := getPublic(t, srv.URL+path, nil)
+		page := string(body)
+
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("%s: status = %d, want 404", path, resp.StatusCode)
+		}
+		if !strings.Contains(page, "Siden findes ikke") {
+			t.Errorf("%s: want the public not-found page, got:\n%.400s", path, page)
+		}
+		// The app shell's marker. Its absence is the property being tested.
+		if strings.Contains(page, `id="app"`) || strings.Contains(page, "/assets/index") {
+			t.Errorf("%s: served the app shell", path)
+		}
+		// A 404 must not be cached: a page that appears a minute later — an album published, a patrol
+		// finishing — would read as missing to whoever asked early.
+		if got := resp.Header.Get("Cache-Control"); strings.Contains(got, "public") {
+			t.Errorf("%s: Cache-Control = %q; a failure must not be cached", path, got)
+		}
+	}
+}
+
+// The not-found page offers a way back rather than leaving somebody at a dead end, and names the year it
+// actually serves — which is the likeliest thing they got wrong.
+func TestThePublicNotFoundPageOffersAWayBack(t *testing.T) {
+	app, _, _ := publicApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body := getPublic(t, srv.URL+"/2026/ingenting", nil)
+	page := string(body)
+
+	if !strings.Contains(page, `href="/2026"`) {
+		t.Error("the not-found page must link back to the frontpage")
+	}
+	if !strings.Contains(page, "Nathejk 2026") {
+		t.Error("the not-found page should name the year this deployment serves")
 	}
 }

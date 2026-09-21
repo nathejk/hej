@@ -367,7 +367,7 @@ func (app *application) allowPublicGlimtRead(w http.ResponseWriter, r *http.Requ
 // @Produce      html
 // @Success      200  {string}  string  "the page"
 // @Failure      429  {object}  map[string]string  "read rate limit, by IP"
-// @Router       /offentligt/glimt [get]
+// @Router       /{year}/glimt [get]
 func (app *application) publicGlimtPageHandler(w http.ResponseWriter, r *http.Request) {
 	if !app.allowPublicGlimtRead(w, r) {
 		return
@@ -384,6 +384,7 @@ func (app *application) publicGlimtPageHandler(w http.ResponseWriter, r *http.Re
 	data := publicGlimtPageData{
 		Year:        app.config.eventYear,
 		Unavailable: err != nil,
+		Root:        app.publicRoot(),
 	}
 	for _, g := range rows {
 		data.Glimt = append(data.Glimt, newPublicGlimtResponse(g))
@@ -404,6 +405,11 @@ type publicGlimtPageData struct {
 	Glimt         []publicGlimtResponse
 	Unavailable   bool
 	RetentionDays int
+
+	// Root is the public site's base path (`/2026`), for the same reason publicPageData carries one: the
+	// prefix moved once (task 351) and will move again when PRD 021 lands, and a path typed into a template
+	// is one nobody remembers to change.
+	Root string
 }
 
 // publicGlimtPageTemplate is the whole page: one file, no assets, no script.
@@ -486,7 +492,7 @@ var publicGlimtPageTemplate = template.Must(template.New("publicGlimt").Funcs(te
     Er der et billede, der ikke skal ligge her? Skriv til os, så tager vi det ned.
     {{if .RetentionDays}}Billederne bliver taget ned herfra efter {{.RetentionDays}} dage.{{end}}
   </p>
-  <p><a href="/privatliv">Data og privatliv</a></p>
+  <p><a href="{{.Root}}/privatliv">Data og privatliv</a></p>
 </footer>
 </body>
 </html>

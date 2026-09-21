@@ -65,7 +65,7 @@ func publicRoutePaths(t *testing.T) []registeredRoute {
 			return true
 		}
 		method := httpMethodName(call.Args[0])
-		path, ok := stringLit(call.Args[1])
+		path, ok := parseRegisteredPath(t, call.Args[1], fset)
 		if !ok || method == "" {
 			return true
 		}
@@ -91,9 +91,14 @@ func publicRoutePaths(t *testing.T) []registeredRoute {
 // isPublicSurface reports whether a path is served to the open web.
 //
 // Deliberately broader than "the routes task 332 added": it catches anything a later task registers
-// under either prefix, which is the whole reason this is a predicate rather than a list.
+// under any of these prefixes, which is the whole reason this is a predicate rather than a list.
+//
+// The **year prefix** is matched by shape (`/2026`, `/2027`), because that is how the public pages are
+// addressed since task 351 and because next year's rename must not quietly empty this guard.
 func isPublicSurface(path string) bool {
-	return strings.HasPrefix(path, "/offentligt") || strings.HasPrefix(path, "/api/public/")
+	return strings.HasPrefix(path, "/offentligt") ||
+		strings.HasPrefix(path, "/api/public/") ||
+		looksLikeYearPrefix(path)
 }
 
 // The personal values the fixtures carry. Distinctive enough that a substring match means a real leak
@@ -235,10 +240,16 @@ func TestPublicRouteEnumerationCoversTheKnownSurface(t *testing.T) {
 	}
 
 	for _, want := range []string{
+		// The public pages, under the event-year prefix (task 351). `guardYear` rather than a literal, so
+		// this list says "this year's prefix" rather than pinning a year the routes will outlive.
+		guardYear,
+		guardYear + "/glimt",
+		guardYear + "/album/:slug",
+		guardYear + "/patrulje/:number",
+		// The former address, kept as a permanent redirect and used by the app to mean "the public site".
+		// It is in the walk because a redirect writes a body, and a body on a public route is a body that
+		// could carry a name.
 		"/offentligt",
-		"/offentligt/glimt",
-		"/offentligt/album/:slug",
-		"/offentligt/patrulje/:number",
 		"/api/public/glimt",
 		"/api/public/albums/:albumId/media/:ordinal",
 	} {

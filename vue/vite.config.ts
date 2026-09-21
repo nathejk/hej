@@ -137,10 +137,18 @@ export default defineConfig({
         // answer — bytes, or a JSON 404 — never the shell.
         navigateFallbackDenylist: [
           /^\/desktop\.html$/,
-          // `/offentligt` itself as well as everything under it. The bare path was missing until
-          // task 332 added the frontpage: the prefix pattern below does not match a path with no
-          // trailing slash, so an installed member following a link to the frontpage would have been
-          // served the app shell instead of the page.
+          // The public site, which the app's fallback must never answer (PRD 011, task 332). It moved
+          // under the **event year** in task 351, so the pattern matches a four-digit first segment
+          // rather than a literal prefix: this bundle does not know which year the server serves, and
+          // next year's deployment must not need a frontend change to stay out of the way.
+          //
+          // The bare path as well as everything under it: the prefix-with-slash pattern does not match
+          // a path with no trailing slash, and that omission is exactly the bug task 332 shipped for
+          // `/offentligt` — an installed member following a link to the frontpage got the app shell.
+          /^\/\d{4}$/,
+          /^\/\d{4}\//,
+          // `/offentligt` stays because it is still served: a permanent 301 to the year prefix, and the
+          // path `gates.ts` uses to mean "the public site" without knowing the year.
           /^\/offentligt$/,
           /^\/offentligt\//,
           /^\/api\//,
@@ -330,6 +338,16 @@ export default defineConfig({
       // a dev browser — the island script and vendored Leaflet under
       // vue/public/ are still served by Vite itself, same as in prod where the
       // Go binary serves both from ./www.
+      //
+      // Two prefixes since task 351: the pages moved under the event year, and
+      // `/offentligt` remains as the permanent 301 that the app's desktop gate
+      // uses (it cannot know the year). The year is hardcoded here because a
+      // Vite proxy key cannot be a pattern — update it with the event, or use
+      // `/offentligt` in dev and let the redirect do the work.
+      '/2026': {
+        target: 'http://api:4000',
+        changeOrigin: true,
+      },
       '/offentligt': {
         target: 'http://api:4000',
         changeOrigin: true,

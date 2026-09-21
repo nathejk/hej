@@ -344,9 +344,11 @@ service-worker handover and a new process boundary at the same time.
 
 *Phase −0 — the interim move (§0), independent of everything below*
 
-- [ ] Task: serve the public pages under the event-year prefix (`/2026`) instead of `/offentligt`, with
+- [x] **351** — serve the public pages under the event-year prefix (`/2026`) instead of `/offentligt`, with
       permanent redirects, a year validated against the configured event year, a public not-found page for
-      unknown paths under the prefix, and the service-worker denylist updated
+      unknown paths under the prefix, and the service-worker denylist updated. **Done 2026-09-21**, and it
+      also moved the app's desktop gate off `/desktop.html` and gave the public site its own privacy page —
+      see that task's log for the two link-loops it found on the way.
 
 *Phase 0 — answer the question that gates the rest*
 
@@ -389,6 +391,11 @@ service-worker handover and a new process boundary at the same time.
 3. **Which privacy page is the source?** The public site needs one that a parent can read without an account;
    the app has one that explains member-specific behaviour (glimt audiences, task 321). One document with two
    renderings, or two documents with a shared section? PRD 013's "content has one source" goal applies.
+
+   **Both now exist** (task 351): `/2026/privatliv` is server-rendered with the public-surface wording lifted
+   from `PrivacyView.vue`. That was forced rather than chosen — the footer's link into the app became a loop
+   the moment the desktop gate pointed at the public site — so the question is now about *keeping them in
+   step*, not about whether to build the second one. Until it is answered, prefer changing both.
 4. **Does `/api/public/*` keep its path?** Keeping it means a Traefik priority rule separating it from
    `/api/*`. Moving it (say to `/data/*`) makes the routing trivially prefix-based and breaks the island's
    URLs, which are in a checked-in asset. Recommendation: keep the path, accept the routing rule.

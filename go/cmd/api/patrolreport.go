@@ -68,7 +68,7 @@ const maxPatrolReportReason = 2000
 // @Success      303  "redirect back to the page"
 // @Failure      429  {object}  map[string]string  "report rate limit, by IP"
 // @Failure      503  {object}  map[string]string  "event stream unavailable — retry"
-// @Router       /offentligt/patrulje/{number}/anmeld [post]
+// @Router       /{year}/patrulje/{number}/anmeld [post]
 func (app *application) reportPatrolPageHandler(w http.ResponseWriter, r *http.Request) {
 	// By IP, generously, and for the reason PRD 019 recorded: the cost of a spurious report is a
 	// moderator's glance, while the cost of a throttled one is a page somebody objected to staying up.
@@ -131,5 +131,5 @@ func (app *application) reportPatrolPageHandler(w http.ResponseWriter, r *http.R
 	// **303 back to the page**, which is the POST-redirect-GET every form should do: a reload must not
 	// re-file the report, and the acknowledgement belongs on the page the visitor was reading rather than
 	// on a bare confirmation screen they then have to navigate away from.
-	http.Redirect(w, r, "/offentligt/patrulje/"+patrol.Number+"?anmeldt=1", http.StatusSeeOther)
+	http.Redirect(w, r, app.publicRoot()+"/patrulje/"+patrol.Number+"?anmeldt=1", http.StatusSeeOther)
 }

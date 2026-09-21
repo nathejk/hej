@@ -110,7 +110,7 @@ func patrolPageApp(t *testing.T) (*application, *patrolStore, *httptest.Server) 
 func TestPatrolPageRendersTheHeader(t *testing.T) {
 	_, _, srv := patrolPageApp(t)
 
-	resp, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	resp, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("want 200, got %d", resp.StatusCode)
 	}
@@ -144,7 +144,7 @@ func TestPatrolPageOmitsAnUnspecifiedKorpsAndGroup(t *testing.T) {
 		gateClosing{},
 	)
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/44", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/44", nil)
 	page := string(body)
 
 	if !strings.Contains(page, "Bjørnene") {
@@ -162,7 +162,7 @@ func TestPatrolPageOmitsAnUnspecifiedKorpsAndGroup(t *testing.T) {
 func TestPatrolPageShowsTheFinishTimeAndTheDiplomaSlot(t *testing.T) {
 	_, _, srv := patrolPageApp(t)
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := string(body)
 
 	if !strings.Contains(page, "I mål") {
@@ -193,7 +193,7 @@ func TestABackstopOpenedPageHasNoDiplomaSlot(t *testing.T) {
 		gateClosing{uts: time.Now().Add(-time.Hour).Unix(), ok: true},
 	)
 
-	resp, body := getPublic(t, srv.URL+"/offentligt/patrulje/43", nil)
+	resp, body := getPublic(t, srv.URL+"/2026/patrulje/43", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("the backstop should have opened the page, got %d", resp.StatusCode)
 	}
@@ -223,7 +223,7 @@ func TestAPatrolThatHasNotFinishedIsIndistinguishableFromAnUnknownOne(t *testing
 
 	var first string
 	for i, number := range []string{"43", "999999"} {
-		resp, body := getPublic(t, srv.URL+"/offentligt/patrulje/"+number, nil)
+		resp, body := getPublic(t, srv.URL+"/2026/patrulje/"+number, nil)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("%s: want 200 with the not-yet page, got %d", number, resp.StatusCode)
 		}
@@ -247,7 +247,7 @@ func TestAPatrolThatHasNotFinishedIsIndistinguishableFromAnUnknownOne(t *testing
 func TestAClosedPageLeaksNothingAboutARealPatrol(t *testing.T) {
 	_, _, srv := patrolPageApp(t)
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/43", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/43", nil)
 	page := string(body)
 
 	for _, forbidden := range []string{"Ulvene", "2. Gruppe", "KFUM", "43", "team-43"} {
@@ -262,7 +262,7 @@ func TestAClosedPageLeaksNothingAboutARealPatrol(t *testing.T) {
 func TestPatrolPageListsRegistrationsInRaceOrder(t *testing.T) {
 	_, _, srv := patrolPageApp(t)
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := string(body)
 
 	first := strings.Index(page, "Post 4A")
@@ -287,7 +287,7 @@ func TestAnUnattributedScanIsStillListed(t *testing.T) {
 		},
 	}}
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := string(body)
 
 	if !strings.Contains(page, "En post") {
@@ -308,7 +308,7 @@ func TestAnUnattributedScanIsStillListed(t *testing.T) {
 func TestUnplottableRegistrationsAreListedAndExplained(t *testing.T) {
 	_, _, srv := patrolPageApp(t)
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := string(body)
 
 	if !strings.Contains(page, "ikke på kortet") {
@@ -322,7 +322,7 @@ func TestUnplottableRegistrationsAreListedAndExplained(t *testing.T) {
 func TestPatrolPageShowsTheDistance(t *testing.T) {
 	_, _, srv := patrolPageApp(t)
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := string(body)
 
 	// Two positioned scans ~5.5 km apart over ten hours: a walk, and a figure.
@@ -346,7 +346,7 @@ func TestPatrolPageSaysWhatTheTrackCovers(t *testing.T) {
 		&trackPoints{byPerson: map[string][]trackpoint.Point{"p1": walk(12.200, 10)}},
 	)
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := string(body)
 
 	if !strings.Contains(page, "hvor en telefon havde appen åben") {
@@ -366,7 +366,7 @@ func TestAnAbsentTrackIsExplainedRatherThanShownEmpty(t *testing.T) {
 		&trackPoints{},
 	)
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := string(body)
 
 	if !strings.Contains(page, "ingen rute at vise") {
@@ -388,7 +388,7 @@ func TestAnAbsentTrackIsExplainedRatherThanShownEmpty(t *testing.T) {
 func TestPatrolPageNeedsNoScript(t *testing.T) {
 	_, _, srv := patrolPageApp(t)
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := strings.ToLower(string(body))
 
 	for _, forbidden := range []string{"<script", "onclick=", "onload="} {
@@ -413,7 +413,7 @@ func TestPatrolPageScriptIsOnlyTheMapIsland(t *testing.T) {
 		&trackPoints{byPerson: map[string][]trackpoint.Point{"p1": walk(12.200, 10)}},
 	)
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := string(body)
 
 	for _, want := range []string{
@@ -458,7 +458,7 @@ func TestTheMapDoesNotReplaceTheScanList(t *testing.T) {
 		&trackPoints{byPerson: map[string][]trackpoint.Point{"p1": walk(12.200, 10)}},
 	)
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := string(body)
 
 	for _, want := range []string{`<ol class="scans">`, "Post 4A", "hvor en telefon havde appen åben"} {
@@ -482,7 +482,7 @@ func TestTheGateIsAskedAboutTheTeamIDNotTheNumber(t *testing.T) {
 		gateClosing{},
 	)
 
-	getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 
 	if !asked["team-42"] {
 		t.Errorf("the gate should have been asked about the team id, was asked about %v", asked)
@@ -498,7 +498,7 @@ func TestAFailingPatrolReadAnswersNotYet(t *testing.T) {
 	_, store, srv := patrolPageApp(t)
 	store.err = errPatrolReadFailed
 
-	resp, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	resp, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("want 200 with the not-yet page, got %d", resp.StatusCode)
 	}
@@ -513,7 +513,7 @@ func TestNoPatrolProjectionClosesEveryPage(t *testing.T) {
 	app, _, srv := patrolPageApp(t)
 	app.models.PublicPatrols = nil
 
-	resp, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	resp, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("want 200 with the not-yet page, got %d", resp.StatusCode)
 	}
@@ -527,7 +527,7 @@ func TestNoPatrolProjectionClosesEveryPage(t *testing.T) {
 func TestPatrolPageNormalisesTheNumber(t *testing.T) {
 	_, store, srv := patrolPageApp(t)
 
-	resp, _ := getPublic(t, srv.URL+"/offentligt/patrulje/042", nil)
+	resp, _ := getPublic(t, srv.URL+"/2026/patrulje/042", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("want 200, got %d", resp.StatusCode)
 	}
@@ -544,8 +544,8 @@ func TestPatrolPageIgnoresTheSession(t *testing.T) {
 	cookies := authedCookies(t, app, srv, "30000001", "+4530000001")
 
 	for _, number := range []string{"42", "43"} {
-		_, anonymous := getPublic(t, srv.URL+"/offentligt/patrulje/"+number, nil)
-		_, signedIn := getPublic(t, srv.URL+"/offentligt/patrulje/"+number, cookies)
+		_, anonymous := getPublic(t, srv.URL+"/2026/patrulje/"+number, nil)
+		_, signedIn := getPublic(t, srv.URL+"/2026/patrulje/"+number, cookies)
 		if string(anonymous) != string(signedIn) {
 			t.Errorf("patrol %s differs for a signed-in member", number)
 		}
@@ -603,7 +603,7 @@ func backstopOpenedApp(t *testing.T) (*application, *httptest.Server) {
 func TestABackstopOpenedPageIsComplete(t *testing.T) {
 	_, srv := backstopOpenedApp(t)
 
-	resp, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	resp, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -633,7 +633,7 @@ func TestABackstopOpenedPageIsComplete(t *testing.T) {
 func TestABackstopOpenedPageSaysNothingAboutNotFinishing(t *testing.T) {
 	_, srv := backstopOpenedApp(t)
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := strings.ToLower(string(body))
 
 	for _, forbidden := range []string{
@@ -656,7 +656,7 @@ func TestABackstopOpenedPageSaysNothingAboutNotFinishing(t *testing.T) {
 func TestTheCopyNamesBothWaysAPageOpens(t *testing.T) {
 	_, _, srv := patrolPageApp(t)
 
-	for _, path := range []string{"/offentligt", "/offentligt/patrulje/43"} {
+	for _, path := range []string{"/2026", "/2026/patrulje/43"} {
 		_, body := getPublic(t, srv.URL+path, nil)
 		page := string(body)
 

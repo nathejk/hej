@@ -157,23 +157,46 @@ func (app *application) routes() http.Handler {
 	// rather than left to the SPA fallback, which would serve index.html — and note that the
 	// service worker needs a `navigateFallbackDenylist` entry for the same reason, or an installed
 	// member following a public link gets the app shell instead (see vite.config.ts).
-	router.HandlerFunc(http.MethodGet, "/offentligt/glimt", app.publicGlimtPageHandler)
-	// The public site (PRD 011, task 332). Same properties as the glimt page above and for the same
-	// reasons — registered bare so no session can be read, server-rendered so no bundle is needed, and
-	// outside the SPA fallback so a hard load does not get index.html.
+	// The public site (PRD 011, task 332), now under the **event-year prefix** (PRD 021 §0, task 351):
+	// `/2026`, `/2026/patrulje/42`. Same properties as before — registered bare so no session can be read,
+	// server-rendered so no bundle is needed, and outside the SPA fallback so a hard load does not get
+	// index.html.
 	//
-	// Note the ordering constraint httprouter imposes: `/offentligt/patrulje` (the form's target) and
-	// `/offentligt/patrulje/:number` (the page) are different routes, not one with an optional segment,
-	// which is why the lookup is its own handler rather than the page treating an empty number as "show
-	// the form".
-	router.HandlerFunc(http.MethodGet, "/offentligt", app.publicFrontpageHandler)
-	router.HandlerFunc(http.MethodGet, "/offentligt/album/:slug", app.albumPageHandler)
-	router.HandlerFunc(http.MethodGet, "/offentligt/patrulje", app.patrolSearchLookupHandler)
-	router.HandlerFunc(http.MethodGet, "/offentligt/patrulje/:number", app.publicPatrolPageHandler)
+	// # Why the paths are built as strings instead of using a `:year` parameter
+	//
+	// httprouter refuses to have a wildcard segment as a sibling of static ones — `/:year` next to `/api`,
+	// `/offentligt` and `/privatliv` **panics** at registration rather than resolving by precedence. So the
+	// prefix is interpolated from the configured event year, which also means this deployment serves exactly
+	// one year: a request for another year's prefix falls through to `renderPublicNotFound` rather than being
+	// answered from this year's data (see spaHandler).
+	//
+	// Note the ordering constraint httprouter imposes: `…/patrulje` (the form's target) and
+	// `…/patrulje/:number` (the page) are different routes, not one with an optional segment, which is why
+	// the lookup is its own handler rather than the page treating an empty number as "show the form".
+	publicRoot := app.publicRoot()
+	router.HandlerFunc(http.MethodGet, publicRoot, app.publicFrontpageHandler)
+	router.HandlerFunc(http.MethodGet, publicRoot+"/glimt", app.publicGlimtPageHandler)
+	// The public site's own privacy page (task 351). Its own rather than a link to the app's `/privatliv`
+	// route, which a browser visitor cannot reach — that link was a dead end before the desktop gate pointed
+	// here and a loop afterwards.
+	router.HandlerFunc(http.MethodGet, publicRoot+"/privatliv", app.publicPrivacyPageHandler)
+	router.HandlerFunc(http.MethodGet, publicRoot+"/album/:slug", app.albumPageHandler)
+	router.HandlerFunc(http.MethodGet, publicRoot+"/patrulje", app.patrolSearchLookupHandler)
+	router.HandlerFunc(http.MethodGet, publicRoot+"/patrulje/:number", app.publicPatrolPageHandler)
 	// The takedown route (task 343). A **form POST**, not a JSON endpoint, because it has to work with
 	// JavaScript disabled — and registered bare like every other public route, so no session can be read
 	// even though this one writes. It reports; it hides nothing (see patrolreport.go).
-	router.HandlerFunc(http.MethodPost, "/offentligt/patrulje/:number/anmeld", app.reportPatrolPageHandler)
+	router.HandlerFunc(http.MethodPost, publicRoot+"/patrulje/:number/anmeld", app.reportPatrolPageHandler)
+
+	// **The old addresses, kept permanently.** `/offentligt*` was the public site until 2026-09-21 and those
+	// URLs went round family group chats; a link in somebody's message thread is not something to break
+	// because we tidied a path. 301 rather than 302, because the move is not provisional.
+	//
+	// It is also the app's stable way of saying "the public site" — the SPA cannot know the event year, so
+	// `gates.ts` sends a desktop visitor here and the server resolves it. That is the reason this is an alias
+	// rather than only a legacy redirect, and the reason it survives the move to the root.
+	router.HandlerFunc(http.MethodGet, "/offentligt", app.legacyPublicRedirectHandler)
+	router.HandlerFunc(http.MethodGet, "/offentligt/*rest", app.legacyPublicRedirectHandler)
 	// Album media (task 334). Under /api/public/ with the glimt media route rather than under
 	// /offentligt/, because it serves bytes rather than a page — and it shares `streamGlimtMedia`, so
 	// the ETag handling and the missing-object degradation cannot diverge between the two.
@@ -242,13 +265,48 @@ func (app *application) routes() http.Handler {
 	return router
 }
 
+// legacyPublicRedirectHandler sends an old `/offentligt*` address to the same page under the year prefix.
+//
+// @Summary      The public site's former address
+// @Description  Permanent redirect from `/offentligt...` to the same page under the event-year prefix, e.g. `/offentligt/patrulje/42` to `/2026/patrulje/42` (PRD 021 §0, task 351). Kept indefinitely because those links were shared in messages and printed in copy, and it doubles as the app's stable way of reaching the public site without knowing the event year.
+// @Tags         public-site
+// @Produce      html
+// @Success      301  {string}  string  "the page's current address"
+// @Router       /offentligt [get]
+// @Router       /offentligt/{rest} [get]
+func (app *application) legacyPublicRedirectHandler(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/offentligt")
+	target := app.publicRoot() + rest
+	if r.URL.RawQuery != "" {
+		// The query survives the move: `?anmeldt=1` is how the takedown form acknowledges itself, and
+		// `?fejl=nummer` how the lookup reports a mistyped number. Dropping it would turn a redirect into a
+		// silent loss of the only state these pages carry.
+		target += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, target, http.StatusMovedPermanently)
+}
+
 // spaHandler serves the built single-page app from the configured web root. In
 // production this directory holds the compiled Vue bundle; in dev it's a
 // placeholder (the Vite dev server serves the real SPA and proxies /api here).
+//
+// # A path under a year prefix never reaches the app
+//
+// The fallback answers anything unmatched with `index.html`, so that a client-side route survives a reload.
+// That is right for the app's own paths and wrong for the public site's: a typo under this year's prefix, or a
+// link to a year this deployment does not serve, would boot the app — which on a desktop immediately sends the
+// visitor back out to the public site, i.e. a loop. So a year-shaped prefix gets the public site's own 404.
+//
+// This is the same failure task 332 shipped through the service worker's denylist, one directory along, which
+// is why it is handled here rather than trusted to route registration.
 func (app *application) spaHandler() http.Handler {
 	root := app.config.webRoot
 	fileServer := http.FileServer(http.Dir(root))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if looksLikeYearPrefix(r.URL.Path) {
+			app.renderPublicNotFound(w)
+			return
+		}
 		requested := filepath.Join(root, filepath.Clean(r.URL.Path))
 		if info, err := os.Stat(requested); err == nil && !info.IsDir() {
 			fileServer.ServeHTTP(w, r)
@@ -256,4 +314,27 @@ func (app *application) spaHandler() http.Handler {
 		}
 		http.ServeFile(w, r, filepath.Join(root, "index.html"))
 	})
+}
+
+// looksLikeYearPrefix reports whether a path's first segment is a four-digit year.
+//
+// Shape rather than value: `/2025/patrulje/42` and `/2026/patruljer` both belong to the public site — one is a
+// year we do not serve, the other a typo — and both are better answered by a page that says so than by the app
+// shell. Matching the *shape* also means next year's deployment needs no change here.
+//
+// Bounded to exactly four digits, so an app route that happens to start with a number is unaffected.
+func looksLikeYearPrefix(path string) bool {
+	trimmed := strings.TrimPrefix(path, "/")
+	if i := strings.IndexByte(trimmed, '/'); i >= 0 {
+		trimmed = trimmed[:i]
+	}
+	if len(trimmed) != 4 {
+		return false
+	}
+	for _, c := range trimmed {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }

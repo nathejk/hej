@@ -60,7 +60,7 @@ func TestABackstopOpenedPatrolHasNoDiploma(t *testing.T) {
 	)
 
 	// The page is open …
-	if resp, _ := getPublic(t, srv.URL+"/offentligt/patrulje/43", nil); resp.StatusCode != http.StatusOK {
+	if resp, _ := getPublic(t, srv.URL+"/2026/patrulje/43", nil); resp.StatusCode != http.StatusOK {
 		t.Fatalf("the page should be open, got %d", resp.StatusCode)
 	}
 	// … and there is no diploma behind it, on either route.
@@ -134,7 +134,7 @@ func TestTheDiplomaThumbnailIsAnImageRenderedOnce(t *testing.T) {
 func TestThePatrolPageLinksTheDiploma(t *testing.T) {
 	_, _, srv := patrolPageApp(t)
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := string(body)
 
 	for _, want := range []string{

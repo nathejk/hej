@@ -68,7 +68,7 @@ type publicAlbumItem struct {
 // @Failure      404  {object}  map[string]string  "unknown, unpublished or deleted"
 // @Failure      429  {object}  map[string]string  "read rate limit, by IP"
 // @Failure      503  {object}  map[string]string  "albums are unavailable"
-// @Router       /offentligt/album/{slug} [get]
+// @Router       /{year}/album/{slug} [get]
 func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request) {
 	if !app.allowPublicSiteRead(w, r) {
 		return
@@ -95,7 +95,7 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	data := publicAlbumPageData{
-		publicPageData: publicPageData{Year: app.config.eventYear, Title: a.Title},
+		publicPageData: publicPageData{Year: app.config.eventYear, Title: a.Title, Root: app.publicRoot()},
 		Album:          a,
 	}
 	for _, it := range items {

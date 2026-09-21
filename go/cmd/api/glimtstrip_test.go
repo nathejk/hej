@@ -25,7 +25,7 @@ func TestFrontpageStripAppliesThePublicRetentionCutoff(t *testing.T) {
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
-	getPublic(t, srv.URL+"/offentligt", nil)
+	getPublic(t, srv.URL+"/2026", nil)
 
 	if len(store.publicCutoffs) == 0 {
 		t.Fatal("the frontpage did not read the public feed at all")
@@ -44,7 +44,7 @@ func TestFrontpageStripHasNoCutoffWhenRetentionIsOff(t *testing.T) {
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
-	getPublic(t, srv.URL+"/offentligt", nil)
+	getPublic(t, srv.URL+"/2026", nil)
 
 	if len(store.publicCutoffs) == 0 {
 		t.Fatal("the frontpage did not read the public feed at all")
@@ -76,7 +76,7 @@ func TestExpiredGlimtIsAbsentFromBothPublicSurfaces(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	for _, path := range []string{"/offentligt", "/offentligt/glimt"} {
+	for _, path := range []string{"/2026", "/2026/glimt"} {
 		_, body := getPublic(t, srv.URL+path, nil)
 		page := string(body)
 		if !strings.Contains(page, "g-fresh") {
@@ -95,7 +95,7 @@ func TestHiddenGlimtIsAbsentFromBothPublicSurfaces(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	for _, path := range []string{"/offentligt", "/offentligt/glimt"} {
+	for _, path := range []string{"/2026", "/2026/glimt"} {
 		_, body := getPublic(t, srv.URL+path, nil)
 		if strings.Contains(string(body), "g-public-hidden") {
 			t.Errorf("%s: a hidden glimt must not be shown", path)
@@ -122,13 +122,13 @@ func TestFrontpageStripIsBoundedAndLinksToTheFullPage(t *testing.T) {
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
-	_, body := getPublic(t, srv.URL+"/offentligt", nil)
+	_, body := getPublic(t, srv.URL+"/2026", nil)
 	page := string(body)
 
 	if got := strings.Count(page, "variant=thumb"); got > publicFrontpageGlimtLimit {
 		t.Errorf("the strip shows %d thumbnails, more than its %d limit", got, publicFrontpageGlimtLimit)
 	}
-	if !strings.Contains(page, `href="/offentligt/glimt"`) {
+	if !strings.Contains(page, `href="/2026/glimt"`) {
 		t.Error("the strip must link to the full page")
 	}
 	if !strings.Contains(page, "Se alle glimt") {
@@ -144,7 +144,7 @@ func TestFrontpageStripAttributesTheHoldAndNeverAPerson(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, body := getPublic(t, srv.URL+"/offentligt", nil)
+	_, body := getPublic(t, srv.URL+"/2026", nil)
 	page := string(body)
 
 	if !strings.Contains(page, "Glimt fra Patrulje 42") {
@@ -166,7 +166,7 @@ func TestPublicGlimtCarryNoPositionAnywhere(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	for _, path := range []string{"/offentligt", "/offentligt/glimt", "/api/public/glimt"} {
+	for _, path := range []string{"/2026", "/2026/glimt", "/api/public/glimt"} {
 		_, body := getPublic(t, srv.URL+path, nil)
 		page := strings.ToLower(string(body))
 		for _, forbidden := range []string{"latitude", "longitude", `"lat"`, `"lng"`, "coordinate"} {
@@ -201,7 +201,7 @@ func TestFrontpageStripEmptyStateMatchesTheGlimtPage(t *testing.T) {
 	defer srv.Close()
 
 	const wording = "Der er ikke delt nogen offentlige billeder endnu."
-	for _, path := range []string{"/offentligt", "/offentligt/glimt"} {
+	for _, path := range []string{"/2026", "/2026/glimt"} {
 		_, body := getPublic(t, srv.URL+path, nil)
 		if !strings.Contains(string(body), wording) {
 			t.Errorf("%s: want the shared wording %q", path, wording)
@@ -215,7 +215,7 @@ func TestFrontpageStripNeedsNoScript(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	resp, body := getPublic(t, srv.URL+"/offentligt", nil)
+	resp, body := getPublic(t, srv.URL+"/2026", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("want 200, got %d", resp.StatusCode)
 	}

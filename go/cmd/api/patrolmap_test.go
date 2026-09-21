@@ -296,7 +296,7 @@ func TestTheTrackRaisesTheDistanceEstimate(t *testing.T) {
 		&trackPeople{members: map[string][]string{"team-42": {"p1"}}},
 		&trackPoints{},
 	)
-	_, floorBody := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, floorBody := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 
 	// With a track that wanders well east and back between them.
 	//
@@ -319,7 +319,7 @@ func TestTheTrackRaisesTheDistanceEstimate(t *testing.T) {
 		&trackPeople{members: map[string][]string{"team-42": {"p1"}}},
 		&trackPoints{byPerson: map[string][]trackpoint.Point{"p1": wandering}},
 	)
-	_, raisedBody := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, raisedBody := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 
 	floor := distanceKmFromPage(t, string(floorBody))
 	raised := distanceKmFromPage(t, string(raisedBody))
@@ -384,7 +384,7 @@ func TestIslandAssetsAreVendored(t *testing.T) {
 	app, srv := mapApp(t)
 	_ = app
 
-	_, body := getPublic(t, srv.URL+"/offentligt/patrulje/42", nil)
+	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 
 	refs := assetRefs(string(body))
 	if len(refs) == 0 {
@@ -417,7 +417,7 @@ func assetRefs(page string) []string {
 			ref := rest[:j]
 			rest = rest[j:]
 			// Only static files under the SPA's public root: /api/... is served by this binary and
-			// /offentligt/... is a page, neither of which is a file on disk.
+			// /2026/... is a page, neither of which is a file on disk.
 			if strings.HasPrefix(ref, "/vendor/") || ref == "/publicmap.js" {
 				out = append(out, ref)
 			}

@@ -8,7 +8,22 @@ import (
 	"time"
 )
 
-// The public site: `/offentligt` and the pages under it (PRD 011 §7, task 332).
+// The public site: the pages under the event-year prefix (PRD 011 §7, task 332; moved by task 351).
+//
+// # The addresses, and why they moved
+//
+// These pages lived at `/offentligt` until 2026-09-21, when the maintainer moved them under the **event year**
+// — `/2026`, `/2026/patrulje/42` — as the interim step of PRD 021 (§0). Two reasons worth keeping:
+//
+//   - The eventual shape is the public site at the **root** of the domain with the app under `/app`. That is a
+//     service-worker migration this repo is not doing until a quiet month, and moving to a year prefix carries
+//     none of that risk.
+//   - A year prefix is not a detour on the way there. These pages are the record of **one event**: an album or
+//     a patrol page only means something with a year attached, so `/2026/patrulje/42` is where this is going
+//     anyway.
+//
+// `/offentligt*` remains as a **permanent 301** to the new addresses, because those URLs went round family
+// group chats. It is also the app's stable way of saying "the public site" — see gates.ts.
 //
 // # What this is
 //
@@ -53,6 +68,18 @@ type publicPageData struct {
 	Year string
 	// Title is the page's own title, shown after the site name.
 	Title string
+
+	// Root is the site's own base path — `/2026` (PRD 021 §0, task 351).
+	//
+	// # Why every link is built from a field instead of being written out
+	//
+	// Because the base path changes: it was `/offentligt`, it is the event year now, and PRD 021 will move it
+	// to `/` when there is a quiet month to do it in. A template with the prefix typed into it is a template
+	// somebody has to remember to edit — and the failure mode is a link that 301s (fine) or 404s (not) long
+	// after the person who typed it has moved on.
+	//
+	// It carries **no trailing slash**, so `{{.Root}}/patrulje/42` reads naturally everywhere.
+	Root string
 }
 
 // publicFrontpageData is the frontpage.
@@ -91,7 +118,17 @@ type publicAlbumSummary struct {
 	Count        int
 }
 
-// publicFrontpageHandler renders `/offentligt`.
+// publicRoot is the base path every public page hangs off: `/2026`.
+//
+// Built from the configured event year rather than written down, so next year's deployment needs no code
+// change and cannot serve last year's data under this year's address. No trailing slash.
+//
+// **httprouter cannot express this as a `:year` parameter**, which is why the routes are built as strings at
+// registration time: a wildcard segment at the root would conflict with `/api`, `/offentligt` and the rest,
+// and httprouter panics on that rather than resolving it. See routes.go.
+func (app *application) publicRoot() string { return "/" + app.config.eventYear }
+
+// publicFrontpageHandler renders the public frontpage.
 //
 // @Summary      The public frontpage (HTML)
 // @Description  The event's public front door: curated photo albums, a lookup for a patrol's own page, and the most recent publicly shared glimt. Server-rendered, no bundle, and complete with JavaScript disabled — the page exists so somebody on an old browser or a desktop can see what the weekend looked like. **Unauthenticated, and it ignores the session cookie entirely**, so a signed-in member sees exactly what a parent sees. Not indexed (robots noindex).
@@ -99,14 +136,14 @@ type publicAlbumSummary struct {
 // @Produce      html
 // @Success      200  {string}  string  "the page"
 // @Failure      429  {object}  map[string]string  "read rate limit, by IP"
-// @Router       /offentligt [get]
+// @Router       /{year} [get]
 func (app *application) publicFrontpageHandler(w http.ResponseWriter, r *http.Request) {
 	if !app.allowPublicSiteRead(w, r) {
 		return
 	}
 
 	data := publicFrontpageData{
-		publicPageData: publicPageData{Year: app.config.eventYear},
+		publicPageData: publicPageData{Year: app.config.eventYear, Root: app.publicRoot()},
 		Albums:         app.frontpageAlbums(),
 		SearchError:    patrolSearchError(r.URL.Query().Get("fejl")),
 	}
@@ -159,7 +196,7 @@ const publicFrontpageGlimtLimit = 9
 // @Param        nummer  query     string  true  "patrol number"
 // @Success      303  {string}  string  "redirect to the patrol's page"
 // @Failure      429  {object}  map[string]string  "read rate limit, by IP"
-// @Router       /offentligt/patrulje [get]
+// @Router       /{year}/patrulje [get]
 func (app *application) patrolSearchLookupHandler(w http.ResponseWriter, r *http.Request) {
 	if !app.allowPublicSiteRead(w, r) {
 		return
@@ -170,10 +207,10 @@ func (app *application) patrolSearchLookupHandler(w http.ResponseWriter, r *http
 		// Back to the frontpage with a flag rather than an error page: the visitor mistyped, and the
 		// form they need is on the page they came from. The flag names the *form's* problem, never the
 		// patrol's.
-		http.Redirect(w, r, "/offentligt?fejl=nummer", http.StatusSeeOther)
+		http.Redirect(w, r, app.publicRoot()+"?fejl=nummer", http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, "/offentligt/patrulje/"+number, http.StatusSeeOther)
+	http.Redirect(w, r, app.publicRoot()+"/patrulje/"+number, http.StatusSeeOther)
 }
 
 // normalizePatrolNumber trims and validates what someone typed into the lookup form.
@@ -237,7 +274,61 @@ func (app *application) renderPatrolNotYet(w http.ResponseWriter) {
 	app.renderPublicPage(w, "patrol-notyet", publicPageData{
 		Year:  app.config.eventYear,
 		Title: "Patruljens side",
+		Root:  app.publicRoot(),
 	})
+}
+
+// publicPrivacyPageHandler renders the public site's own privacy page.
+//
+// # Why the public site has its own rather than linking to the app's
+//
+// The footer used to link to `/privatliv`, which is a **Vue route inside the app** — so a parent on a laptop
+// who clicked "Data og privatliv" on a patrol page got the app shell, which bounced them to the desktop
+// placeholder. With task 351 pointing the desktop gate at the public site, that link became an outright loop:
+// public page → app → public page.
+//
+// The two pages answer different questions, which is why this is not duplication to be deleted later. The
+// app's page explains what the app does with a member's **own** data — their number, their portrait, their
+// guardian's number — to somebody logged in who can act on it. This one explains what the **public pages**
+// show, to somebody who is not a member and never will be. PRD 021 §11 Q3 asks which should be the source of
+// the shared parts; until that is settled the wording here is lifted rather than rewritten.
+//
+// @Summary      Data and privacy on the public pages (HTML)
+// @Description  What the public pages show and what they deliberately do not: a patrol's page carries no names and one merged route rather than one per person, album photographs are cleared by the organizers, and glimt carry no location. Also names the way to ask for something to be taken down. Deliberately separate from the app's own privacy page, which explains what the app does with a member's own data to somebody who is signed in. Unauthenticated; ignores the session cookie.
+// @Tags         public-site
+// @Produce      html
+// @Success      200  {string}  string  "the page"
+// @Failure      429  {object}  map[string]string  "read rate limit, by IP"
+// @Router       /{year}/privatliv [get]
+func (app *application) publicPrivacyPageHandler(w http.ResponseWriter, r *http.Request) {
+	if !app.allowPublicSiteRead(w, r) {
+		return
+	}
+	app.renderPublicPage(w, "privatliv", publicPageData{
+		Year:  app.config.eventYear,
+		Title: "Data og privatliv",
+		Root:  app.publicRoot(),
+	})
+}
+
+// renderPublicNotFound answers a path under the public prefix that is not a page.
+//
+// # Why this exists rather than falling through
+//
+// Because the fall-through serves **the app shell**. `router.NotFound` answers anything unmatched with
+// `index.html` so a client-side route survives a reload — which means a typo under the public prefix
+// (`/2026/patruljer`, or last year's `/2025/patrulje/42`) would boot the app and, on a desktop, bounce the
+// visitor straight back out to the public site. A loop, and the same class of bug task 332 shipped when a
+// public path was missing from the service worker's denylist.
+//
+// A wrong **year** lands here too, and that is deliberate: this deployment serves one event, so
+// `/2025/patrulje/42` is a page we do not have rather than one we should improvise from this year's data.
+func (app *application) renderPublicNotFound(w http.ResponseWriter) {
+	app.renderPublicPageStatus(w, "notfound", publicPageData{
+		Year:  app.config.eventYear,
+		Title: "Siden findes ikke",
+		Root:  app.publicRoot(),
+	}, http.StatusNotFound)
 }
 
 // allowPublicSiteRead applies the by-IP read limit for pages and JSON.
@@ -280,9 +371,28 @@ func (app *application) allowPublicMediaRead(w http.ResponseWriter, r *http.Requ
 //     morning-after burst, short enough that a takedown lands quickly. Task 335 depends on that bound,
 //     so it must not be lengthened without reading it.
 func (app *application) renderPublicPage(w http.ResponseWriter, name string, data any) {
+	app.renderPublicPageStatus(w, name, data, http.StatusOK)
+}
+
+// renderPublicPageStatus is renderPublicPage with an explicit status.
+//
+// # A failure is not cacheable
+//
+// Anything other than 200 gets `no-store` rather than the shared 60-second window. A cached 404 is repeated by
+// every shared cache in the path, so a page that appears a minute later — an album being published, a patrol
+// finishing — would read as missing to anybody unlucky enough to have asked early. Task 347's header test
+// asserts this from the outside.
+func (app *application) renderPublicPageStatus(w http.ResponseWriter, name string, data any, status int) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=60")
+	if status == http.StatusOK {
+		w.Header().Set("Cache-Control", "public, max-age=60")
+	} else {
+		w.Header().Set("Cache-Control", "no-store")
+	}
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	// After the headers and before the body, which is the only order that works: a Set after WriteHeader is
+	// silently dropped, and writing the body first sends an implicit 200.
+	w.WriteHeader(status)
 
 	if err := publicSiteTemplates.ExecuteTemplate(w, name, data); err != nil {
 		// The response has already begun, so there is nothing to answer with. Logged, as the glimt page
@@ -433,7 +543,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 </style>
 </head>
 <body>
-<a class="wordmark" href="/offentligt">` + publicSiteTitle + ` {{.Year}}</a>
+<a class="wordmark" href="{{.Root}}">` + publicSiteTitle + ` {{.Year}}</a>
 {{end}}
 
 {{define "layout-foot"}}
@@ -442,8 +552,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
     Er der noget her, der ikke skal ligge offentligt? Skriv til os, så tager vi det ned.
   </p>
   <p>
-    <a href="/privatliv">Data og privatliv</a> ·
-    <a href="/desktop.html">Om Nathejk, regler og program</a>
+    <a href="{{.Root}}/privatliv">Data og privatliv</a>
   </p>
 </footer>
 </body>
@@ -461,7 +570,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   {{if .Albums}}
   <div class="grid">
     {{range .Albums}}
-    <a class="card" href="/offentligt/album/{{.Slug}}">
+    <a class="card" href="{{$.Root}}/album/{{.Slug}}">
       {{if .HasCover}}
       <img src="/api/public/albums/{{.CoverAlbumID}}/media/{{.CoverOrdinal}}?variant=thumb"
            alt="{{.Title}}" loading="lazy" decoding="async">
@@ -479,7 +588,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 
 <section class="find">
   <h2>Find din patrulje</h2>
-  <form method="get" action="/offentligt/patrulje">
+  <form method="get" action="{{.Root}}/patrulje">
     <label for="nummer">Patruljens nummer</label>
     <input id="nummer" name="nummer" type="text" inputmode="numeric" autocomplete="off"
            maxlength="8">
@@ -504,7 +613,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
          {{if and .Width .Height}}width="{{.Width}}" height="{{.Height}}"{{end}}>
     {{end}}{{end}}
   </div>
-  <p class="more"><a href="/offentligt/glimt">Se alle glimt</a></p>
+  <p class="more"><a href="{{.Root}}/glimt">Se alle glimt</a></p>
   {{else}}
   <p class="empty">Der er ikke delt nogen offentlige billeder endnu.</p>
   {{end}}
@@ -535,7 +644,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 <p class="empty">Der er ingen billeder i dette album.</p>
 {{end}}
 
-<p class="more"><a href="/offentligt">Tilbage til forsiden</a></p>
+<p class="more"><a href="{{.Root}}">Tilbage til forsiden</a></p>
 {{template "layout-foot" .}}{{end}}
 
 {{define "patrol"}}{{template "layout-head" .}}
@@ -657,7 +766,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
       Skriv til os, så kigger vi på det. Det kan være en registrering, der ikke er jeres, en rute, der ser
       forkert ud, eller noget helt tredje. Du behøver ikke skrive dit navn.
     </p>
-    <form method="post" action="/offentligt/patrulje/{{.Patrol.Number}}/anmeld">
+    <form method="post" action="{{.Root}}/patrulje/{{.Patrol.Number}}/anmeld">
       <label for="reason">Hvad er der galt? (frivilligt)</label>
       <textarea id="reason" name="reason" rows="4" maxlength="2000"></textarea>
       <button type="submit">Send besked</button>
@@ -665,7 +774,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   </details>
 </section>
 
-<p class="more"><a href="/offentligt">Tilbage til forsiden</a></p>
+<p class="more"><a href="{{.Root}}">Tilbage til forsiden</a></p>
 {{template "layout-foot" .}}{{end}}
 
 {{define "patrol-notyet"}}{{template "layout-head" .}}
@@ -680,6 +789,72 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 <p>
   Prøv igen efter løbet. Tjek også, at nummeret er skrevet rigtigt.
 </p>
-<p class="more"><a href="/offentligt">Tilbage til forsiden</a></p>
+<p class="more"><a href="{{.Root}}">Tilbage til forsiden</a></p>
+{{template "layout-foot" .}}{{end}}
+{{define "privatliv"}}{{template "layout-head" .}}
+<h1>Data og privatliv</h1>
+<p class="intro">
+  Her står, hvad de offentlige sider viser — og hvad de ikke viser.
+</p>
+
+<section>
+  <h2>Patruljens egen side</h2>
+  <p>
+    Efter løbet får hver patrulje sin egen side med ruten på kortet, de poster de blev scannet ved, og
+    hvor langt de gik. Den ligger offentligt, så den kan ses uden at logge ind, og så I kan sende den til
+    familien.
+  </p>
+  <p>
+    Der står <strong>ingen navne</strong> på den. Vi lægger hele patruljens ruter sammen til én rute, så
+    man ikke kan se, hvem der gik hvor — og ikke hvem der havde placering slået til.
+  </p>
+  <p>
+    Siden kommer frem, når patruljen er i mål — og senest når løbet er slut. Mens I går, er der ingenting
+    at se.
+  </p>
+</section>
+
+<section>
+  <h2>Billeder</h2>
+  <p>
+    Billederne i albummerne er valgt af Nathejks arrangører, og der er givet lov til at vise dem. Glimt
+    er billeder, som deltagerne selv har delt offentligt fra appen.
+  </p>
+  <p>
+    Et billede kan have en placering på kortet, hvis det er taget et sted, vi viser. Glimt har ingen
+    placering — den fjernes, når billedet sendes.
+  </p>
+</section>
+
+<section>
+  <h2>Skal noget væk?</h2>
+  <p>
+    Skriv til os, så tager vi det ned. Det gælder både billeder og patruljens egen side. På patruljens
+    side er der en formular til det nederst — du behøver ikke skrive dit navn.
+  </p>
+</section>
+
+<!-- Deliberately short, and deliberately **not** the app's privacy page (PrivacyView.vue). That one
+     explains what the app does with a member's own data — their number, their portrait, their guardian's
+     number — to somebody who is logged in and can act on it. None of that is any of a public visitor's
+     business, and a wall of text about a login they do not have would bury the part that concerns them.
+
+     The two must not contradict each other: the wording here is lifted from the app's page rather than
+     rewritten, and PRD 021 §11 Q3 asks which of the two should be the source. Until that is answered,
+     keep them in step by hand — and prefer changing both to changing one. -->
+<p class="more"><a href="{{.Root}}">Tilbage til forsiden</a></p>
+{{template "layout-foot" .}}{{end}}
+
+{{define "notfound"}}{{template "layout-head" .}}
+<h1>Siden findes ikke</h1>
+<p class="intro">
+  Vi kan ikke finde den side, du leder efter.
+</p>
+<p>
+  Tjek om adressen er skrevet rigtigt. Er det en patrulje, du leder efter, kan du finde den fra forsiden.
+</p>
+<!-- Named deliberately: a link to a year we do not serve is the likeliest way to get here, and "prøv
+     forsiden" is more use than explaining our deployment model to somebody's grandmother. -->
+<p class="more"><a href="{{.Root}}">Til forsiden for Nathejk {{.Year}}</a></p>
 {{template "layout-foot" .}}{{end}}
 `))

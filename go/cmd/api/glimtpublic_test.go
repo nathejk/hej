@@ -127,7 +127,7 @@ func TestPublicGlimt_AnAuthenticatedCookieChangesNothing(t *testing.T) {
 		t.Fatal("no session cookie was issued, so this test would pass for the wrong reason")
 	}
 
-	for _, path := range []string{"/api/public/glimt", "/offentligt/glimt"} {
+	for _, path := range []string{"/api/public/glimt", "/2026/glimt"} {
 		anonResp, anon := getPublic(t, srv.URL+path, nil)
 		authResp, authed := getPublic(t, srv.URL+path, cookies)
 
@@ -237,7 +237,7 @@ func TestPublicGlimt_CarriesNothingPersonal(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	for _, path := range []string{"/api/public/glimt", "/offentligt/glimt"} {
+	for _, path := range []string{"/api/public/glimt", "/2026/glimt"} {
 		_, payload := getPublic(t, srv.URL+path, nil)
 		body := string(payload)
 
@@ -271,7 +271,7 @@ func TestPublicGlimtPage_RendersEveryMediaItemWithoutScript(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	resp, payload := getPublic(t, srv.URL+"/offentligt/glimt", nil)
+	resp, payload := getPublic(t, srv.URL+"/2026/glimt", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -308,7 +308,7 @@ func TestPublicGlimtPage_OmitsWhatIsNotPublic(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, payload := getPublic(t, srv.URL+"/offentligt/glimt", nil)
+	_, payload := getPublic(t, srv.URL+"/2026/glimt", nil)
 	body := string(payload)
 
 	if strings.Contains(body, "kun os") {
@@ -334,7 +334,7 @@ func TestPublicGlimtPage_EscapesCaptions(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, payload := getPublic(t, srv.URL+"/offentligt/glimt", nil)
+	_, payload := getPublic(t, srv.URL+"/2026/glimt", nil)
 	if strings.Contains(string(payload), "<script>alert") {
 		t.Error("a caption was rendered unescaped")
 	}
@@ -483,7 +483,7 @@ func TestPublicGlimtPage_IsNotTheSPAFallback(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	_, payload := getPublic(t, srv.URL+"/offentligt/glimt", nil)
+	_, payload := getPublic(t, srv.URL+"/2026/glimt", nil)
 	body := string(payload)
 	if strings.Contains(body, "<div id=\"app\"") || strings.Contains(body, "/assets/index") {
 		t.Error("the app shell was served instead of the public page")

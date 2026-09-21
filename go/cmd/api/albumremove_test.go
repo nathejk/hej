@@ -255,7 +255,7 @@ func TestRemovedItemLeavesEveryPublicSurface(t *testing.T) {
 	// consumer's own test asserts it writes (`UPDATE album_item SET deleted=1`).
 	store.albums[0].items = store.albums[0].items[1:]
 
-	_, body := getPublic(t, srv.URL+"/offentligt/album/loerdag-morgen", nil)
+	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
 	page := string(body)
 	if strings.Contains(page, "media/0?variant=thumb") {
 		t.Error("the removed photograph is still on the album page")
@@ -276,7 +276,7 @@ func TestRemovedItemLeavesEveryPublicSurface(t *testing.T) {
 func TestRemovalPromptnessIsBoundedByThePageCache(t *testing.T) {
 	_, _, _, srv, _ := removalApp(t, true)
 
-	resp, _ := getPublic(t, srv.URL+"/offentligt/album/loerdag-morgen", nil)
+	resp, _ := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
 	if got := resp.Header.Get("Cache-Control"); !strings.Contains(got, "max-age=60") {
 		t.Fatalf("a removal is only as prompt as the page cache: want max-age=60, got %q", got)
 	}

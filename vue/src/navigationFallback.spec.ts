@@ -39,6 +39,17 @@ describe('the service worker navigation fallback', () => {
     expect(denylist()).toContain('offentligt')
   })
 
+  // The public site moved under the event year (task 351), so the denylist matches a four-digit first
+  // segment. Asserted by *shape* rather than by this year's number, for the same reason the pattern is:
+  // next year's deployment must not need a frontend change to stay out of the way.
+  it('excludes the public site under any event-year prefix', () => {
+    expect(
+      denylist(),
+      'the year-prefixed public pages are not denied the navigation fallback, so an installed member ' +
+        'following a link to a patrol page gets the app shell (the shape of bug task 332 shipped)',
+    ).toContain('\\d{4}')
+  })
+
   it('excludes the desktop placeholder', () => {
     // The original reason the array exists (task 140): without it an installed client asking for
     // /desktop.html boots the app, which redirects back — a loop.
