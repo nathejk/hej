@@ -16,8 +16,12 @@ import { LEAVE_APP, WEBSITE_PAGE, deviceAndInstallGates } from '@/router/gates'
 import { useOnboardingStore } from '@/stores/onboarding.store'
 
 // A minimal stand-in for what the guard actually reads off a route.
-function route(name: string | undefined, meta: Record<string, unknown> = {}) {
-  return { name, meta } as unknown as RouteLocationNormalized
+function route(
+  name: string | undefined,
+  meta: Record<string, unknown> = {},
+  extra: Record<string, unknown> = {},
+) {
+  return { name, meta, path: `/${name ?? ''}`, ...extra } as unknown as RouteLocationNormalized
 }
 
 // The public routes, as registered. `welcome` and `install` are public; app routes are not.
@@ -67,6 +71,39 @@ describe('device / install / onboarding gates', () => {
     standalone = false
     expect(settle('maps', { authenticated: true })).toBe('install')
     expect(settle('install', { authenticated: false })).toBe('install')
+  })
+
+  // Task 356. The public website is for **every** device; only the app's own pages are install-only.
+  // `/` is what people type and what gets shared, so answering it with an add-to-home-screen wall
+  // pushes the app at a visitor who came to read the site.
+  //
+  // The root reaches the guard as a redirect to `maps`, which is exactly why this is easy to get
+  // wrong: the destination looks like any other app page unless `redirectedFrom` is consulted.
+  it('sends a mobile browser that arrived at the root to the website, not the wall', () => {
+    standalone = false
+    const fromRoot = route('maps', {}, { redirectedFrom: { path: '/' } })
+    expect(deviceAndInstallGates(fromRoot)).toBe(LEAVE_APP)
+
+    // And the same if the root ever becomes a route of its own rather than a redirect.
+    expect(deviceAndInstallGates(route(undefined, {}, { path: '/' }))).toBe(LEAVE_APP)
+  })
+
+  // The other half of the same rule: asking for an app page by name is not arriving at the front
+  // door. Those pages are install-only, so the wall is the honest answer.
+  it('still walls an app page a browser asked for by name', () => {
+    standalone = false
+    for (const name of ['maps', 'sos', 'profile', 'glimt']) {
+      expect(deviceAndInstallGates(route(name))).toEqual({ name: 'install' })
+    }
+  })
+
+  // An installed launch also comes through `/` — start_url is the root — so the root exception must
+  // not swallow it. It is inside the non-standalone branch precisely for this reason.
+  it('does not send an installed launch at the root out to the website', () => {
+    standalone = true
+    useOnboardingStore().markComplete()
+    const fromRoot = route('maps', {}, { redirectedFrom: { path: '/' } })
+    expect(deviceAndInstallGates(fromRoot)).toBe(true)
   })
 
   it('leaves the app entirely on a desktop computer', () => {

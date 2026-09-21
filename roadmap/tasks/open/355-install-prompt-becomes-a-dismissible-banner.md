@@ -14,8 +14,20 @@ Maintainer decision, 2026-09-21, while finishing the public frontpage (PRD 011):
 > We don't want to push the app so hard. After race we will reduce the install prompt to a
 > closeable banner on top.
 
-**Deliberately not done now.** It is a post-event change, and it is not a restyling of one
-screen — see the consequence below, which needs a decision before any code moves.
+**Deliberately not done now.** It is a post-event change. The scope question it was written to
+ask has since been **settled** by the maintainer, the same day:
+
+> this repo has two parts, a public website and an install-only PWA — the PWA and all pages from
+> the PWA should only work when installed to home screen. The thing that changes now is that all
+> devices should be able to access the public website.
+
+So it is **reading (a)** below: the banner belongs on the **public website**, and the PWA stays
+install-only. Reading (b) is **not** wanted, and PRD 005 needs no amendment. Both are kept, because
+the distinction is what makes the scope clear.
+
+The access half of that clarification is already done — **task 356** stopped the install wall from
+answering the root in a mobile browser. What remains here is the *invitation*: the website carries
+a call-to-action box today (task 143), and after the race it should be a dismissible top banner.
 
 ### What exists today
 
@@ -29,7 +41,7 @@ styling — task 143 made it deliberate:
 So today there are exactly two modes: the anonymous public site, and the installed app. A
 browser tab is not a degraded app; it is the website.
 
-### The consequence that must be decided first
+### The consequence that had to be decided first (now decided: (a))
 
 A dismissible banner implies **something to dismiss it onto**. If the banner sits on top of
 the app in a browser tab, then the app has to work in a browser tab — including **login**,
@@ -66,7 +78,7 @@ assumed.
 
 ## Acceptance Criteria
 
-- [ ] Maintainer has chosen (a) or (b); if (b), PRD 005 is amended before code changes
+- [x] Maintainer has chosen (a) or (b) — **(a)**, 2026-09-21; PRD 005 stays as it is
 - [ ] The prompt is dismissible, and the dismissal persists per browser without a URL parameter
 - [ ] Dismissing it leaves the user somewhere that works — no dead end, no screen that needs a
       login the browser cannot obtain

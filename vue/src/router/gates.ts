@@ -71,10 +71,24 @@ export function deviceAndInstallGates(
     return LEAVE_APP
   }
 
-  // 3. Standalone. **There is no login outside the installed app** (task 143), so a browser
-  //    tab has exactly one destination in here: the install instructions. No override, no
-  //    exceptions — the anonymous website is the browser experience, and the wall links to it.
+  // 3. Standalone. **There is no login outside the installed app** (task 143), and every page of
+  //    this app is install-only — so a browser tab asking for one gets the install instructions.
+  //    No override, no exceptions.
+  //
+  //    **Except the front door** (task 356). The public website is for every device, and `/` is the
+  //    address people type and share; answering it with an add-to-home-screen wall pushes the app
+  //    at a visitor who only wanted to read the site. So a browser that arrived at the root leaves
+  //    for the website, exactly as a desktop does, and the wall is reserved for someone who asked
+  //    for an app page by name — or who tapped the website's own install invitation.
+  //
+  //    `/` is a redirect to `maps` in the route table, so by the time the guard runs the root is
+  //    only visible as `redirectedFrom`. Checking both keeps it correct if that ever becomes a
+  //    component route instead. Note this cannot move to the server: the root is also the installed
+  //    app's `start_url`, and no request tells the BFF whether it came from a home screen.
   if (!isStandalone()) {
+    if (to.path === '/' || to.redirectedFrom?.path === '/') {
+      return LEAVE_APP
+    }
     return to.name === 'install' ? true : { name: 'install' }
   }
 
