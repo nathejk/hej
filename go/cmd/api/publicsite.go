@@ -509,6 +509,9 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   .maparea.ready { display: block; }
   .mapcaveat { display: none; }
   .mapcaveat.ready { display: block; }
+  /* The dotted-line legend (task 354): hidden until the island has actually drawn a dotted leg. */
+  .maplegend { display: none; }
+  .maplegend.ready { display: inline; }
   /* The photograph pin (task 342). A white-ringed amber square, so it is a different shape as well as a
      different colour from the round scan dots — legible on both the topographic and the aerial base
      layer, which is why the ring is there at all. */
@@ -702,6 +705,11 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   <div id="patrolmap" class="maparea" data-patrol="{{.Patrol.Number}}"></div>
   <p class="caveat mapcaveat">
     Her vises alle de registreringer vi har om patruljen.
+    <!-- The legend for the dotted stroke (task 354). It is **hidden until the island draws one**: the
+         markup carries the wording, so the Danish copy stays on this page with the rest of it, but only
+         the drawing knows whether there are legs without a recording, and a legend for a line nobody can
+         see is worse than none. publicmap.js adds .ready to it, exactly as it does to the caveat. -->
+    <span class="maplegend">Stiplet: ingen optagelse.</span>
   </p>
   <!-- The map is a **progressive enhancement** (PRD 011 §8, task 342), and these assets are the only
        script on the public site.

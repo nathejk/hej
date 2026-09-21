@@ -149,6 +149,16 @@ describe('the public map island', () => {
     expect(CODE.slice(solid, dotted)).not.toContain('dashArray')
   })
 
+  // The legend for the dotted stroke is revealed by the drawing, not by the page: the markup always carries
+  // the wording, and a legend shown next to a map with no dotted leg on it explains a line that is not there.
+  it('reveals the dotted-line legend only when it draws one', () => {
+    const dotted = CODE.indexOf('map_.untracked && map_.untracked.length')
+    const legend = CODE.indexOf('.maplegend')
+    expect(legend).toBeGreaterThan(dotted)
+    // Inside the branch, not after it.
+    expect(CODE.slice(dotted, legend)).not.toContain('scanLayer')
+  })
+
   // The page states a distance in kilometres; a map with no scale next to it cannot be read against that
   // number. Metric only, and bottom left — the one corner the zoom, the switcher and the attribution leave
   // free.

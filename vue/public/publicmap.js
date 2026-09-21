@@ -172,6 +172,12 @@
           bounds.extend(point)
         })
       })
+
+      // Only now is the legend true: the caption tells a visitor what the map shows, and the distinction
+      // between the two strokes is what keeps it honest (PRD 011 §0a). The wording lives in the page's
+      // markup; revealing it is the drawing's job, because nothing else knows a dotted leg exists.
+      var legend = caveat && caveat.querySelector('.maplegend')
+      if (legend) legend.classList.add('ready')
     }
 
     // Scan pins. Checkpoints and bandit catches get different colours, because they are different kinds of

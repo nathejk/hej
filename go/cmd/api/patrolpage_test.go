@@ -365,6 +365,15 @@ func TestPatrolPageSaysWhatTheMapShows(t *testing.T) {
 			t.Errorf("the caption claims more than the data supports: %q", forbidden)
 		}
 	}
+	// The legend that carries the solid/dotted distinction. It ships in the markup and is revealed by the
+	// island when it actually draws a dotted leg, so the page must contain both the wording and the hook —
+	// the wording alone, with the class renamed, would be a legend nothing can ever show.
+	if !strings.Contains(page, "Stiplet: ingen optagelse") {
+		t.Errorf("the dotted stroke needs its legend\n%s", page)
+	}
+	if !strings.Contains(page, `class="maplegend"`) {
+		t.Error(`the legend must carry class="maplegend" — publicmap.js reveals it by that class`)
+	}
 }
 
 // **An empty track is the common case** (task 082 measured 2% coverage), and the page must say so rather
