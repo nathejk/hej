@@ -90,6 +90,14 @@ type publicFrontpageData struct {
 	// state and not an error — the section says so rather than disappearing.
 	Albums []publicAlbumSummary
 
+	// ShowAlbums is whether the section appears at all (task 359).
+	//
+	// Distinct from `len(Albums) == 0` on purpose. An empty list means *"nobody has uploaded yet"* and the
+	// section says so, because a curated album is a promise the event makes. This flag means *"do not make
+	// the promise"* — the maintainer's instruction before the first production deploy, when there are no
+	// photographs at all: a heading over a dashed box is worse than no heading.
+	ShowAlbums bool
+
 	// Glimt is the recent public glimt strip (task 336).
 	Glimt []publicGlimtResponse
 	// GlimtUnavailable distinguishes "the feature is down" from "nobody has shared anything", which
@@ -144,8 +152,13 @@ func (app *application) publicFrontpageHandler(w http.ResponseWriter, r *http.Re
 
 	data := publicFrontpageData{
 		publicPageData: publicPageData{Year: app.config.eventYear, Root: app.publicRoot()},
-		Albums:         app.frontpageAlbums(),
+		ShowAlbums:     app.config.publicAlbums,
 		SearchError:    patrolSearchError(r.URL.Query().Get("fejl")),
+	}
+	if data.ShowAlbums {
+		// Not read at all when the section is off: the cheapest correct behaviour, and it means a switched-off
+		// section cannot fail a page it is not on.
+		data.Albums = app.frontpageAlbums()
 	}
 
 	// The glimt strip reuses PRD 019's read wholesale — `publicGlimt` applies the audience filter, the
@@ -556,9 +569,10 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 {{define "frontpage"}}{{template "layout-head" .}}
 <h1>Nathejk {{.Year}}</h1>
 <p class="intro">
-  Billeder fra løbet, og patruljernes egne sider med deres rute. Du behøver ikke logge ind.
+  {{if .ShowAlbums}}Billeder fra løbet, og patruljernes egne sider med deres rute.{{else}}Patruljernes egne sider med deres rute, og glimt fra natten.{{end}} Du behøver ikke logge ind.
 </p>
 
+{{if .ShowAlbums}}
 <section>
   <h2>Billeder</h2>
   {{if .Albums}}
@@ -579,6 +593,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   <p class="empty">Der er ikke lagt billeder op endnu.</p>
   {{end}}
 </section>
+{{end}}
 
 <section class="find">
   <h2>Find din patrulje</h2>

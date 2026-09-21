@@ -135,6 +135,26 @@ type config struct {
 	// storage is still open (PRD 008 §11 Q4); this is the volume half.
 	blobPath string
 
+	// publicAlbums shows or hides the curated photo albums on the public site (task 359).
+	//
+	// # A content switch, not a kill switch
+	//
+	// The maintainer's instruction on 2026-09-21, preparing the first production deploy of the public pages:
+	// *"hide both, we have no photos at the moment — i want to get the rest in prod"*. The patrol pages, the
+	// lookup and the glimt strip are ready; curated albums are a promise with nothing behind it yet, and a
+	// heading over a dashed "nothing here yet" box is worse than no heading.
+	//
+	// So this is deliberately **not** the same thing as an empty album list. Empty means "nobody has uploaded
+	// yet" and the section says so. Off means the feature is not part of the site: no section, no heading, and
+	// `/{year}/album/{slug}` answers 404, so hiding it hides it from a shared link and a crawler too rather
+	// than only from the frontpage.
+	//
+	// Defaults **on**, like every other flag here: a feature that is off by default is a feature nobody tests,
+	// and the albums are a shipped feature with tests and a dev fixture. Production turns it off until there
+	// are photographs — see docker-compose.prod.yml — and turning it back on is an env change, not a release,
+	// which is the point of it being configuration.
+	publicAlbums bool
+
 	// eventYear selects which event the directory reads. The person projection is
 	// keyed per year, so this decides whose phone numbers can log in.
 	//
@@ -409,6 +429,7 @@ func loadConfig() config {
 	flag.StringVar(&cfg.smsDSN, "sms-dsn", envStr("SMS_DSN", ""), "SMS provider DSN, e.g. cpsms://<api-key>@api.cpsms.dk (empty logs messages instead of sending)")
 	flag.StringVar(&cfg.blobPath, "blob-path", envStr("BLOB_PATH", ""), "Directory for binary objects such as portraits (empty keeps them in memory)")
 	flag.StringVar(&cfg.eventYear, "event-year", envStr("EVENT_YEAR", currentYear()), "Event year the member directory reads (defaults to the current year)")
+	flag.BoolVar(&cfg.publicAlbums, "public-albums", envBool("PUBLIC_ALBUMS", true), "Show the curated photo albums on the public site (PUBLIC_ALBUMS=false hides the section and answers 404 for an album page)")
 	flag.StringVar(&cfg.eventRoute, "event-route", envStr("EVENT_ROUTE", ""), "Overrides the route line printed on a diploma, e.g. \"fra Lundby til Glumsø\" (empty uses the year projection's two cities)")
 	flag.DurationVar(&cfg.portraitRetention, "portrait-retention", envDuration("PORTRAIT_RETENTION", 30*24*time.Hour), "How long a portrait is kept after capture before it is purged (0 disables the purge)")
 	flag.DurationVar(&cfg.cachedDirectoryTTL, "cached-directory-ttl", envDuration("CACHED_DIRECTORY_TTL", 14*24*time.Hour), "How long a device may keep its cached contacts directory (0 disables the deadline)")

@@ -130,6 +130,15 @@ services:
       # arg, so the same published image can be deployed with a different key.
       # Empty means the map shows a "missing API key" notice.
       DATAFORSYNINGEN_TOKEN: ${DATAFORSYNINGEN_TOKEN:-}
+      # The public site's curated photo albums (PRD 011, task 359).
+      #
+      # **Off for the first deploy**, on the maintainer's instruction: the patrol pages, the patrol lookup and
+      # the glimt strip are ready, and there are no curated photographs yet. Off means the section is absent
+      # rather than empty, and an album page answers 404 — so a shared link or a crawler finds nothing either.
+      #
+      # Turn it on (or delete the line: the default is on) when the albums are filled. It is an env change and a
+      # restart, not a release.
+      PUBLIC_ALBUMS: ${PUBLIC_ALBUMS:-false}
       # MariaDB (task 061: hej runs its own). Reaches the `db` service below over
       # the stack-private `local` network, so this credential never leaves the
       # stack. multiStatements is required by some shared-go schemas; parseTime

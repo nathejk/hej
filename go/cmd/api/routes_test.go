@@ -36,7 +36,11 @@ func newTestApp(t *testing.T) *application {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return &application{
 		JsonApi: bff.JsonApi{Logger: logger},
-		config:  config{env: "testing", webRoot: webRoot},
+		// `publicAlbums: true` mirrors the **production default**, not the zero value (task 359). The albums are
+		// a shipped feature and the flag hides them; a test suite running with the flag off would be testing the
+		// hidden state everywhere and the feature nowhere. The tests for the off state set it false explicitly,
+		// which is also how they read as being about it.
+		config: config{env: "testing", webRoot: webRoot, publicAlbums: true},
 		// nil race areas: the routing tests run without a database, which is exactly the
 		// degraded mode the handler must answer 503 for rather than panic in.
 		models:   data.NewModels(users.NewMockDirectory(), scans.NewMockSource(), nil, nil, nil),

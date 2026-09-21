@@ -11,6 +11,89 @@ import (
 // The public site's shell (task 332). What matters here is mostly what the page does *not* do: run
 // JavaScript, read a session, or tell a visitor whether a patrol number is real.
 
+// **Hiding the albums (task 359).** The maintainer's instruction before the first production deploy: *"hide
+// both, we have no photos at the moment — i want to get the rest in prod"*.
+//
+// What these pin is the difference between *hidden* and *empty*, because the frontpage already had an empty
+// state and reaching for it would have been the obvious wrong fix: "Der er ikke lagt billeder op endnu" is a
+// promise with a date on it, and there is nothing to promise yet.
+func TestTheAlbumSectionIsAbsentWhenSwitchedOff(t *testing.T) {
+	app, _, _ := publicApp(t)
+	app.config.publicAlbums = false
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	resp, body := getPublic(t, srv.URL+"/2026", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	page := string(body)
+
+	// No heading, and **not** the empty state either.
+	for _, forbidden := range []string{">Billeder<", "Der er ikke lagt billeder op endnu", "/2026/album/"} {
+		if strings.Contains(page, forbidden) {
+			t.Errorf("the hidden album section still renders %q\n%s", forbidden, page)
+		}
+	}
+
+	// The rest of the page is the point of the deploy, so it must be untouched.
+	for _, want := range []string{"Find din patrulje", ">Glimt<"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("hiding the albums cost the %q section\n%s", want, page)
+		}
+	}
+}
+
+// The intro promised "Billeder fra løbet" — a sentence that has to change with the section, or the page opens by
+// advertising something it does not have.
+func TestTheIntroDoesNotPromisePhotosThatAreHidden(t *testing.T) {
+	app, _, _ := publicApp(t)
+	app.config.publicAlbums = false
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body := getPublic(t, srv.URL+"/2026", nil)
+	page := string(body)
+
+	if strings.Contains(page, "Billeder fra løbet") {
+		t.Errorf("the intro still promises album photographs\n%s", page)
+	}
+	if !strings.Contains(page, "Patruljernes egne sider") {
+		t.Errorf("the intro should say what the page does have\n%s", page)
+	}
+}
+
+// **Hidden means unreachable, not unadvertised.** A section removed from the frontpage while its pages keep
+// serving is still in every shared link, every old message and every index — so the album page answers 404.
+//
+// 404 rather than the 503 the missing-projection case gives: that one means "come back later", this one means
+// "there is nothing here", and a crawler should be told the second thing.
+func TestAnAlbumPageIsGoneWhenTheSectionIsHidden(t *testing.T) {
+	app, _, _ := publicApp(t)
+	app.config.publicAlbums = false
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	resp, _ := getPublic(t, srv.URL+"/2026/album/natten", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("want 404 for an album page while the feature is hidden, got %d", resp.StatusCode)
+	}
+}
+
+// And the switch is not a one-way door: on, the album that was hidden is a page again. Worth a test because the
+// value of a flag over a deletion is precisely that it comes back — an env change, not a release.
+func TestTheAlbumsComeBackWhenSwitchedOn(t *testing.T) {
+	app, _, _ := publicApp(t)
+	app.config.publicAlbums = true
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body := getPublic(t, srv.URL+"/2026", nil)
+	if !strings.Contains(string(body), ">Billeder<") {
+		t.Errorf("the section should be back\n%s", body)
+	}
+}
+
 // noRedirectClient follows nothing, so a 303 can be asserted rather than chased.
 func noRedirectClient() *http.Client {
 	return &http.Client{

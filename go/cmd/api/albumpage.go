@@ -73,6 +73,17 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 	if !app.allowPublicSiteRead(w, r) {
 		return
 	}
+	// Switched off (task 359): the whole feature is hidden, so an album has no page.
+	//
+	// **404, not 503.** The reasoning differs from the nil case below, which says "come back later" about a
+	// dependency that is down. This says "there is nothing here", which is the truth a visitor and a crawler
+	// should both get — and it is what makes hiding the frontpage section actually hide something. A section
+	// removed from a page while its links keep serving is not hidden, it is unadvertised, and old links, shared
+	// links and indexes all still work.
+	if !app.config.publicAlbums {
+		app.NotFoundResponse(w, r)
+		return
+	}
 	if app.models.Albums == nil {
 		// 503 rather than 404 here, unlike every gate in this feature. The distinction is what the
 		// answer would reveal: a closed patrol page must be indistinguishable from a nonexistent one

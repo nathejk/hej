@@ -132,6 +132,14 @@ services:
       # 2026 and a machine whose clock says otherwise would show an empty directory
       # and look like a broken projection.
       EVENT_YEAR: "2026"
+      # The curated photo albums are hidden until there are photographs (task 359).
+      #
+      # Set here as well as in production so dev shows the site as it will ship — the maintainer's ask was to
+      # hide them *now*, and a dev environment that still shows the fixture albums would hide the change from
+      # the only person looking at it.
+      #
+      # Flip to "true" to work on the albums, and remember `/api/dev/album-fixture` creates the two dev albums.
+      PUBLIC_ALBUMS: "false"
       # GO_BUILD_FLAGS: "-race"   # uncomment for the race detector
     volumes:
       - ./go:/app
