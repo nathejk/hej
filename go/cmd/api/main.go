@@ -165,6 +165,23 @@ type application struct {
 	// Both may be nil, in which case no limit applies.
 	publicGlimtReadLimiter *ratelimit.Limiter
 	publicReportLimiter    *ratelimit.Limiter
+	// publicMediaReadLimiter throttles the public **media** routes — album photographs and public glimt
+	// thumbnails — also by IP, and on its own budget (task 347).
+	//
+	// # Why media does not share the page budget
+	//
+	// Because the two differ by an order of magnitude in count and by more than that in cost. Opening one
+	// album page is 1 HTML request and up to 60 thumbnail requests; the HTML does database reads while a
+	// thumbnail is a blob read with an ETag and a year-long cache. Sharing one budget therefore means the
+	// **cheap and numerous starve the expensive and few** — a visitor scrolling two albums could spend the
+	// allowance their next page load needs, and the failure would look like the site being broken rather
+	// than like a limit being hit.
+	//
+	// Generous for the same NAT reason as the others, and more so because of the arithmetic above: see
+	// env.go for the numbers.
+	//
+	// May be nil, in which case no limit applies.
+	publicMediaReadLimiter *ratelimit.Limiter
 	// confirmLimiter throttles the guardian-number confirmation and report endpoints
 	// (PRD 005, tasks 135/136), keyed by IP like the PIN limiter.
 	//
@@ -781,6 +798,9 @@ func run(logger *slog.Logger) error {
 		// legitimately be a whole school, and this is the surface a link in a parents' group chat
 		// lands on — the worst possible moment to start answering 429.
 		publicGlimtReadLimiter: limiterOrNil(cfg.glimtPublicReadsPerMinute, time.Minute),
+		// Public media, by IP, on its own budget: thumbnails outnumber page loads by up to sixty to
+		// one, so sharing would let a scroll through an album exhaust what the next page needs.
+		publicMediaReadLimiter: limiterOrNil(cfg.publicMediaReadsPerMinute, time.Minute),
 		// Anonymous reports, by IP. Tighter than the authenticated 100/hour, because an
 		// unauthenticated write should be, but still far beyond honest use.
 		publicReportLimiter: limiterOrNil(cfg.glimtPublicReportsPerHour, time.Hour),

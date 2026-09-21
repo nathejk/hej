@@ -122,9 +122,32 @@ func (app *application) patrolMapHandler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// **Shareable and short**, the same window as the pages (task 347). Identical for every caller by
+	// construction, so a shared cache is safe — and 60 seconds is most of the answer to a link going round a
+	// family group chat, since the second hundred visitors are served from caches rather than from a merge.
+	//
+	// Not longer, even though a finished patrol's route never changes: a takedown (task 343) has to be able
+	// to land quickly, and a cached copy is the one thing a takedown cannot reach.
+	setPublicJSONCache(w)
+
 	if err := app.WriteJSON(w, http.StatusOK, resp, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
 	}
+}
+
+// publicJSONCacheControl is the cache window for the public JSON endpoints.
+//
+// The same 60 seconds the HTML uses, and for the same two reasons: these responses are identical for every
+// caller, so a shared cache is safe and absorbs the morning-after burst; and a takedown must take effect
+// promptly, which a long-lived cached copy would prevent. Task 335 depends on that bound — do not lengthen
+// it without reading that task.
+//
+// **Media is deliberately different** (`publicGlimtMediaCacheControl`, a year, immutable): those bytes are
+// content-addressed, so a changed photograph is a changed URL and there is nothing stale to serve.
+const publicJSONCacheControl = "public, max-age=60"
+
+func setPublicJSONCache(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", publicJSONCacheControl)
 }
 
 // albumMapResponse is every plottable album photograph.
@@ -178,6 +201,8 @@ func (app *application) albumMapHandler(w http.ResponseWriter, r *http.Request) 
 			Slug:    it.AlbumSlug,
 		})
 	}
+
+	setPublicJSONCache(w)
 
 	if err := app.WriteJSON(w, http.StatusOK, resp, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)

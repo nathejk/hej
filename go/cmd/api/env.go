@@ -337,6 +337,25 @@ type config struct {
 	// is the surface a link in a parents' group chat lands on.
 	glimtPublicReadsPerMinute int
 	glimtPublicReportsPerHour int
+	// publicMediaReadsPerMinute bounds the public **media** routes per IP — album photographs and public
+	// glimt thumbnails (PRD 011 §8, task 347).
+	//
+	// # Why it is its own ceiling, and why it is this high
+	//
+	// A page load is a handful of requests; an album page is up to sixty thumbnails. So the arithmetic that
+	// matters is the worst *honest* case, which is a NAT'd school rather than an attack:
+	//
+	//	one album page      ≈  61 requests (1 HTML + 60 thumbnails)
+	//	one family, 4 devices, 5 albums in a minute   ≈  1,220
+	//	30 devices behind one school NAT doing the same ≈  9,150
+	//
+	// 12,000/minute (200/second) sits above that and still stops a scripted scrape, which would run at
+	// thousands per second rather than hundreds per minute. The asymmetry is deliberate: the cost of a
+	// throttled thumbnail is a broken-looking page for a family the morning after, and the cost of an
+	// unthrottled one is some bandwidth.
+	//
+	// **Zero means unlimited**, as with every other ceiling here.
+	publicMediaReadsPerMinute int
 	// glimtMemberStorageBytes is one member's total media allowance for the year.
 	glimtMemberStorageBytes int64
 	// glimtTotalStorageBytes is the whole year's allowance, protecting the volume itself.
@@ -380,6 +399,7 @@ func loadConfig() config {
 	flag.IntVar(&cfg.glimtReadsPerMinute, "glimt-reads-per-minute", envInt("GLIMT_READS_PER_MINUTE", 3000), "Glimt read requests one member may make per minute (0 disables the limit)")
 	flag.IntVar(&cfg.glimtPublicReadsPerMinute, "glimt-public-reads-per-minute", envInt("GLIMT_PUBLIC_READS_PER_MINUTE", 3000), "Public glimt read requests one IP may make per minute (0 disables the limit)")
 	flag.IntVar(&cfg.glimtPublicReportsPerHour, "glimt-public-reports-per-hour", envInt("GLIMT_PUBLIC_REPORTS_PER_HOUR", 30), "Anonymous glimt reports one IP may make per hour (0 disables the limit)")
+	flag.IntVar(&cfg.publicMediaReadsPerMinute, "public-media-reads-per-minute", envInt("PUBLIC_MEDIA_READS_PER_MINUTE", 12000), "Public media requests (album photographs, public glimt thumbnails) one IP may make per minute (0 disables the limit)")
 	flag.Int64Var(&cfg.glimtMemberStorageBytes, "glimt-member-storage-bytes", envInt64("GLIMT_MEMBER_STORAGE_BYTES", 500<<20), "Total media bytes one member may have stored (0 disables the ceiling)")
 	flag.Int64Var(&cfg.glimtTotalStorageBytes, "glimt-total-storage-bytes", envInt64("GLIMT_TOTAL_STORAGE_BYTES", 0), "Total media bytes the event may have stored (0 disables the ceiling)")
 	publicOverride := flag.String("public-page-patrol-override", envStr("PUBLIC_PAGE_PATROL_OVERRIDE", ""), "Patrol ids whose public page is open regardless of the gate, comma-separated (PRD 011)")

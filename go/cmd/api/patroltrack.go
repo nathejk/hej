@@ -60,12 +60,22 @@ type patrolTrackReader struct {
 
 	mu    sync.Mutex
 	cache map[string]patrolTrackEntry
-	now   func() time.Time
+	// inflight holds the merge currently running for a team, so concurrent callers wait for it rather than
+	// starting their own. See Track — this is the difference between a cache and a lever.
+	inflight map[string]*inflightTrack
+	now      func() time.Time
 }
 
 type patrolTrackEntry struct {
 	track patroltrack.Track
 	at    time.Time
+}
+
+// inflightTrack is one merge in progress, and the answer it produced.
+type inflightTrack struct {
+	done  chan struct{}
+	track patroltrack.Track
+	err   error
 }
 
 // newPatrolTrackReader builds the reader, or nil when either projection is missing.
@@ -78,18 +88,31 @@ func newPatrolTrackReader(people person.Queries, points trackpoint.Queries, year
 		return nil
 	}
 	return &patrolTrackReader{
-		people: people,
-		points: points,
-		year:   year,
-		cache:  map[string]patrolTrackEntry{},
-		now:    time.Now,
+		people:   people,
+		points:   points,
+		year:     year,
+		cache:    map[string]patrolTrackEntry{},
+		inflight: map[string]*inflightTrack{},
+		now:      time.Now,
 	}
 }
 
 // Track returns the patrol's merged, unattributed route.
 //
 // An empty track is a normal answer and not an error: task 082 measured 2% coverage, and plenty of members
-// never grant location at all. The page must be worth opening with an empty map \u2014 see PRD 011 §5.
+// never grant location at all. The page must be worth opening with an empty map — see PRD 011 §5.
+//
+// # Concurrent callers share one merge, and that is a security property
+//
+// A plain read-through cache is not enough on an unauthenticated route. Two hundred visitors arriving in the
+// same second — the morning-after case, and the normal one — all miss a cold cache, so all two hundred walk
+// the telemetry projection and merge it. Measured under `-race` in task 347's burst test before this was
+// added: 400 requests produced two merges when the scheduler interleaved them, and nothing bounds that
+// number except timing. A stranger with a concurrent loop has a lever.
+//
+// So a miss is claimed: the first caller computes and the rest **wait for its answer**. That makes the cost
+// one merge per patrol per TTL regardless of how many people ask, which is what task 340 required and what a
+// read-through cache alone does not deliver.
 func (r *patrolTrackReader) Track(teamID string) (patroltrack.Track, error) {
 	if teamID == "" {
 		return patroltrack.Track{}, nil
@@ -99,6 +122,60 @@ func (r *patrolTrackReader) Track(teamID string) (patroltrack.Track, error) {
 		return cached, nil
 	}
 
+	flight, mine := r.claim(teamID)
+	if !mine {
+		// Somebody else is already merging this patrol. Waiting costs a blocked goroutine and saves a
+		// duplicate walk of the projection — and the answer is identical, because the inputs are.
+		<-flight.done
+		return flight.track, flight.err
+	}
+
+	track, err := r.merge(teamID)
+
+	r.mu.Lock()
+	delete(r.inflight, teamID)
+	if err == nil {
+		r.cache[teamID] = patrolTrackEntry{track: track, at: r.now()}
+	}
+	r.mu.Unlock()
+
+	// Published *after* the map is tidied, and before the waiters are released, so nobody reads a
+	// half-written result.
+	flight.track, flight.err = track, err
+	close(flight.done)
+
+	return track, err
+}
+
+// claim returns the in-flight merge for a team, and whether the caller owns it.
+//
+// The cache is re-checked under the lock: between the miss in Track and this call another goroutine may have
+// finished and stored an answer, and starting a second merge because of that window would defeat the point.
+func (r *patrolTrackReader) claim(teamID string) (*inflightTrack, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if entry, ok := r.cache[teamID]; ok && r.now().Sub(entry.at) <= patrolTrackTTL {
+		// Already answered while we were getting here. Hand back a closed flight carrying it rather than
+		// a second code path for the caller to get wrong.
+		done := make(chan struct{})
+		close(done)
+		return &inflightTrack{done: done, track: entry.track}, false
+	}
+	if flight, ok := r.inflight[teamID]; ok {
+		return flight, false
+	}
+	flight := &inflightTrack{done: make(chan struct{})}
+	r.inflight[teamID] = flight
+	return flight, true
+}
+
+// merge does the actual work: who is in the patrol, what they recorded, and the unattributed merge.
+//
+// Storing the result is Track's job, not this function's — it has to happen together with releasing the
+// in-flight claim, or a waiter could be released before the answer is cached and immediately start another
+// merge.
+func (r *patrolTrackReader) merge(teamID string) (patroltrack.Track, error) {
 	members, err := r.people.TrackMembers(r.year, teamID)
 	if err != nil {
 		return patroltrack.Track{}, fmt.Errorf("reading patrol members: %w", err)
@@ -106,7 +183,6 @@ func (r *patrolTrackReader) Track(teamID string) (patroltrack.Track, error) {
 	if len(members) == 0 {
 		// No members is not an error — a personnel "team", or a patrol whose records have gone. Cached
 		// like any other answer, so a page for a nonexistent patrol does not re-query on every refresh.
-		r.store(teamID, patroltrack.Track{})
 		return patroltrack.Track{}, nil
 	}
 
@@ -115,9 +191,7 @@ func (r *patrolTrackReader) Track(teamID string) (patroltrack.Track, error) {
 		return patroltrack.Track{}, err
 	}
 
-	track := patroltrack.Merge(groups)
-	r.store(teamID, track)
-	return track, nil
+	return patroltrack.Merge(groups), nil
 }
 
 // groupsFor reads each member's points, applying the race-status cutoff per member.
@@ -202,12 +276,6 @@ func (r *patrolTrackReader) cached(teamID string) (patroltrack.Track, bool) {
 		return patroltrack.Track{}, false
 	}
 	return entry.track, true
-}
-
-func (r *patrolTrackReader) store(teamID string, track patroltrack.Track) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.cache[teamID] = patrolTrackEntry{track: track, at: r.now()}
 }
 
 // trackPointQueriesOrNil narrows the projection to its read API, or nil.

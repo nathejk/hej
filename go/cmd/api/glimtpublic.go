@@ -146,7 +146,10 @@ func (app *application) listPublicGlimtHandler(w http.ResponseWriter, r *http.Re
 // @Failure      503  {object}  map[string]string
 // @Router       /public/glimt/{glimtId}/media/{ordinal} [get]
 func (app *application) showPublicGlimtMediaHandler(w http.ResponseWriter, r *http.Request) {
-	if !app.allowPublicGlimtRead(w, r) {
+	// The media budget rather than the page one (task 347). Same reasoning as the album media route: a
+	// page of thumbnails is dozens of these requests, and they must not spend the allowance the pages
+	// need. Keyed by IP either way — there is still no member here.
+	if !app.allowPublicMediaRead(w, r) {
 		return
 	}
 	if app.models.Glimt == nil {

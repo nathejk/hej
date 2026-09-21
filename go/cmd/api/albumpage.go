@@ -137,7 +137,9 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 // @Failure      503  {object}  map[string]string  "albums are unavailable"
 // @Router       /public/albums/{albumId}/media/{ordinal} [get]
 func (app *application) albumMediaHandler(w http.ResponseWriter, r *http.Request) {
-	if !app.allowPublicSiteRead(w, r) {
+	// The media budget, not the page one (task 347): an album page asks for up to sixty of these, and a
+	// visitor scrolling two albums must not spend the allowance their next page load needs.
+	if !app.allowPublicMediaRead(w, r) {
 		return
 	}
 	if app.models.Albums == nil {

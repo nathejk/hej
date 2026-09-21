@@ -2,9 +2,11 @@ package main
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
+	"nathejk.dk/internal/patroltrack"
 	"nathejk.dk/nathejk/table/person"
 	"nathejk.dk/nathejk/table/trackpoint"
 )
@@ -12,10 +14,16 @@ import (
 // The composed, cached patrol route (task 340).
 
 // trackPeople answers TrackMembers and counts the calls.
+//
+// The counters are mutex-guarded because task 347's burst test calls this from hundreds of goroutines at
+// once — and an unguarded counter there does not merely trip `-race`, it makes the assertion meaningless:
+// "exactly one read" cannot be checked with a count that loses increments.
 type trackPeople struct {
 	members map[string][]string
 	err     error
-	calls   int
+
+	mu    sync.Mutex
+	calls int
 
 	// status and statusAt override a member's lifecycle, keyed by person id (task 349). Absent means
 	// "still racing", which is what most of these tests want.
@@ -24,7 +32,9 @@ type trackPeople struct {
 }
 
 func (p *trackPeople) TrackMembers(_ string, teamID string) ([]person.TrackMember, error) {
+	p.mu.Lock()
 	p.calls++
+	p.mu.Unlock()
 	if p.err != nil {
 		return nil, p.err
 	}
@@ -40,6 +50,13 @@ func (p *trackPeople) TrackMembers(_ string, teamID string) ([]person.TrackMembe
 	return out, nil
 }
 
+// callCount reads the counter safely.
+func (p *trackPeople) callCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
+}
+
 // The rest of person.Queries, unused here.
 func (p *trackPeople) Lookup(string, string) ([]person.Person, error) { return nil, nil }
 func (p *trackPeople) Get(string, string) (person.Person, bool, error) {
@@ -52,16 +69,28 @@ func (p *trackPeople) ExpiredPortraits(string, time.Time, int) ([]person.Expired
 }
 
 // trackPoints answers ByPeople and records who it was asked about.
+//
+// Guarded like trackPeople, and for the same reason.
 type trackPoints struct {
 	byPerson map[string][]trackpoint.Point
 	err      error
-	calls    int
-	asked    [][]string
+
+	mu    sync.Mutex
+	calls int
+	asked [][]string
+}
+
+func (p *trackPoints) callCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
 }
 
 func (p *trackPoints) ByPeople(_ string, ids []string) ([][]trackpoint.Point, error) {
+	p.mu.Lock()
 	p.calls++
 	p.asked = append(p.asked, ids)
+	p.mu.Unlock()
 	if p.err != nil {
 		return nil, p.err
 	}
@@ -428,5 +457,144 @@ func TestAPatrolThatWhollyWithdrewHasNoTrack(t *testing.T) {
 	}
 	if points.calls != 0 {
 		t.Errorf("ByPeople calls = %d, want none — there was nobody to read", points.calls)
+	}
+}
+
+// Single-flight (task 347).
+//
+// A read-through cache is not enough on an unauthenticated route: every visitor in the first second misses a
+// cold cache, so every one of them walks the telemetry projection. Measured before the fix, under `-race`:
+// 400 concurrent requests produced two merges, with nothing but the scheduler bounding the number. These
+// tests pin the property that replaced it — **one merge, however many callers**.
+
+// blockingPoints is a trackpoint.Queries that waits until released, so a test can hold a merge open and
+// observe what other callers do while it runs.
+type blockingPoints struct {
+	release chan struct{}
+	entered chan struct{}
+
+	mu    sync.Mutex
+	calls int
+	err   error
+}
+
+func (p *blockingPoints) ByPeople(_ string, ids []string) ([][]trackpoint.Point, error) {
+	p.mu.Lock()
+	p.calls++
+	first := p.calls == 1
+	p.mu.Unlock()
+
+	if first {
+		close(p.entered)
+		<-p.release
+	}
+	if p.err != nil {
+		return nil, p.err
+	}
+	out := make([][]trackpoint.Point, 0, len(ids))
+	for range ids {
+		out = append(out, walk(12.200, 10))
+	}
+	return out, nil
+}
+
+func (p *blockingPoints) callCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
+}
+
+func TestConcurrentCallersShareOneMerge(t *testing.T) {
+	people := &trackPeople{members: map[string][]string{"team-42": {"p1"}}}
+	points := &blockingPoints{release: make(chan struct{}), entered: make(chan struct{})}
+	r := newPatrolTrackReader(people, points, "2026")
+
+	const callers = 50
+	results := make([]patroltrack.Track, callers)
+	errs := make([]error, callers)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		results[0], errs[0] = r.Track("team-42")
+	}()
+
+	// Wait until the first caller is inside the projection read, so the others are guaranteed to arrive
+	// while a merge is in flight — which is the situation being tested rather than a timing accident.
+	<-points.entered
+
+	for i := 1; i < callers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			results[i], errs[i] = r.Track("team-42")
+		}(i)
+	}
+
+	// Give the waiters a moment to pile up behind the claim, then let the merge finish.
+	time.Sleep(20 * time.Millisecond)
+	close(points.release)
+	wg.Wait()
+
+	if got := points.callCount(); got != 1 {
+		t.Errorf("ByPeople called %d times for %d concurrent callers; want exactly one merge", got, callers)
+	}
+	if got := people.callCount(); got != 1 {
+		t.Errorf("TrackMembers called %d times; want exactly one", got)
+	}
+	for i := range results {
+		if errs[i] != nil {
+			t.Fatalf("caller %d: %v", i, errs[i])
+		}
+		// Every caller gets the same answer, because the inputs were the same. A waiter receiving an
+		// empty track would be the subtle failure here: no error, just a map missing for some visitors.
+		if results[i].IsEmpty() {
+			t.Errorf("caller %d got an empty track while caller 0 got %d segments",
+				i, len(results[0].Segments))
+		}
+	}
+}
+
+// **A failed merge is not cached, and every waiter hears about it.** Caching an error would turn one
+// database blip into a minute of blank maps; swallowing it for the waiters would show them an empty track,
+// which the page renders as "this patrol recorded nothing" — a lie that looks like data.
+func TestAFailedMergeIsSharedButNotCached(t *testing.T) {
+	people := &trackPeople{members: map[string][]string{"team-42": {"p1"}}}
+	points := &blockingPoints{
+		release: make(chan struct{}),
+		entered: make(chan struct{}),
+		err:     errors.New("telemetry is down"),
+	}
+	r := newPatrolTrackReader(people, points, "2026")
+
+	var wg sync.WaitGroup
+	var firstErr, secondErr error
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, firstErr = r.Track("team-42")
+	}()
+	<-points.entered
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		time.Sleep(5 * time.Millisecond)
+		_, secondErr = r.Track("team-42")
+	}()
+	close(points.release)
+	wg.Wait()
+
+	if firstErr == nil || secondErr == nil {
+		t.Fatalf("both callers must see the failure, got %v and %v", firstErr, secondErr)
+	}
+
+	// And the next request tries again rather than being served a cached failure.
+	points.err = nil
+	if _, err := r.Track("team-42"); err != nil {
+		t.Errorf("a later request should retry, got %v", err)
+	}
+	if got := points.callCount(); got < 2 {
+		t.Errorf("ByPeople called %d times; a failure must not be cached", got)
 	}
 }

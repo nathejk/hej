@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,19 +21,33 @@ import (
 // what a *closed* page must not reveal.
 
 // patrolStore answers ByNumber from a fixed set.
+//
+// Mutex-guarded because task 347's burst test drives it from hundreds of goroutines, where an unguarded
+// slice append is both a race and a lost record.
 type patrolStore struct {
 	patrols map[string]publicpatrol.Patrol
 	err     error
-	asked   []string
+
+	mu    sync.Mutex
+	asked []string
 }
 
 func (s *patrolStore) ByNumber(_ string, number string) (publicpatrol.Patrol, bool, error) {
+	s.mu.Lock()
 	s.asked = append(s.asked, number)
+	s.mu.Unlock()
 	if s.err != nil {
 		return publicpatrol.Patrol{}, false, s.err
 	}
 	p, ok := s.patrols[number]
 	return p, ok, nil
+}
+
+// askedFor reads the recorded numbers safely.
+func (s *patrolStore) askedFor() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.asked...)
 }
 
 // pageScans is a scans.Source over a fixed list.
@@ -516,7 +531,7 @@ func TestPatrolPageNormalisesTheNumber(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("want 200, got %d", resp.StatusCode)
 	}
-	for _, asked := range store.asked {
+	for _, asked := range store.askedFor() {
 		if asked != "42" {
 			t.Errorf("the projection was asked for %q; the number should be normalised to 42", asked)
 		}

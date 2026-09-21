@@ -240,14 +240,33 @@ func (app *application) renderPatrolNotYet(w http.ResponseWriter) {
 	})
 }
 
-// allowPublicSiteRead applies the by-IP read limit.
+// allowPublicSiteRead applies the by-IP read limit for pages and JSON.
 //
-// Shares `publicGlimtReadLimiter` deliberately, rather than introducing a second budget: it is the same
-// anonymous audience arriving at the same origin, and the reason that limiter is keyed by IP and set
-// generously — a school or workplace behind one NAT shares a budget — applies identically here. Whether
-// the public site wants its own ceiling is task 347's question, with the load numbers to answer it.
+// Shares `publicGlimtReadLimiter` deliberately, rather than introducing a second page budget: it is the same
+// anonymous audience arriving at the same origin for the same kind of response, and the reason that limiter
+// is keyed by IP and set generously — a school or workplace behind one NAT shares a budget — applies
+// identically here.
+//
+// **Media is the one thing that does not share it** (task 347): see `allowPublicMediaRead`, because sixty
+// thumbnails per album page would otherwise spend the allowance the next page needs.
 func (app *application) allowPublicSiteRead(w http.ResponseWriter, r *http.Request) bool {
 	return app.allowPublicGlimtRead(w, r)
+}
+
+// allowPublicMediaRead applies the by-IP limit for public media bytes.
+//
+// Its own budget, an order of magnitude above the page limit, because the request counts differ by an order
+// of magnitude: an album page is one HTML response and up to sixty thumbnails. The numbers, and the NAT'd
+// school they are sized for, are in env.go at `publicMediaReadsPerMinute`.
+//
+// The message is Danish and readable for the same reason every other limit here is: this is a route a
+// grandparent reaches by following a link, and a bare 429 in a browser reads as *broken*.
+func (app *application) allowPublicMediaRead(w http.ResponseWriter, r *http.Request) bool {
+	if app.publicMediaReadLimiter == nil || app.publicMediaReadLimiter.Allow(clientIP(r)) {
+		return true
+	}
+	app.RateLimitMessageResponse(w, r, "For mange billeder på én gang. Prøv igen om lidt.")
+	return false
 }
 
 // renderPublicPage executes one of the site's templates with the shared layout.
