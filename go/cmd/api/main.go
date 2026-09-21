@@ -38,6 +38,7 @@ import (
 	"nathejk.dk/nathejk/table/glimt"
 	"nathejk.dk/nathejk/table/kort"
 	"nathejk.dk/nathejk/table/maphandout"
+	"nathejk.dk/nathejk/table/pagereport"
 	"nathejk.dk/nathejk/table/person"
 	"nathejk.dk/nathejk/table/publicpatrol"
 	"nathejk.dk/nathejk/table/scan"
@@ -429,6 +430,10 @@ func run(logger *slog.Logger) error {
 	// trackPoints is the recorded position points (PRD 011, task 340). The first reader the TELEMETRY
 	// stream has ever had — it has been published to since task 084 and consumed by nothing.
 	var trackPoints *trackpoint.Table
+	// pageReports is the takedown reports filed from the public pages (PRD 011, task 343). Write-only from
+	// this app's point of view — there is no in-app moderation surface, so the projection exists to make
+	// the footer's "skriv til os" promise land somewhere an organizer can read out of band.
+	var pageReports *pagereport.Table
 	if ev != nil && (err == nil || noBroker) {
 		if t, cerr := kort.New(ev.publisherOrNil(), ev.writer, ev.reader,
 			// A body we cannot decode is the one signal that our mirrored copy of hq's event shapes
@@ -494,6 +499,12 @@ func run(logger *slog.Logger) error {
 			logger.Error("track point projection unavailable", "err", cerr)
 		} else {
 			trackPoints = t
+		}
+
+		if t, cerr := pagereport.New(ev.publisherOrNil(), ev.writer, ev.reader); cerr != nil {
+			logger.Error("page report projection unavailable", "err", cerr)
+		} else {
+			pageReports = t
 		}
 	}
 
@@ -572,6 +583,9 @@ func run(logger *slog.Logger) error {
 			}
 			if trackPoints != nil {
 				projections = append(projections, trackPoints)
+			}
+			if pageReports != nil {
+				projections = append(projections, pageReports)
 			}
 
 			ev.registerProjections(logger, projections...)

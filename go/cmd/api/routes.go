@@ -170,6 +170,10 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodGet, "/offentligt/album/:slug", app.albumPageHandler)
 	router.HandlerFunc(http.MethodGet, "/offentligt/patrulje", app.patrolSearchLookupHandler)
 	router.HandlerFunc(http.MethodGet, "/offentligt/patrulje/:number", app.publicPatrolPageHandler)
+	// The takedown route (task 343). A **form POST**, not a JSON endpoint, because it has to work with
+	// JavaScript disabled — and registered bare like every other public route, so no session can be read
+	// even though this one writes. It reports; it hides nothing (see patrolreport.go).
+	router.HandlerFunc(http.MethodPost, "/offentligt/patrulje/:number/anmeld", app.reportPatrolPageHandler)
 	// Album media (task 334). Under /api/public/ with the glimt media route rather than under
 	// /offentligt/, because it serves bytes rather than a page — and it shares `streamGlimtMedia`, so
 	// the ETag handling and the missing-object degradation cannot diverge between the two.

@@ -82,6 +82,13 @@ type publicPatrolPageData struct {
 	TrackSegments int
 	TrackPoints   int
 	TrackAbsent   bool
+
+	// Reported acknowledges a report that was just filed (task 343).
+	//
+	// Set from a query parameter after the form's redirect, not from any stored state: the page must not
+	// know whether *somebody else* reported it. "Others have complained about your patrol's page" is not
+	// a thing a public page should tell a visitor, and a count would invite exactly that rendering.
+	Reported bool
 }
 
 // publicScanRow is one registration as the page lists it.
@@ -130,6 +137,9 @@ func (app *application) publicPatrolPageHandler(w http.ResponseWriter, r *http.R
 		app.renderPatrolNotYet(w)
 		return
 	}
+	// The acknowledgement after the takedown form's redirect (task 343). A query parameter, so a reload
+	// keeps the message and nothing is stored about who reported what.
+	data.Reported = r.URL.Query().Get("anmeldt") == "1"
 	app.renderPublicPage(w, "patrol", data)
 }
 

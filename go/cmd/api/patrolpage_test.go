@@ -224,6 +224,11 @@ func TestAPatrolThatHasNotFinishedIsIndistinguishableFromAnUnknownOne(t *testing
 }
 
 // And a closed page must leak nothing about the patrol behind it — not its name, not its group.
+//
+// Note the sharp edge: the substring search covers the *whole* document, stylesheet included, so a hex
+// colour containing "43" fails this test (one did — task 343). That is a false positive, and it is still
+// worth keeping the check this blunt: the alternative is parsing the body, and a leak that hides in an
+// attribute is exactly the kind this test is for.
 func TestAClosedPageLeaksNothingAboutARealPatrol(t *testing.T) {
 	_, _, srv := patrolPageApp(t)
 

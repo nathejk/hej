@@ -371,7 +371,16 @@ func distanceKmFromPage(t *testing.T, page string) int {
 // for a file nobody committed and the map silently stops drawing in production while every other test
 // passes. This test reads the paths out of the rendered page rather than repeating them, so a new asset is
 // covered the moment it is added.
+//
+// **Skipped where the frontend tree is not present.** The dev container for the api mounts only `go/`, so
+// there is no `vue/public` to look at and a failure there would be about the mount rather than about the
+// assets. A full checkout — a developer's machine, CI — has both, which is where this needs to bite.
 func TestIslandAssetsAreVendored(t *testing.T) {
+	publicDir := filepath.Join("..", "..", "..", "vue", "public")
+	if _, err := os.Stat(publicDir); err != nil {
+		t.Skipf("no frontend tree at %s (api-only checkout); nothing to verify", publicDir)
+	}
+
 	app, srv := mapApp(t)
 	_ = app
 
@@ -382,7 +391,7 @@ func TestIslandAssetsAreVendored(t *testing.T) {
 		t.Fatal("the page referenced no island assets; the fixture no longer renders a map")
 	}
 	for _, ref := range refs {
-		path := filepath.Join("..", "..", "..", "vue", "public", filepath.FromSlash(strings.TrimPrefix(ref, "/")))
+		path := filepath.Join(publicDir, filepath.FromSlash(strings.TrimPrefix(ref, "/")))
 		if _, err := os.Stat(path); err != nil {
 			t.Errorf("the page references %s but %s is not checked in (re-run vue/scripts/vendor-leaflet.sh): %v",
 				ref, path, err)

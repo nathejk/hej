@@ -394,6 +394,17 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   .find .hint { color: #666; font-size: .85rem; margin-top: .5rem; }
   .find .problem { color: #b91c1c; font-size: .9rem; margin-top: .5rem; }
   .more { margin-top: .75rem; }
+  /* The takedown form (task 343). Quiet by default — a <details> — so the page is not led by an apology,
+     but full width and full size once opened: this is the form somebody upset is filling in on a phone. */
+  .report { margin-top: 1.5rem; }
+  .report summary { cursor: pointer; color: #1d4ed8; }
+  .report label { display: block; font-weight: 600; margin: .75rem 0 .35rem; }
+  .report textarea { width: 100%; box-sizing: border-box; font: inherit; padding: .5rem;
+         border: 1px solid #94a3b8; border-radius: .25rem; }
+  .report button { margin-top: .5rem; font-size: 1.1rem; padding: .5rem 1rem; border: 0;
+         border-radius: .25rem; background: #1d4ed8; color: #fff; cursor: pointer; }
+  .report .thanks { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: .25rem;
+         padding: .6rem .75rem; color: #166534; }
   footer { border-top: 1px solid #ddd; margin-top: 2rem; padding-top: 1rem;
          color: #555; font-size: .85rem; }
 </style>
@@ -591,6 +602,33 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   {{else}}
   <p class="empty">Der er ingen registreringer på denne patrulje.</p>
   {{end}}
+</section>
+
+<!-- **The takedown route** (task 343). A plain form, so it works with JavaScript off, and a <details> so
+     it is present without shouting: a visitor looking for it finds it, and a family reading the page is
+     not greeted by a page apologising for itself.
+
+     It reports rather than removes — see cmd/api/patrolreport.go for why one anonymous request must not
+     take a patrol's page down. The wording says so, because a promise of "immediately" that we do not keep
+     is worse than an honest "we look at it". -->
+<section class="report">
+  {{if .Reported}}
+  <p class="thanks">
+    Tak. Vi har fået din besked og kigger på den.
+  </p>
+  {{end}}
+  <details>
+    <summary>Er der noget på denne side, der ikke skal ligge her?</summary>
+    <p>
+      Skriv til os, så kigger vi på det. Det kan være en registrering, der ikke er jeres, en rute, der ser
+      forkert ud, eller noget helt tredje. Du behøver ikke skrive dit navn.
+    </p>
+    <form method="post" action="/offentligt/patrulje/{{.Patrol.Number}}/anmeld">
+      <label for="reason">Hvad er der galt? (frivilligt)</label>
+      <textarea id="reason" name="reason" rows="4" maxlength="2000"></textarea>
+      <button type="submit">Send besked</button>
+    </form>
+  </details>
 </section>
 
 <p class="more"><a href="/offentligt">Tilbage til forsiden</a></p>
