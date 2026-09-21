@@ -466,9 +466,15 @@ func TestTheMapCarriesTheLegsWithNoTrackBehindThem(t *testing.T) {
 	}
 }
 
-// **Coverage is temporal, and that is worth knowing.** A leg whose window contains track points is not dotted,
-// even if those points are somewhere else entirely — the same property the distance estimate has had since task
-// 339, because both ask `alongTrack`. Pinned so nobody "fixes" it into a geographic test without deciding to.
+// **Coverage is temporal, and that is worth knowing.** A leg whose window contains track points is covered for
+// the figure even if those points are somewhere else entirely — the same property the distance estimate has had
+// since task 339, because both ask `alongTrack`. Pinned so nobody "fixes" it into a geographic test without
+// deciding to.
+//
+// The **drawing** has to answer a second question that the figure does not: where to put the dotted line. Since
+// task 354's follow-up it joins a covered leg's scans to the ends of the recording — which here would be a line
+// a degree of longitude long, across ground the patrol never crossed. So a join nobody could have walked makes
+// the leg fall back to the honest statement: dotted from scan to scan, the way an uncovered leg is drawn.
 func TestALegIsCoveredByTimeNotByPlace(t *testing.T) {
 	app, srv := mapApp(t)
 	app.models.Scans = pageScans{byPatrol: map[string][]scans.Scan{
@@ -488,8 +494,18 @@ func TestALegIsCoveredByTimeNotByPlace(t *testing.T) {
 	_, body := getPublic(t, srv.URL+"/api/public/patrol/42/map", nil)
 	out := decodeMap(t, body)
 
-	if len(out.Untracked) != 0 {
-		t.Errorf("want the leg treated as covered, got %d: %s", len(out.Untracked), body)
+	// The figure still counts it as covered — the track is drawn, and nothing here changes what alongTrack says.
+	if len(out.Track) == 0 {
+		t.Errorf("the recording should still be drawn: %s", body)
+	}
+	if len(out.Untracked) != 1 {
+		t.Fatalf("want the leg dotted scan to scan, got %d: %s", len(out.Untracked), body)
+	}
+	// And it must be the scan-to-scan line, not a line reaching out to the displaced recording.
+	for _, end := range out.Untracked[0] {
+		if end[1] > 12.5 {
+			t.Errorf("a dotted leg must not reach the displaced recording: %s", body)
+		}
 	}
 }
 

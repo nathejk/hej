@@ -345,6 +345,25 @@ type Leg struct {
 //
 // Order is time order, and a leg needs two positioned scans — an unplottable scan anchors nothing, as on the
 // page's list.
+//
+// # A covered leg still gets dotted ends
+//
+// Reported by the maintainer from a rendered page, 2026-09-21: the drawing broke off after a checkpoint scan,
+// and again on both sides of a recorded stretch, leaving a solid segment floating with nothing joining it to
+// the scans either side. The first version skipped a covered leg **whole** — and a recording almost never
+// begins at one scan and ends at the next, because a phone comes out of a pocket somewhere in the middle. So
+// a covered leg is three parts, not one: dotted to where the recording starts, solid where it runs, dotted
+// from where it stops to the next scan.
+//
+// Every returned leg still means what it always meant — the patrol was at both ends and we did not record the
+// way between — so this is a finer drawing of the same rule, not a new one. Leg-level agreement with the
+// figure is untouched: a leg the estimate measured is never dotted across.
+//
+// **The silences inside a covered leg stay breaks.** Joining the end of one recorded stretch to the start of
+// the next is the one join this must not make: the track is merged and unattributed, so those two points may
+// belong to two different members, and a line between them draws travel nobody made (task 354). The ends are
+// different in kind: a scan is a fact about the whole patrol, and so is - somebody in the patrol was recorded
+// here - which is the claim the scan-to-scan legs already make.
 func UncoveredLegs(scans []Scan, track []Point) []Leg {
 	positioned, _ := splitByPosition(scans)
 	if len(positioned) < 2 {
@@ -357,10 +376,82 @@ func UncoveredLegs(scans []Scan, track []Point) []Leg {
 	var out []Leg
 	for i := 1; i < len(positioned); i++ {
 		from, to := positioned[i-1], positioned[i]
-		if alongTrack(track, from.At, to.At) > 0 {
+
+		// Still alongTrack, so "covered" keeps meaning exactly what it means to the figure.
+		if alongTrack(track, from.At, to.At) <= 0 {
+			out = append(out, Leg{From: from, To: to})
 			continue
 		}
-		out = append(out, Leg{From: from, To: to})
+
+		// Covered, so nothing is dotted across it — but the recording almost never starts at one scan
+		// and stops at the next, so join its ends to them.
+		recorded := within(track, from.At, to.At)
+		approach := Leg{From: from, To: recorded[0]}
+		departure := Leg{From: recorded[len(recorded)-1], To: to}
+
+		// **Unless the join cannot be walked.** Coverage is by time, not by place (task 339): the points in
+		// this window may have been recorded by a member who was somewhere else entirely, in which case
+		// joining a scan to them draws a line across ground the patrol never crossed — worse than drawing
+		// nothing. When that happens the leg falls back to what we can actually stand behind: the patrol was
+		// at both scans, and we do not know the way between.
+		if !walkable(approach) || !walkable(departure) {
+			out = append(out, Leg{From: from, To: to})
+			continue
+		}
+
+		out = appendIfDrawable(out, approach)
+		out = appendIfDrawable(out, departure)
+	}
+	return out
+}
+
+// minDottedKm is the shortest dotted leg worth drawing: 25 metres.
+//
+// About the drawing, not about the data. A phone already recording when the patrol reached a checkpoint puts
+// its first sample within a few metres of the scan, and a dotted leg that short renders as a smudge under the
+// pin — at the zooms this map opens at, 25 m is roughly a pixel. Dropping it loses nothing a reader could
+// have seen; keeping it would put marks on the map where there is nothing to say.
+const minDottedKm = 0.025
+
+// walkable reports whether a join between a scan and a track point could have been made on foot.
+//
+// The same ceiling the estimate uses for a vehicle leg (MaxWalkingKmh), applied here for a different purpose:
+// not to exclude travel we will not count, but to notice that our **temporal** notion of coverage has picked
+// up a recording made somewhere the patrol was not. A zero or negative duration is unwalkable unless the two
+// are in the same place, which appendIfDrawable then discards anyway.
+func walkable(leg Leg) bool {
+	km := Between(leg.From.Lat, leg.From.Lng, leg.To.Lat, leg.To.Lng)
+	if km < minDottedKm {
+		return true
+	}
+	hours := leg.To.At.Sub(leg.From.At).Hours()
+	if hours <= 0 {
+		return false
+	}
+	return km/hours <= MaxWalkingKmh
+}
+
+func appendIfDrawable(legs []Leg, leg Leg) []Leg {
+	if Between(leg.From.Lat, leg.From.Lng, leg.To.Lat, leg.To.Lng) < minDottedKm {
+		return legs
+	}
+	return append(legs, leg)
+}
+
+// within returns the track points inside a closed time window, in time order.
+//
+// The same window as alongTrack, inclusive at both ends, so the two cannot disagree about which points belong
+// to a leg. Expects an already time-sorted track, as its callers guarantee.
+func within(track []Point, from, to time.Time) []Point {
+	var out []Point
+	for _, p := range track {
+		if p.At.Before(from) {
+			continue
+		}
+		if p.At.After(to) {
+			break
+		}
+		out = append(out, p)
 	}
 	return out
 }

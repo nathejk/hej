@@ -581,11 +581,24 @@ func TestUncoveredLegsAreTheLegsTheTrackDoesNotCover(t *testing.T) {
 
 	legs := UncoveredLegs([]Scan{first, second, third}, track)
 
-	if len(legs) != 1 {
-		t.Fatalf("want 1 uncovered leg, got %d", len(legs))
+	// Three scans, one recorded leg and one not — and the recorded one contributes an **approach**: the
+	// recording starts 550 m after the first scan, so that stretch is unrecorded and gets dotted. Its other
+	// end needs nothing: the last sample sits on the second scan, so the departure leg is below minDottedKm
+	// and is dropped rather than smudged under the pin.
+	if len(legs) != 2 {
+		t.Fatalf("want the approach and the unrecorded leg, got %d: %+v", len(legs), legs)
 	}
-	if !closeTo(legs[0].From.Lat, 55.720, 0.0001) || !closeTo(legs[0].To.Lat, 55.740, 0.0001) {
-		t.Errorf("the uncovered leg is the wrong one: %+v", legs[0])
+	if !closeTo(legs[0].From.Lat, 55.700, 0.0001) || !closeTo(legs[0].To.Lat, 55.705, 0.0001) {
+		t.Errorf("first leg should join the scan to where the recording starts: %+v", legs[0])
+	}
+	if !closeTo(legs[1].From.Lat, 55.720, 0.0001) || !closeTo(legs[1].To.Lat, 55.740, 0.0001) {
+		t.Errorf("second leg should be the unrecorded one: %+v", legs[1])
+	}
+	// The thing that must never happen: a dotted line drawn across ground we have a track for.
+	for _, leg := range legs {
+		if closeTo(leg.From.Lat, 55.700, 0.0001) && closeTo(leg.To.Lat, 55.720, 0.0001) {
+			t.Error("the covered leg must not be dotted across")
+		}
 	}
 
 	// And the covered leg is the one the figure raised — the agreement between the drawing and the number.
@@ -596,9 +609,13 @@ func TestUncoveredLegsAreTheLegsTheTrackDoesNotCover(t *testing.T) {
 }
 
 // **Covered is not the same as raised, and the map asks the first question.** A leg whose track wandered less
-// than the straight line keeps the straight line in the figure — but it is still a leg we recorded, so it must
-// not be dotted. Getting this wrong is how the map ends up claiming ignorance about ground it has a trace of.
-func TestALegWithATraceIsNotDottedEvenWhenItRaisesNothing(t *testing.T) {
+// than the straight line keeps the straight line in the figure — but it is still a leg we recorded, so the
+// stretch we have a trace of must not be dotted. Getting this wrong is how the map ends up claiming ignorance
+// about ground it has a trace of.
+//
+// What it *does* get is the two ends (the maintainer's report, 2026-09-21): the phone woke up in the middle, so
+// the walk to that point and the walk on from it are both unrecorded and both dotted.
+func TestALegWithATraceIsNotDottedAcross(t *testing.T) {
 	scans := []Scan{scan(55.700, 12.200, 0), scan(55.740, 12.200, 60)}
 	// Two samples, 200 m apart, inside a 4.4 km leg: a phone that woke up briefly.
 	track := []Point{
@@ -606,11 +623,61 @@ func TestALegWithATraceIsNotDottedEvenWhenItRaisesNothing(t *testing.T) {
 		{Lat: 55.712, Lng: 12.200, At: at(25)},
 	}
 
-	if got := len(UncoveredLegs(scans, track)); got != 0 {
-		t.Errorf("a leg with a trace must not be dotted, got %d uncovered", got)
+	legs := UncoveredLegs(scans, track)
+	if len(legs) != 2 {
+		t.Fatalf("want the two ends dotted, got %d: %+v", len(legs), legs)
+	}
+	if !closeTo(legs[0].From.Lat, 55.700, 0.0001) || !closeTo(legs[0].To.Lat, 55.710, 0.0001) {
+		t.Errorf("want the scan joined to the first sample, got %+v", legs[0])
+	}
+	if !closeTo(legs[1].From.Lat, 55.712, 0.0001) || !closeTo(legs[1].To.Lat, 55.740, 0.0001) {
+		t.Errorf("want the last sample joined to the next scan, got %+v", legs[1])
+	}
+	// Neither of them may be the whole leg: the 200 m we recorded stays solid.
+	for _, leg := range legs {
+		if closeTo(leg.From.Lat, 55.700, 0.0001) && closeTo(leg.To.Lat, 55.740, 0.0001) {
+			t.Error("the recorded stretch must not be dotted over")
+		}
 	}
 	if est := Compute(scans, track); est.RaisedLegs != 0 {
 		t.Errorf("and the figure should not have been raised by it, got %d", est.RaisedLegs)
+	}
+}
+
+// A recording made **somewhere else** during the leg's window must not drag a dotted line out to it. Coverage
+// is temporal (task 339), so this happens for real: a member who is no longer with the patrol, or a phone whose
+// clock is off. The join could not have been walked, so the leg falls back to the scan-to-scan line — the one
+// claim we can stand behind.
+func TestADisplacedRecordingFallsBackToTheScanToScanLine(t *testing.T) {
+	scans := []Scan{scan(55.700, 12.200, 0), scan(55.740, 12.200, 60)}
+	// Inside the window, a degree of longitude away: ~60 km in under an hour, on foot.
+	track := []Point{
+		{Lat: 55.700, Lng: 13.200, At: at(10)},
+		{Lat: 55.708, Lng: 13.200, At: at(20)},
+	}
+
+	legs := UncoveredLegs(scans, track)
+	if len(legs) != 1 {
+		t.Fatalf("want one scan-to-scan leg, got %d: %+v", len(legs), legs)
+	}
+	if !closeTo(legs[0].From.Lng, 12.200, 0.0001) || !closeTo(legs[0].To.Lng, 12.200, 0.0001) {
+		t.Errorf("the leg must join the two scans, not the recording: %+v", legs[0])
+	}
+}
+
+// The smudge guard: a phone that was already recording when the patrol reached the checkpoint puts a sample
+// within metres of the scan, and a dotted leg that short is a mark on the map with nothing to say.
+func TestARecordingThatStartsAtTheScanGetsNoDottedStub(t *testing.T) {
+	scans := []Scan{scan(55.700, 12.200, 0), scan(55.740, 12.200, 60)}
+	track := []Point{
+		// ~1 m from the first scan, and the last sample lands on the second.
+		{Lat: 55.70001, Lng: 12.200, At: at(1)},
+		{Lat: 55.720, Lng: 12.200, At: at(30)},
+		{Lat: 55.740, Lng: 12.200, At: at(59)},
+	}
+
+	if legs := UncoveredLegs(scans, track); len(legs) != 0 {
+		t.Errorf("want no dotted stubs, got %d: %+v", len(legs), legs)
 	}
 }
 
