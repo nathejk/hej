@@ -41,6 +41,7 @@ import (
 	"nathejk.dk/nathejk/table/person"
 	"nathejk.dk/nathejk/table/publicpatrol"
 	"nathejk.dk/nathejk/table/scan"
+	"nathejk.dk/nathejk/table/trackpoint"
 )
 
 // application is the root dependency container for the API binary. It embeds
@@ -70,6 +71,14 @@ type application struct {
 	// recoverable answer. This one faces the open web, where a distinguishable "exists but unavailable"
 	// confirms a patrol number is real and that the race is still running — see publicgate.go.
 	publicGate *publicgate.Gate
+
+	// patrolTracks composes a patrol's merged, unattributed route and caches it (PRD 011 §6, task 340).
+	//
+	// **May be nil**, when either the person or the telemetry projection is missing. A nil means "we
+	// cannot tell what was recorded", which is not the same as "nothing was recorded" — and since an empty
+	// track is the *common* case (task 082 measured 2% coverage), conflating them would hide an outage
+	// behind a legitimate state forever.
+	patrolTracks *patrolTrackReader
 
 	// Auth infrastructure.
 	pins              *pin.Store
@@ -417,6 +426,9 @@ func run(logger *slog.Logger) error {
 	// the contact block, so the public page cannot name a person even by accident. See the package doc for
 	// why that is worth a second consumer.
 	var publicPatrols *publicpatrol.Table
+	// trackPoints is the recorded position points (PRD 011, task 340). The first reader the TELEMETRY
+	// stream has ever had — it has been published to since task 084 and consumed by nothing.
+	var trackPoints *trackpoint.Table
 	if ev != nil && (err == nil || noBroker) {
 		if t, cerr := kort.New(ev.publisherOrNil(), ev.writer, ev.reader,
 			// A body we cannot decode is the one signal that our mirrored copy of hq's event shapes
@@ -476,6 +488,12 @@ func run(logger *slog.Logger) error {
 			logger.Error("public patrol projection unavailable", "err", cerr)
 		} else {
 			publicPatrols = t
+		}
+
+		if t, cerr := trackpoint.New(ev.publisherOrNil(), ev.writer, ev.reader); cerr != nil {
+			logger.Error("track point projection unavailable", "err", cerr)
+		} else {
+			trackPoints = t
 		}
 	}
 
@@ -551,6 +569,9 @@ func run(logger *slog.Logger) error {
 			}
 			if publicPatrols != nil {
 				projections = append(projections, publicPatrols)
+			}
+			if trackPoints != nil {
+				projections = append(projections, trackPoints)
 			}
 
 			ev.registerProjections(logger, projections...)
@@ -665,6 +686,11 @@ func run(logger *slog.Logger) error {
 
 		// The public patrol page's gate (task 330). Nil fails closed — see the field's doc.
 		publicGate: publicGate,
+
+		// The patrol's merged route (task 340), composed from the member list and the telemetry points,
+		// and cached per patrol. Nil when either projection is missing — see newPatrolTrackReader.
+		patrolTracks: newPatrolTrackReader(peopleOrNil(persons),
+			trackPointQueriesOrNil(trackPoints), cfg.eventYear),
 
 		// The freshness check's own numbers (task 293). Attached to each cache below, so a derivation is
 		// counted where it happens rather than at whichever endpoint asked for it.

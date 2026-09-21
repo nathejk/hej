@@ -43,6 +43,8 @@ func (f fakeQueries) ListByAppRoles(string, []string) ([]person.Person, error) {
 	return nil, nil
 }
 
+func (f fakeQueries) MemberIDs(string, string) ([]string, error) { return nil, nil }
+
 func (f fakeQueries) ListPatrolByNumber(string, string) ([]person.Person, error) {
 	return nil, nil
 }
@@ -211,6 +213,8 @@ func (r yearRecorder) ListByAppRoles(year string, _ []string) ([]person.Person, 
 	*r.seen = append(*r.seen, year)
 	return nil, nil
 }
+
+func (r yearRecorder) MemberIDs(string, string) ([]string, error) { return nil, nil }
 
 func (r yearRecorder) ListPatrolByNumber(year, _ string) ([]person.Person, error) {
 	*r.seen = append(*r.seen, year)

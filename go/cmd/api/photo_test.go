@@ -47,6 +47,12 @@ type stubPeople struct {
 	// patrol backs the patrol lookup, keyed by the number asked for.
 	patrol      map[string][]person.Person
 	patrolAsked []string
+
+	// memberIDs backs MemberIDs, keyed by team id, and memberIDsAsked records what it was asked for — the
+	// post-race route must ask by team id and never by number, since a number is a public string and a
+	// team id is not.
+	memberIDs      map[string][]string
+	memberIDsAsked []string
 }
 
 func (s *stubPeople) Get(year, personID string) (person.Person, bool, error) {
@@ -90,6 +96,30 @@ func (s *stubPeople) ListPatrolByNumber(_ string, number string) ([]person.Perso
 		return nil, s.listedErr
 	}
 	return s.patrol[number], nil
+}
+
+// MemberIDs returns the ids of the team's members (task 340).
+//
+// Answers from `memberIDs` when a test has set it, and otherwise derives the ids from whatever patrol the
+// stub already holds — so tests that only care about membership do not have to populate a second field,
+// and a test that cares about the *narrowness* of this read can set it explicitly.
+func (s *stubPeople) MemberIDs(_ string, teamID string) ([]string, error) {
+	s.memberIDsAsked = append(s.memberIDsAsked, teamID)
+	if s.listedErr != nil {
+		return nil, s.listedErr
+	}
+	if ids, ok := s.memberIDs[teamID]; ok {
+		return ids, nil
+	}
+	var out []string
+	for _, members := range s.patrol {
+		for _, m := range members {
+			if m.TeamID == teamID {
+				out = append(out, m.PersonID)
+			}
+		}
+	}
+	return out, nil
 }
 
 func (s *stubPeople) ExpiredPortraits(_ string, before time.Time, _ int) ([]person.ExpiredPortrait, error) {

@@ -726,6 +726,24 @@ right trade or whether a static server-rendered map image is.
    here than in the old version of this PRD, because a public URL can be opened repeatedly by
    strangers — so the merged, simplified result must be **cached or materialised per patrol**, and
    the cache, not the stream, is what the page reads. Do not generalise the exception.
+
+   **⚠️ Superseded 2026-09-19 (task 340). This paragraph was wrong on both counts.** The points *are*
+   projected, into `nathejk/table/trackpoint`, and there is no departure from PRD 008 §8 to justify.
+   Two findings overturned it:
+
+   - **The library cannot read a stream on demand.** `stream.Stream` offers push `Subscribe` and
+     `LastMessage`, with no bounded fetch-by-subject. "Read one person's last twelve hours" would have
+     meant dropping to `nats.go` beneath the abstraction every other read goes through.
+   - **Projecting is better, for a reason this paragraph missed.** Task 083's contract is that a point
+     is identified by `(person, timestamp)` because a retry can republish it, and the reader is the
+     only place a duplicate can be removed. As a projection that is the **primary key** — dedup
+     enforced by the database. On demand it would have been a million-point in-memory problem, per
+     request, forever.
+
+   The volume was also never measured: 1.19M rows of six small columns is ~60–100 MB, the same order as
+   projections this service already carries. What this paragraph actually wanted — that a public page
+   must not do bulk work per request — is kept: the merge, the gap-breaking and the simplification
+   happen on read and are cached per patrol.
 5. **Albums.** A new small table: album (slug, title, description, order, published) and album
    item (album, ordinal, blob refs, caption, optional lat/lng, bounds-check verdict). Media goes
    through the existing `internal/blob` and `internal/imaging` path, which content-addresses and
@@ -784,10 +802,10 @@ JSON endpoints), and a gate applied in the template would leave the JSON open, w
 course in machine-readable form. One function, called first in all three, tested in both states.
 
 **Data / storage.** Two new tables (album, album item) plus a public patrol read model, each owned
-by its projection (PRD 008 §8). No storage for raw tracks; a materialised merged track per patrol
-if §8.4's caching goes that way. Media reuses the blob store, whose retention is PRD 019's — album
-media is **organizer-owned and must not be subject to glimt retention**, which is a real trap: the
-purge job walks the blob store.
+by its projection (PRD 008 §8). ~~No storage for tracks;~~ **and a `track_point` projection — see
+§8.4, which reversed that decision (task 340).** Media reuses the blob store, whose retention is
+PRD 019's — album media is **organizer-owned and must not be subject to glimt retention**, which is a
+real trap: the purge job walks the blob store.
 
 **Dependencies & risks.**
 

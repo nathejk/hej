@@ -254,6 +254,27 @@ type Queries interface {
 	// way for "no such patrol" as for "not allowed".
 	ListPatrolByNumber(year, number string) ([]Person, error)
 
+	// MemberIDs returns the person ids belonging to one team.
+	//
+	// # Why ids and not people
+	//
+	// The one caller is the post-race patrol route (PRD 011, task 340), which needs to ask the
+	// telemetry projection "whose points may I read?" and nothing else. `ListPatrolByNumber`
+	// would answer the same question and hand back whole `Person` values — names, phone numbers
+	// and `phoneParent` — into a code path that renders an **unauthenticated** page.
+	//
+	// So this read is narrowed to the only field that path has any use for. It is the same
+	// discipline `ExpiredPortraits` follows: the retention job gets refs rather than people,
+	// because it has no business holding a member's address while it deletes an image.
+	//
+	// Soft-deleted rows are excluded, as in every other read here. A member whose record was
+	// removed should not have their positions drawn.
+	//
+	// Empty slice, not an error, for an unknown team — and an empty team id returns nothing
+	// rather than every member with no team, which is the safe reading and the one personnel
+	// roles need.
+	MemberIDs(year, teamID string) ([]string, error)
+
 	// ExpiredPortraits returns the portraits that are due to be deleted: captured
 	// before `before`, or with no capture time recorded at all.
 	//
@@ -442,6 +463,39 @@ func (q querier) ListPatrolByNumber(year, number string) ([]Person, error) {
 			return nil, err
 		}
 		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// MemberIDs returns the person ids belonging to one team.
+//
+// Selects one column, deliberately: this read exists so the post-race route path never holds a `Person`.
+// See the interface's doc — the caller renders an unauthenticated page, and the cheapest way to guarantee
+// it cannot leak a name is for the name never to arrive.
+func (q querier) MemberIDs(year, teamID string) ([]string, error) {
+	if teamID == "" {
+		// An empty team id would otherwise match every member with no team — which is every personnel
+		// role in the event. The same reading `reveal.Revealed` applies to an empty patrol id.
+		return nil, nil
+	}
+
+	rows, err := q.db.Query(`
+		SELECT personId
+		FROM person
+		WHERE year = ? AND deleted = 0 AND teamId = ?
+		ORDER BY personId`, year, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
 	}
 	return out, rows.Err()
 }

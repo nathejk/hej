@@ -1,0 +1,251 @@
+// Package patroltrack turns a patrol's members' recorded positions into one drawable route
+// (PRD 011 §6, §0b.1; task 340).
+//
+// # One track, no attribution, and that is a requirement rather than a simplification
+//
+// The public surface's whole privacy claim is that it names no person (PRD 011 §0b.1). An attributed track
+// would break it outright, and it would disclose two things nobody agreed to publish:
+//
+//   - **who declined location** — visibly absent from a map the rest of the patrol is on;
+//   - **who left the group** — visibly somewhere else.
+//
+// So the output is segments with no person on them, and there is no way to ask which member a segment came
+// from. The type is the enforcement; `Segment` has nowhere to put an id.
+//
+// # The merge is a union of segments, never an interleaving of points
+//
+// The tempting implementation is to sort every member's points into one time-ordered list and draw it. That
+// produces a **zig-zag artefact**: two members walking ten metres apart, sampling at slightly different
+// moments, yield a line that jumps between them a hundred times a kilometre. It looks like a drunken walk
+// and it is purely an artefact of interleaving.
+//
+// So each member's points are simplified and broken independently, and the results are concatenated. The
+// drawn route is a multi-segment polyline in one colour, which reads as "the patrol went this way" without
+// claiming any single person did.
+//
+// # Gaps are gaps
+//
+// Task 082 measured the recorded track at **2% of a 22-hour day**, with one gap per backgrounding matching
+// it almost to the second. Joining two points either side of a two-hour hole draws a confident straight
+// line through terrain nobody walked. So a segment breaks when the time between consecutive points exceeds
+// `GapThreshold`, and the gaps are left visible — they are information, and smoothing them away is the one
+// presentation choice PRD 011 §0a says must not be made.
+//
+// # Why this is a package
+//
+// Everything here is a pure function of points. The merge rule, the gap rule and the simplification are
+// the parts worth getting right, and they are worth testing without a database — the same reasoning behind
+// `internal/distance` and `internal/imaging`.
+package patroltrack
+
+import (
+	"math"
+	"time"
+
+	"nathejk.dk/nathejk/table/trackpoint"
+)
+
+// GapThreshold is how long a silence has to be before a segment breaks.
+//
+// # Why five minutes
+//
+// The client samples at ~30 s and flushes every 2 minutes (task 083). So a gap of a minute or two is
+// ordinary jitter — a slow fix, a flush boundary — and breaking on it would shatter a continuous walk into
+// hundreds of fragments that draw identically to one line but cost more to send.
+//
+// Five minutes is ten missed samples. At a patrol's 3–4 km/h that is 250–350 m of unrecorded ground, which
+// is about the point at which a straight line between the two ends stops being a fair description of the
+// route and starts being an invention.
+//
+// It is a **multiple of the sampling interval**, as PRD 011 §6 requires — ten of them — rather than a round
+// number chosen for looking tidy.
+const GapThreshold = 5 * time.Minute
+
+// SimplifyMetres is the tolerance the Douglas–Peucker simplification runs at.
+//
+// # Why 15 metres, against a 10.5 m median accuracy
+//
+// Task 082 measured 10.5 m median accuracy on an iPhone and 35 m on a Wi-Fi-only iPad. A tolerance *below*
+// the measurement error would be preserving noise to the nearest metre and calling it detail: the wobble
+// it keeps is the GPS's, not the patrol's.
+//
+// 15 m is just above the phone median, so it removes the wobble while keeping every real corner — a turn
+// at a junction moves the line by tens of metres, not by ten. It is deliberately well below the iPad's
+// 35 m: simplifying to *that* would start rounding off real geometry for everybody in order to flatter the
+// worst device.
+const SimplifyMetres = 15.0
+
+// Point is one position on a drawn route.
+//
+// No accuracy and no person: the map draws a line, and a field the map does not use is a field that ends up
+// in a payload nobody audited.
+type Point struct {
+	Lat, Lng float64
+}
+
+// Segment is one unbroken stretch of recorded route.
+//
+// A segment means "these points were recorded closely enough in time that a line between them is a fair
+// description". A break between segments means "we do not know what happened here" — which the map must
+// render as a gap rather than bridging.
+type Segment struct {
+	Points []Point
+}
+
+// Track is a patrol's whole drawable route.
+type Track struct {
+	// Segments are the unbroken stretches, in no meaningful order.
+	//
+	// Unordered on purpose: they come from different people and ordering them would imply a sequence the
+	// data does not support. The map draws them all; nothing reads them as a route in order.
+	Segments []Segment
+
+	// Points is how many positions survived simplification, across every segment. For the map's own sake
+	// and for the page's honesty sentence.
+	Points int
+
+	// SourcePoints is how many points went in, before dedup within a person and simplification.
+	//
+	// Kept so the page can say what the track covers rather than implying it is a route. A track of 180
+	// points from 4,000 recorded is a different claim from 180 from 190.
+	SourcePoints int
+
+	// Recorders is how many of the patrol's members contributed any point at all.
+	//
+	// **A count, never a list.** It is the one number that says whether an empty-looking map means "nobody
+	// recorded" or "one person recorded a little", which is the difference between a broken feature and a
+	// quiet night. A count cannot be turned back into who declined; a list could.
+	Recorders int
+}
+
+// IsEmpty reports whether there is anything to draw.
+func (t Track) IsEmpty() bool { return len(t.Segments) == 0 }
+
+// Merge turns per-person point groups into one unattributed track.
+//
+// `groups` is one slice per person, each already in time order — the shape `trackpoint.Queries.ByPeople`
+// returns, chosen so the correct merge is the easy one.
+//
+// Points within a person are assumed deduplicated by the projection's primary key (task 083's contract, as
+// a constraint). Merge does not re-deduplicate across people, and must not: two members standing together
+// legitimately recorded the same place at the same moment, and collapsing that would be asserting they were
+// one person.
+func Merge(groups [][]trackpoint.Point) Track {
+	var out Track
+
+	for _, points := range groups {
+		if len(points) == 0 {
+			continue
+		}
+		out.Recorders++
+		out.SourcePoints += len(points)
+
+		for _, run := range breakOnGaps(points) {
+			simplified := simplify(run, SimplifyMetres)
+			if len(simplified) < 2 {
+				// A single point is not a line. Dropped rather than emitted as a one-point segment,
+				// which every map library draws as nothing or as a stray dot depending on its mood.
+				continue
+			}
+			out.Segments = append(out.Segments, Segment{Points: toPoints(simplified)})
+			out.Points += len(simplified)
+		}
+	}
+	return out
+}
+
+// breakOnGaps splits one person's points wherever the recording stopped for too long.
+func breakOnGaps(points []trackpoint.Point) [][]trackpoint.Point {
+	var runs [][]trackpoint.Point
+	current := []trackpoint.Point{points[0]}
+
+	for i := 1; i < len(points); i++ {
+		gap := time.Duration(points[i].TS-points[i-1].TS) * time.Millisecond
+		if gap > GapThreshold {
+			runs = append(runs, current)
+			current = []trackpoint.Point{points[i]}
+			continue
+		}
+		current = append(current, points[i])
+	}
+	return append(runs, current)
+}
+
+// simplify runs Douglas–Peucker over a run of points.
+//
+// # Why Douglas–Peucker and not "every nth point"
+//
+// Because decimation is wrong in the way that matters. Dropping every second point removes a sharp turn as
+// readily as a straight stretch, so a route through a forest loses its corners — the features a patrol
+// would recognise — while keeping redundant points along a road. Douglas–Peucker removes a point only when
+// the line without it stays within the tolerance, so it deletes straight-line redundancy and preserves
+// geometry by definition.
+//
+// # Recursion depth
+//
+// Recursive, and bounded in practice: the worst case is a pathological zig-zag at exactly the tolerance,
+// and the input is one person's run between gaps — a few hundred points. A non-recursive version would be
+// an explicit stack saying the same thing less clearly.
+func simplify(points []trackpoint.Point, toleranceMetres float64) []trackpoint.Point {
+	if len(points) < 3 {
+		return points
+	}
+
+	first, last := points[0], points[len(points)-1]
+
+	maxDist := -1.0
+	maxIdx := 0
+	for i := 1; i < len(points)-1; i++ {
+		if d := perpendicularMetres(points[i], first, last); d > maxDist {
+			maxDist, maxIdx = d, i
+		}
+	}
+
+	if maxDist <= toleranceMetres {
+		// Every intermediate point is within tolerance of the straight line, so the straight line is an
+		// honest description of this run.
+		return []trackpoint.Point{first, last}
+	}
+
+	left := simplify(points[:maxIdx+1], toleranceMetres)
+	right := simplify(points[maxIdx:], toleranceMetres)
+	// The split point is in both halves; drop it once so it is not duplicated in the output.
+	return append(left[:len(left)-1], right...)
+}
+
+// perpendicularMetres is the distance from p to the line through a and b, in metres.
+//
+// # Why a local flat projection rather than spherical geometry
+//
+// Because the distances involved are tens of metres over runs of a few kilometres, at 55°N. Projecting
+// longitude by cos(lat) and treating the result as a plane is accurate to far better than a metre at that
+// scale — well inside a 15 m tolerance — and it avoids great-circle trigonometry in the inner loop of a
+// recursion that runs over every point of every member of every patrol.
+//
+// The race-area buffer makes the same simplification for the same reason, and `internal/distance` does
+// *not*, because there the error accumulates over a sum of long legs.
+func perpendicularMetres(p, a, b trackpoint.Point) float64 {
+	const metresPerDegreeLat = 111_320.0
+	metresPerDegreeLng := metresPerDegreeLat * math.Cos(a.Lat*math.Pi/180)
+
+	px := (p.Lng - a.Lng) * metresPerDegreeLng
+	py := (p.Lat - a.Lat) * metresPerDegreeLat
+	bx := (b.Lng - a.Lng) * metresPerDegreeLng
+	by := (b.Lat - a.Lat) * metresPerDegreeLat
+
+	lenSq := bx*bx + by*by
+	if lenSq == 0 {
+		// a and b are the same place, so "distance from the line" is distance from the point.
+		return math.Hypot(px, py)
+	}
+	// The cross product's magnitude over the base length is the height of the triangle.
+	return math.Abs(px*by-py*bx) / math.Sqrt(lenSq)
+}
+
+func toPoints(in []trackpoint.Point) []Point {
+	out := make([]Point, 0, len(in))
+	for _, p := range in {
+		out = append(out, Point{Lat: p.Lat, Lng: p.Lng})
+	}
+	return out
+}

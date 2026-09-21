@@ -134,6 +134,8 @@ func (p *loadPeople) ListByAppRoles(string, []string) ([]person.Person, error) {
 	return p.listed, nil
 }
 func (p *loadPeople) ListPatrolByNumber(string, string) ([]person.Person, error) { return nil, nil }
+
+func (p *loadPeople) MemberIDs(string, string) ([]string, error) { return nil, nil }
 func (p *loadPeople) ExpiredPortraits(string, time.Time, int) ([]person.ExpiredPortrait, error) {
 	return nil, nil
 }
