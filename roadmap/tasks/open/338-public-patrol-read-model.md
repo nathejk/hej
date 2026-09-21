@@ -38,6 +38,11 @@ Two details that will otherwise be got wrong:
 
 - [ ] A projection owned by its own consumer (PRD 008 §8), carrying only the fields listed above.
 - [ ] **No name column of any kind**, and `contactName` demonstrably not projected.
+- [ ] Extend task 337's structural check (`publicprivacy_test.go`) to cover the patrol read model and
+      its view types, the way it already covers the album ones. Task 337 left this for 338 because the
+      types did not exist yet — the behavioural route walk already covers
+      `/offentligt/patrulje/:number`, so a leak will fail without a line being added, but the
+      person-shaped-field check needs the types named.
 - [ ] `korps` stored as the slug, rendered via `types.CorpsSlug.Label()`; `andet` and empty omitted from
       the header rather than printed.
 - [ ] Finish time is nullable and null for a backstop-opened patrol.

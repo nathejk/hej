@@ -1,0 +1,339 @@
+package main
+
+import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"nathejk.dk/nathejk/table/album"
+	"nathejk.dk/nathejk/table/glimt"
+	"nathejk.dk/nathejk/table/person"
+)
+
+// The public surface names no person (PRD 011 §6, §8; task 337).
+//
+// # What this file is for
+//
+// The entire privacy claim of the public frontpage is that **it names no human being**. A patrol is a
+// patrol — a number, a name, a gruppe, a korps — and its route is the patrol's route. That is what makes
+// publishing a merged track defensible (PRD 011 §0b.1), and it is why per-member tracks are forbidden
+// rather than deferred.
+//
+// A claim like that is worth exactly as much as the test behind it. So this file is the test.
+//
+// # Enumeration, not a hand-written list
+//
+// The routes are read out of `routes.go` by parsing it, the same way the OpenAPI guard does. That is the
+// point: **a public route added later must be covered without anybody remembering to add it here.** A
+// list of paths in a test file is a list that goes stale on the first busy afternoon.
+//
+// # Fixture values, not just field names
+//
+// Asserting that no response contains the string "phoneParent" would catch a JSON field and miss a name
+// rendered into HTML — which is the leak that actually matters on a server-rendered surface. So the
+// fixtures carry distinctive personal values and the assertions look for *those* as well.
+
+// publicRoutePaths returns every route registered under the public surface, with its method.
+//
+// `/offentligt*` and `/api/public/*`. Both prefixes, because the surface is split across them by
+// content type rather than by audience — the pages are under one and the bytes and JSON under the other,
+// and a leak is equally bad in either.
+func publicRoutePaths(t *testing.T) []registeredRoute {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "routes.go", nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse routes.go: %v", err)
+	}
+
+	var out []registeredRoute
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "HandlerFunc" || len(call.Args) < 3 {
+			return true
+		}
+		method := httpMethodName(call.Args[0])
+		path, ok := stringLit(call.Args[1])
+		if !ok || method == "" {
+			return true
+		}
+		if !isPublicSurface(path) {
+			return true
+		}
+		// GET only. The public surface's writes are the anonymous report and the Team-section removals;
+		// a 204 has no body to leak, and asserting on one would just be noise.
+		if method != http.MethodGet {
+			return true
+		}
+		out = append(out, registeredRoute{
+			method:  method,
+			path:    path,
+			handler: handlerName(call.Args[2]),
+			line:    fset.Position(call.Pos()).Line,
+		})
+		return true
+	})
+	return out
+}
+
+// isPublicSurface reports whether a path is served to the open web.
+//
+// Deliberately broader than "the routes task 332 added": it catches anything a later task registers
+// under either prefix, which is the whole reason this is a predicate rather than a list.
+func isPublicSurface(path string) bool {
+	return strings.HasPrefix(path, "/offentligt") || strings.HasPrefix(path, "/api/public/")
+}
+
+// The personal values the fixtures carry. Distinctive enough that a substring match means a real leak
+// rather than a coincidence in CSS or Danish prose.
+const (
+	leakName        = "Astrid Mortensen"
+	leakOwnPhone    = "+4530000042"
+	leakParentPhone = "+4530000043"
+	leakPortraitRef = "portraitrefportraitrefportraitrefportraitrefportraitrefportraitre"
+	leakPersonID    = "person-id-that-must-not-appear"
+)
+
+// leakyPerson is a directory record stuffed with every personal field the surface must not carry.
+func leakyPerson() person.Person {
+	parent := leakParentPhone
+	return person.Person{
+		PersonID:    leakPersonID,
+		AppRole:     person.RoleSpejder,
+		Name:        leakName,
+		Phone:       leakOwnPhone,
+		PhoneParent: &parent,
+		Address:     "Skovvej 12",
+		Email:       "astrid@example.invalid",
+		TeamNumber:  "42",
+		TeamName:    "Ørnene",
+		PortraitRef: leakPortraitRef,
+		SectionSlug: person.SectionTeam,
+	}
+}
+
+// leakTestApp wires every public read model with data carrying personal values.
+func leakTestApp(t *testing.T) (*application, *httptest.Server) {
+	t.Helper()
+
+	p := leakyPerson()
+	app, glimtStore, _ := glimtApp(t, leakyGlimt(), p)
+	app.publicGlimtReadLimiter = nil
+	app.config.eventYear = "2026"
+
+	store := seedAlbums(t, app)
+	// A caption carrying a name, because a caption is participant- or curator-authored free text and is
+	// the one field on this surface where a name can legitimately be typed by a human. It must not be
+	// scrubbed — that would be censoring a caption — so this asserts the *structured* fields are clean
+	// rather than that the word never appears. See the assertion's comment.
+	app.models.Albums = store
+	app.models.Glimt = glimtStore
+	app.models.People = &stubPeople{p: p, found: true}
+
+	srv := httptest.NewServer(app.routes())
+	t.Cleanup(srv.Close)
+	return app, srv
+}
+
+func leakyGlimt() []glimt.Glimt {
+	at := time.Now().UTC().Add(-time.Hour)
+	return []glimt.Glimt{
+		{
+			GlimtID: "g-public", AuthorPersonID: leakPersonID, AuthorGroup: "spejder",
+			TeamNumber: "42", TeamName: "Ørnene", Audience: glimt.AudiencePublic,
+			Caption: "ved posten", CreatedAt: at,
+			Media: []glimt.Media{
+				{Ordinal: 0, Ref: refA, ThumbRef: refB, Kind: "image", Width: 1600, Height: 1200},
+			},
+		},
+	}
+}
+
+// **The assertion.** Every public GET route, walked, with every personal value looked for.
+func TestNoPublicResponseNamesAPerson(t *testing.T) {
+	_, srv := leakTestApp(t)
+
+	routes := publicRoutePaths(t)
+	if len(routes) == 0 {
+		t.Fatal("no public routes found: the enumeration is broken, which would make this whole file " +
+			"pass while asserting nothing")
+	}
+
+	// What must never appear, in any representation.
+	forbidden := map[string]string{
+		leakName:        "a person's name",
+		leakOwnPhone:    "a member's own phone number",
+		leakParentPhone: "a guardian's phone number (.rules calls this a hard rule)",
+		leakPortraitRef: "a portrait reference",
+		leakPersonID:    "a person id",
+		// Field names too, which catch a JSON payload that grew a column even if the fixture value
+		// happened not to be populated.
+		"phoneParent":    "the phoneParent field",
+		"authorPersonId": "the glimt author field",
+		"portraitRef":    "the portrait field",
+	}
+
+	for _, route := range routes {
+		t.Run(route.method+" "+route.path, func(t *testing.T) {
+			url := srv.URL + concreteURL(route.path)
+			resp, body := getPublic(t, url, nil)
+
+			// A 404 or 503 is a fine answer — several of these routes are gated or need data this app
+			// does not have. What matters is that whatever comes back is clean.
+			if resp.StatusCode >= 500 && resp.StatusCode != http.StatusServiceUnavailable {
+				t.Fatalf("%s answered %d; a server error is not a pass for this test", url, resp.StatusCode)
+			}
+
+			page := string(body)
+			for needle, what := range forbidden {
+				if strings.Contains(page, needle) {
+					t.Errorf("%s %s (line %d) leaks %s (%q)",
+						route.method, route.path, route.line, what, needle)
+				}
+			}
+		})
+	}
+}
+
+// concreteURL fills httprouter's `:params` with values the fixtures actually have, so the walk exercises
+// real responses rather than a parade of 404s.
+//
+// An unknown parameter gets a plausible value rather than being skipped: a 404 is still a response, and
+// a 404 body that leaked a name would be exactly the kind of thing nobody looks at.
+func concreteURL(path string) string {
+	replacements := map[string]string{
+		":slug":    "loerdag-morgen",
+		":albumId": "al-1",
+		":ordinal": "0",
+		":glimtId": "g-public",
+		":number":  "42",
+	}
+	for param, value := range replacements {
+		path = strings.ReplaceAll(path, param, value)
+	}
+	return path
+}
+
+// The enumeration must actually cover the routes we know exist. Guards against a parser change that
+// silently narrows the walk — which would leave the test above green and blind.
+func TestPublicRouteEnumerationCoversTheKnownSurface(t *testing.T) {
+	found := map[string]bool{}
+	for _, route := range publicRoutePaths(t) {
+		found[route.path] = true
+	}
+
+	for _, want := range []string{
+		"/offentligt",
+		"/offentligt/glimt",
+		"/offentligt/album/:slug",
+		"/offentligt/patrulje/:number",
+		"/api/public/glimt",
+		"/api/public/albums/:albumId/media/:ordinal",
+	} {
+		if !found[want] {
+			t.Errorf("the enumeration missed %s; every public route must be covered", want)
+		}
+	}
+}
+
+// **The structural half.** The invariant is enforced in the projections, not in the templates: the
+// public patrol read model has no name column, so a careless template cannot render one.
+//
+// This is not theoretical. The row that patrol data comes from — shared-go's `patrulje` — carries
+// `contactName`, a personal name sitting directly beside the `groupName` and `korps` the header wants.
+// One `SELECT *` is all it would take.
+func TestPublicAlbumReadModelHasNowhereToPutAPerson(t *testing.T) {
+	// album.Album and album.Item are the types the public album pages render. Asserted by construction:
+	// if somebody adds a person-shaped field, this fails and they have to justify it here.
+	//
+	// A reflective field-name check rather than a comment, because a comment does not fail a build.
+	for _, field := range structFieldNames(album.Album{}) {
+		if isPersonShaped(field) {
+			t.Errorf("album.Album gained a person-shaped field %q: the public surface must name no person",
+				field)
+		}
+	}
+	for _, field := range structFieldNames(album.Item{}) {
+		if isPersonShaped(field) {
+			t.Errorf("album.Item gained a person-shaped field %q: the public surface must name no person",
+				field)
+		}
+	}
+	for _, field := range structFieldNames(album.PlottableItem{}) {
+		if isPersonShaped(field) {
+			t.Errorf("album.PlottableItem gained a person-shaped field %q", field)
+		}
+	}
+}
+
+// And the view types the templates are handed.
+func TestPublicViewTypesHaveNowhereToPutAPerson(t *testing.T) {
+	for name, v := range map[string]any{
+		"publicAlbumSummary": publicAlbumSummary{},
+		"publicAlbumItem":    publicAlbumItem{},
+		"publicPageData":     publicPageData{},
+	} {
+		for _, field := range structFieldNames(v) {
+			if isPersonShaped(field) {
+				t.Errorf("%s gained a person-shaped field %q", name, field)
+			}
+		}
+	}
+}
+
+// isPersonShaped flags field names that would carry something about a human being.
+//
+// A denylist of substrings rather than an allowlist of permitted fields, deliberately: an allowlist has
+// to be extended for every legitimate new field, so it gets extended without thought, and the one time
+// it matters somebody adds `CuratorName` to the allowlist along with everything else. A denylist fails
+// only when a field genuinely looks personal, which is when a human should look.
+func isPersonShaped(field string) bool {
+	lower := strings.ToLower(field)
+	for _, needle := range []string{
+		"person", "phone", "portrait", "photo", "author", "curator", "uploader",
+		"contactname", "email", "birth", "address",
+	} {
+		if strings.Contains(lower, needle) {
+			// "Photos" as a collection of pictures is fine; a "photo" of somebody is not. The types here
+			// have no such field today, so the false positive is cheap and the check stays blunt.
+			return true
+		}
+	}
+	// A bare "Name" is ambiguous — an album has a title, a patrol has a name — so it is not flagged.
+	// The fixture-value assertions above are what catch a person's name arriving in one.
+	return false
+}
+
+// structFieldNames returns a struct's exported field names.
+//
+// Reflection rather than a hand-maintained list, so the check applies to fields added later without
+// anybody updating this file — the same reason the route walk parses routes.go.
+func structFieldNames(v any) []string {
+	t := reflect.TypeOf(v)
+	if t == nil || t.Kind() != reflect.Struct {
+		return nil
+	}
+	var out []string
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.Anonymous {
+			// Embedded structs are walked too: publicAlbumPageData embeds publicPageData, and a
+			// person-shaped field would be just as public for being one level down.
+			out = append(out, structFieldNames(reflect.New(f.Type).Elem().Interface())...)
+			continue
+		}
+		out = append(out, f.Name)
+	}
+	return out
+}
