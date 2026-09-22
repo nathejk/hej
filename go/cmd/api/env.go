@@ -148,7 +148,18 @@ type config struct {
 	//
 	// **Empty disables photographs on diplomas**, which is the safe default for an environment with no foto
 	// reachable — the certificate renders without a picture, exactly as it does for a patrol nobody
-	// photographed. The name matches hq's `PHOTO_BASEURL` so the same value can be copied between stacks.
+	// photographed.
+	//
+	// # It shares hq's name but not its meaning
+	//
+	// hq has a `PHOTO_BASEURL` too, and it is a **browser-facing** URL: hq hands it to a client and never fetches
+	// a byte itself. This one has to be reachable **from this container**, because this app renders the PDF.
+	//
+	// That difference is not academic — it is the first thing that went wrong. Copying hq's dev value verbatim
+	// gave `https://foto.local.nathejk.dk`, which inside the container resolves to its own loopback:
+	// `dial tcp 127.0.0.1:443: connect: connection refused`, and every diploma quietly rendered without a
+	// photograph. The failure was invisible except as a log line, because that is the designed behaviour for an
+	// unreachable foto.
 	photoBaseURL string
 
 	// publicAlbums shows or hides the curated photo albums on the public site (task 359).

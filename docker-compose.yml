@@ -142,8 +142,20 @@ services:
       PUBLIC_ALBUMS: "false"
       # Where foto serves photograph objects (task 361). The bytes are fetched once per photograph and kept in
       # this stack's own blob volume, so this is an ingest dependency rather than a request-path one.
+      #
+      # **This must be reachable from inside the container**, which is the difference from hq's identically
+      # named variable: hq hands its value to a browser and never fetches anything itself. The dev domain
+      # resolves to the host's Traefik, so the container needs the host-gateway mapping below to reach it —
+      # without it the name resolves to the container's own loopback and every fetch is refused.
+      #
+      # Photographs therefore only appear on dev diplomas while the foto stack is up. That is a local
+      # convenience, not a correctness requirement: an unreachable foto means a diploma without a picture.
       PHOTO_BASEURL: "https://foto.local.nathejk.dk"
       # GO_BUILD_FLAGS: "-race"   # uncomment for the race detector
+    # So the container can reach the other dev stacks' Traefik routes by their real hostnames — see
+      # PHOTO_BASEURL above. Without this, foto.local.nathejk.dk resolves to 127.0.0.1 *inside* the container.
+    extra_hosts:
+      - "foto.local.nathejk.dk:host-gateway"
     volumes:
       - ./go:/app
       - api:/go
