@@ -390,7 +390,6 @@ func (app *application) publicGlimtPageHandler(w http.ResponseWriter, r *http.Re
 	for _, g := range rows {
 		data.Glimt = append(data.Glimt, newPublicGlimtResponse(g))
 	}
-	data.RetentionDays = durationDays(app.config.glimtPublicRetention)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// Same short window as the JSON: shareable, but a takedown must land quickly.
@@ -402,10 +401,9 @@ func (app *application) publicGlimtPageHandler(w http.ResponseWriter, r *http.Re
 }
 
 type publicGlimtPageData struct {
-	Year          string
-	Glimt         []publicGlimtResponse
-	Unavailable   bool
-	RetentionDays int
+	Year        string
+	Glimt       []publicGlimtResponse
+	Unavailable bool
 
 	// Root is the public site's base path (`/2026`), for the same reason publicPageData carries one: the
 	// prefix moved once (task 351) and will move again when PRD 021 lands, and a path typed into a template
@@ -492,13 +490,12 @@ var publicGlimtPageTemplate = template.Must(template.New("publicGlimt").Funcs(te
   {{end}}
 {{end}}
 
-<footer>
-  <p>
-    Er der et billede, der ikke skal ligge her? Skriv til os, så tager vi det ned.
-    {{if .RetentionDays}}Billederne bliver taget ned herfra efter {{.RetentionDays}} dage.{{end}}
-  </p>
-  <p><a href="{{.Root}}/privatliv">Data og privatliv</a></p>
-</footer>
+<!-- No footer here (task 362).
+     This page carried a takedown line, the retention period and a privacy link. The maintainer removed them:
+     "It's already stated elsewhere and it seems very overwhelming with all these disclaimer everywhere."
+     Both statements are still on /{year}/privatliv, and the patrol page keeps the takedown *affordance* —
+     the details/summary somebody actually uses when a picture is wrong (task 343). What went is the repetition
+     of it on a page that is just photographs. -->
 </body>
 </html>
 `))
