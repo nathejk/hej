@@ -86,6 +86,27 @@ const ReplaceBeforeLaunch = "route line, and whether a poster is the right diplo
 //go:embed assets/background-2026.jpg
 var background []byte
 
+// impactFont is the headline face the diplomas have used since 2024.
+//
+// # The licence question, answered (2026-09-21)
+//
+// This was on ReplaceBeforeLaunch, because Impact ships with Windows and Microsoft's licence restricts
+// *redistributing the font*. The maintainer settled it:
+//
+//	"Microsoft explicitly treats embedding a Windows font in a document — such as a PDF — as a permitted
+//	 special case, and says there are generally no special restrictions on distributing those documents."
+//
+// That distinction is the whole answer, and it is worth keeping because it is easy to get backwards: what is
+// restricted is shipping `impact.ttf` as a font for others to install. **Embedding a subset in a document** is
+// the permitted case, and a diploma is a document. Note what this therefore does *not* license: serving this
+// file over HTTP, or using it as a webfont on the public site — the pages use the `font-nathejk` stack for that
+// reason, naming Impact as a *local* family rather than delivering it.
+//
+// fpdf embeds only the glyphs used, so a diploma carries a few dozen characters of it.
+//
+//go:embed assets/impact.ttf
+var impactFont []byte
+
 // Diploma is everything a diploma says.
 //
 // Note what it cannot hold: no person, no photograph, no phone number. The type is the enforcement, the same
@@ -149,6 +170,9 @@ func PDF(d Diploma, w io.Writer) error {
 		sideMarginMM = 30.0
 	)
 
+	// headlineFont is the family name registered with fpdf, not a file name.
+	const headlineFont = "impact"
+
 	pdf := fpdf.New("P", "mm", "A4", "")
 	pdf.SetTitle(fmt.Sprintf("Nathejk diplom \u2014 patrulje %s", d.Number), true)
 	// No author or creator beyond this: a PDF's metadata is a place personal data hides, and the default would
@@ -164,11 +188,17 @@ func PDF(d Diploma, w io.Writer) error {
 	pdf.ImageOptions("background", 0, 0, pageWidthMM, pageHeightMM, false,
 		fpdf.ImageOptions{ImageType: "JPG"}, 0, "")
 
-	// Helvetica, not Impact. See ReplaceBeforeLaunch: the font `diplom` embeds is not ours to redistribute,
-	// and the artwork's own headline is part of the image anyway.
-	pdf.SetFont("Helvetica", "B", nameFontSize)
+	// **Impact, embedded** — the face these diplomas have used since 2024, and the same one the public pages'
+	// `font-nathejk` names. See impactFont for why embedding it is licensed where redistributing it is not.
+	//
+	// A UTF-8 font, so this text is **not** latin1-encoded: fpdf writes the glyphs it needs into the PDF and a
+	// patrol called Ørnene renders from the string as it is. The body text below stays on a core font and still
+	// needs the conversion, which is why both paths exist — mixing them up prints either mojibake or boxes, and
+	// only a rendered sample shows which.
+	pdf.AddUTF8FontFromBytes(headlineFont, "", impactFont)
+	pdf.SetFont(headlineFont, "", nameFontSize)
 	pdf.SetXY(sideMarginMM, nameY)
-	pdf.MultiCell(pageWidthMM-2*sideMarginMM, 12, latin1(d.Name), "", "C", false)
+	pdf.MultiCell(pageWidthMM-2*sideMarginMM, 12, headlineSafe(d.Name), "", "C", false)
 
 	pdf.SetFont("Helvetica", "", textFontSize)
 	pdf.SetY(textY)
@@ -180,9 +210,41 @@ func PDF(d Diploma, w io.Writer) error {
 	return pdf.Output(w)
 }
 
+// headlineSafe folds a string to characters the embedded headline font can draw.
+//
+// # Why this exists, and what it prevents
+//
+// fpdf does not degrade on a glyph a UTF-8 font lacks — it **fails the render**: `character outside the
+// supported range: 🦅`. Patrol names are free text typed by teenagers, and an emoji in one is not exotic. So
+// without this, one patrol's choice of name means one patrol gets no diploma at all, with a 500 on a public
+// page as the only symptom.
+//
+// Found by a test that existed for exactly this reason on the Helvetica path (`latin1` degrades), and which
+// started failing the moment the font changed. It is the second time this file's error handling has been caught
+// by a test written about a *different* rendering path.
+//
+// The fold is Latin-1's repertoire, which Impact covers completely and which contains every character Danish
+// needs. Anything else becomes a question mark — visible, so somebody can fix the name, and not a box.
+func headlineSafe(s string) string {
+	s = typography.Replace(s)
+
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		// Latin-1 is exactly U+0020..U+00FF here: the repertoire Impact covers, minus the control range, which
+		// a PDF viewer would draw as a box even when the font has a slot for it.
+		if r >= 0x20 && r <= 0xFF {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteRune('?')
+	}
+	return b.String()
+}
+
 // latin1 re-encodes a Danish string for fpdf's built-in fonts.
 //
-// # Why this is needed at all
+// # Why this is still needed
 //
 // fpdf's core fonts (Helvetica and friends) are single-byte, so handing them UTF-8 prints mojibake: "Ørnene"
 // arrives as "Ã˜rnene". `diplom` solved it the same way — its `utf8_decode` is this function — and dropping it
@@ -192,8 +254,10 @@ func PDF(d Diploma, w io.Writer) error {
 // replacement character rather than failing the render: a patrol name we cannot spell is a blemish on one
 // diploma, while an error is no diploma at all.
 //
-// **The real fix is an embedded UTF-8 font**, which is part of ReplaceBeforeLaunch — with the artwork will come
-// a decision about the font, and `pdf.AddUTF8Font` makes this function unnecessary the moment there is one.
+// **Only the body text goes through this now.** The headline is set in embedded Impact, which is a UTF-8 font
+// and takes the string as it is — so the two paths must not be confused. Putting a latin1 string into the UTF-8
+// font prints boxes; putting a UTF-8 string into Helvetica prints mojibake. The body could move to an embedded
+// font too, but Helvetica is the right face for it and this function is five lines.
 func latin1(s string) string {
 	// Typographic punctuation first. Latin-1 has no em dash, curly quote or ellipsis, and the encoder's
 	// substitute for an unmappable rune is 0x1A — a **control** character, which a PDF viewer draws as a box or
