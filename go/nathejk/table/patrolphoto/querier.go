@@ -40,43 +40,49 @@ type querier struct {
 
 // Cover picks the photograph that represents a patrol.
 //
-// # The rule, in the order it is applied
+// # A flagged photograph is never used, and never fetched
 //
-//  1. **An explicit choice wins.** If `patrol_photo_cover` names a ref that still exists, that is the cover —
-//     including when the photograph carries the `attention` flag. A human looked at the patrol's pictures and
-//     chose this one; second-guessing that with a flag the crew set while shooting would make the choice in the
-//     organizer tool mean nothing.
-//  2. **Otherwise the start photograph**, newest first. The diploma's subject is the patrol at the start line,
-//     which is what `diplom` printed and what the maintainer asked for.
+// The maintainer's rule (2026-09-22): *"if attention flag is raised, then skip photo, do not download"*. So
+// `attention` is a **filter, not a preference** — flagged rows are excluded by the WHERE clause, which means their
+// ref never leaves this package, and `internal/photobytes` is never asked for their bytes. "Do not download" is
+// therefore a property of the query rather than a rule a caller has to remember.
+//
+// This overrides how it worked when the projection landed a day earlier, where an explicit cover selection won
+// even if the photograph was flagged, on the grounds that a human had chosen it. The maintainer's rule is the
+// safer one and the simpler one: the flag is the crew saying *"somebody should look at this"* — blurred, wrong
+// team, or something that should not be published — and a public certificate is the wrong place to find out what
+// they meant. A flagged cover falls through to the next unflagged candidate, so the patrol still gets a picture
+// where one exists.
+//
+// # What is left, in the order it is applied
+//
+//  1. **An explicit choice wins**, among unflagged photographs: if `patrol_photo_cover` names a ref that still
+//     exists and is not flagged, that is the cover.
+//  2. **Otherwise the newest `start` photograph.** The diploma's subject is the patrol at the start line, which is
+//     what `diplom` printed and what the maintainer asked for.
 //  3. **Otherwise any photograph**, newest first, so a patrol photographed only at the finish still gets one.
-//
-// Steps 2 and 3 skip anything flagged `attention`. That flag is the crew saying *"somebody should look at this"*
-// — blurred, wrong team, or something that should not be published — and nobody has looked. An unreviewed
-// photograph is fine to hold and wrong to put on a public certificate by default. A human can still choose it
-// deliberately, which is step 1.
+//     (Observed in 2026's data, the finish type is spelled `maal`.)
 //
 // # Why one statement rather than three reads
 //
-// Because "the cover, or else the newest start, or else the newest" is one ordering, and expressing it as
-// ORDER BY keeps the tie-breaks in one place. A caller doing three reads would have to reimplement them, and the
-// gallery will be the second caller.
+// Because that is one ordering, and expressing it as ORDER BY keeps the tie-breaks in one place. A caller doing
+// three reads would have to reimplement them, and the gallery will be the second caller.
 func (q querier) Cover(year, teamID string) (Photo, bool, error) {
 	if year == "" || teamID == "" {
 		return Photo{}, false, nil
 	}
 
-	// The joined cover ref decides the first sort key: 0 for the chosen photograph, 1 for everything else.
-	// `attention` then pushes unreviewed pictures behind reviewed ones, and `type='start'` ahead of other
-	// categories, before capturedAt breaks the remaining ties newest-first.
+	// The joined cover ref decides the first sort key: 0 for the chosen photograph, 1 for everything else. Then
+	// `type='start'` ahead of other categories, before capturedAt breaks the remaining ties newest-first. There is
+	// no `attention` sort key, because flagged rows are not in the result at all.
 	rows, err := q.db.Query(`
 		SELECT p.ref, p.thumbRef, p.contentType, p.width, p.height, p.type
 		FROM patrol_photo p
 		LEFT JOIN patrol_photo_cover c
 		  ON c.year = p.year AND c.teamId = p.teamId AND c.ref = p.ref AND c.ref <> ''
-		WHERE p.year = ? AND p.teamId = ?
+		WHERE p.year = ? AND p.teamId = ? AND p.attention = 0
 		ORDER BY
 		  CASE WHEN c.ref IS NOT NULL THEN 0 ELSE 1 END ASC,
-		  p.attention ASC,
 		  CASE WHEN p.type = 'start' THEN 0 ELSE 1 END ASC,
 		  p.capturedAt DESC,
 		  p.ref ASC

@@ -1,6 +1,7 @@
 package patrolphoto
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,49 @@ const (
 	refB  = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	thumb = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 )
+
+// **A flagged photograph must never be chosen, and never fetched** (the maintainer's rule, 2026-09-22: *"if
+// attention flag is raised, then skip photo, do not download"*).
+//
+// # Why this reads the source instead of running the query
+//
+// `Cover` is one SQL statement against `cqrs.Reader`, which is a fat interface over `*sql.DB` — faking it costs
+// seven methods and tests nothing about SQL semantics, and this package's convention (like every other table here)
+// is that folds get unit tests while reads are covered through stubs in `cmd/api`.
+//
+// What actually needs guarding is narrow and textual: that the flag is applied as a **filter** rather than a sort
+// key. That distinction is the whole rule — as a sort key a flagged photograph is still returned when it is the
+// only one, its ref reaches `internal/photobytes`, and the bytes are downloaded and stored. "Do not download" is
+// a property of the WHERE clause.
+func TestAFlaggedPhotographIsFilteredOutRatherThanDeprioritised(t *testing.T) {
+	source, err := os.ReadFile("querier.go")
+	if err != nil {
+		t.Fatalf("reading querier.go: %v", err)
+	}
+	// Comments explain the rule and would otherwise satisfy the assertions below — the same trap the map island's
+	// spec fell into, where a file's own documentation passed a test about its behaviour.
+	code := stripLineComments(string(source))
+
+	if !strings.Contains(code, "p.attention = 0") {
+		t.Error("Cover must exclude flagged photographs in its WHERE clause, so their refs never reach the fetcher")
+	}
+	// As a sort key it would be a preference, which is exactly what the maintainer replaced.
+	if strings.Contains(code, "p.attention ASC") || strings.Contains(code, "p.attention DESC") {
+		t.Error("attention must not be a sort key: a flagged photograph would still be returned when it is the only one")
+	}
+}
+
+func stripLineComments(s string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(s, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "//") {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
 
 func fold(t *testing.T, subject string, body any) []string {
 	t.Helper()

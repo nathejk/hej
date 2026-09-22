@@ -30,8 +30,15 @@ task 337 protects.
 
 What makes it defensible now is *which* photograph: the patrol's **cover**, selected by an organizer in hq — the
 curation step §0b.2 asks for, in a tool where a human can see the picture. Where nobody has chosen, the fallback
-picks the newest `start` photograph and **skips anything the crew flagged `attention`**. The guard still refuses
-a person: no name, no phone, no email, no photographer.
+picks the newest `start` photograph. The guard still refuses a person: no name, no phone, no email, no
+photographer.
+
+**A flagged photograph is never used and never downloaded**, on the maintainer's follow-up instruction the next
+day: *"if attention flag is raised, then skip photo, do not download"*. `attention` is therefore a **filter, not a
+preference** — flagged rows are excluded by the WHERE clause, so their refs never leave the projection and
+`internal/photobytes` is never asked for their bytes. This replaced the shape the projection landed with, where an
+explicit cover selection won even over the flag on the grounds that a human had chosen it; the maintainer's rule
+is both safer and simpler, and a flagged cover now falls through to the next unflagged candidate.
 
 ### Where the bytes come from, and why they are copied here
 
@@ -65,7 +72,10 @@ rather than an outage. Bounded at 12 MB, single-flighted (50 concurrent callers 
 
 ## Acceptance Criteria
 
-- [x] The cover wins; otherwise the newest `start`; otherwise any, skipping `attention` in the fallback
+- [x] A photograph flagged `attention` is never chosen and its bytes are never fetched — filtered in SQL, not
+      sorted; verified by breaking the guard, and against real data (2026 has two flagged photographs, patrols 46
+      and 58, and the query picks each patrol's other picture rather than nothing)
+- [x] Otherwise: the cover wins, then the newest `start`, then any
 - [x] Bytes are fetched once, verified against the ref, and served from the local store afterwards
 - [x] No column, struct field or SQL statement can carry foto's `original` or `sourceUrl`
 - [x] A purge clears a cover that pointed at the purged ref
