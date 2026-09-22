@@ -12,6 +12,7 @@ import (
 	"nathejk.dk/nathejk/table/album"
 	"nathejk.dk/nathejk/table/checkpoint"
 	"nathejk.dk/nathejk/table/glimt"
+	"nathejk.dk/nathejk/table/patrolphoto"
 	"nathejk.dk/nathejk/table/person"
 	"nathejk.dk/nathejk/table/publicpatrol"
 	"nathejk.dk/nathejk/table/year"
@@ -131,6 +132,12 @@ type Models struct {
 	// which omits the line when there is nothing to print — so an absent projection degrades to exactly the
 	// behaviour that shipped before this table existed.
 	Years year.Queries
+
+	// PatrolPhotos is a patrol's photographs and the one chosen to represent it (task 361).
+	//
+	// **May be nil**, and a nil means "no photograph" rather than an error: the diploma omits the picture and
+	// renders, which is also what happens for a patrol nobody photographed.
+	PatrolPhotos patrolphoto.Queries
 }
 
 // MapReads is the patrol-scoped map read API.
@@ -189,6 +196,12 @@ func WithPublicPatrols(q publicpatrol.Queries) Option {
 // diploma prints no route line — the behaviour before the projection existed.
 func WithYears(q year.Queries) Option {
 	return func(mo *Models) { mo.Years = q }
+}
+
+// WithPatrolPhotos supplies the patrol photograph read model (task 361). Omit it and Models.PatrolPhotos is nil,
+// which means no diploma carries a photograph.
+func WithPatrolPhotos(q patrolphoto.Queries) Option {
+	return func(mo *Models) { mo.PatrolPhotos = q }
 }
 
 // NewModels constructs the read-side facade with the given read sources.

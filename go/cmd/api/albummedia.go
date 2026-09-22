@@ -8,6 +8,7 @@ import (
 	"nathejk.dk/internal/imaging"
 	"nathejk.dk/nathejk/table/album"
 	"nathejk.dk/nathejk/table/checkpoint"
+	"nathejk.dk/nathejk/table/patrolphoto"
 	"nathejk.dk/nathejk/table/publicpatrol"
 	"nathejk.dk/nathejk/table/year"
 )
@@ -180,6 +181,14 @@ func albumQueriesOrNil(t *album.Table) album.Queries {
 // availability check decides whether to serve or to answer not-yet, and a typed nil would pass that check
 // and panic inside a request on an unauthenticated route.
 func publicPatrolQueriesOrNil(t *publicpatrol.Table) publicpatrol.Queries {
+	if t == nil {
+		return nil
+	}
+	return t
+}
+
+// patrolPhotoQueriesOrNil is the same guard for the patrol photograph projection (task 361).
+func patrolPhotoQueriesOrNil(t *patrolphoto.Table) patrolphoto.Queries {
 	if t == nil {
 		return nil
 	}
