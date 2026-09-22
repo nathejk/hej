@@ -135,6 +135,22 @@ type config struct {
 	// storage is still open (PRD 008 §11 Q4); this is the volume half.
 	blobPath string
 
+	// photoBaseURL is where foto serves photograph objects, e.g. https://foto.nathejk.dk (task 361).
+	//
+	// # Why this app talks to another service at all
+	//
+	// It does not, per request. The `photographed` event carries refs rather than bytes, and a diploma is
+	// rendered server-side, so the bytes have to be in this process. They are fetched **once per photograph**
+	// and kept in this app's own blob store (`internal/photobytes`), on the maintainer's instruction.
+	//
+	// Verifiable rather than trusted: both stores key objects by the sha256 of their contents, so a fetch is
+	// checked against the ref the event named before anything is stored.
+	//
+	// **Empty disables photographs on diplomas**, which is the safe default for an environment with no foto
+	// reachable — the certificate renders without a picture, exactly as it does for a patrol nobody
+	// photographed. The name matches hq's `PHOTO_BASEURL` so the same value can be copied between stacks.
+	photoBaseURL string
+
 	// publicAlbums shows or hides the curated photo albums on the public site (task 359).
 	//
 	// # A content switch, not a kill switch
@@ -429,6 +445,7 @@ func loadConfig() config {
 	flag.StringVar(&cfg.smsDSN, "sms-dsn", envStr("SMS_DSN", ""), "SMS provider DSN, e.g. cpsms://<api-key>@api.cpsms.dk (empty logs messages instead of sending)")
 	flag.StringVar(&cfg.blobPath, "blob-path", envStr("BLOB_PATH", ""), "Directory for binary objects such as portraits (empty keeps them in memory)")
 	flag.StringVar(&cfg.eventYear, "event-year", envStr("EVENT_YEAR", currentYear()), "Event year the member directory reads (defaults to the current year)")
+	flag.StringVar(&cfg.photoBaseURL, "photo-baseurl", envStr("PHOTO_BASEURL", ""), "Base URL of the foto service, which serves photograph objects at /photos/<ref> (empty means diplomas carry no photograph)")
 	flag.BoolVar(&cfg.publicAlbums, "public-albums", envBool("PUBLIC_ALBUMS", true), "Show the curated photo albums on the public site (PUBLIC_ALBUMS=false hides the section and answers 404 for an album page)")
 	flag.StringVar(&cfg.eventRoute, "event-route", envStr("EVENT_ROUTE", ""), "Overrides the route line printed on a diploma, e.g. \"fra Lundby til Glumsø\" (empty uses the year projection's two cities)")
 	flag.DurationVar(&cfg.portraitRetention, "portrait-retention", envDuration("PORTRAIT_RETENTION", 30*24*time.Hour), "How long a portrait is kept after capture before it is purged (0 disables the purge)")

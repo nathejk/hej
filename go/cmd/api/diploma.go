@@ -7,6 +7,7 @@ import (
 
 	"github.com/julienschmidt/httprouter"
 
+	"nathejk.dk/internal/blob"
 	"nathejk.dk/internal/diploma"
 	"nathejk.dk/internal/eventtime"
 )
@@ -155,13 +156,56 @@ func (app *application) patrolDiploma(r *http.Request) (diploma.Diploma, bool) {
 		finishedAt = &local
 	}
 
+	// The photograph (task 361). Resolved here rather than in the renderer, which stays a pure function of a
+	// patrol's facts plus bytes.
+	photo, contentType := app.diplomaPhoto(r, patrol.TeamID)
+
 	return diploma.Diploma{
-		Number:     patrol.Number,
-		Name:       patrol.Name,
-		Title:      fmt.Sprintf("Nathejk %s", app.config.eventYear),
-		Route:      app.diplomaRoute(),
-		FinishedAt: finishedAt,
+		Number:           patrol.Number,
+		Name:             patrol.Name,
+		Title:            fmt.Sprintf("Nathejk %s", app.config.eventYear),
+		Route:            app.diplomaRoute(),
+		FinishedAt:       finishedAt,
+		Photo:            photo,
+		PhotoContentType: contentType,
 	}, true
+}
+
+// diplomaPhoto resolves the patrol's photograph to bytes, or nothing.
+//
+// # Every failure is "no photograph", never "no diploma"
+//
+// There are five ways this comes back empty — no projection, no photograph for this patrol, no fetcher
+// configured, foto unreachable, bytes that do not match their ref — and a family waiting for a certificate cares
+// about none of them. So the photograph is decoration with a silent fallback, and the failures that deserve
+// attention are logged where they happen (`internal/photobytes` logs a hash mismatch loudly, because that one is
+// corruption or substitution rather than an outage).
+//
+// The request's context is passed through, so a visitor who closes the tab does not leave a fetch running — and
+// the single-flight means the fetch continues for whoever else is waiting on the same photograph.
+func (app *application) diplomaPhoto(r *http.Request, teamID string) ([]byte, string) {
+	if app.models.PatrolPhotos == nil || app.photos == nil {
+		return nil, ""
+	}
+
+	cover, found, err := app.models.PatrolPhotos.Cover(app.config.eventYear, teamID)
+	if err != nil {
+		app.Logger.Error("reading a patrol's cover photograph", "team", teamID, "err", err)
+		return nil, ""
+	}
+	if !found {
+		// Not photographed. Ordinary, and the diploma is worth printing without a picture.
+		return nil, ""
+	}
+
+	data, err := app.photos.Bytes(r.Context(), blob.Ref(cover.Ref))
+	if err != nil {
+		// Info, not error: an unreachable foto or an object that has been purged is an expected state, and this
+		// route is public enough that logging it at error level would be a way to fill the log from outside.
+		app.Logger.Info("a patrol's photograph is unavailable", "team", teamID, "ref", cover.Ref, "err", err)
+		return nil, ""
+	}
+	return data, cover.ContentType
 }
 
 // diplomaRoute is the route line, or "" to omit it.

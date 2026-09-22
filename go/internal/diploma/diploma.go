@@ -10,22 +10,34 @@
 // finish time this repo already has. Linking out would have meant a second origin, a second deployment and a
 // year hardcoded in another codebase — for a PDF that is a background image and four lines of text.
 //
-// # What was deliberately **not** ported
+// # The photograph, and the decision that put it back
 //
-// **The patrol photograph.** `diplom`'s version fetches one from `natpas` and places it in the middle of the
-// page. It cannot come with the logic, and that is not a detail — it is the whole reason to read this comment:
+// `diplom`'s version places a photograph of the patrol in the middle of the page, and this package refused to —
+// at length, because the reasoning is not obvious and the field is the obvious "improvement" somebody would add.
+// The maintainer reversed it on 2026-09-21: *"the diploma should carry start photo, like it did in the
+// diplom-repo"*, with the bytes held in this app's own blob store because the same pictures will feed a public
+// gallery shortly.
 //
-//   - This surface is **unauthenticated**. `diplom`'s diplomas are reached by people who know the link;
-//     these sit on a public page whose address is a patrol number anybody can type (PRD 011 §11 Q2).
-//   - PRD 011 §0b.2 settled that photographs are publishable only where **consent was obtained upstream**, by
-//     a curator, at the point a photograph enters an album. A `natpas` portrait has been through no such
-//     gate.
-//   - The public surface's rule is that it **names no person** (§0b.1, task 337). A photograph of eight
-//     children's faces is a stronger identifier than any name we are careful about elsewhere, so putting one
-//     here would make the rest of that work pointless.
+// The refusal is kept here, because a future reader weighing a third change needs both halves:
 //
-// The middle of the page is therefore empty in the artwork, and it was designed that way rather than around a
-// hole where a photograph used to be.
+//   - This surface is **unauthenticated**. `diplom`'s diplomas were reached by people who knew the link; these
+//     sit behind a patrol number anybody can type (PRD 011 §11 Q2).
+//   - PRD 011 §0b.2 settled that photographs are publishable only where **consent was obtained upstream**, by a
+//     curator, at the point a photograph enters an album.
+//   - The public surface **names no person** (§0b.1, task 337), and a photograph of eight children's faces is a
+//     stronger identifier than any name we are careful about elsewhere.
+//
+// What answers the second point is *which* photograph this is. It is the patrol's **cover**, which an organizer
+// selects in hq when a patrol has more than one — a human curation step, in a tool where somebody can see the
+// picture. Where nobody has chosen, `nathejk/table/patrolphoto` picks the newest start photograph and skips
+// anything the crew flagged for review. So the consent gate is upstream, where it can be exercised, rather than
+// here where nothing can see what it is deciding about.
+//
+// The first and third points are accepted rather than solved, and that is the maintainer's call to make. What
+// this package still refuses is a **person**: no name, no phone, no email, no photographer credit. A test walks
+// the type and fails on anything person-shaped.
+//
+// The middle of the page was left empty for this while the artwork was a mock, so the layout needed no change.
 //
 // # The background
 //
@@ -137,6 +149,25 @@ type Diploma struct {
 	// Nil is precisely "nobody from this patrol reached the finish": the gate reads the patrol's scan at the
 	// last checkgroup, and a checkpoint scans the patrol rather than its members.
 	FinishedAt *time.Time
+
+	// Photo is the patrol's photograph, as image bytes, or nil for none.
+	//
+	// # Bytes rather than a ref or a URL
+	//
+	// This package renders; it does not fetch. A ref would make it reach into a blob store, and a URL would make
+	// it make an HTTP request while drawing a PDF — both turn a pure function of a patrol's facts into something
+	// that needs a network and a filesystem to test. The handler resolves the photograph (task 361) and hands the
+	// bytes over.
+	//
+	// Nil is an ordinary state: not every patrol is photographed, foto may be unreachable, and the diploma is
+	// worth printing either way — so nothing here treats a missing picture as an error.
+	Photo []byte
+
+	// PhotoContentType is the format of Photo, e.g. "image/jpeg".
+	//
+	// Carried rather than sniffed because fpdf needs to be told, and the projection already recorded what foto
+	// re-encoded to. An unsupported value means the photograph is skipped, not that the render fails.
+	PhotoContentType string
 }
 
 // Background returns the image the diploma is drawn on.
@@ -149,25 +180,30 @@ func Background() []byte { return background }
 //
 // # Millimetres, and why the numbers look arbitrary
 //
-// They belong to the **artwork**, not to any layout logic: the background is a full-page bleed and the text has
-// to sit in the gap the image leaves. `diplom`'s coordinates put the name at y=210mm, which is where its 2024
-// layout had a photograph above and clear paper below; on these posters that lands on top of the artwork's own
-// "Vi ses i mørket!" band — caught by looking at a rendered sample rather than by reading the code. So the text
-// sits in the large clear middle instead, and these constants move with the artwork.
+// They belong to the **artwork**, not to any layout logic: the background is a full-page bleed and everything
+// else has to sit in the gap the image leaves — which on both the 2024 and 2026 posters is the band from roughly
+// y=128 to y=250, between the wordmark block and "Vi ses i mørket!".
 //
-// 2026's design keeps that shape: its wordmark block ends around y=125mm and the "Vi ses i mørket!" band starts
-// around y=250mm, so the numbers below did not have to change — confirmed on a rendered sample.
+// The geometry is `diplom`'s, restored (task 361). While the page carried no photograph the text sat higher, in
+// the middle of the empty band; adding the photograph back at `diplom`'s coordinates put the box *underneath*
+// text that had moved up into it, and the sample showed three lines printed across a patrol's faces. So the
+// numbers are one set again: photograph, then name, then sentences, in the order they are drawn.
+//
+// **One geometry whether or not there is a photograph**, as `diplom` had it. A patrol nobody photographed gets
+// whitespace where the picture would be rather than a second layout to maintain — and a certificate with room
+// above the name reads as a certificate, not as a mistake.
 func PDF(d Diploma, w io.Writer) error {
 	const (
 		pageWidthMM  = 210.0
 		pageHeightMM = 297.0
 
-		// The patrol's name, centred across the page.
-		nameY        = 150.0
+		// The patrol's name, centred across the page, below the photograph's box.
+		nameY        = 210.0
 		nameFontSize = 28.0
 
-		// The sentence block beneath it.
-		textY        = 168.0
+		// The sentence block beneath it. 224 leaves the name's 28pt line room to breathe and still ends the
+		// third sentence above the artwork's bottom band — measured on a sample, not calculated.
+		textY        = 224.0
 		textFontSize = 14.0
 		lineHeight   = 7.0
 		sideMarginMM = 30.0
@@ -190,6 +226,17 @@ func PDF(d Diploma, w io.Writer) error {
 		bytes.NewReader(Background()))
 	pdf.ImageOptions("background", 0, 0, pageWidthMM, pageHeightMM, false,
 		fpdf.ImageOptions{ImageType: "JPG"}, 0, "")
+
+	// The patrol's photograph, above the name.
+	//
+	// `diplom`'s geometry, kept deliberately: 100×75 mm at (55, 130) — centred, 4:3 landscape, sitting in the
+	// clear middle of the artwork with the name and the sentences beneath it. Reusing the numbers means a family
+	// comparing this year's diploma with 2024's sees the same document rather than a redesign.
+	//
+	// **Drawn before the text**, so if a photograph is ever taller than its box the text is on top of it rather
+	// than under it. fpdf scales to fit the given rectangle, so a portrait photograph is letterboxed inside it
+	// rather than overflowing — which is why the box is fixed and the image is not measured here.
+	drawPhoto(pdf, d)
 
 	// **Impact, embedded** — the face these diplomas have used since 2024, and the same one the public pages'
 	// `font-nathejk` names. See impactFont for why embedding it is licensed where redistributing it is not.
@@ -243,6 +290,78 @@ func headlineSafe(s string) string {
 		b.WriteRune('?')
 	}
 	return b.String()
+}
+
+// drawPhoto places the patrol's photograph, or draws nothing.
+//
+// # Why a missing or broken photograph must not fail the render
+//
+// The bytes come from another service, through a projection, from a camera app. Every one of those can be absent
+// or wrong on a given day, and none of it is a reason to deny a patrol its certificate — the photograph is the
+// one element of this document that is decoration. So every failure here is a silent skip:
+//
+//   - no bytes at all (not photographed, or foto unreachable),
+//   - a content type fpdf cannot place,
+//   - bytes that are not the image they claim to be, which `RegisterImageOptionsReader` reports through the
+//     PDF's error state rather than a return value.
+//
+// That last one is why the error state is cleared afterwards: fpdf latches an error and refuses every later
+// operation, so an unreadable photograph would otherwise take the whole diploma — text and all — with it. Found
+// by feeding it a JPEG-labelled string of nonsense, which is exactly what a truncated fetch produces.
+//
+// Clearing it means `ClearError`. See the note at the call site: `SetError(nil)` is silently a no-op, and using it
+// here made this function look like it handled the case while doing nothing at all.
+func drawPhoto(pdf *fpdf.Fpdf, d Diploma) {
+	const (
+		photoX = 55.0
+		photoY = 130.0
+		photoW = 100.0
+		photoH = 75.0
+	)
+
+	if len(d.Photo) == 0 {
+		return
+	}
+	imageType := fpdfImageType(d.PhotoContentType)
+	if imageType == "" {
+		return
+	}
+
+	opts := fpdf.ImageOptions{ImageType: imageType}
+	pdf.RegisterImageOptionsReader("patrolphoto", opts, bytes.NewReader(d.Photo))
+	if pdf.Err() {
+		// Unreadable bytes. **`ClearError`, not `SetError(nil)`** — fpdf's `SetError` only ever *sets*, and only
+		// when no error is latched yet, so passing nil is a no-op. The first version of this function did exactly
+		// that and looked correct: the check ran, the "clear" did nothing, and `Output` returned "invalid JPEG
+		// format: missing SOI marker" — a 500 on a public route instead of a certificate. Caught by the test
+		// feeding it bytes that are not the image they claim, which is what a truncated fetch produces.
+		pdf.ClearError()
+		return
+	}
+
+	pdf.ImageOptions("patrolphoto", photoX, photoY, photoW, photoH, false, opts, 0, "")
+	if pdf.Err() {
+		pdf.ClearError()
+	}
+}
+
+// fpdfImageType maps a content type to what fpdf calls the format, or "" for one it cannot place.
+//
+// A short allow-list rather than a guess: fpdf supports JPEG, PNG and GIF, and foto re-encodes its display
+// renditions to JPEG. An unknown type skips the photograph instead of handing fpdf something it will latch an
+// error on — and a HEIC from a phone, which is what an *original* would be, falls out here rather than being
+// attempted. Originals are never served anyway (see nathejk/table/patrolphoto), so this is a second fence.
+func fpdfImageType(contentType string) string {
+	switch strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0])) {
+	case "image/jpeg", "image/jpg":
+		return "JPG"
+	case "image/png":
+		return "PNG"
+	case "image/gif":
+		return "GIF"
+	default:
+		return ""
+	}
 }
 
 // latin1 re-encodes a Danish string for fpdf's built-in fonts.

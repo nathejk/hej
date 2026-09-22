@@ -139,6 +139,10 @@ services:
       # Turn it on (or delete the line: the default is on) when the albums are filled. It is an env change and a
       # restart, not a release.
       PUBLIC_ALBUMS: ${PUBLIC_ALBUMS:-false}
+      # Where foto serves photograph objects (task 361). Fetched once per photograph into this stack's own blob
+      # volume, then never again — so foto being down costs new photographs, not diplomas already rendered.
+      # Empty means diplomas carry no photograph, which is a safe default rather than an error.
+      PHOTO_BASEURL: ${PHOTO_BASEURL:-}
       # MariaDB (task 061: hej runs its own). Reaches the `db` service below over
       # the stack-private `local` network, so this credential never leaves the
       # stack. multiStatements is required by some shared-go schemas; parseTime

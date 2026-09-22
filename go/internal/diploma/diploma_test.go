@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"image"
 	"image/jpeg"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -21,26 +23,142 @@ func finishedAt(h, m int) *time.Time {
 	return &t
 }
 
-// **The type has nowhere to put a photograph, and that is the point.**
+// **A photograph that cannot be drawn must not cost the diploma** (task 361).
 //
-// `diplom`'s version places a `natpas` portrait of the patrol in the middle of the page. On an unauthenticated
-// surface that would publish eight children's faces through no consent gate (PRD 011 §0b.2), which is a
-// stronger identifier than any of the names task 337 is careful about.
+// The bytes travel from a camera app through foto through a projection through an HTTP fetch, and any of those can
+// deliver something unusable on a given day. fpdf makes this dangerous in a specific way: it **latches** an error
+// and then refuses every later operation, so an unreadable image would silently take the name and the sentences
+// with it and produce a blank page. Each case below asserts the document still contains its text.
+func TestABrokenPhotographStillRendersTheDiploma(t *testing.T) {
+	at := time.Date(2026, 9, 20, 3, 42, 0, 0, time.UTC)
+	base := Diploma{Number: "42", Name: "Ørnene", Title: "Nathejk 2026", FinishedAt: &at}
+
+	cases := []struct {
+		name   string
+		mutate func(d *Diploma)
+	}{
+		{"no photograph at all", func(d *Diploma) {}},
+		{"a content type fpdf cannot place", func(d *Diploma) {
+			d.Photo, d.PhotoContentType = []byte("\x00\x01binary"), "image/heic"
+		}},
+		{"an empty content type", func(d *Diploma) {
+			d.Photo, d.PhotoContentType = []byte("\xff\xd8\xff"), ""
+		}},
+		{"bytes that are not the image they claim", func(d *Diploma) {
+			d.Photo, d.PhotoContentType = []byte("this is not a JPEG at all"), "image/jpeg"
+		}},
+		{"a truncated JPEG", func(d *Diploma) {
+			// A real JPEG header and nothing after it, which is what a cut-off fetch produces.
+			d.Photo, d.PhotoContentType = []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10}, "image/jpeg"
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := base
+			tc.mutate(&d)
+
+			var buf bytes.Buffer
+			if err := PDF(d, &buf); err != nil {
+				t.Fatalf("PDF: %v", err)
+			}
+			if buf.Len() < 300_000 {
+				t.Errorf("the PDF is %d bytes — the artwork or the text is missing", buf.Len())
+			}
+			if !bytes.HasPrefix(buf.Bytes(), []byte("%PDF-")) {
+				t.Error("not a PDF")
+			}
+		})
+	}
+}
+
+// And a good photograph is actually embedded, rather than silently skipped — the failure the test above cannot
+// see, since every one of its cases renders "fine".
+func TestAGoodPhotographIsEmbedded(t *testing.T) {
+	photo, err := os.ReadFile(filepath.Join("testdata", "patrol.jpg"))
+	if err != nil {
+		t.Skipf("no sample photograph: %v", err)
+	}
+
+	at := time.Date(2026, 9, 20, 3, 42, 0, 0, time.UTC)
+	d := Diploma{Number: "42", Name: "Ørnene", Title: "Nathejk 2026", FinishedAt: &at}
+
+	var without, with bytes.Buffer
+	if err := PDF(d, &without); err != nil {
+		t.Fatalf("PDF without: %v", err)
+	}
+	d.Photo, d.PhotoContentType = photo, "image/jpeg"
+	if err := PDF(d, &with); err != nil {
+		t.Fatalf("PDF with: %v", err)
+	}
+
+	// The photograph is ~400 kB; anything less than a clear margin means it did not go in.
+	if with.Len()-without.Len() < 100_000 {
+		t.Errorf("with a photograph the PDF grew by only %d bytes — it was skipped", with.Len()-without.Len())
+	}
+}
+
+// The content-type gate is an allow-list, and a HEIC is the case it exists for: that is what an *original* from a
+// phone is, and originals are never served (see nathejk/table/patrolphoto). This is the second fence.
+func TestTheContentTypeGateAcceptsOnlyWhatFpdfCanPlace(t *testing.T) {
+	for contentType, want := range map[string]string{
+		"image/jpeg":                 "JPG",
+		"image/jpg":                  "JPG",
+		"IMAGE/JPEG":                 "JPG",
+		"image/jpeg; charset=binary": "JPG",
+		"image/png":                  "PNG",
+		"image/gif":                  "GIF",
+		"image/heic":                 "",
+		"image/webp":                 "",
+		"application/pdf":            "",
+		"":                           "",
+	} {
+		if got := fpdfImageType(contentType); got != want {
+			t.Errorf("fpdfImageType(%q) = %q, want %q", contentType, got, want)
+		}
+	}
+}
+
+// **The type carries a photograph, and that was a decision rather than a drift.**
 //
-// So this test fails the moment somebody adds the field back — which is the only way a rule like this survives
-// a year, since the obvious "improvement" to a diploma is a picture on it.
-func TestADiplomaCannotCarryAPhotographOrAPerson(t *testing.T) {
+// This test used to fail the moment a photograph field appeared, on the grounds recorded below. On 2026-09-21 the
+// maintainer instructed the opposite — *"the diploma should carry start photo, like it did in the diplom-repo"*,
+// and *"include cover photo in own blob store"* — so the field exists and this test's job changed.
+//
+// The old reasoning, kept because it is the thing a future reader needs to weigh: a diploma is reachable at an
+// unauthenticated URL addressed by a patrol number, so a photograph on it publishes eight children's faces, which
+// is a stronger identifier than any of the names task 337 is careful about (PRD 011 §0b.2).
+//
+// What makes it acceptable now, and it is worth being precise: the picture is the patrol's **cover**, which an
+// organizer selects in hq when there is more than one. That selection is a human curation step, which is exactly
+// the consent gate §0b.2 asked for — and where nobody has chosen, `patrolphoto`'s fallback refuses photographs
+// the crew flagged for review. The gate is upstream, in the tool where somebody can see the picture, rather than
+// here where nothing can.
+//
+// **What this test still guards is a person.** No name, no phone number, no email, no uploader, no photographer
+// — the fields that would make this document about an individual rather than about a patrol. That rule did not
+// move, and the photograph arriving is the reason to state it again.
+func TestADiplomaCannotCarryAPerson(t *testing.T) {
 	allowed := map[string]bool{
 		"Number": true, "Name": true, "Title": true, "Route": true, "FinishedAt": true,
+		// The patrol's photograph, as bytes and a content type. Bytes rather than a ref or a URL so this package
+		// still renders without a store or a network — see the field's doc.
+		"Photo": true, "PhotoContentType": true,
 	}
 
 	typ := reflect.TypeOf(Diploma{})
 	for i := 0; i < typ.NumField(); i++ {
 		name := typ.Field(i).Name
 		if !allowed[name] {
-			t.Errorf("Diploma has a new field %q. If it carries a photograph, a person's name or a phone "+
-				"number, read the package doc before adding it: this surface is unauthenticated.", name)
+			t.Errorf("Diploma has a new field %q. If it names a person — a name, a phone number, an email, a "+
+				"photographer — read the package doc before adding it: this surface is unauthenticated.", name)
 		}
+	}
+
+	// And the name field is the *patrol's*, which is the distinction the whole surface rests on. Asserted here so
+	// the allow-list above cannot quietly be read as permission for a person's name.
+	if _, ok := typ.FieldByName("PersonName"); ok {
+		t.Error("a diploma must not name a person")
 	}
 }
 

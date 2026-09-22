@@ -2,6 +2,7 @@ package diploma
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -34,12 +35,22 @@ func TestWriteSample(t *testing.T) {
 	defer f.Close()
 
 	at := time.Date(2026, 9, 20, 3, 42, 0, 0, time.UTC)
+	// A real photograph, because the photograph is the element a rendered sample exists to check: its box, its
+	// aspect ratio, and whether the text still clears it. testdata/patrol.jpg is one of `diplom`'s own 2024
+	// fixtures — a patrol at the start line, 2000×1500.
+	photo, err := os.ReadFile(filepath.Join("testdata", "patrol.jpg"))
+	if err != nil {
+		t.Fatalf("reading the sample photograph: %v", err)
+	}
+
 	err = PDF(Diploma{
-		Number:     "42",
-		Name:       "Ørnene",
-		Title:      "Nathejk 2026",
-		Route:      "fra Lundby til Glumsø",
-		FinishedAt: &at,
+		Number:           "42",
+		Name:             "Ørnene",
+		Title:            "Nathejk 2026",
+		Route:            "fra Lundby til Glumsø",
+		FinishedAt:       &at,
+		Photo:            photo,
+		PhotoContentType: "image/jpeg",
 	}, f)
 	if err != nil {
 		t.Fatalf("PDF: %v", err)

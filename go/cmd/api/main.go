@@ -24,6 +24,7 @@ import (
 	"nathejk.dk/internal/choice"
 	"nathejk.dk/internal/commands"
 	"nathejk.dk/internal/data"
+	"nathejk.dk/internal/photobytes"
 	"nathejk.dk/internal/pin"
 	"nathejk.dk/internal/publicgate"
 	"nathejk.dk/internal/push"
@@ -75,6 +76,13 @@ type application struct {
 	// recoverable answer. This one faces the open web, where a distinguishable "exists but unavailable"
 	// confirms a patrol number is real and that the race is still running — see publicgate.go.
 	publicGate *publicgate.Gate
+
+	// photos fetches a patrol photograph's bytes into this app's own blob store (task 361).
+	//
+	// **May be nil**, when `PHOTO_BASEURL` is unset or there is no blob store. A nil means diplomas carry no
+	// photograph, which is the same outcome as a patrol nobody photographed — so no caller has to distinguish
+	// them, and an unconfigured environment renders certificates rather than failing them.
+	photos *photobytes.Fetcher
 
 	// patrolTracks composes a patrol's merged, unattributed route and caches it (PRD 011 §6, task 340).
 	//
@@ -753,6 +761,10 @@ func run(logger *slog.Logger) error {
 
 		// The public patrol page's gate (task 330). Nil fails closed — see the field's doc.
 		publicGate: publicGate,
+
+		// The patrol photograph fetcher (task 361). Nil when PHOTO_BASEURL is unset or there is no blob store,
+		// which means diplomas carry no photograph — the same outcome as a patrol nobody photographed.
+		photos: photobytes.New(cfg.photoBaseURL, blobs, logger),
 
 		// The patrol's merged route (task 340), composed from the member list and the telemetry points,
 		// and cached per patrol. Nil when either projection is missing — see newPatrolTrackReader.
