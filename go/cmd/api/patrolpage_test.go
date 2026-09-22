@@ -184,9 +184,15 @@ func TestPatrolPageShowsTheFinishTimeAndTheDiplomaSlot(t *testing.T) {
 	}
 }
 
-// **A backstop-opened page has no diploma slot at all** — absent, not empty. An empty frame where a
-// diploma should be is a page pointing at what is missing (task 346).
-func TestABackstopOpenedPageHasNoDiplomaSlot(t *testing.T) {
+// **A backstop-opened page still gets a diploma slot** (task 360), with the participation wording behind it.
+//
+// This asserted the opposite until 2026-09-21: task 346 withheld the slot so that no diploma could say
+// "gennemført" to a patrol that did not finish. The maintainer reversed it — `diplom` has printed "deltog i"
+// since 2024 — so the finish now chooses the sentence instead of the document's existence.
+//
+// What stays asserted is everything about *not* claiming a finish: no finish time, and nothing anywhere on the
+// page announcing that this patrol gave up.
+func TestABackstopOpenedPageHasADiplomaSlotWithoutAFinish(t *testing.T) {
 	app, _, srv := patrolPageApp(t)
 	// The race is over, and 43 never reached the finish.
 	app.publicGate = publicgate.New(
@@ -208,8 +214,8 @@ func TestABackstopOpenedPageHasNoDiplomaSlot(t *testing.T) {
 	if !strings.Contains(page, "Ulvene") {
 		t.Fatalf("want the patrol rendered\n%s", page)
 	}
-	if strings.Contains(page, `class="diploma"`) {
-		t.Error("a patrol that did not finish must have no diploma slot")
+	if !strings.Contains(page, `class="diploma"`) {
+		t.Error("a patrol that walked the night should still have a diploma slot")
 	}
 	if strings.Contains(page, "I mål") {
 		t.Error("a patrol that did not finish must not claim a finish time")
@@ -650,9 +656,10 @@ func TestABackstopOpenedPageIsComplete(t *testing.T) {
 			t.Errorf("a backstop-opened page is missing %q — it must be a whole page, not a stub", want)
 		}
 	}
-	// And the one thing it does not have.
-	if strings.Contains(page, `class="diploma"`) {
-		t.Error("a patrol that did not finish must have no diploma slot")
+	// And the diploma is there too, since task 360 — it is a whole page in every respect, with the wording
+	// doing the work the missing slot used to do.
+	if !strings.Contains(page, `class="diploma"`) {
+		t.Error("a backstop-opened page should carry its diploma slot")
 	}
 }
 

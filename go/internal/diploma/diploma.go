@@ -129,10 +129,13 @@ type Diploma struct {
 
 	// FinishedAt is when the patrol crossed the line, in the event's own timezone, or nil.
 	//
-	// Nil renders the participation wording instead of the finish wording — `diplom` does the same. In this
-	// app a diploma is only produced for a patrol that finished (task 346: a backstop-opened page has no
-	// diploma slot at all), so nil should be unreachable from the handler; the branch exists because the
-	// renderer must not depend on its caller's gate being correct.
+	// Nil renders the participation wording instead of the finish wording — `diplom` does the same, and since
+	// task 360 so does this app: a patrol whose page is open but who never reached the finish gets a diploma
+	// saying "deltog i". So **both branches are reachable from the public page**, which they were not when the
+	// handler withheld the document instead (task 346).
+	//
+	// Nil is precisely "nobody from this patrol reached the finish": the gate reads the patrol's scan at the
+	// last checkgroup, and a checkpoint scans the patrol rather than its members.
 	FinishedAt *time.Time
 }
 
@@ -301,8 +304,8 @@ func sentences(d Diploma) []string {
 	}
 
 	if d.FinishedAt == nil {
-		// The participation wording. Unreachable from the public page (a patrol with no finish has no
-		// diploma slot — task 346), and correct rather than blank if anything else ever renders one.
+		// The participation wording, and since task 360 a normal path rather than a defensive one: a patrol
+		// whose page the backstop opened gets this sentence. It must never imply a finish.
 		if d.Route != "" {
 			return []string{fmt.Sprintf("deltog i %s %s!", title, d.Route)}
 		}

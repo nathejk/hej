@@ -677,8 +677,9 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   </div>
 
   {{if .HasDiploma}}
-  <!-- The diploma. Rendered only where the patrol finished: a page the backstop opened has nothing to
-       certify, and an empty frame would point at what is missing (task 346).
+  <!-- The diploma. Rendered for every open page (task 360): the finish chooses the *wording* — "har gennemført"
+       or "deltog i" — rather than whether there is a certificate, so a patrol that walked the night without
+       reaching the finish is not handed nothing. This withheld the slot until 2026-09-21 (task 346).
 
        A link to the PDF wrapped around a thumbnail of the artwork — no script, so it works exactly as far as
        the browser's own PDF viewer does, and it opens in a new tab because a visitor opening a certificate has

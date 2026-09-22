@@ -47,8 +47,16 @@ func TestTheDiplomaIsServedForAPatrolThatFinished(t *testing.T) {
 	}
 }
 
-// **The second gate.** 43 never reached the finish; the backstop opens its page. It must still have no diploma.
-func TestABackstopOpenedPatrolHasNoDiploma(t *testing.T) {
+// **A patrol that did not finish gets a diploma too, with the other wording** (task 360).
+//
+// 43 never reached the finish; the backstop opened its page. This used to 404 on both diploma routes, because
+// task 346 made the document conditional on finishing so that "har gennemført" could not be printed falsely.
+// The maintainer reversed it: `diplom` has printed *"deltog i"* since 2024, and the finish selects the sentence
+// rather than deciding whether there is a certificate at all.
+//
+// So what this test guards is no longer an absence — it is the **wording**, which is the thing that would be
+// wrong in a way nobody could take back.
+func TestAPatrolThatDidNotFinishGetsTheParticipationWording(t *testing.T) {
 	app, _, srv := patrolPageApp(t)
 	app.publicGate = publicgate.New(
 		gateCheckgroups{groups: []checkgroup.Checkgroup{
@@ -64,15 +72,29 @@ func TestABackstopOpenedPatrolHasNoDiploma(t *testing.T) {
 	if resp, _ := getPublic(t, srv.URL+"/2026/patrulje/43", nil); resp.StatusCode != http.StatusOK {
 		t.Fatalf("the page should be open, got %d", resp.StatusCode)
 	}
-	// … and there is no diploma behind it, on either route.
+	// … and both diploma routes now answer.
 	for _, path := range []string{
 		"/api/public/patrol/43/diploma",
 		"/api/public/patrol/43/diploma/thumb",
 	} {
 		resp, _ := getPublic(t, srv.URL+path, nil)
-		if resp.StatusCode != http.StatusNotFound {
-			t.Errorf("%s: status = %d, want 404 for a patrol that did not finish", path, resp.StatusCode)
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("%s: status = %d, want 200 — a patrol that walked the night has a diploma", path, resp.StatusCode)
 		}
+	}
+
+	// The wording itself is `internal/diploma`'s contract and is tested there, against `sentences`. What this
+	// test owns is the **gate**: that a patrol with no finish reaches a diploma at all, and that the value it
+	// gets carries no finish time — which is what selects the participation sentence.
+	d, ok := app.patrolDiploma(mustRequest(t, srv.URL+"/api/public/patrol/43/diploma", "43"))
+	if !ok {
+		t.Fatal("want a diploma for a patrol whose page is open")
+	}
+	if d.FinishedAt != nil {
+		t.Errorf("this patrol did not finish, got a finish time %v", d.FinishedAt)
+	}
+	if d.Name == "" {
+		t.Error("the diploma should still name the patrol")
 	}
 }
 

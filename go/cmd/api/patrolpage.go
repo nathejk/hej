@@ -167,9 +167,14 @@ func (app *application) patrolPage(number string) (publicPatrolPageData, bool) {
 		Patrol:     patrol,
 		KorpsLabel: patrol.KorpsLabel(),
 		FinishedAt: verdict.FinishedAt,
-		// The diploma follows the finish, not the gate: a backstop-opened patrol never crossed the line,
-		// so there is nothing to certify (PRD 011 §6, task 346).
-		HasDiploma: verdict.Finished(),
+		// The diploma follows the **page**, not the finish (task 360). Both wordings exist — *har gennemført* and
+		// *deltog i* — and `diplom` has printed the second since 2024, so a patrol that walked the night without
+		// reaching the finish still gets a certificate that says what it did.
+		//
+		// This reverses task 346, which made the slot conditional on finishing so that a diploma could never say
+		// "gennemført" to a patrol that did not. That risk is real and is handled where it belongs — in the wording,
+		// which the renderer picks from FinishedAt — rather than by withholding the document.
+		HasDiploma: true,
 	}
 	if verdict.FinishedAt != nil {
 		data.FinishedLabel = eventtime.Danish(*verdict.FinishedAt)

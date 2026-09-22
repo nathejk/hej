@@ -79,8 +79,9 @@ func TestTheRouteLineIsOmittedWhenUnset(t *testing.T) {
 	}
 }
 
-// A diploma with no finish says "deltog i", not "har gennemført". Unreachable from the public page (task 346
-// gives a backstop-opened patrol no diploma at all), and the renderer must not depend on its caller's gate.
+// A diploma with no finish says "deltog i", not "har gennemført" — one of the two wordings the maintainer named
+// on 2026-09-21, and since task 360 the one a backstop-opened patrol actually receives. It was a defensive test
+// when the handler withheld such diplomas; it is now a test of shipped behaviour.
 func TestNoFinishMeansParticipationWording(t *testing.T) {
 	got := strings.Join(sentences(Diploma{Title: "Nathejk 2026"}), " | ")
 

@@ -136,11 +136,16 @@ func (app *application) patrolDiploma(r *http.Request) (diploma.Diploma, bool) {
 	if !open {
 		return diploma.Diploma{}, false
 	}
-	// **The second gate.** A page the backstop opened has no diploma to give (task 346), and "har gennemført"
-	// is not a sentence to print for a patrol that did not.
-	if !verdict.Finished() {
-		return diploma.Diploma{}, false
-	}
+	// **There is no second gate any more** (task 360). It used to refuse a diploma unless the patrol finished,
+	// so that "har gennemført" could never be printed for one that did not (task 346).
+	//
+	// The maintainer's instruction reverses it: *"there are two different wordings depending on if at least one
+	// member from patrulje finished or not"*. `diplom` has printed both since 2024. So the finish now selects the
+	// **sentence** rather than deciding whether the document exists — which is where the distinction belongs, and
+	// it keeps a patrol that walked all night from being handed nothing.
+	//
+	// `FinishedAt` nil is exactly "nobody from this patrol reached the finish": the gate reads the patrol's scan
+	// at the last checkgroup, and a checkpoint scans the patrol rather than its members.
 
 	finishedAt := verdict.FinishedAt
 	if finishedAt != nil {
