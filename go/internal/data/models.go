@@ -14,6 +14,7 @@ import (
 	"nathejk.dk/nathejk/table/glimt"
 	"nathejk.dk/nathejk/table/patrolphoto"
 	"nathejk.dk/nathejk/table/person"
+	"nathejk.dk/nathejk/table/photo"
 	"nathejk.dk/nathejk/table/publicpatrol"
 	"nathejk.dk/nathejk/table/year"
 )
@@ -138,6 +139,24 @@ type Models struct {
 	// **May be nil**, and a nil means "no photograph" rather than an error: the diploma omits the picture and
 	// renders, which is also what happens for a patrol nobody photographed.
 	PatrolPhotos patrolphoto.Queries
+
+	// Photos is the year's photograph library — "the bulk" the photographers hand in (PRD 022 §8.3).
+	//
+	// **May be nil**, and the handling matches Albums' rather than Glimt's, for the same reason plus one
+	// that is specific to this field.
+	//
+	// Albums' reason: `RefsInUse` is consulted by delete paths in *other* features, where nil and error are
+	// emphatically not interchangeable — nil means there are no library photographs to protect, while an
+	// error means we cannot tell, and deleting content-addressed bytes on "cannot tell" is how a takedown in
+	// one feature blanks a page in another. See cmd/api/glimtdelete.go and task 368.
+	//
+	// Its own reason: **no public page reads this**. A photograph reaches the open web only by being
+	// referenced from a published album, which resolves through Albums. So a nil here cannot degrade a
+	// public surface at all — it can only take the curator's tool away, which is the safe direction.
+	//
+	// Read-only here by construction, like Glimt and Albums: uploading, editing and deleting go through
+	// internal/commands, and the bytes through app.blobs.
+	Photos photo.Queries
 }
 
 // MapReads is the patrol-scoped map read API.
@@ -184,6 +203,14 @@ func WithGlimt(q glimt.Queries) Option {
 // distinct.
 func WithAlbums(q album.Queries) Option {
 	return func(mo *Models) { mo.Albums = q }
+}
+
+// WithPhotos supplies the photograph library read model (PRD 022). Omit it and Models.Photos is nil.
+//
+// A nil takes the curator's tool away and cannot affect a public page, because no public read goes through
+// this projection. The field's doc records the one caller for which nil and error must stay distinct.
+func WithPhotos(q photo.Queries) Option {
+	return func(mo *Models) { mo.Photos = q }
 }
 
 // WithPublicPatrols supplies the public patrol read model (PRD 011). Omit it and Models.PublicPatrols is

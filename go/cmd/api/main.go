@@ -43,6 +43,7 @@ import (
 	"nathejk.dk/nathejk/table/pagereport"
 	"nathejk.dk/nathejk/table/patrolphoto"
 	"nathejk.dk/nathejk/table/person"
+	"nathejk.dk/nathejk/table/photo"
 	"nathejk.dk/nathejk/table/publicpatrol"
 	"nathejk.dk/nathejk/table/scan"
 	"nathejk.dk/nathejk/table/trackpoint"
@@ -457,6 +458,11 @@ func run(logger *slog.Logger) error {
 	// not. It also shares glimt's *objects* — content addressing means an album photograph and a
 	// glimt can be the same bytes — which is why the delete path consults both (glimtdelete.go).
 	var albums *album.Table
+	// photos is the photograph library — "the bulk" (PRD 022, task 363). The album projection above holds
+	// the *arrangements*; this one holds the photographs they arrange. Same construction condition and the
+	// same non-rebuildable caveat, and it shares the other two's objects for the same reason: content
+	// addressing means a library photograph, an album's photograph and a glimt can be one set of bytes.
+	var photos *photo.Table
 	// publicPatrols is the narrow public patrol projection (PRD 011, task 338). Folds the same upstream
 	// team events shared-go's `patrulje` projection folds, and writes four columns — deliberately dropping
 	// the contact block, so the public page cannot name a person even by accident. See the package doc for
@@ -528,6 +534,15 @@ func run(logger *slog.Logger) error {
 			logger.Error("album projection unavailable", "err", cerr)
 		} else {
 			albums = t
+		}
+
+		// The photograph library (PRD 022). Same condition once more, with one difference worth naming:
+		// unlike the projections above, **nothing public reads this one**, so a failure here cannot degrade
+		// a public page — it takes the curator's tool away and leaves the published albums untouched.
+		if t, cerr := photo.New(ev.publisherOrNil(), ev.writer, ev.reader); cerr != nil {
+			logger.Error("photo projection unavailable", "err", cerr)
+		} else {
+			photos = t
 		}
 
 		if t, cerr := publicpatrol.New(ev.publisherOrNil(), ev.writer, ev.reader); cerr != nil {
@@ -630,6 +645,9 @@ func run(logger *slog.Logger) error {
 			}
 			if albums != nil {
 				projections = append(projections, albums)
+			}
+			if photos != nil {
+				projections = append(projections, photos)
 			}
 			if publicPatrols != nil {
 				projections = append(projections, publicPatrols)
@@ -750,6 +768,7 @@ func run(logger *slog.Logger) error {
 			data.WithMapReads(mapReadsFor(mapReads, ev != nil, logger)),
 			data.WithGlimt(glimtQueriesOrNil(glimts)),
 			data.WithAlbums(albumQueriesOrNil(albums)),
+			data.WithPhotos(photoQueriesOrNil(photos)),
 			data.WithPublicPatrols(publicPatrolQueriesOrNil(publicPatrols)),
 			data.WithYears(yearQueriesOrNil(years)),
 			data.WithPatrolPhotos(patrolPhotoQueriesOrNil(patrolPhotos))),

@@ -9,6 +9,7 @@ import (
 	"nathejk.dk/nathejk/table/album"
 	"nathejk.dk/nathejk/table/checkpoint"
 	"nathejk.dk/nathejk/table/patrolphoto"
+	"nathejk.dk/nathejk/table/photo"
 	"nathejk.dk/nathejk/table/publicpatrol"
 	"nathejk.dk/nathejk/table/year"
 )
@@ -169,6 +170,19 @@ func withinRaceBounds(area checkpoint.RaceArea, lat, lng float64) bool {
 // would pass and then panic on the first call. Converting here is what makes those checks honest —
 // and one of them is in the glimt delete path, where a panic would take out a takedown.
 func albumQueriesOrNil(t *album.Table) album.Queries {
+	if t == nil {
+		return nil
+	}
+	return t
+}
+
+// photoQueriesOrNil narrows the photograph library to its read API, or nil (PRD 022, task 363).
+//
+// The same typed-nil guard as albumQueriesOrNil, and the consequence of getting it wrong is the same one:
+// `RefsInUse` is consulted by the glimt and album delete paths, so a typed nil would pass their
+// availability check and panic inside a takedown — which is the one code path in this service that must not
+// fail halfway.
+func photoQueriesOrNil(t *photo.Table) photo.Queries {
 	if t == nil {
 		return nil
 	}
