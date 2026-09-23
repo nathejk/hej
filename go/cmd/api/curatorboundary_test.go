@@ -37,7 +37,12 @@ var adminOwnedFiles = map[string]bool{
 	// a distinction only the curator read can make, because the public read reports both as not found, and
 	// getting it wrong would mean a re-upload silently restoring a photograph somebody objected to.
 	"adminupload.go": true,
-	// More arrive with tasks 373–379: the contact sheet, the album editor.
+	// The contact sheet's list and media reads. The **whole point** of it being on the curator interface: it
+	// returns photographs no album references, and on request deleted ones, which is exactly what a public read
+	// must never do. Its media handler also resolves an id through this read rather than handing it to the blob
+	// store — see adminlibrary.go for why that is the difference between a photo route and a file server.
+	"adminlibrary.go": true,
+	// More arrive with tasks 375–379: the album editor and the bulk actions.
 }
 
 // curatorReads are the model fields that return draft-visible data.

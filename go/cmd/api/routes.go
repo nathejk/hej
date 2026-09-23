@@ -255,6 +255,15 @@ func (app *application) routes() http.Handler {
 		// One file per request (task 372). The batching is the browser's, which is what keeps one bad file
 		// from failing a batch of three hundred — see adminupload.go's header.
 		router.HandlerFunc(http.MethodPost, "/api/admin/photos", app.requireAdmin(app.uploadAdminPhotoHandler))
+		// The contact sheet's reads (task 374). Both go through the **curator** interface, so drafts and
+		// deleted rows are reachable here and structurally unreachable from anything public (PRD 022 §8.8).
+		//
+		// The media route resolves its id through the projection rather than handing it to the blob store.
+		// That is not defensive coding: a library photograph's id *is* a content ref, so the shortcut would
+		// turn this into a general file server for the whole store behind one shared password. See
+		// adminlibrary.go.
+		router.HandlerFunc(http.MethodGet, "/api/admin/photos", app.requireAdmin(app.listAdminPhotosHandler))
+		router.HandlerFunc(http.MethodGet, "/api/admin/photos/:photoId/media", app.requireAdmin(app.showAdminPhotoMediaHandler))
 	}
 
 	// Development-only routes (PRD 014 §8). Registered rather than guarded, so outside

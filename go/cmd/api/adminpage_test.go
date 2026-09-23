@@ -22,15 +22,38 @@ import (
 // it is ever judged worth a runner.
 
 // renderAdminPage fetches the tool with the credential and returns its HTML.
+//
+// A library stub is attached, so the page renders its **normal** state. Without one `PhotoCurator` is nil, the
+// page takes its "kan ikke læses lige nu" branch, and the whole counts block is absent — which quietly made an
+// early version of `TestTheAdminHeaderReadsEveryCount` fail for a reason that had nothing to do with the header.
 func renderAdminPage(t *testing.T) string {
 	t.Helper()
 
-	_, srv := adminApp(t)
+	app, srv := adminApp(t)
+	app.models.PhotoCurator = &libraryCurator{}
+
 	resp := getAdmin(t, srv, "/admin", testAdminUser, testAdminPass)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("want 200, got %d", resp.StatusCode)
 	}
 	return adminBody(t, resp)
+}
+
+// The degraded branch, asserted on purpose: a nil library must say so rather than show zeroes that read as "you
+// have uploaded nothing". The distinction matters most to the person who just uploaded three hundred files.
+func TestAdminPageSaysSoWhenTheLibraryIsUnavailable(t *testing.T) {
+	_, srv := adminApp(t) // no PhotoCurator
+
+	resp := getAdmin(t, srv, "/admin", testAdminUser, testAdminPass)
+	body := adminBody(t, resp)
+
+	if !strings.Contains(body, "kan ikke læses lige nu") {
+		t.Error("an unavailable library must be stated, not shown as an empty one")
+	}
+	// And it still renders the chrome, so the curator can tell they are logged in and the fault is downstream.
+	if !strings.Contains(body, adminPageMarker) {
+		t.Error("the tool's own chrome should still render, or this is indistinguishable from a wrong password")
+	}
 }
 
 // The template executes. Worth its own test because `template.Must` only catches *parse* errors at init — an

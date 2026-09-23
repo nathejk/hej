@@ -57,15 +57,25 @@ type adminPageData struct {
 }
 
 // adminCountsView is the header's numbers.
+//
+// # Why these carry JSON tags
+//
+// The type is rendered by the page template *and* serialised by `GET /api/admin/photos`. Without tags the API
+// exposes Go field names — `Total`, `InNoAlbum` — while the page's script reads `total`, so the header silently
+// stopped updating after a batch. The template is indifferent either way, which is exactly why nothing caught
+// it: the Go tests decode into this same struct, so the casing round-trips and only a browser notices.
+//
+// Found by looking at the live endpoint's output. Worth the note because the next person to add a field here
+// will be looking at the template, not at the wire.
 type adminCountsView struct {
-	Total        int
-	InNoAlbum    int
-	WithLocation int
-	Plottable    int
-	OutOfBounds  int
-	Unknown      int
-	Tagged       int
-	Deleted      int
+	Total        int `json:"total"`
+	InNoAlbum    int `json:"inNoAlbum"`
+	WithLocation int `json:"withLocation"`
+	Plottable    int `json:"plottable"`
+	OutOfBounds  int `json:"outOfBounds"`
+	Unknown      int `json:"unknown"`
+	Tagged       int `json:"tagged"`
+	Deleted      int `json:"deleted"`
 }
 
 // adminIndexHandler serves the tool.
@@ -219,6 +229,60 @@ h2 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
 .pos.outside { background: #fee2e2; color: #991b1b; }
 .pos.unknown { background: #fef3c7; color: #92400e; }
 .todo { color: #52525b; }
+
+/* --- the contact sheet ---------------------------------------------------- */
+#filters { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-bottom: 0.75rem; }
+.f {
+  font: inherit; font-size: 0.875rem; cursor: pointer;
+  background: #fff; color: #18181b; border: 1px solid #d4d4d8;
+  padding: 0.3125rem 0.75rem; border-radius: 999px;
+}
+.f:hover { border-color: #71717a; }
+.f.on { background: #18181b; color: #fafafa; border-color: #18181b; }
+.f:focus-visible, #sheet:focus-visible, .cell:focus-visible, button:focus-visible {
+  outline: 3px solid #2563eb; outline-offset: 2px;
+}
+
+#sheet {
+  display: grid; gap: 0.375rem;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+}
+.cell {
+  position: relative; cursor: pointer; background: #fff; border-radius: 0.375rem;
+  overflow: hidden; border: 3px solid transparent; padding: 0;
+}
+.cell img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #e4e4e7; }
+/* Selection is a border plus a tick, never colour alone: a curator working through a card for an hour should
+   not have to compare shades to know what a bulk action is about to apply to. */
+.cell[aria-selected="true"] { border-color: #2563eb; }
+.cell[aria-selected="true"] .tick { display: grid; }
+.tick {
+  display: none; position: absolute; top: 0.25rem; left: 0.25rem;
+  width: 1.25rem; height: 1.25rem; border-radius: 999px;
+  background: #2563eb; color: #fff; place-items: center; font-size: 0.75rem;
+}
+.marks { position: absolute; bottom: 0.25rem; left: 0.25rem; right: 0.25rem;
+         display: flex; gap: 0.25rem; flex-wrap: wrap; }
+.mark { font-size: 0.6875rem; padding: 0.0625rem 0.3125rem; border-radius: 999px; background: #27272aee; color: #fafafa; }
+.mark.outside { background: #b91c1ccc; }
+.mark.unknown { background: #b45309cc; }
+.mark.inside { background: #15803dcc; }
+.cell.gone { opacity: 0.5; }
+.cell.gone img { filter: grayscale(1); }
+
+#actions {
+  position: sticky; bottom: 0; z-index: 9;
+  display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+  margin-top: 1rem; padding: 0.75rem 1rem;
+  background: #18181b; color: #fafafa; border-radius: 0.5rem;
+}
+#actions button {
+  font: inherit; font-size: 0.875rem; cursor: pointer;
+  background: #3f3f46; color: #fafafa; border: 1px solid #52525b;
+  padding: 0.375rem 0.75rem; border-radius: 0.375rem;
+}
+#actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+#selcount { font-weight: 600; margin-right: auto; }
 svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 </style>
@@ -234,14 +298,14 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
   prøv igen om et øjeblik.</p>
 {{else}}
   <ul class="counts" id="counts">
-    <li><span class="n" id="c-total">{{.Counts.Total}}</span><span class="k">billeder</span></li>
-    <li><span class="n">{{.Counts.InNoAlbum}}</span><span class="k">uden album</span></li>
-    <li><span class="n">{{.Counts.WithLocation}}</span><span class="k">med position</span></li>
-    <li><span class="n">{{.Counts.Plottable}}</span><span class="k">på kortet</span></li>
-    <li><span class="n">{{.Counts.OutOfBounds}}</span><span class="k">uden for området</span></li>
-    <li><span class="n">{{.Counts.Unknown}}</span><span class="k">ikke vurderet</span></li>
-    <li><span class="n">{{.Counts.Tagged}}</span><span class="k">med patrulje</span></li>
-    <li><span class="n">{{.Counts.Deleted}}</span><span class="k">slettede</span></li>
+    <li><span class="n" data-count="total">{{.Counts.Total}}</span><span class="k">billeder</span></li>
+    <li><span class="n" data-count="inNoAlbum">{{.Counts.InNoAlbum}}</span><span class="k">uden album</span></li>
+    <li><span class="n" data-count="withLocation">{{.Counts.WithLocation}}</span><span class="k">med position</span></li>
+    <li><span class="n" data-count="plottable">{{.Counts.Plottable}}</span><span class="k">på kortet</span></li>
+    <li><span class="n" data-count="outOfBounds">{{.Counts.OutOfBounds}}</span><span class="k">uden for området</span></li>
+    <li><span class="n" data-count="unknown">{{.Counts.Unknown}}</span><span class="k">ikke vurderet</span></li>
+    <li><span class="n" data-count="tagged">{{.Counts.Tagged}}</span><span class="k">med patrulje</span></li>
+    <li><span class="n" data-count="deleted">{{.Counts.Deleted}}</span><span class="k">slettede</span></li>
   </ul>
 {{end}}
 
@@ -265,7 +329,35 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
 
   <ul id="rows"></ul>
 
-  <p class="todo">Kontaktark, album og positioner kommer her.</p>
+  <h2>Kontaktark</h2>
+  <div id="filters" role="group" aria-label="Filtre">
+    <button type="button" class="f on" data-q="">Alle</button>
+    <button type="button" class="f" data-q="album=none">Uden album</button>
+    <button type="button" class="f" data-q="location=no">Uden position</button>
+    <button type="button" class="f" data-q="location=yes">Med position</button>
+    <button type="button" class="f" data-q="verdict=outside">Uden for området</button>
+    <button type="button" class="f" data-q="verdict=unknown">Ikke vurderet</button>
+    <button type="button" class="f" data-q="tagged=yes">Med patrulje</button>
+    <button type="button" class="f" data-q="tagged=no">Uden patrulje</button>
+    <button type="button" class="f" data-q="deleted=1">Inkl. slettede</button>
+  </div>
+
+  <p id="sheetnote" class="todo" aria-live="polite"></p>
+  <p><button type="button" id="selall">Vælg alle der matcher filteret</button></p>
+  <div id="sheet" role="listbox" aria-multiselectable="true" aria-label="Billeder" tabindex="0"></div>
+  <p><button type="button" id="more" hidden>Hent flere</button></p>
+
+  <!-- The action bar is pinned rather than a page of its own, because navigating away loses the selection
+       (PRD 022 §7). Its four actions arrive with tasks 375–379; the bar and the selection they act on are
+       this task's. -->
+  <div id="actions" hidden aria-live="polite">
+    <span id="selcount"></span>
+    <button type="button" data-act="album" disabled>Tilføj til album</button>
+    <button type="button" data-act="position" disabled>Sæt position</button>
+    <button type="button" data-act="patrol" disabled>Tag patrulje</button>
+    <button type="button" data-act="delete" disabled>Slet</button>
+    <button type="button" id="clearsel">Ryd valg</button>
+  </div>
 </main>
 <script>
 // The uploader (task 373).
@@ -291,7 +383,6 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
   const prog = document.getElementById('prog');
   const bar = document.getElementById('bar');
   const progLabel = document.getElementById('proglabel');
-  const total = document.getElementById('c-total');
 
   let queued = 0, done = 0, running = 0;
   const queue = [];
@@ -332,6 +423,11 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     progLabel.textContent = active
       ? done + ' af ' + queued + ' — ' + (queued - done) + ' tilbage'
       : (queued === 0 ? '' : 'Færdig: ' + done + ' af ' + queued);
+
+    // When a batch finishes, refresh the sheet so the new photographs are there to sort. Without this the
+    // curator uploads a card and then has to work out that the grid needs reloading, which is the kind of
+    // small friction that makes a tool feel broken.
+    if (!active && queued > 0 && done === queued && typeof load === 'function') load(true);
   }
 
   // --- one file -------------------------------------------------------------
@@ -373,7 +469,6 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       return;
     }
     finishRow(li, 'ok', '', out, 'Lagt op');
-    if (total) total.textContent = String((parseInt(total.textContent, 10) || 0) + 1);
   }
 
   function httpReason(status) {
@@ -512,6 +607,254 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       for (const child of batch) await walk(child, out);
     }
   }
+
+  // --- the contact sheet (task 374) ----------------------------------------
+  //
+  // # The selection is the tool's real state
+  //
+  // Everything in the action bar acts on it, so it is held as a Set of ids rather than read off the DOM. Two
+  // reasons, and the second is the one that matters: a DOM-derived selection would be lost by any re-render,
+  // and it would silently shrink to "what is currently loaded" — which would make "select all matching this
+  // filter" a lie the moment the grid was paged.
+
+  const sheet = document.getElementById('sheet');
+  const filters = document.getElementById('filters');
+  const note = document.getElementById('sheetnote');
+  const more = document.getElementById('more');
+  const actions = document.getElementById('actions');
+  const selCount = document.getElementById('selcount');
+  const clearSel = document.getElementById('clearsel');
+
+  const selected = new Set();
+  // The order cells are shown in, so shift-click can resolve a range. Kept separately from the DOM for the
+  // reason above.
+  let order = [];
+  let lastClicked = null;
+  let query = '';
+  let offset = 0;
+  let loading = false;
+
+  function syncActions() {
+    const n = selected.size;
+    actions.hidden = n === 0;
+    selCount.textContent = n === 1 ? '1 valgt' : n + ' valgte';
+    // The four actions arrive with tasks 375-379. They stay disabled rather than absent so the shape of the
+    // tool is visible, and so this task's selection can be exercised against the bar it will drive.
+    for (const b of actions.querySelectorAll('button[data-act]')) b.disabled = true;
+  }
+
+  function paint(cell) {
+    cell.setAttribute('aria-selected', selected.has(cell.dataset.id) ? 'true' : 'false');
+  }
+
+  function toggle(id, on) {
+    if (on === undefined) on = !selected.has(id);
+    if (on) selected.add(id); else selected.delete(id);
+    const cell = sheet.querySelector('[data-id="' + id + '"]');
+    if (cell) paint(cell);
+    syncActions();
+  }
+
+  // Shift-click selects the range between the last click and this one, which is how a curator picks "these
+  // forty from Post 3" — PRD 022 §3 calls that the true shape of the work.
+  function selectRange(toId) {
+    const a = order.indexOf(lastClicked);
+    const b = order.indexOf(toId);
+    if (a < 0 || b < 0) { toggle(toId, true); return; }
+    const [lo, hi] = a < b ? [a, b] : [b, a];
+    for (let i = lo; i <= hi; i++) selected.add(order[i]);
+    for (const cell of sheet.querySelectorAll('.cell')) paint(cell);
+    syncActions();
+  }
+
+  function cellFor(p) {
+    const cell = document.createElement('button');
+    cell.type = 'button';
+    cell.className = 'cell' + (p.deleted ? ' gone' : '');
+    cell.dataset.id = p.id;
+    cell.setAttribute('role', 'option');
+    cell.setAttribute('aria-selected', 'false');
+
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    // Addressed by id and variant, never by ref. The server resolves it through the projection, which is what
+    // stops this route being a file server for the whole blob store (see adminlibrary.go).
+    img.src = '/api/admin/photos/' + encodeURIComponent(p.id) + '/media?variant=thumb';
+    img.alt = p.caption || '';
+
+    const tick = document.createElement('span');
+    tick.className = 'tick';
+    tick.setAttribute('aria-hidden', 'true');
+    tick.textContent = '✓';
+
+    const marks = document.createElement('span');
+    marks.className = 'marks';
+    // The position marks. Three states that must read differently, and 'unknown' must not read as a rejection:
+    // it is a statement about us — there was no race area to judge against — so blaming the photograph would
+    // be wrong. 'none' gets no mark at all, because having no coordinate is the ordinary case and a badge for
+    // it would be noise on most of the card.
+    if (p.boundsVerdict === 'inside') marks.append(mark('inside', 'position'));
+    else if (p.boundsVerdict === 'outside') marks.append(mark('outside', 'uden for området'));
+    else if (p.boundsVerdict === 'unknown') marks.append(mark('unknown', 'ikke vurderet'));
+
+    if (p.albumCount > 0) marks.append(mark('', p.albumCount === 1 ? '1 album' : p.albumCount + ' album'));
+    if (p.tagCount > 0) marks.append(mark('', 'patrulje'));
+    if (p.deleted) marks.append(mark('outside', 'slettet'));
+
+    cell.append(img, tick, marks);
+
+    cell.addEventListener('click', (e) => {
+      if (e.shiftKey && lastClicked) selectRange(p.id);
+      else { toggle(p.id); lastClicked = p.id; }
+    });
+    return cell;
+  }
+
+  function mark(kind, text) {
+    const s = document.createElement('span');
+    s.className = 'mark' + (kind ? ' ' + kind : '');
+    s.textContent = text;
+    return s;
+  }
+
+  async function load(reset) {
+    if (loading) return;
+    loading = true;
+    if (reset) { offset = 0; order = []; sheet.textContent = ''; lastClicked = null; }
+
+    const url = '/api/admin/photos?limit=120&offset=' + offset + (query ? '&' + query : '');
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        note.textContent = res.status === 401
+          ? 'Du er blevet logget ud. Genindlæs siden.'
+          : 'Kunne ikke hente billederne (fejl ' + res.status + ').';
+        return;
+      }
+      const data = await res.json();
+
+      for (const p of data.photos) {
+        order.push(p.id);
+        sheet.append(cellFor(p));
+      }
+      offset += data.photos.length;
+      more.hidden = !data.hasMore;
+      updateCounts(data.counts);
+
+      note.textContent = order.length === 0
+        ? 'Ingen billeder matcher.'
+        : order.length + ' vist' + (data.hasMore ? ' — der er flere' : '');
+
+      // Re-paint, because a filter change may bring back a photograph that is still selected. The selection
+      // deliberately survives filtering: a curator narrows to "uden position", picks forty, then widens to
+      // check something — losing the forty would make the filters unusable as a working tool.
+      for (const cell of sheet.querySelectorAll('.cell')) paint(cell);
+      syncActions();
+    } catch (err) {
+      note.textContent = 'Kunne ikke hente billederne. Prøv igen.';
+    } finally {
+      loading = false;
+    }
+  }
+
+  // The header is refreshed wholesale from the payload, keyed by the JSON field name in a data attribute.
+  //
+  // Every number rather than just the total, because they are read together: "312 billeder / 47 uden album"
+  // with a stale second figure is worse than no figure, since the curator uses it to decide what to sort next.
+  // Keyed by attribute rather than by id so adding a count is a template change and nothing else.
+  function updateCounts(c) {
+    if (!c) return;
+    for (const el of document.querySelectorAll('[data-count]')) {
+      const v = c[el.dataset.count];
+      if (typeof v === 'number') el.textContent = String(v);
+    }
+  }
+
+  filters.addEventListener('click', (e) => {
+    const b = e.target.closest('.f');
+    if (!b) return;
+    for (const other of filters.querySelectorAll('.f')) other.classList.toggle('on', other === b);
+    query = b.dataset.q;
+    load(true);
+  });
+
+  more.addEventListener('click', () => load(false));
+
+  // "Select everything matching this filter", beyond what is on screen.
+  //
+  // PRD 022 §6 requires it, and the reasoning in §3 is the point: "these forty are from Post 3" is the true
+  // shape of the work, and a selection model that topped out at the loaded page would push the curator back to
+  // doing it forty times — which is how it does not get done.
+  //
+  // It pages the ids rather than adding a bespoke endpoint: the same read, the same filter, one field used. A
+  // dedicated "all ids" route would be a second place for the filter to be interpreted, and the two
+  // disagreeing is precisely how a bulk action lands on the wrong photographs.
+  const selAll = document.getElementById('selall');
+  selAll.addEventListener('click', async () => {
+    selAll.disabled = true;
+    const before = selected.size;
+    try {
+      let off = 0;
+      for (;;) {
+        const url = '/api/admin/photos?limit=500&offset=' + off + (query ? '&' + query : '');
+        const res = await fetch(url);
+        if (!res.ok) { note.textContent = 'Kunne ikke hente alle billeder (fejl ' + res.status + ').'; return; }
+        const data = await res.json();
+        for (const p of data.photos) selected.add(p.id);
+        off += data.photos.length;
+        // Guard against a server that keeps saying "more" — an empty page ends the loop regardless, so a bug
+        // upstream cannot spin here forever.
+        if (!data.hasMore || data.photos.length === 0) break;
+      }
+      for (const cell of sheet.querySelectorAll('.cell')) paint(cell);
+      syncActions();
+      note.textContent = (selected.size - before) + ' billeder lagt til valget — ' + selected.size + ' valgte i alt';
+    } catch (err) {
+      note.textContent = 'Kunne ikke hente alle billeder. Prøv igen.';
+    } finally {
+      selAll.disabled = false;
+    }
+  });
+  clearSel.addEventListener('click', () => {
+    selected.clear();
+    for (const cell of sheet.querySelectorAll('.cell')) paint(cell);
+    syncActions();
+    sheet.focus();
+  });
+
+  // Keyboard: the grid is a listbox, arrows move focus between cells and space toggles. Required by PRD 022
+  // §6 — two or three people use this for hours, and a selection model reachable only by mouse is the usual
+  // way that becomes painful.
+  sheet.addEventListener('keydown', (e) => {
+    const cells = Array.from(sheet.querySelectorAll('.cell'));
+    if (!cells.length) return;
+    const current = document.activeElement.closest ? document.activeElement.closest('.cell') : null;
+    let i = current ? cells.indexOf(current) : -1;
+
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { i = Math.min(cells.length - 1, i + 1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { i = Math.max(0, i - 1); }
+    else if (e.key === ' ' || e.key === 'Enter') {
+      if (current) { e.preventDefault(); toggle(current.dataset.id); lastClicked = current.dataset.id; }
+      return;
+    } else if ((e.key === 'a' || e.key === 'A') && (e.metaKey || e.ctrlKey)) {
+      // Select everything currently loaded. "Everything matching the filter" beyond the loaded page is the
+      // explicit button below, because a keystroke that silently selects rows the curator has not seen is a
+      // bulk action waiting to surprise them.
+      e.preventDefault();
+      for (const id of order) selected.add(id);
+      for (const cell of cells) paint(cell);
+      syncActions();
+      return;
+    } else {
+      return;
+    }
+
+    e.preventDefault();
+    cells[i].focus();
+  });
+
+  load(true);
 })();
 </script>
 </body>
