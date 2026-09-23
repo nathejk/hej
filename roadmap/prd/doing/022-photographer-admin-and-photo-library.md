@@ -666,35 +666,61 @@ something, which makes the whole of phases 1–3 invisible to the public by conf
 by design.
 
 **Phase 1 — the model.** The library, and albums referencing it. No UI.
-- [ ] Task: the `photo` projection — the year's photo library, its events and its fold
-- [ ] Task: repoint `album_item` at a photo, and tolerate the legacy item event on replay
-- [ ] Task: move the coordinate and its verdict onto the photograph, where a photograph's facts belong
-- [ ] Task: the curator's read interface, separate from the public one so a draft cannot leak
-- [ ] Task: `photo_patrol` — a photograph is attributed to a patrol, never to a person
-- [ ] Task: the shared-blob check asks the library, and still refuses to guess
+- [x] Task 363: the `photo` projection — the year's photo library, its events and its fold
+- [x] Task 364: repoint `album_item` at a photo, and tolerate the legacy item event on replay
+- [x] Task 365: move the coordinate and its verdict onto the photograph, where a photograph's facts belong
+- [x] Task 366: the curator's read interface, separate from the public one so a draft cannot leak
+- [x] Task 367: `photo_patrol` — a photograph is attributed to a patrol, never to a person
+- [x] Task 368: the shared-blob check asks the library, and still refuses to guess
 
 **Phase 2 — the door.** Basic auth, absent rather than open when unconfigured.
-- [ ] Task: `requireAdmin` — a shared credential that grants exactly one tool
-- [ ] Task: no password, no routes: the admin surface is absent when unconfigured
-- [ ] Task: HTTPS-only, `no-store`, `noindex`, and a rate limit on the guess
+- [x] Task 369: `requireAdmin` — a shared credential that grants exactly one tool
+- [x] Task 370: no password, no routes: the admin surface is absent when unconfigured
+- [x] Task 371: HTTPS-only, `no-store`, `noindex`, and a rate limit on the guess
 
 **Phase 3 — the tool.**
-- [ ] Task: upload one photograph, idempotently, without resurrecting a deletion
-- [ ] Task: the drop zone — three hundred files, three at a time, one bad file fails alone
-- [ ] Task: the contact sheet, its filters and its selection model
-- [ ] Task: put a selection in one or more albums
-- [ ] Task: a position for many photographs at once, from the map or from a checkpoint
-- [ ] Task: tag a patrulje by the number on its sign, confirmed by name
-- [ ] Task: the album editor — fields, order, captions, and the publish switch
-- [ ] Task: delete from the library, and say plainly how that differs from removing from an album
+- [x] Task 372: upload one photograph, idempotently, without resurrecting a deletion
+- [x] Task 373: the drop zone — three hundred files, three at a time, one bad file fails alone
+- [x] Task 374: the contact sheet, its filters and its selection model
+- [x] Task 375: put a selection in one or more albums
+- [x] Task 376: a position for many photographs at once, from the map or from a checkpoint
+- [x] Task 377: tag a patrulje by the number on its sign, confirmed by name
+- [x] Task 378: the album editor — fields, order, captions, and the publish switch
+- [x] Task 379: delete from the library, and say plainly how that differs from removing from an album
 
 **Phase 4 — guards and going live.**
-- [ ] Task: extend the OpenAPI guard to `/api/admin`, and annotate every endpoint
-- [ ] Task: extend the structural privacy walk to the library and the tag
-- [ ] Task: assert no unpublished photograph is reachable on any public surface
-- [ ] Task: retire the album dev fixture in favour of the real tool
-- [ ] Task: confirm blob storage and backup capacity before the first real hand-in
-- [ ] Task: write the curator's half-page — the credential, the year, and what delete means
+- [x] Task 380: extend the OpenAPI guard to `/api/admin`, and annotate every endpoint
+- [x] Task 381: extend the structural privacy walk to the library and the tag
+- [x] Task 382: assert no unpublished photograph is reachable on any public surface
+- [x] Task 383: retire the album dev fixture in favour of the real tool
+- [ ] Task 384: confirm blob storage and backup capacity before the first real hand-in — **still open**
+- [ ] Task 385: write the curator's half-page — the credential, the year, and what delete means — **still open**
+
+### Where this stands (2026-09-23)
+
+**Everything that is code is built, tested and running in dev.** Twenty-two of twenty-four tasks are in
+`done/`; the two that are not are in `doing/`, and neither is waiting on engineering.
+
+They are both waiting on the same kind of thing, which is worth naming rather than treating as paperwork:
+
+- **384** — the code half landed (a free-space floor, §11 Q5 answered below), but the criterion is *headroom
+  confirmed on the production volume and a restore spot-checked*. §8.11 calls capacity the largest
+  operational risk in this PRD and is explicit that it is not a code risk. Turning a silent partial write
+  into a loud 507 is worth having and is **not** the same as having enough disk.
+- **385** — the page is written and checked in. What is missing is §11 Q4's *name* — who holds the
+  credential and where it lives — and the read-through: somebody who did not build this following the page
+  and uploading a batch unaided. The author of a document is the one person who cannot test whether it is
+  followable, and §9's success condition (*if it needs a shell, it failed*) is only ever settled by that
+  half-hour.
+
+So the PRD stays in `doing/`. Both remaining items are gates in front of the same moment — **a photographer
+being invited to upload** — and that is the moment this PRD exists for. Shipping the code and skipping them
+would be shipping the risk they were written to catch.
+
+One defect was found on the way and filed rather than folded in:
+[task 386](../../tasks/open/386-album-item-added-deadletters-after-reorder.md), a `handleItemAdded` upsert
+that deadletters on replay once an album has been reordered. It does not affect the end state today and it
+is not a reason to hold the PRD.
 
 ## 11. Open Questions
 
