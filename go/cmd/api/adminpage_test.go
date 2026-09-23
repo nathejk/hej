@@ -343,3 +343,80 @@ func TestTheAdminPositionPanelWorksWithoutTheMap(t *testing.T) {
 		t.Error("the checkpoint picker must be server-rendered markup, so it works without the map")
 	}
 }
+
+// **The map actually draws a base layer** (task 389).
+//
+// # Why this is asserted on the source rather than on a rendered map
+//
+// The island runs in a browser with Leaflet and two network fetches; nothing in this suite can execute it. What
+// *can* be checked is the shape of the lookup — and the shape is precisely what was wrong.
+//
+// The first version read `layers.layers[0]`. `maplayers.json` keys `layers` by **layer id** (`dtk25`, `dtk50`,
+// `orto`), so that expression is permanently `undefined`: no tile layer was ever added and the panel showed an
+// empty container. It degraded exactly as `TestTheAdminPositionPanelWorksWithoutTheMap` requires, which is why
+// nothing caught it — a map that silently draws nothing passes every test about failing gracefully.
+//
+// So this asserts the three things that make it render, each of which was missing.
+func TestTheAdminPositionMapDrawsARealBaseLayer(t *testing.T) {
+	src := adminSource(t, "adminpage.go")
+
+	island := src[strings.Index(src, "async function drawPositionMap"):]
+	island = island[:strings.Index(island, "function attachTileRetry")]
+
+	// Indexed by key, never by position. This is the bug, stated as a rule.
+	if strings.Contains(island, ".layers[0]") {
+		t.Error("the base layer must be looked up by key: maplayers.json keys `layers` by layer id, so an " +
+			"index is permanently undefined and the map draws nothing at all (task 389)")
+	}
+
+	for _, want := range []struct{ needle, why string }{
+		{"cfg.default", "the file names its own default layer; picking one here would drift from the app"},
+		{"dataforsyningen_token", "these are Dataforsyningen WMS endpoints and refuse a request with no token"},
+		{"layers: base.layer", "a WMS request without a layer parameter is not a tile request"},
+		{"format: base.format", "likewise the format"},
+		{"attachTileRetry(", "Leaflet has no tile retry, and the shared config ships a retry policy for it"},
+	} {
+		if !strings.Contains(island, want.needle) {
+			t.Errorf("the position map is missing %q: %s", want.needle, want.why)
+		}
+	}
+
+	// A map that cannot be drawn says so. An empty square with no explanation is the state this task was
+	// reported as, and "it degrades gracefully" is not a licence to degrade silently.
+	if !strings.Contains(island, "Kortet kan ikke hentes") {
+		t.Error("a missing base layer must be said in Danish; a grey rectangle tells the curator nothing")
+	}
+}
+
+// The retry is the app's, not an approximation of it.
+//
+// Ported by hand because this page has no build step and cannot import the app's TypeScript. That makes drift
+// the risk, so the three properties that matter are pinned here — each one is a thing a simplifying rewrite
+// would drop, and each one would leave a retry that appears to work.
+func TestTheAdminTileRetryMatchesTheApp(t *testing.T) {
+	src := adminSource(t, "adminpage.go")
+	retry := src[strings.Index(src, "function attachTileRetry"):]
+	retry = retry[:strings.Index(retry, "\n  }\n")+4]
+
+	for _, want := range []struct{ needle, why string }{
+		{"tile.src = original + '&_retry=' + attempt", "re-assigning src on the **same** <img> keeps " +
+			"Leaflet's own handlers attached, so a late success still fades the tile in normally — and the " +
+			"cache-buster defeats negative caching of the failed response. Asserted as the whole assignment: " +
+			"a break-test showed that `_retry=` alone also matches the regex that strips it, so the shorter " +
+			"needle proved nothing"},
+		{"Math.random()", "jitter stops a screen of failed tiles retrying in lockstep and hammering the service"},
+		{"tile.isConnected", "a tile discarded by a pan or a layer swap must not be revived"},
+		{"Math.pow(2, attempt - 1)", "exponential backoff, as the shared file's comment specifies"},
+	} {
+		if !strings.Contains(retry, want.needle) {
+			t.Errorf("the tile retry is missing %q: %s", want.needle, want.why)
+		}
+	}
+
+	// The numbers come from the shared file, so a change to the policy reaches this page without an edit.
+	for _, k := range []string{"retry.limit", "retry.baseDelayMs", "retry.jitterMs"} {
+		if !strings.Contains(retry, k) {
+			t.Errorf("%s must be read from maplayers.json rather than hard-coded here, or the two drift", k)
+		}
+	}
+}

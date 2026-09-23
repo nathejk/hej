@@ -1263,28 +1263,67 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     }
   }
 
-  // The map island, reusing the vendored Leaflet and the shared layer config the public map uses (task 353), so
-  // the curator places points on the same base map the app and the public pages draw.
+  // The map island, reusing the vendored Leaflet and the shared layer config the app and the public map use
+  // (task 353), so the curator places points on the same base map everybody else sees.
+  //
+  // # Why this is more than three lines (task 389)
+  //
+  // The first version read 'layers.layers[0]' and drew nothing at all, because 'maplayers.json' keys 'layers'
+  // by **layer id** ('dtk25', 'dtk50', 'orto') rather than as an array — so 'base' was always 'undefined' and
+  // the container sat empty. It also skipped three things the layer needs to actually render:
+  //
+  //   - the **token**. These are Dataforsyningen WMS endpoints and refuse an unauthenticated request; the
+  //     token comes from '/api/config', the same place the Vue app reads it.
+  //   - the 'layers' and 'format' **parameters**. A WMS URL without them is not a tile request.
+  //   - **retry**. Leaflet has none: one failed image leaves that tile grey until something recreates it, and
+  //     the file's own comment records that patchy rural data makes that the normal case rather than the
+  //     exception. Ported from 'EventMap.vue''s 'attachTileRetry' rather than reinvented — same backoff, same
+  //     jitter, same cache-buster, and the numbers come from the shared file so the two cannot drift.
+  //
+  // This page has no build step, so the app's TypeScript cannot be imported. The mitigation is that every
+  // value is read from 'maplayers.json' at runtime: if the layer definitions or the retry policy change, this
+  // map follows without an edit here.
   async function drawPositionMap() {
     if (typeof L === 'undefined') return; // Leaflet blocked or still loading: the picker is enough
     if (posMap) { posMap.invalidateSize(); return; }
 
-    let layers = null;
+    let cfg = null, token = '';
     try {
-      const res = await fetch('/maplayers.json');
-      if (res.ok) layers = await res.json();
-    } catch (err) { /* fall through to no base layer */ }
+      const [layersRes, confRes] = await Promise.all([
+        fetch('/maplayers.json'),
+        fetch('/api/config'),
+      ]);
+      if (layersRes.ok) cfg = await layersRes.json();
+      if (confRes.ok) token = (await confRes.json()).dataforsyningen_token || '';
+    } catch (err) { /* fall through: an empty map is still clickable */ }
 
     posMapEl.hidden = false;
-    posMap = L.map(posMapEl).setView([55.7332, 12.2648], 11);
+    const minZoom = (cfg && cfg.minZoom) || 7;
+    const maxZoom = (cfg && cfg.maxZoom) || 18;
+    posMap = L.map(posMapEl, { minZoom: minZoom, maxZoom: maxZoom }).setView([55.7332, 12.2648], 11);
 
-    const base = layers && layers.layers && layers.layers[0];
+    // The file's own default, by key. Falling back to the first entry rather than to a hard-coded id, so a
+    // renamed default does not empty the map again — which is the bug this function had.
+    const defs = (cfg && cfg.layers) || {};
+    const key = (cfg && cfg.default && defs[cfg.default]) ? cfg.default : Object.keys(defs)[0];
+    const base = key ? defs[key] : null;
+
     if (base && base.url) {
-      if (base.kind === 'wms') {
-        L.tileLayer.wms(base.url, Object.assign({}, base.params || {})).addTo(posMap);
-      } else {
-        L.tileLayer(base.url, { attribution: base.attribution || '' }).addTo(posMap);
-      }
+      const layer = L.tileLayer.wms(base.url, {
+        layers: base.layer,
+        format: base.format,
+        transparent: false,
+        crossOrigin: 'anonymous',
+        attribution: base.attribution || (cfg && cfg.attribution) || '',
+        token: token,
+        maxZoom: maxZoom,
+      });
+      attachTileRetry(layer, (cfg && cfg.retry) || {});
+      layer.addTo(posMap);
+    } else {
+      // Said out loud rather than left as a grey rectangle. The picker below still works, so this is a
+      // degraded map and not a broken panel — but a curator staring at an empty square should be told which.
+      posNote.textContent = 'Kortet kan ikke hentes lige nu. Du kan stadig vælge en post i listen.';
     }
 
     posMap.on('click', (e) => {
@@ -1295,6 +1334,36 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       if (posMarker) posMarker.remove();
       posMarker = L.marker(e.latlng).addTo(posMap);
       describeChoice();
+    });
+  }
+
+  // Retry a failed tile a few times before giving up, with exponential backoff and jitter.
+  //
+  // A port of EventMap.vue's attachTileRetry, deliberately faithful rather than simplified:
+  //
+  //   - re-assigning 'src' on the **same** <img> keeps Leaflet's own load/error handlers attached, so a late
+  //     success still fades the tile in normally. Creating a new image would lose that.
+  //   - the '_retry=' suffix defeats negative caching of the failed response by the browser or a proxy.
+  //   - jitter stops a whole screen of failed tiles retrying in lockstep and hammering the service.
+  //   - 'isConnected' guards a tile Leaflet has since discarded by panning or a layer swap.
+  function attachTileRetry(layer, retry) {
+    const limit = retry.limit || 3;
+    const baseDelay = retry.baseDelayMs || 400;
+    const jitter = retry.jitterMs || 250;
+
+    layer.on('tileerror', (event) => {
+      const tile = event.tile;
+      if (!tile) return;
+      const attempt = (tile._hejRetries || 0) + 1;
+      if (attempt > limit) return;
+      tile._hejRetries = attempt;
+
+      const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * jitter;
+      const original = tile.src.replace(/&_retry=\d+$/, '');
+      window.setTimeout(() => {
+        if (!tile.isConnected) return;
+        tile.src = original + '&_retry=' + attempt;
+      }, delay);
     });
   }
 
