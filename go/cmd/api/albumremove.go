@@ -106,9 +106,14 @@ func (app *application) removeAlbumItemHandler(w http.ResponseWriter, r *http.Re
 	// Looked up first so that an album or an ordinal that does not exist answers 404 rather than putting
 	// a no-op on an append-only log.
 	//
-	// The item itself is no longer needed — before PRD 022 its refs decided what bytes could go, and now
-	// no bytes go at all (see the note below). The lookup stays for the 404.
-	_, found, err := app.albumItemAt(albumID, ordinal)
+	// The item's **photo id** is what the event carries (task 386): this route is addressed by position, because
+	// that is what the page's markup has, but a position only identifies a membership until the album is
+	// reordered. Resolving it here means the log records which photograph was taken down rather than which slot
+	// was occupied at the time.
+	//
+	// Before PRD 022 the item's refs also decided what bytes could go; now no bytes go at all (see the note
+	// below).
+	item, found, err := app.albumItemAt(albumID, ordinal)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -126,6 +131,7 @@ func (app *application) removeAlbumItemHandler(w http.ResponseWriter, r *http.Re
 	if err := app.commands.Publish(subject, album.ItemRemoved{
 		AlbumID:   albumID,
 		Year:      app.config.eventYear,
+		PhotoID:   item.PhotoID,
 		Ordinal:   ordinal,
 		Reason:    reason,
 		RemovedAt: time.Now().UTC(),

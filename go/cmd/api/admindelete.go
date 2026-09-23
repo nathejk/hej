@@ -98,9 +98,16 @@ func (app *application) removeAdminAlbumItemHandler(w http.ResponseWriter, r *ht
 		return
 	}
 
+	// The event carries the **photograph**, and the ordinal alongside it for the record (task 386). The fold
+	// matches on the photograph: a position identifies a membership only until the album is reordered, and a
+	// removal keyed on the slot removes whoever moved into it.
+	//
+	// The ordinal is still resolved here because `album_item`'s primary key is `(albumId, ordinal)` and the
+	// event is the log's record of what happened — but nothing reads it except the pre-386 fallback.
 	if perr := app.publishAlbum(album.VerbItemRemoved, albumID, album.ItemRemoved{
 		AlbumID:   albumID,
 		Year:      app.config.eventYear,
+		PhotoID:   photoID,
 		Ordinal:   ordinal,
 		RemovedAt: time.Now().UTC(),
 	}); perr != nil {

@@ -201,6 +201,35 @@ func (c consumer) handleUpdated(msg cqrs.Message, year string) error {
 // arrives on every replay. Deleting this branch now would swap one boot-time wall of warnings for another,
 // which is the opposite of what §8.7 was careful about. It can go when the streams it reads are gone, and
 // not before.
+//
+// # A membership is addressed by photograph, never by position (task 386)
+//
+// The two statements below are not an upsert with extra steps. They are the fix for a bug that deadlettered
+// on every boot, and the reasoning generalises to every membership fold in this file:
+//
+// `album_item` holds `PRIMARY KEY (albumId, ordinal)` **and** `UNIQUE KEY (albumId, photoId)`. A single
+// `INSERT … ON DUPLICATE KEY UPDATE` copes with a violation of *one* unique key; it cannot cope with a row
+// that conflicts with **two different existing rows** on two different keys. MariaDB updates the first
+// conflicting row it finds, and if the update touches a key column that write violates the other key. The
+// old statement listed `photoId=VALUES(photoId)`, so it did.
+//
+// That happens whenever an `itemadded` is folded onto a table that already reflects a later reorder — which
+// is every replay, because **a projection is never truncated** (task 350: a replay converges values, it does
+// not reset the table). The event names ordinal 0 while the photograph now sits at ordinal 1, so the two
+// keys point at two rows and the write dies.
+//
+// So the fold asks the question the event actually answers. `ItemAdded` means *"this photograph is a member
+// of this album, at this position if it is not here yet"* — and nothing about the position of a photograph
+// that already is. That is not a convenient reading; it is what the writer means. `addAdminAlbumItemsHandler`
+// never publishes this event for a live member, and for a **removed** one it publishes the ordinal the row
+// already holds, so "keep the existing position and clear the removal" is exactly what it asked for. A later
+// reorder is the newer truth about position, and a replayed older add must not argue with it.
+//
+// **The rejected alternative** was to mirror `handleItemsReordered` — vacate, then place. It also converges,
+// because the reorder replays afterwards and corrects the order either way. It was rejected for two reasons:
+// a replayed *old* add would transiently override a *newer* reorder, which is the wrong direction for a
+// stale event to push; and it costs two extra statements per photograph on the common path, where the common
+// path is a photographer filing three hundred of them.
 func (c consumer) handleItemAdded(msg cqrs.Message, year string) error {
 	var body ItemAdded
 	if err := msg.Body(&body); err != nil {
@@ -231,13 +260,35 @@ func (c consumer) handleItemAdded(msg cqrs.Message, year string) error {
 		return fmt.Errorf("album item added with no addedAt")
 	}
 
+	// Statement 1: an existing membership is reinstated **where it is**. Addressed by photograph, so it finds
+	// the row whatever ordinal it currently holds — which is the whole point after a reorder. A no-op when the
+	// photograph is not in this album.
+	//
+	// `ordinal` is deliberately absent from the SET list. Writing it here would make a replayed old add drag a
+	// photograph back to a position a later reorder moved it out of, and it would need the vacate dance in
+	// `handleItemsReordered` to do it without colliding.
+	if err := c.w.Consume(fmt.Sprintf(
+		"UPDATE album_item SET deleted=0, addedAt=%s WHERE albumId=%s AND year=%s AND photoId=%s",
+		quote(formatTime(addedAt)), quote(albumID), quote(year), quote(body.PhotoID),
+	)); err != nil {
+		return err
+	}
+
+	// Statement 2: create the row, but only if this photograph is not already in the album.
+	//
+	// `WHERE NOT EXISTS` rather than `INSERT IGNORE`, and the difference is the point. `IGNORE` would also
+	// swallow a **primary key** clash — a different photograph already at this ordinal — and that case must stay
+	// loud: it means a membership was not recorded, and a dead letter is a far better outcome for that than
+	// silence. This condition suppresses exactly one conflict, the one statement 1 has already handled.
+	//
+	// MariaDB permits the target table in the subquery; verified against the dev database rather than assumed,
+	// because MySQL's rules here differ and this statement is the load-bearing half of the fix.
 	return c.w.Consume(fmt.Sprintf(
-		"INSERT INTO album_item SET albumId=%s, year=%s, ordinal=%d, photoId=%s, addedAt=%s, "+
-			"deleted=0 "+
-			"ON DUPLICATE KEY UPDATE "+
-			"year=VALUES(year), photoId=VALUES(photoId), addedAt=VALUES(addedAt), deleted=0",
-		quote(albumID), quote(year), body.Ordinal, quote(body.PhotoID),
-		quote(formatTime(addedAt)),
+		"INSERT INTO album_item (albumId, year, ordinal, photoId, addedAt, deleted) "+
+			"SELECT %s, %s, %d, %s, %s, 0 FROM DUAL "+
+			"WHERE NOT EXISTS (SELECT 1 FROM album_item WHERE albumId=%s AND year=%s AND photoId=%s)",
+		quote(albumID), quote(year), body.Ordinal, quote(body.PhotoID), quote(formatTime(addedAt)),
+		quote(albumID), quote(year), quote(body.PhotoID),
 	))
 }
 
@@ -258,6 +309,23 @@ func (c consumer) handleItemAdded(msg cqrs.Message, year string) error {
 // This is the standard technique for renumbering a unique-keyed sequence, and the thing to understand about it
 // is that step 1 must cover **every** row of the album including removed ones — a soft-deleted row still
 // occupies its ordinal and its photo id, so leaving it behind would put it in the way of a live item.
+//
+// # Why the vacate is ordered, which is not cosmetic (task 386)
+//
+// `ORDER BY ordinal DESC`. Without it the vacate collides with **itself** as soon as the album has a row
+// already sitting in the offset range — and after any reorder of an album with a removed membership, it has
+// one: the removed photograph is not named in the order, so nothing places it back down and it stays at
+// `ordinal + reorderOffset`. The next reorder then tries to move ordinal 0 to 1000000, which that stranded row
+// already holds, and MariaDB refuses.
+//
+// Reachable without a replay: remove an item, then reorder twice. It deadlettered the second reorder and the
+// curator's order silently did not change. Moving the rows in descending order means no row is ever written
+// onto a position still occupied, which is the same reason a shift-right of an array walks backwards.
+//
+// The stranded row climbs by one offset per reorder, so an album with a removed membership reordered a few
+// thousand times would overflow a signed INT. Left as is: at that point the write fails loudly rather than
+// corrupting, and the alternative — compacting the offset range — needs to enumerate rows the event does not
+// name, which is a read this fold does not have.
 //
 // # Why rows are moved rather than deleted and re-inserted
 //
@@ -298,8 +366,11 @@ func (c consumer) handleItemsReordered(msg cqrs.Message, year string) error {
 	}
 
 	// Step 1: vacate every position in this album, removed rows included.
+	//
+	// **Descending**, so the vacate cannot land a row on a position another still holds — see the note above;
+	// a row stranded in the offset range by an earlier reorder is the case that made this necessary.
 	if err := c.w.Consume(fmt.Sprintf(
-		"UPDATE album_item SET ordinal = ordinal + %d WHERE albumId=%s AND year=%s",
+		"UPDATE album_item SET ordinal = ordinal + %d WHERE albumId=%s AND year=%s ORDER BY ordinal DESC",
 		reorderOffset, quote(albumID), quote(year),
 	)); err != nil {
 		return err
@@ -367,8 +438,21 @@ type ItemsReordered struct {
 // The type lives here rather than in events.go with the others because the handler that publishes it
 // is task 335's; the fold is here so the projection cannot silently ignore the event in the meantime.
 type ItemRemoved struct {
-	AlbumID   string    `json:"albumId"`
-	Year      string    `json:"year"`
+	AlbumID string `json:"albumId"`
+	Year    string `json:"year"`
+
+	// PhotoID is the photograph being taken out, and it is what the fold matches on (task 386).
+	//
+	// Added after `Ordinal`, which it supersedes. A position is a slot in one album; the photograph is what
+	// somebody decided to remove, and the two stop agreeing the moment the album is reordered — so a removal
+	// keyed on the slot removes whoever moved into it. That is not a replay curiosity: it is silent, it takes a
+	// live photograph off a public page, and nothing anywhere says so.
+	//
+	// Empty on events published before task 386. See `handleItemRemoved` for what the fold does with those.
+	PhotoID string `json:"photoId,omitempty"`
+
+	// Ordinal is the position the photograph held. Kept for the older events that carry only this, and
+	// published alongside `PhotoID` so the log stays readable — but **not** what the fold matches on.
 	Ordinal   int       `json:"ordinal"`
 	Reason    string    `json:"reason,omitempty"`
 	RemovedAt time.Time `json:"removedAt"`
@@ -388,6 +472,20 @@ type Deleted struct {
 // honours somebody's objection, and an accidental one must be recoverable without republishing a
 // photograph that was taken down on purpose. A destructive delete would make "put it back" require
 // re-uploading bytes we deliberately destroyed.
+//
+// # Matched on the photograph, and why the legacy fallback is still by ordinal (task 386)
+//
+// A removal addressed by position removes whoever is at that position *now*. After a reorder that is a
+// different photograph, so replaying an old removal takes a live photograph off a public album — silently,
+// with nothing to indicate it happened. `PhotoID` exists so the fold can ask who rather than where.
+//
+// Events published before that field existed carry only an ordinal, and those fall back to it. **Not skipped**
+// — unlike a legacy `itemadded`, which is skipped because losing it costs an album an item. Skipping a
+// *removal* puts a photograph somebody asked to have taken down back on a public page, and that is the one
+// direction this projection must never fail in. An imperfect removal beats a silently reversed one.
+//
+// The fallback is only wrong when the album was reordered between the removal and the replay, which is the
+// narrow case; the alternative is wrong in a way that matters far more.
 func (c consumer) handleItemRemoved(msg cqrs.Message, year string) error {
 	var body ItemRemoved
 	if err := msg.Body(&body); err != nil {
@@ -400,6 +498,21 @@ func (c consumer) handleItemRemoved(msg cqrs.Message, year string) error {
 	if albumID == "" {
 		return fmt.Errorf("album item removed with no albumId")
 	}
+
+	if body.PhotoID != "" {
+		if !validRef(body.PhotoID) {
+			// A malformed id, as opposed to an absent one. Refused loudly for the reason `handleItemAdded`
+			// gives: a photo id is a content hash and the one string here that could otherwise reach a URL.
+			return fmt.Errorf("album item removed with an invalid photoId")
+		}
+		return c.w.Consume(fmt.Sprintf(
+			"UPDATE album_item SET deleted=1 WHERE albumId=%s AND year=%s AND photoId=%s",
+			quote(albumID), quote(year), quote(body.PhotoID),
+		))
+	}
+
+	// Pre-task-386 event: the ordinal is all there is. See the note above for why this is applied rather than
+	// skipped.
 	return c.w.Consume(fmt.Sprintf(
 		"UPDATE album_item SET deleted=1 WHERE albumId=%s AND year=%s AND ordinal=%d",
 		quote(albumID), quote(year), body.Ordinal,

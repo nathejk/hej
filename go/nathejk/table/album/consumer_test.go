@@ -199,15 +199,20 @@ func TestItemAddedWritesTheMembership(t *testing.T) {
 		AlbumID: "al-1", Year: "2026", Ordinal: 2, PhotoID: ref("a"), AddedAt: at,
 	})
 
-	if len(stmts) != 1 {
-		t.Fatalf("want 1 statement, got %d", len(stmts))
+	// Two statements since task 386: reinstate an existing membership in place, then create one if there is
+	// none. See `handleItemAdded` for why a single upsert cannot express this.
+	if len(stmts) != 2 {
+		t.Fatalf("want 2 statements (reinstate, then create), got %d: %v", len(stmts), stmts)
 	}
 	for _, want := range []string{
-		"INSERT INTO album_item", "ordinal=2", `photoId="` + ref("a") + `"`, "deleted=0",
+		"INSERT INTO album_item", "2", `"` + ref("a") + `"`, "0",
 	} {
-		if !strings.Contains(stmts[0], want) {
-			t.Errorf("statement is missing %s\ngot: %s", want, stmts[0])
+		if !strings.Contains(stmts[1], want) {
+			t.Errorf("the insert is missing %s\ngot: %s", want, stmts[1])
 		}
+	}
+	if !strings.Contains(stmts[1], "NOT EXISTS") {
+		t.Errorf("the insert must be conditional, or it deadletters on replay\ngot: %s", stmts[1])
 	}
 }
 
@@ -217,13 +222,15 @@ func TestItemAddedWritesNoPhotographFields(t *testing.T) {
 	stmts := fold(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
 		AlbumID: "al-1", Year: "2026", Ordinal: 0, PhotoID: ref("a"), AddedAt: at,
 	})
-	for _, forbidden := range []string{
-		"blobRef", "thumbRef", "caption", "width", "height", "bytes",
-		"latitude", "longitude", "boundsVerdict",
-	} {
-		if strings.Contains(stmts[0], forbidden) {
-			t.Errorf("an album item must not carry %s — that is the photograph's\ngot: %s",
-				forbidden, stmts[0])
+	for _, stmt := range stmts {
+		for _, forbidden := range []string{
+			"blobRef", "thumbRef", "caption", "width", "height", "bytes",
+			"latitude", "longitude", "boundsVerdict",
+		} {
+			if strings.Contains(stmt, forbidden) {
+				t.Errorf("an album item must not carry %s — that is the photograph's\ngot: %s",
+					forbidden, stmt)
+			}
 		}
 	}
 }
@@ -278,20 +285,30 @@ func TestItemAddedRefusesAZeroTimestamp(t *testing.T) {
 	}
 }
 
-// Re-adding at an ordinal supersedes whatever was there, including a removal.
+// Re-adding a photograph undoes its removal, and leaves it where it is.
 func TestItemAddedClearsTheDeletedFlag(t *testing.T) {
 	stmts := fold(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
 		AlbumID: "al-1", Year: "2026", Ordinal: 1, PhotoID: ref("a"), AddedAt: at,
 	})
-	clause := stmts[0][strings.Index(stmts[0], "ON DUPLICATE KEY UPDATE"):]
-	if !strings.Contains(clause, "deleted=0") {
-		t.Errorf("re-adding an item must undo its removal\n%s", clause)
+
+	reinstate := stmts[0]
+	if !strings.Contains(reinstate, "deleted=0") {
+		t.Errorf("re-adding an item must undo its removal\n%s", reinstate)
+	}
+	// Addressed by photograph, so it finds the row whatever position it now holds.
+	if !strings.Contains(reinstate, `photoId="`+ref("a")+`"`) {
+		t.Errorf("the reinstatement must match on the photograph\n%s", reinstate)
+	}
+	// And it must **not** move it. A replayed old add would otherwise drag a photograph back out of the
+	// position a later reorder gave it. See handleItemAdded.
+	if strings.Contains(reinstate[:strings.Index(reinstate, "WHERE")], "ordinal") {
+		t.Errorf("reinstating a membership must not set its ordinal\n%s", reinstate)
 	}
 }
 
 func TestItemRemovedIsASoftDelete(t *testing.T) {
 	stmts := fold(t, "NATHEJK.2026.album.al-1.itemremoved", ItemRemoved{
-		AlbumID: "al-1", Year: "2026", Ordinal: 2, Reason: "objection", RemovedAt: at,
+		AlbumID: "al-1", Year: "2026", PhotoID: ref("a"), Ordinal: 2, Reason: "objection", RemovedAt: at,
 	})
 	if len(stmts) != 1 {
 		t.Fatalf("want 1 statement, got %d", len(stmts))
@@ -299,10 +316,42 @@ func TestItemRemovedIsASoftDelete(t *testing.T) {
 	if strings.Contains(stmts[0], "DELETE FROM") {
 		t.Error("removal must be soft, so an accidental takedown is recoverable")
 	}
-	for _, want := range []string{"UPDATE album_item SET deleted=1", "ordinal=2", `"al-1"`} {
+	for _, want := range []string{"UPDATE album_item SET deleted=1", `photoId="` + ref("a") + `"`, `"al-1"`} {
 		if !strings.Contains(stmts[0], want) {
 			t.Errorf("statement is missing %s\ngot: %s", want, stmts[0])
 		}
+	}
+	// **Not the ordinal.** After a reorder that names a different photograph, so a removal keyed on the slot
+	// takes a live photograph off a public album — silently (task 386).
+	if strings.Contains(stmts[0], "ordinal") {
+		t.Errorf("a removal must not match on an ordinal when it knows the photograph\ngot: %s", stmts[0])
+	}
+}
+
+// A removal published before task 386 carries only an ordinal, and is applied by it.
+//
+// **Applied, not skipped** — the opposite choice from a legacy `itemadded`. Skipping a removal puts a
+// photograph somebody asked to have taken down back on a public page, which is the one direction this
+// projection must never fail in.
+func TestItemRemovedFallsBackToTheOrdinalForALegacyEvent(t *testing.T) {
+	stmts := fold(t, "NATHEJK.2026.album.al-1.itemremoved", ItemRemoved{
+		AlbumID: "al-1", Year: "2026", Ordinal: 2, RemovedAt: at,
+	})
+	if len(stmts) != 1 {
+		t.Fatalf("a legacy removal must still be applied, got %d statements: %v", len(stmts), stmts)
+	}
+	if !strings.Contains(stmts[0], "ordinal=2") {
+		t.Errorf("with no photoId the ordinal is all there is\ngot: %s", stmts[0])
+	}
+}
+
+// A malformed id is a bug, not a legacy event, and is refused loudly — the same rule handleItemAdded applies.
+func TestItemRemovedRefusesAnInvalidPhotoID(t *testing.T) {
+	err := foldErr(t, "NATHEJK.2026.album.al-1.itemremoved", ItemRemoved{
+		AlbumID: "al-1", Year: "2026", PhotoID: "../../etc/passwd" + strings.Repeat("a", 48), RemovedAt: at,
+	})
+	if err == nil {
+		t.Error("a malformed photoId must be refused")
 	}
 }
 
