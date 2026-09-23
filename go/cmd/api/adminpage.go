@@ -331,6 +331,26 @@ h2 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
 #pospanel #closepos, #pospanel #doclear { background: #fff; color: #18181b; border-color: #d4d4d8; }
 #pospanel select { font: inherit; padding: 0.375rem; border: 1px solid #d4d4d8; border-radius: 0.375rem; }
 #posmap { height: 18rem; border-radius: 0.375rem; margin: 0.5rem 0; }
+
+/* The tag panel shares the other panels' chrome. */
+#tagpanel {
+  margin-top: 0.5rem; padding: 1rem; background: #fff;
+  border: 1px solid #d4d4d8; border-radius: 0.5rem; max-width: 34rem;
+}
+#tagpanel h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+#tagpanel p { margin: 0.5rem 0; }
+#tagpanel .hint { color: #52525b; font-size: 0.875rem; }
+#tagpanel button {
+  font: inherit; font-size: 0.875rem; cursor: pointer;
+  background: #18181b; color: #fafafa; border: 1px solid #18181b;
+  padding: 0.375rem 0.75rem; border-radius: 0.375rem;
+}
+#tagpanel button:disabled { opacity: 0.5; cursor: not-allowed; }
+#tagpanel #closetag, #tagpanel #lookuppatrol { background: #fff; color: #18181b; border-color: #d4d4d8; }
+#tagpanel input[type=text] {
+  font: inherit; padding: 0.375rem 0.5rem; border: 1px solid #d4d4d8; border-radius: 0.375rem; width: 8rem;
+}
+#tagfound.ok { color: #166534; font-weight: 500; }
 svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 </style>
@@ -402,7 +422,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     <span id="selcount"></span>
     <button type="button" data-act="album">Tilføj til album</button>
     <button type="button" data-act="position">Sæt position</button>
-    <button type="button" data-act="patrol" disabled>Tag patrulje</button>
+    <button type="button" data-act="patrol">Tag patrulje</button>
     <button type="button" data-act="delete" disabled>Slet</button>
     <button type="button" id="clearsel">Ryd valg</button>
   </div>
@@ -448,6 +468,22 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       <button type="button" id="doposition" disabled>Sæt position</button>
       <button type="button" id="doclear">Fjern position</button>
       <button type="button" id="closepos">Annuller</button>
+    </p>
+  </div>
+  <!-- The patrol tag panel (task 377). No picker and no roster: the curator types the number from the sign and
+       the tool confirms which patrol it is. There is deliberately no endpoint that lists patrols. -->
+  <div id="tagpanel" hidden role="dialog" aria-label="Tag patrulje">
+    <h3>Tag patrulje</h3>
+    <p id="tagnote"></p>
+    <p>
+      <label for="tagnum">Patruljens nummer</label>
+      <input type="text" id="tagnum" inputmode="numeric" maxlength="8" placeholder="42" autocomplete="off">
+      <button type="button" id="lookuppatrol">Find</button>
+    </p>
+    <p id="tagfound" class="hint"></p>
+    <p>
+      <button type="button" id="dotag" disabled>Tag billederne</button>
+      <button type="button" id="closetag">Annuller</button>
     </p>
   </div>
 </main>
@@ -730,16 +766,17 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     const n = selected.size;
     actions.hidden = n === 0;
     selCount.textContent = n === 1 ? '1 valgt' : n + ' valgte';
-    // The remaining two actions arrive with tasks 377 and 379. They stay disabled rather than absent so the
-    // shape of the tool is visible, and so the selection can be exercised against the bar it will drive.
+    // The last action arrives with task 379. It stays disabled rather than absent so the shape of the tool is
+    // visible, and so the selection can be exercised against the bar it will drive.
     for (const b of actions.querySelectorAll('button[data-act]')) {
-      if (b.dataset.act !== 'album' && b.dataset.act !== 'position') b.disabled = true;
+      if (b.dataset.act === 'delete') b.disabled = true;
     }
     // Closing the bar closes the panels with it: a panel acting on an empty selection is a button that cannot
     // do anything.
     if (n === 0) {
       if (panel) panel.hidden = true;
       if (posPanel) posPanel.hidden = true;
+      if (tagPanel) tagPanel.hidden = true;
     }
   }
 
@@ -1078,6 +1115,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     if (!b || b.disabled) return;
     if (b.dataset.act === 'album') openAlbumPanel();
     if (b.dataset.act === 'position') openPositionPanel();
+    if (b.dataset.act === 'patrol') openTagPanel();
   });
 
   // --- the bulk position (task 376) -----------------------------------------
@@ -1243,6 +1281,114 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
 
   document.getElementById('doclear').addEventListener('click', () => {
     sendPosition({ clearLocation: true });
+  });
+
+  // --- the patrol tag (task 377) --------------------------------------------
+  //
+  // No picker and no roster. 'publicpatrol.Queries' has one read, by number, and its doc says the absence of a
+  // list is deliberate — a list read is what a scraper would ask for. So the curator types the number from the
+  // patrol's sign, and the tool shows the name back before anything is saved.
+  //
+  // The confirmation is not decoration: patrol numbers are not unique per year and the resolve does
+  // 'ORDER BY teamId LIMIT 1', so a human seeing *which* patrol they got is what makes that defensible.
+
+  const tagPanel = document.getElementById('tagpanel');
+  const tagNote = document.getElementById('tagnote');
+  const tagNum = document.getElementById('tagnum');
+  const tagFound = document.getElementById('tagfound');
+  const doTag = document.getElementById('dotag');
+
+  // The patrol the curator has confirmed, if any. Cleared whenever the number changes, so the confirmed patrol
+  // and the number in the box can never disagree — which is the one way this could tag the wrong patrol.
+  let confirmedPatrol = null;
+
+  function openTagPanel() {
+    tagPanel.hidden = false;
+    panel.hidden = true;
+    posPanel.hidden = true;
+    confirmedPatrol = null;
+    tagFound.textContent = '';
+    tagFound.classList.remove('ok');
+    doTag.disabled = true;
+    tagNote.textContent = selected.size === 1
+      ? '1 billede bliver tagget.'
+      : selected.size + ' billeder bliver tagget.';
+    tagNum.focus();
+  }
+
+  async function lookupPatrol() {
+    const number = tagNum.value.trim();
+    confirmedPatrol = null;
+    doTag.disabled = true;
+    tagFound.classList.remove('ok');
+
+    if (!number) { tagFound.textContent = 'Skriv patruljens nummer.'; return; }
+
+    tagFound.textContent = 'Søger…';
+    try {
+      const res = await fetch('/api/admin/patrols/' + encodeURIComponent(number));
+      if (res.status === 404) {
+        tagFound.textContent = 'Der er ingen patrulje med nummer ' + number + ' i år.';
+        return;
+      }
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        tagFound.textContent = (payload && payload.error) || 'Kunne ikke søge (fejl ' + res.status + ').';
+        return;
+      }
+      const p = await res.json();
+      confirmedPatrol = p;
+
+      // What the curator confirms against: the patrol's own name, its group and its korps. Never a person — the
+      // endpoint has no field for one.
+      const bits = [p.name, p.group, p.korps].filter(Boolean);
+      tagFound.textContent = 'Patrulje ' + p.number + (bits.length ? ': ' + bits.join(' · ') : '');
+      tagFound.classList.add('ok');
+      doTag.disabled = false;
+    } catch (err) {
+      tagFound.textContent = 'Kunne ikke søge. Prøv igen.';
+    }
+  }
+
+  document.getElementById('lookuppatrol').addEventListener('click', lookupPatrol);
+  tagNum.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); lookupPatrol(); }
+  });
+  // Any edit invalidates the confirmation, so the button cannot act on a patrol the curator is no longer looking
+  // at.
+  tagNum.addEventListener('input', () => {
+    confirmedPatrol = null;
+    doTag.disabled = true;
+    tagFound.textContent = '';
+    tagFound.classList.remove('ok');
+  });
+
+  document.getElementById('closetag').addEventListener('click', () => { tagPanel.hidden = true; });
+
+  doTag.addEventListener('click', async () => {
+    if (!confirmedPatrol) { tagFound.textContent = 'Find patruljen først.'; return; }
+
+    tagNote.textContent = 'Tagger…';
+    try {
+      // The **number** is sent, not the team id: the server re-resolves it, so a client cannot tag a patrol other
+      // than the one the curator confirmed.
+      const res = await fetch('/api/admin/photos/tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoIds: Array.from(selected), number: confirmedPatrol.number }),
+      });
+      const out = await res.json().catch(() => null);
+      if (!res.ok) {
+        tagNote.textContent = (out && out.error) || 'Kunne ikke tagge billederne.';
+        return;
+      }
+      note.textContent = out.message || 'Tagget.';
+      tagPanel.hidden = true;
+      selected.clear();
+      load(true);
+    } catch (err) {
+      tagNote.textContent = 'Kunne ikke tagge billederne. Prøv igen.';
+    }
   });
 
   // The initial load runs last, after every declaration it can reach.

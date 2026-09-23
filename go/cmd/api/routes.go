@@ -275,6 +275,12 @@ func (app *application) routes() http.Handler {
 		// The picker's posts. Deliberately **not** on `checkpoint.Queries`, which has no way to ask for all
 		// checkpoints at all — see checkpoint/curator.go.
 		router.HandlerFunc(http.MethodGet, "/api/admin/checkpoints", app.requireAdmin(app.listAdminCheckpointsHandler))
+		// The patrol tags (task 377). Note there is **no** route listing patrols: the curator types the number
+		// from the sign and the tool resolves it, because a list read is what a scraper would ask for and
+		// `publicpatrol.Queries` deliberately has none — see adminpatrol.go.
+		router.HandlerFunc(http.MethodGet, "/api/admin/patrols/:number", app.requireAdmin(app.resolveAdminPatrolHandler))
+		router.HandlerFunc(http.MethodPost, "/api/admin/photos/tags", app.requireAdmin(app.tagAdminPhotosHandler))
+		router.HandlerFunc(http.MethodDelete, "/api/admin/photos/:photoId/tags/:teamId", app.requireAdmin(app.untagAdminPhotoHandler))
 	}
 
 	// Development-only routes (PRD 014 §8). Registered rather than guarded, so outside

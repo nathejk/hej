@@ -348,17 +348,17 @@ func isPersonShaped(field string) bool {
 
 	// Known-safe names, listed one by one rather than by loosening a needle.
 	//
-	// `photoId` is a **content hash of a curated photograph** (PRD 022 §8.3) — an album item names the
-	// library photograph it displays. It is not a picture of a person and it identifies no person.
+	// `photoId` / `photoIds` are **content hashes of curated photographs** (PRD 022 §8.3) — an album item names the
+	// library photograph it displays, and a bulk action names the selection it applies to. Neither is a picture of
+	// a person, and neither identifies one.
 	//
-	// The `photo` needle below stays blunt on purpose, and this list is why that is affordable. In this
-	// codebase a person's picture is consistently a **portrait** (`PortraitRef`, `PortraitThumbRef`,
-	// `imaging.Portrait`), while "photo" means a photograph as an object — so dropping the needle would
-	// cost little today and would stop catching a genuinely bad `PhotoOfPerson` or `PersonPhotoRef`
-	// tomorrow. An allowlist keeps the trap set and makes each exception a deliberate line somebody had to
-	// write here, next to the reasoning.
+	// The `photo` needle below stays blunt on purpose, and this list is why that is affordable. In this codebase a
+	// person's picture is consistently a **portrait** (`PortraitRef`, `PortraitThumbRef`, `imaging.Portrait`),
+	// while "photo" means a photograph as an object — so dropping the needle would cost little today and would stop
+	// catching a genuinely bad `PhotoOfPerson` or `PersonPhotoRef` tomorrow. An allowlist keeps the trap set and
+	// makes each exception a deliberate line somebody had to write here, next to the reasoning.
 	switch lower {
-	case "photoid":
+	case "photoid", "photoids":
 		return false
 	}
 
