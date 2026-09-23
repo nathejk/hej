@@ -42,7 +42,11 @@ var adminOwnedFiles = map[string]bool{
 	// must never do. Its media handler also resolves an id through this read rather than handing it to the blob
 	// store — see adminlibrary.go for why that is the difference between a photo route and a file server.
 	"adminlibrary.go": true,
-	// More arrive with tasks 375–379: the album editor and the bulk actions.
+	// The album writes. Reads `AlbumCurator.Album` to learn which of a selection an album already holds —
+	// including **removed** memberships, which a public read cannot see and which decide whether a re-add takes
+	// a new ordinal or reinstates the old one. Also `SlugTaken`, which must count deleted albums.
+	"adminalbum.go": true,
+	// More arrive with tasks 376–379: the bulk position, the patrol tag and the library delete.
 }
 
 // curatorReads are the model fields that return draft-visible data.

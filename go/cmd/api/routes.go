@@ -264,6 +264,11 @@ func (app *application) routes() http.Handler {
 		// adminlibrary.go.
 		router.HandlerFunc(http.MethodGet, "/api/admin/photos", app.requireAdmin(app.listAdminPhotosHandler))
 		router.HandlerFunc(http.MethodGet, "/api/admin/photos/:photoId/media", app.requireAdmin(app.showAdminPhotoMediaHandler))
+		// The album writes (task 375). An album is always created unpublished — there is no field for it on the
+		// request and none on the event, so publishing can only be a separate edit (task 378).
+		router.HandlerFunc(http.MethodGet, "/api/admin/albums", app.requireAdmin(app.listAdminAlbumsHandler))
+		router.HandlerFunc(http.MethodPost, "/api/admin/albums", app.requireAdmin(app.createAdminAlbumHandler))
+		router.HandlerFunc(http.MethodPost, "/api/admin/albums/items", app.requireAdmin(app.addAdminAlbumItemsHandler))
 	}
 
 	// Development-only routes (PRD 014 §8). Registered rather than guarded, so outside

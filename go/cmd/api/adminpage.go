@@ -283,6 +283,29 @@ h2 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
 }
 #actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 #selcount { font-weight: 600; margin-right: auto; }
+
+/* The action panel. Inline, because navigating away would lose the selection (PRD 022 §7). */
+#panel {
+  margin-top: 0.5rem; padding: 1rem; background: #fff;
+  border: 1px solid #d4d4d8; border-radius: 0.5rem; max-width: 34rem;
+}
+#panel h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+#panel p { margin: 0.5rem 0; }
+#panel .hint { color: #52525b; font-size: 0.875rem; }
+#panel button {
+  font: inherit; font-size: 0.875rem; cursor: pointer;
+  background: #18181b; color: #fafafa; border: 1px solid #18181b;
+  padding: 0.375rem 0.75rem; border-radius: 0.375rem;
+}
+#panel #closepanel, #panel #createalbum { background: #fff; color: #18181b; border-color: #d4d4d8; }
+#panel input[type=text] {
+  font: inherit; padding: 0.375rem 0.5rem; border: 1px solid #d4d4d8; border-radius: 0.375rem;
+  min-width: 14rem;
+}
+#albumlist { display: grid; gap: 0.25rem; max-height: 14rem; overflow: auto; }
+#albumlist label { display: flex; gap: 0.5rem; align-items: baseline; }
+#albumlist .draft { color: #92400e; font-size: 0.8125rem; }
+#albumlist .count { color: #52525b; font-size: 0.8125rem; }
 svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 </style>
@@ -352,11 +375,32 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
        this task's. -->
   <div id="actions" hidden aria-live="polite">
     <span id="selcount"></span>
-    <button type="button" data-act="album" disabled>Tilføj til album</button>
+    <button type="button" data-act="album">Tilføj til album</button>
     <button type="button" data-act="position" disabled>Sæt position</button>
     <button type="button" data-act="patrol" disabled>Tag patrulje</button>
     <button type="button" data-act="delete" disabled>Slet</button>
     <button type="button" id="clearsel">Ryd valg</button>
+  </div>
+
+  <!-- The panel opens inline rather than on its own page, because navigating away loses the selection
+       (PRD 022 §7). That is the one hard constraint on this layout. -->
+  <div id="panel" hidden role="dialog" aria-label="Tilføj til album">
+    <h3>Tilføj til album</h3>
+    <p id="panelnote"></p>
+    <div id="albumlist"></div>
+    <details id="newalbum">
+      <summary>Opret et nyt album</summary>
+      <p>
+        <label for="newtitle">Titel</label>
+        <input type="text" id="newtitle" maxlength="120" placeholder="Lørdag morgen">
+        <button type="button" id="createalbum">Opret</button>
+      </p>
+      <p class="hint">Nye album er <strong>ikke</strong> udgivet. Du udgiver dem, når de er færdige.</p>
+    </details>
+    <p>
+      <button type="button" id="doadd">Tilføj</button>
+      <button type="button" id="closepanel">Annuller</button>
+    </p>
   </div>
 </main>
 <script>
@@ -638,9 +682,14 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     const n = selected.size;
     actions.hidden = n === 0;
     selCount.textContent = n === 1 ? '1 valgt' : n + ' valgte';
-    // The four actions arrive with tasks 375-379. They stay disabled rather than absent so the shape of the
-    // tool is visible, and so this task's selection can be exercised against the bar it will drive.
-    for (const b of actions.querySelectorAll('button[data-act]')) b.disabled = true;
+    // The remaining three actions arrive with tasks 376-379. They stay disabled rather than absent so the shape
+    // of the tool is visible, and so the selection can be exercised against the bar it will drive.
+    for (const b of actions.querySelectorAll('button[data-act]')) {
+      if (b.dataset.act !== 'album') b.disabled = true;
+    }
+    // Closing the bar closes the panel with it: a panel acting on an empty selection is a button that cannot
+    // do anything.
+    if (n === 0 && panel) panel.hidden = true;
   }
 
   function paint(cell) {
@@ -854,6 +903,137 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     cells[i].focus();
   });
 
+  // --- the add-to-album action (task 375) ----------------------------------
+  //
+  // The panel opens inline and the selection survives it, which is the constraint PRD 022 §7 puts on this
+  // layout: navigating away would lose the selection, and the selection is the input to every action.
+
+  const panel = document.getElementById('panel');
+  const panelNote = document.getElementById('panelnote');
+  const albumList = document.getElementById('albumlist');
+  const newTitle = document.getElementById('newtitle');
+
+  async function openAlbumPanel() {
+    panel.hidden = false;
+    panelNote.textContent = 'Henter album…';
+    albumList.textContent = '';
+
+    try {
+      const res = await fetch('/api/admin/albums');
+      if (!res.ok) { panelNote.textContent = 'Kunne ikke hente album (fejl ' + res.status + ').'; return; }
+      const data = await res.json();
+
+      const live = data.albums.filter((a) => !a.deleted);
+      if (!live.length) {
+        panelNote.textContent = 'Der er ingen album endnu. Opret et nedenfor.';
+      } else {
+        panelNote.textContent = 'Vælg et eller flere album. ' + selected.size +
+          (selected.size === 1 ? ' billede bliver lagt i dem.' : ' billeder bliver lagt i dem.');
+      }
+
+      for (const a of live) {
+        const label = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = a.albumId;
+        const name = document.createElement('span');
+        name.textContent = a.title;
+        label.append(cb, name);
+        // A draft is marked, because "why is it not on the frontpage" is the question a curator asks after
+        // filing forty photographs into an album they never published.
+        if (!a.published) {
+          const d = document.createElement('span');
+          d.className = 'draft';
+          d.textContent = 'kladde';
+          label.append(d);
+        }
+        const c = document.createElement('span');
+        c.className = 'count';
+        c.textContent = a.itemCount + ' billeder';
+        label.append(c);
+        albumList.append(label);
+      }
+    } catch (err) {
+      panelNote.textContent = 'Kunne ikke hente album. Prøv igen.';
+    }
+  }
+
+  document.getElementById('closepanel').addEventListener('click', () => {
+    panel.hidden = true;
+  });
+
+  document.getElementById('createalbum').addEventListener('click', async () => {
+    const title = newTitle.value.trim();
+    if (!title) { panelNote.textContent = 'Albummet skal have en titel.'; return; }
+
+    try {
+      const res = await fetch('/api/admin/albums', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        panelNote.textContent = (payload && payload.error) || 'Kunne ikke oprette albummet.';
+        return;
+      }
+      newTitle.value = '';
+      await openAlbumPanel();
+      // Tick the album just created, since creating one inline is something a curator does *in order to* file
+      // the current selection into it.
+      for (const cb of albumList.querySelectorAll('input[type=checkbox]')) {
+        if (cb.value === payload.albumId) cb.checked = true;
+      }
+      panelNote.textContent = 'Albummet “' + payload.title + '” er oprettet som kladde.';
+    } catch (err) {
+      panelNote.textContent = 'Kunne ikke oprette albummet. Prøv igen.';
+    }
+  });
+
+  document.getElementById('doadd').addEventListener('click', async () => {
+    const albumIds = Array.from(albumList.querySelectorAll('input:checked')).map((cb) => cb.value);
+    if (!albumIds.length) { panelNote.textContent = 'Vælg mindst ét album.'; return; }
+    if (!selected.size) { panelNote.textContent = 'Vælg mindst ét billede.'; return; }
+
+    panelNote.textContent = 'Tilføjer…';
+    try {
+      const res = await fetch('/api/admin/albums/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoIds: Array.from(selected), albumIds }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        // A 503 means nothing was filed, and the selection is deliberately kept so the curator can retry
+        // without picking forty photographs again.
+        panelNote.textContent = (payload && payload.error) || 'Kunne ikke tilføje billederne.';
+        return;
+      }
+
+      // The server writes the sentence, because it is the side that knows how many were already there.
+      note.textContent = payload.message || 'Tilføjet.';
+      panel.hidden = true;
+      selected.clear();
+      // Reloaded so the album marks on the thumbnails are right, which is how the curator sees what is left
+      // to sort.
+      load(true);
+    } catch (err) {
+      panelNote.textContent = 'Kunne ikke tilføje billederne. Prøv igen.';
+    }
+  });
+
+  actions.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b || b.disabled) return;
+    if (b.dataset.act === 'album') openAlbumPanel();
+  });
+
+  // The initial load runs last, after every declaration it can reach.
+  //
+  // 'syncActions' touches 'panel', which is a 'const' declared further up this block — and a 'const' read before
+  // its initialiser throws a ReferenceError rather than giving undefined. The first load is asynchronous, so in
+  // practice it would resolve after the block finished either way; putting it here means that does not have to
+  // be reasoned about every time somebody adds a declaration.
   load(true);
 })();
 </script>
