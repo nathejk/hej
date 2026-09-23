@@ -81,7 +81,8 @@ type adminLibraryPhoto struct {
 // @Param        offset    query     int     false  "rows to skip"
 // @Success      200  {object}  adminLibraryResponse
 // @Failure      400  {object}  map[string]string  "an unrecognised filter value"
-// @Failure      401  {object}  map[string]string  "missing or wrong admin credential"
+// @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
+// @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the library is unavailable"
@@ -257,7 +258,9 @@ func adminQueryInt(r *http.Request, key string, fallback int) int {
 // @Param        photoId  path      string  true   "library photograph id"
 // @Param        variant  query     string  false  "thumb for the thumbnail; omit for the full rendition"
 // @Success      200  {file}  binary
-// @Failure      401  {object}  map[string]string  "missing or wrong admin credential"
+// @Failure      304  "not modified: the browser already holds these bytes. A rendition is immutable, so its id is its content hash and a revalidation can always be answered without reading the object."
+// @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
+// @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "unknown or deleted photograph"
 // @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string

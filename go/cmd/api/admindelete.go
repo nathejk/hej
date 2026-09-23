@@ -50,7 +50,8 @@ import (
 // @Param        photoId  path      string  true  "library photograph id"
 // @Success      204  "removed"
 // @Failure      400  {object}  map[string]string  "a missing id"
-// @Failure      401  {object}  map[string]string  "missing or wrong admin credential"
+// @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
+// @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "unknown album, or the photograph is not in it"
 // @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
@@ -134,7 +135,8 @@ type deleteAdminPhotoRequest struct {
 // @Param        request  body      deleteAdminPhotoRequest  false  "optional reason"
 // @Success      204  "deleted"
 // @Failure      400  {object}  map[string]string  "a missing id or an over-long reason"
-// @Failure      401  {object}  map[string]string  "missing or wrong admin credential"
+// @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
+// @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "unknown photograph"
 // @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string

@@ -61,7 +61,8 @@ type adminAlbumSummary struct {
 // @Tags         admin
 // @Produce      json
 // @Success      200  {object}  listAdminAlbumsResponse
-// @Failure      401  {object}  map[string]string  "missing or wrong admin credential"
+// @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
+// @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the albums are unavailable"
@@ -129,7 +130,8 @@ type updateAdminAlbumRequest struct {
 // @Param        request  body      updateAdminAlbumRequest  true  "the fields to change"
 // @Success      200  {object}  adminAlbumSummary
 // @Failure      400  {object}  map[string]string  "nothing to change, or an unusable value"
-// @Failure      401  {object}  map[string]string  "missing or wrong admin credential"
+// @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
+// @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "unknown album"
 // @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
@@ -251,7 +253,8 @@ type reorderAdminAlbumItemsRequest struct {
 // @Param        request  body      reorderAdminAlbumItemsRequest  true  "the live items in their new order"
 // @Success      204  "reordered"
 // @Failure      400  {object}  map[string]string  "an empty order, a duplicate, or a photograph not in this album"
-// @Failure      401  {object}  map[string]string  "missing or wrong admin credential"
+// @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
+// @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "unknown album"
 // @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
@@ -353,7 +356,8 @@ type createAdminAlbumResponse struct {
 // @Param        request  body      createAdminAlbumRequest  true  "title, and optionally a description and sort order"
 // @Success      201  {object}  createAdminAlbumResponse
 // @Failure      400  {object}  map[string]string  "missing or unusable title, or the slug is taken"
-// @Failure      401  {object}  map[string]string  "missing or wrong admin credential"
+// @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
+// @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the albums or the event stream are unavailable"
@@ -475,7 +479,8 @@ type addAdminAlbumItemsResult struct {
 // @Param        request  body      addAdminAlbumItemsRequest  true  "the photograph ids and the album ids"
 // @Success      200  {object}  addAdminAlbumItemsResponse
 // @Failure      400  {object}  map[string]string  "no photographs, no albums, or too many"
-// @Failure      401  {object}  map[string]string  "missing or wrong admin credential"
+// @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
+// @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "an unknown album"
 // @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string

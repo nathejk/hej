@@ -70,7 +70,8 @@ type adminPatrolResponse struct {
 // @Param        number  path      string  true  "the number printed on the patrol's sign"
 // @Success      200  {object}  adminPatrolResponse
 // @Failure      400  {object}  map[string]string  "an unusable number"
-// @Failure      401  {object}  map[string]string  "missing or wrong admin credential"
+// @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
+// @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "no patrol with that number this year"
 // @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
@@ -141,7 +142,8 @@ type tagAdminPhotosResponse struct {
 // @Param        request  body      tagAdminPhotosRequest  true  "the selection and the patrol number"
 // @Success      200  {object}  tagAdminPhotosResponse
 // @Failure      400  {object}  map[string]string  "no selection, or an unusable number"
-// @Failure      401  {object}  map[string]string  "missing or wrong admin credential"
+// @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
+// @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "no patrol with that number this year"
 // @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
@@ -247,7 +249,8 @@ func (app *application) tagAdminPhotosHandler(w http.ResponseWriter, r *http.Req
 // @Param        teamId   path      string  true  "the patrol's team id, as returned when it was tagged"
 // @Success      204  "untagged"
 // @Failure      400  {object}  map[string]string  "a missing id"
-// @Failure      401  {object}  map[string]string  "missing or wrong admin credential"
+// @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
+// @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the event stream is unavailable"

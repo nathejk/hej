@@ -127,7 +127,8 @@ type adminUploadLocation struct {
 // @Produce      json
 // @Success      200  {object}  adminUploadResponse  "stored, already present, or previously deleted"
 // @Failure      400  {object}  map[string]string  "not a decodable image"
-// @Failure      401  {object}  map[string]string  "missing or wrong admin credential"
+// @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
+// @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      413  {object}  map[string]string  "larger than 32 MiB"
 // @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string

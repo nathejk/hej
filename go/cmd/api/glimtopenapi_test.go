@@ -28,10 +28,13 @@ import (
 //
 // # What it deliberately does not do
 //
-// It is scoped to Glimt (plus the dev fixture, which is an endpoint like any other). Widening it to
-// the whole API is a one-line change to `isInScope`, and worth doing — but it would fail on
-// pre-existing handlers from other PRDs, and turning this red on work nobody in this task touched is
-// how a guard gets commented out. Left as a note rather than done silently.
+// It is scoped to Glimt, the public site (task 332) and the curator's admin surface (task 380), plus the
+// dev fixture, which is an endpoint like any other. Widening it to the whole API is a one-line change to
+// `isInScope`, and worth doing — but it would fail on pre-existing handlers from other PRDs, and turning
+// this red on work nobody in this task touched is how a guard gets commented out.
+//
+// **`roadmap/tasks/open/328-openapi-guard-whole-api.md` is still open and still broader than any of these
+// slices.** Each one narrows it; none closes it.
 
 // The tags PRD 019 §8 and task 312 allow. A typo'd tag scatters an endpoint into its own group in the
 // rendered spec, which is invisible until somebody reads it.
@@ -44,7 +47,12 @@ var allowedGlimtTags = map[string]bool{
 	// Folding them together would put "here are the photographs somebody shared" and "here is a patrol's
 	// route" in one section of the spec, which are different things with different rules.
 	"public-site": true,
-	"dev":         true,
+	// The curator's tool (PRD 022, task 380). Its own group rather than folded into `public-site`, for the
+	// same reason `glimt-public` is kept apart from it: these endpoints are behind a credential, they write,
+	// and several of them delete. A reader who opens the `admin` section is asking a different question from
+	// one reading about the frontpage, and one section answering both answers neither well.
+	"admin": true,
+	"dev":   true,
 }
 
 // registeredRoute is one `router.HandlerFunc(...)` call in routes.go.
@@ -59,6 +67,31 @@ type registeredRoute struct {
 	// deliberately **not** wrapped, and that is a security property rather than an omission — see
 	// TestPublicGlimtRoutesAreNotBehindAuth.
 	authenticated bool
+	// gates are the `app.` middlewares the registration wraps the handler in, e.g. `requireAuth` or
+	// `requireAdmin` (task 380).
+	//
+	// Collected because **the wrapper owns branches the handler does not**. `requireAdmin` answers the
+	// 401, the 429 and the 421 for every admin endpoint, and a walk that started at the handler body
+	// would conclude those are documented outcomes that cannot happen — fifteen times over. The route is
+	// what a client calls, so the route's whole chain is what the annotation describes.
+	gates []string
+}
+
+// credentialed reports whether reaching this route requires proving something.
+//
+// Two different proofs, deliberately not merged: `requireAuth` is a participant's session and
+// `requireAdmin` is the curator's shared credential, and middleware.go records at length why they must
+// never be combined. For the purposes of "must this document a 401?" they are the same question.
+func (r registeredRoute) credentialed() bool {
+	if r.authenticated {
+		return true
+	}
+	for _, gate := range r.gates {
+		if gate == "requireAdmin" {
+			return true
+		}
+	}
+	return false
 }
 
 // isInScope selects the routes this guard checks.
@@ -75,9 +108,14 @@ type registeredRoute struct {
 // The **year prefix** is in scope since task 351: the public pages moved there, and without it
 // `/2026/patrulje/{number}` would quietly leave the annotation check — a predicate matching "contains
 // glimt" would keep only the glimt page.
+// The **admin surface** is in scope since task 380 (PRD 022 §8.9). Until then `/api/admin/*` matched none
+// of these predicates, so annotations on the curator's tool could be forgotten, half-written or simply
+// wrong and the suite would stay green — and several of those endpoints delete things. Note that the
+// `/admin` *page* itself is not an API endpoint and is not covered; the check is on `/api/admin/`.
 func isInScope(path string) bool {
 	return strings.HasPrefix(path, "/api/glimt") || strings.Contains(path, "glimt") ||
-		strings.HasPrefix(path, "/api/public/") || looksLikeYearPrefix(path)
+		strings.HasPrefix(path, "/api/public/") || strings.HasPrefix(path, "/api/admin/") ||
+		looksLikeYearPrefix(path)
 }
 
 // glimtRoutes parses routes.go and returns every in-scope registration.
@@ -116,6 +154,7 @@ func glimtRoutes(t *testing.T) []registeredRoute {
 			handler:       handlerName(call.Args[2]),
 			line:          fset.Position(call.Pos()).Line,
 			authenticated: wrapsRequireAuth(call.Args[2]),
+			gates:         registrationGates(call.Args[2]),
 		})
 		return true
 	})
@@ -243,6 +282,29 @@ func wrapsRequireAuth(e ast.Expr) bool {
 		return true
 	})
 	return found
+}
+
+// registrationGates returns the `app.` middlewares a registration wraps the handler in.
+//
+// Anything on `app` that is *not* the handler itself: `requireAuth`, `requireAdmin`, and whatever
+// arrives next. Identified by exclusion rather than by an allowlist on purpose — a new wrapper should be
+// followed by default, because the failure mode of missing one is a guard that silently checks less than
+// it claims.
+func registrationGates(e ast.Expr) []string {
+	var out []string
+	ast.Inspect(e, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		ident, ok := sel.X.(*ast.Ident)
+		if !ok || ident.Name != "app" || strings.HasSuffix(sel.Sel.Name, "Handler") {
+			return true
+		}
+		out = append(out, sel.Sel.Name)
+		return true
+	})
+	return out
 }
 
 // packageFiles parses every non-test .go file in this directory.
@@ -420,6 +482,57 @@ func TestGlimtTagsGroupCoherently(t *testing.T) {
 		t.Errorf("expected 3 endpoints tagged glimt-moderation (queue, hide, unhide), got %v",
 			seen["glimt-moderation"])
 	}
+
+	// And the curator's tool is its own group (task 380). Asserted as "every /api/admin/ route carries the
+	// admin tag" rather than as a count, because the count will grow and a count that has to be edited with
+	// each endpoint is a count somebody edits without reading.
+	for _, route := range glimtRoutes(t) {
+		if !strings.HasPrefix(route.path, "/api/admin/") {
+			continue
+		}
+		match := tagsLine.FindStringSubmatch(docs[route.handler])
+		if match == nil || match[1] != "admin" {
+			t.Errorf("%s is on the admin surface but is not tagged admin — it would land in the spec's "+
+				"public-site or glimt section, next to endpoints anybody can call", route.handler)
+		}
+	}
+}
+
+// The admin surface is inside the guard, and non-trivially so.
+//
+// # Why a floor on the count, and why it is a Fatal
+//
+// `isInScope` is a predicate over path strings, so the way it stops covering the admin tool is not by being
+// deleted — it is by the paths moving. Renaming the prefix, or registering the tool's routes on a sub-router
+// with the prefix supplied separately, leaves every test in this file green over a list that no longer
+// contains a single admin route.
+//
+// That is the failure this task exists to prevent, one level up: before task 380 the annotations on fifteen
+// credentialed endpoints were unchecked, and nothing said so. A guard that silently checks nothing is worse
+// than an absent one, because the green tick is read as an answer.
+func TestTheAdminSurfaceIsInsideTheAnnotationGuard(t *testing.T) {
+	var admin []string
+	for _, route := range glimtRoutes(t) {
+		if strings.HasPrefix(route.path, "/api/admin/") {
+			admin = append(admin, route.method+" "+route.path)
+		}
+	}
+
+	// Fifteen at the time of writing. The floor is deliberately well below that and still far above zero:
+	// high enough that losing the surface fails, low enough that removing one endpoint does not.
+	if len(admin) < 10 {
+		t.Fatalf("the annotation guard sees only %d admin routes (%v) — has the prefix moved, or are they "+
+			"registered somewhere isInScope cannot see?", len(admin), admin)
+	}
+
+	// Every one of them is behind the credential, which is what makes the 401 in each annotation block a
+	// checkable claim rather than boilerplate. The stronger structural version of this lives in
+	// TestAdminRoutesUseOnlyTheAdminWrapper; this is the half that keeps *this* file honest.
+	for _, route := range glimtRoutes(t) {
+		if strings.HasPrefix(route.path, "/api/admin/") && !route.credentialed() {
+			t.Errorf("%s %s is on the admin surface but behind no credential", route.method, route.path)
+		}
+	}
 }
 
 // Every authenticated Glimt endpoint documents a 401.
@@ -440,12 +553,12 @@ func TestGlimtEndpointsDocumentAuthFailure(t *testing.T) {
 			codes[m[1]] = true
 		}
 
-		if route.authenticated && !codes["401"] {
-			t.Errorf("%s (%s %s) does not document a 401, though it is behind requireAuth",
+		if route.credentialed() && !codes["401"] {
+			t.Errorf("%s (%s %s) does not document a 401, though it is behind a credential",
 				route.handler, route.method, route.path)
 		}
-		if !route.authenticated && codes["401"] {
-			t.Errorf("%s (%s %s) documents a 401 but is not behind requireAuth — which implies it "+
+		if !route.credentialed() && codes["401"] {
+			t.Errorf("%s (%s %s) documents a 401 but is behind no credential — which implies it "+
 				"reads a session, and the public routes must not",
 				route.handler, route.method, route.path)
 		}
@@ -574,9 +687,12 @@ var statusConstant = map[string]string{
 	"StatusNotFound":              "404",
 	"StatusConflict":              "409",
 	"StatusRequestEntityTooLarge": "413",
-	"StatusTooManyRequests":       "429",
-	"StatusInternalServerError":   "500",
-	"StatusServiceUnavailable":    "503",
+	// 421 is the admin surface's plain-HTTP refusal (task 370). In this table since task 380, because the
+	// admin routes are now in scope and it is a real outcome on every one of them.
+	"StatusMisdirectedRequest":  "421",
+	"StatusTooManyRequests":     "429",
+	"StatusInternalServerError": "500",
+	"StatusServiceUnavailable":  "503",
 }
 
 // handlerBodies maps every method on *application to its AST body, so a handler's branches can be
@@ -617,8 +733,18 @@ func statusesWritten(bodies map[string]*ast.FuncDecl, name string, depth int) ma
 		// handler's conditional-GET 304 is the case that matters: it is a documented outcome with no
 		// `app.*Response` call behind it, and a walk that only knew about the helpers reported the
 		// annotation as describing something impossible.
+		//
+		// `http.Error` counts for the same reason, and it is not hypothetical: `requireAdmin` writes its
+		// 401 and `adminTransportOK` its 421 that way, because both must set `WWW-Authenticate` and a
+		// short plain-text body rather than the JSON envelope the app helpers produce. Recognising only
+		// `WriteHeader` would have reported the admin surface's 401 — the one status that whole surface is
+		// built around — as unreachable.
 		if call, ok := n.(*ast.CallExpr); ok {
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "WriteHeader" {
+			name := ""
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+				name = sel.Sel.Name
+			}
+			if name == "WriteHeader" || name == "Error" {
 				for _, arg := range call.Args {
 					if s, ok := arg.(*ast.SelectorExpr); ok {
 						if status, known := statusConstant[s.Sel.Name]; known {
@@ -681,6 +807,13 @@ func TestGlimtFailureCodesMatchTheHandlers(t *testing.T) {
 			}
 
 			written := statusesWritten(bodies, route.handler, 2)
+			// Plus whatever the gates answer. A route is what a client calls, and `requireAdmin` owns the
+			// 401/429/421 for every endpoint behind it — see registeredRoute.gates.
+			for _, gate := range route.gates {
+				for status := range statusesWritten(bodies, gate, 2) {
+					written[status] = true
+				}
+			}
 			if len(written) == 0 && len(documented) > 0 {
 				t.Fatalf("documents @Failure but has no error branches — did the handler move, or the "+
 					"response helpers get renamed? (%s %s)", route.method, route.path)
