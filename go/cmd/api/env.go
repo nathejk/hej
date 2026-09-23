@@ -182,6 +182,44 @@ type config struct {
 	// which is the point of it being configuration.
 	publicAlbums bool
 
+	// adminUser and adminPassword are the credential for the photographer admin tool (PRD 022 §8.2).
+	//
+	// # This is the only inbound credential in the service, and that is deliberate
+	//
+	// Everything else authenticated here goes through `requireAuth`: an HMAC-signed session cookie obtained
+	// by SMS PIN, authorized by a per-request lookup in the `person` projection. No bearer token, no API
+	// key, no role. Adding a shared password is a genuine exception and is recorded as one.
+	//
+	// The session mechanism was considered and does not fit. It requires the curator to be a person in this
+	// year's `person` projection, with a phone number we hold, reachable by SMS, and assigned to the right
+	// Team section upstream. Our photographers are frequently none of those: volunteers with a camera,
+	// sometimes not registered as personnel at all — and the tool has to work on the Tuesday after the event,
+	// when the SMS pipeline is the last thing anybody wants in the loop.
+	//
+	// # What it costs, written down rather than discovered
+	//
+	//   - **No attribution.** A shared credential cannot honestly say who did something, which is why no
+	//     projection in this feature has a curator column. See photo/table.sql.
+	//   - **Rotation is a config change and a redeploy**, and revoking one person means rotating for
+	//     everybody. There is no per-user revocation because there are no users.
+	//   - **It will be pasted into a chat message.** Assume it, rather than hoping otherwise; the
+	//     mitigations in task 371 exist because this is true.
+	//
+	// PRD 022 §11 Q4 is still open and is a process question, not a code one: who generates this, where it is
+	// kept, who is told, and what happens to it after the event.
+	//
+	// # There is deliberately no default, in any environment
+	//
+	// Not even in development. An empty password does not mean "allow everyone", it means **the routes are
+	// not registered at all** (`adminRoutesEnabled`, task 370) — the difference between *absent* and *open*.
+	// A default value would be the one thing that turns a forgotten config into an anonymous write path into
+	// the blob store, which is the only data in this service that cannot be rebuilt from the log.
+	//
+	// This is why `adminUser` has no fallback either: a default username with an empty password reads, to
+	// somebody skimming, like a configured tool.
+	adminUser     string
+	adminPassword string
+
 	// eventYear selects which event the directory reads. The person projection is
 	// keyed per year, so this decides whose phone numbers can log in.
 	//
@@ -458,7 +496,11 @@ func loadConfig() config {
 	flag.StringVar(&cfg.eventYear, "event-year", envStr("EVENT_YEAR", currentYear()), "Event year the member directory reads (defaults to the current year)")
 	flag.StringVar(&cfg.photoBaseURL, "photo-baseurl", envStr("PHOTO_BASEURL", ""), "Base URL of the foto service, which serves photograph objects at /photos/<ref> (empty means diplomas carry no photograph)")
 	flag.BoolVar(&cfg.publicAlbums, "public-albums", envBool("PUBLIC_ALBUMS", true), "Show the curated photo albums on the public site (PUBLIC_ALBUMS=false hides the section and answers 404 for an album page)")
-	flag.StringVar(&cfg.eventRoute, "event-route", envStr("EVENT_ROUTE", ""), "Overrides the route line printed on a diploma, e.g. \"fra Lundby til Glumsø\" (empty uses the year projection's two cities)")
+	flag.StringVar(&cfg.eventRoute, "event-route", envStr("EVENT_ROUTE", ""), "Overrides the route line printed on a diploma, e.g. \"fra Lundby til Glums\u00f8\" (empty uses the year projection's two cities)")
+	// No fallback for either, in any environment: an unset password means the admin routes do not exist
+	// rather than that they are open. See the fields' doc and task 370.
+	flag.StringVar(&cfg.adminUser, "admin-user", envStr("ADMIN_USER", ""), "Username for the photographer admin tool (empty, with ADMIN_PASSWORD, means the tool is not served at all)")
+	flag.StringVar(&cfg.adminPassword, "admin-password", envStr("ADMIN_PASSWORD", ""), "Password for the photographer admin tool (empty means /admin and /api/admin/* are not registered; there is no default in any environment)")
 	flag.DurationVar(&cfg.portraitRetention, "portrait-retention", envDuration("PORTRAIT_RETENTION", 30*24*time.Hour), "How long a portrait is kept after capture before it is purged (0 disables the purge)")
 	flag.DurationVar(&cfg.cachedDirectoryTTL, "cached-directory-ttl", envDuration("CACHED_DIRECTORY_TTL", 14*24*time.Hour), "How long a device may keep its cached contacts directory (0 disables the deadline)")
 	flag.BoolVar(&cfg.portraitKeepOriginal, "portrait-keep-original", envBool("PORTRAIT_KEEP_ORIGINAL", true), "Retain the uploaded image at full resolution (metadata stripped) so renditions can be regenerated later")

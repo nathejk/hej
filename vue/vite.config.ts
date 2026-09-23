@@ -344,6 +344,22 @@ export default defineConfig({
         target: 'http://api:4000',
         changeOrigin: true,
       },
+      // The photographer admin tool (PRD 022) is server-rendered by the BFF too,
+      // and needs proxying for the same reason the public pages do: without this
+      // key Vite answers /admin with the SPA shell, so the tool is unreachable in
+      // a dev browser and the door looks broken rather than unrouted.
+      //
+      // Worth knowing if it ever appears to be "200 but wrong": that is the
+      // symptom of this key being absent, because the SPA fallback serves
+      // index.html for any unmatched path. Production has no proxy and no such
+      // failure — the Go binary serves both.
+      //
+      // A single key covers /admin and everything under it, since Vite matches
+      // proxy keys as path prefixes.
+      '/admin': {
+        target: 'http://api:4000',
+        changeOrigin: true,
+      },
     },
   },
 })

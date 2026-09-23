@@ -140,6 +140,21 @@ services:
       #
       # Flip to "true" to work on the albums, and remember `/api/dev/album-fixture` creates the two dev albums.
       PUBLIC_ALBUMS: "false"
+      # The photographer admin tool (PRD 022). `/admin`, behind HTTP basic auth.
+      #
+      # Set here so the tool exists in dev at all: **there is no default password in the code**, in any
+      # environment, because a default is the one configuration value that would turn a forgotten setting
+      # into an anonymous upload endpoint on the public internet. Unset means the routes are not registered.
+      #
+      # Same override convention as SESSION_SECRET: the dev value is deliberately boring and lives here,
+      # anything real goes in docker-compose.override.yml or the production environment. This one is as
+      # insecure as the dev session secret and for the same reason — it guards fixture photographs on a
+      # laptop.
+      #
+      # Note the tool is **not** gated by PUBLIC_ALBUMS above. Two switches for two questions: a curator
+      # must be able to assemble albums before the public section is switched on (PRD 022 §6).
+      ADMIN_USER: "foto"
+      ADMIN_PASSWORD: "dev-insecure-admin-password"
       # Where foto serves photograph objects (task 361). The bytes are fetched once per photograph and kept in
       # this stack's own blob volume, so this is an ingest dependency rather than a request-path one.
       #

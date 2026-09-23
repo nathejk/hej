@@ -242,6 +242,18 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodGet, "/api/push/public-key", app.pushPublicKeyHandler)
 	router.HandlerFunc(http.MethodPost, "/api/push/subscription", app.requireAuth(app.createPushSubscriptionHandler))
 
+	// The photographer admin tool (PRD 022). Registered rather than guarded, like the dev routes — with no
+	// admin password there is no handler here at all, which is the difference between *absent* and *open*.
+	// See admin.go: a misconfigured deploy must not publish an anonymous upload endpoint.
+	//
+	// Note what these are **not** wrapped in: `requireAuth`. The admin credential is not a session and grants
+	// exactly this tool, so combining the two would either let a participant's cookie reach the curator's
+	// surface or let the shared password reach a participant's data. `TestAdminRoutesUseOnlyTheAdminWrapper`
+	// walks this block and the rest of the table to keep the two apart.
+	if adminRoutesEnabled(app.config) {
+		router.HandlerFunc(http.MethodGet, "/admin", app.requireAdmin(app.adminIndexHandler))
+	}
+
 	// Development-only routes (PRD 014 §8). Registered rather than guarded, so outside
 	// ENV=development they do not exist at all — see dev.go.
 	if devRoutesEnabled(app.config) {

@@ -139,6 +139,28 @@ services:
       # Turn it on (or delete the line: the default is on) when the albums are filled. It is an env change and a
       # restart, not a release.
       PUBLIC_ALBUMS: ${PUBLIC_ALBUMS:-false}
+      # The photographer admin tool (PRD 022).
+      #
+      # **Unset means the tool is not served at all** — `/admin` and `/api/admin/*` are not registered, so
+      # they answer like any unknown path. That is the intended production posture for most of the year:
+      # the tool is used hard for a week after the event and not at all for the other fifty-one, and
+      # deleting the password is how it gets turned off.
+      #
+      # Deliberately `:-` and not `:?`, unlike SESSION_SECRET. An unset session secret would mean forgeable
+      # sessions, so it must fail the deploy; an unset admin password means a feature is absent, which is
+      # safe. Making it mandatory would mean every deploy of this stack has to carry a credential for a tool
+      # nobody is using that month — and a credential that exists all year to be used for one week is
+      # exactly the one that leaks.
+      #
+      # There is no default anywhere in the code, in any environment. Generate one per event and retire it
+      # afterwards:
+      #
+      #   export ADMIN_USER=foto ADMIN_PASSWORD="$(openssl rand -base64 24)"
+      #
+      # PRD 022 §11 Q4 is still open and is a process question rather than a code one: who generates this,
+      # where it is kept, who is told, and what happens to it when the event is over.
+      ADMIN_USER: ${ADMIN_USER:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       # Where foto serves photograph objects (task 361). Fetched once per photograph into this stack's own blob
       # volume, then never again — so foto being down costs new photographs, not diplomas already rendered.
       # Empty means diplomas carry no photograph, which is a safe default rather than an error.

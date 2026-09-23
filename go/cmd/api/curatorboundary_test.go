@@ -27,11 +27,13 @@ import (
 // adminOwnedFiles are the files permitted to read the curator interfaces.
 //
 // A list rather than a prefix match, so adding a file to it is a deliberate edit somebody makes here, next
-// to the reasoning, rather than a side effect of a filename. Empty today because the admin handlers arrive
-// with tasks 372–379; the guard is in place first, which is the point — it will fail the moment a curator
-// read is used from anywhere else, including from a file somebody *meant* to be admin-only but did not list.
+// to the reasoning, rather than a side effect of a filename. Every entry needs a reason, because the entry
+// *is* the justification for that file being able to see unpublished albums and deleted photographs.
 var adminOwnedFiles = map[string]bool{
-	// e.g. "admin.go": true, "adminlibrary.go": true — added as tasks 372–379 land.
+	// The tool's page shell. Reads `PhotoCurator.Counts` for the header, and is behind `requireAdmin` —
+	// registered only inside `adminRoutesEnabled`, so it does not exist without a password (task 370).
+	"adminpage.go": true,
+	// More arrive with tasks 372–379: the uploader, the contact sheet, the album editor.
 }
 
 // curatorReads are the model fields that return draft-visible data.
