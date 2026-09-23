@@ -135,7 +135,7 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 // publication filter rather than fetching the item directly.
 //
 // @Summary      One album photograph
-// @Description  Serves the stored bytes for item `ordinal` of a **published, non-deleted** album. `variant=thumb` serves the 320px thumbnail, which is what the pages request. Unauthenticated and it ignores the session cookie; the album's publication state is re-checked here, so this route cannot be used to reach a draft album's photographs by id. Cached `public` and `immutable`, which is safe precisely because the answer does not depend on who asked.
+// @Description  Serves the stored bytes for item `ordinal` of a **published, non-deleted** album. `variant=thumb` serves the 320px thumbnail, which is what the pages request. Unauthenticated and it ignores the session cookie; the album's publication state is re-checked here, so this route cannot be used to reach a draft album's photographs by id. Answers 404 when `PUBLIC_ALBUMS=false` hides the feature — the bytes go with the pages, or hiding the section would only unadvertise it. Cached `public` and `immutable`, which is safe precisely because the answer does not depend on who asked.
 // @Tags         public-site
 // @Produce      jpeg
 // @Param        albumId  path      string  true   "album id"
@@ -143,7 +143,7 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 // @Param        variant  query     string  false  "full (default) or thumb"
 // @Success      200  {file}    binary
 // @Failure      304  "not modified"
-// @Failure      404  {object}  map[string]string  "unknown album, unpublished, deleted, or gone"
+// @Failure      404  {object}  map[string]string  "unknown album, unpublished, deleted, gone, or the albums section is switched off"
 // @Failure      429  {object}  map[string]string  "read rate limit, by IP"
 // @Failure      503  {object}  map[string]string  "albums are unavailable"
 // @Router       /public/albums/{albumId}/media/{ordinal} [get]
@@ -151,6 +151,20 @@ func (app *application) albumMediaHandler(w http.ResponseWriter, r *http.Request
 	// The media budget, not the page one (task 347): an album page asks for up to sixty of these, and a
 	// visitor scrolling two albums must not spend the allowance their next page load needs.
 	if !app.allowPublicMediaRead(w, r) {
+		return
+	}
+	// Switched off (task 359) — the **bytes** too, not only the pages.
+	//
+	// Found by task 382's walk, and it is the same hole task 376 found in `/api/public/albums`: hiding a
+	// feature has to mean every surface of it, and a media route is the one that gets forgotten because it
+	// serves no HTML and appears in no navigation. Anybody holding an album id and an ordinal — from a
+	// shared link, a crawler's index, a browser history — could still fetch a photograph after the section
+	// was switched off, which is precisely what an organizer switching it off is trying to stop.
+	//
+	// 404 for the same reason the album page answers 404: a section whose links keep serving is not hidden,
+	// it is unadvertised.
+	if !app.config.publicAlbums {
+		app.NotFoundResponse(w, r)
 		return
 	}
 	if app.models.Albums == nil {
