@@ -34,6 +34,7 @@ func (c consumer) Consumes() []cqrs.Subject {
 		cqrs.SubjectFromStr("NATHEJK.*.album.*.created"),
 		cqrs.SubjectFromStr("NATHEJK.*.album.*.updated"),
 		cqrs.SubjectFromStr("NATHEJK.*.album.*.itemadded"),
+		cqrs.SubjectFromStr("NATHEJK.*.album.*.itemsreordered"),
 		cqrs.SubjectFromStr("NATHEJK.*.album.*.itemremoved"),
 		cqrs.SubjectFromStr("NATHEJK.*.album.*.deleted"),
 	}
@@ -66,6 +67,8 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 		return c.handleUpdated(msg, year)
 	case subject.Match("nathejk.*.album.*.itemadded"):
 		return c.handleItemAdded(msg, year)
+	case subject.Match("nathejk.*.album.*.itemsreordered"):
+		return c.handleItemsReordered(msg, year)
 	case subject.Match("nathejk.*.album.*.itemremoved"):
 		return c.handleItemRemoved(msg, year)
 	case subject.Match("nathejk.*.album.*.deleted"):
@@ -230,6 +233,127 @@ func (c consumer) handleItemAdded(msg cqrs.Message, year string) error {
 		quote(albumID), quote(year), body.Ordinal, quote(body.PhotoID),
 		quote(formatTime(addedAt)),
 	))
+}
+
+// handleItemsReordered rewrites an album's order.
+//
+// # The offset, and why it is not optional
+//
+// `album_item` is keyed `(albumId, ordinal)` and also holds `UNIQUE (albumId, photoId)`. Writing the new
+// ordinals directly would collide the moment any item moves into a position another still holds — and a plain
+// swap collides on the first write, every time. MariaDB has no deferred constraint check, so there is no
+// ordering of individual updates that avoids it.
+//
+// So the fold moves the album's items out of the way first, in one statement, and then places each one:
+//
+//  1. `ordinal = ordinal + reorderOffset` for the whole album, vacating every target position;
+//  2. `ordinal = <new>` per photograph.
+//
+// This is the standard technique for renumbering a unique-keyed sequence, and the thing to understand about it
+// is that step 1 must cover **every** row of the album including removed ones — a soft-deleted row still
+// occupies its ordinal and its photo id, so leaving it behind would put it in the way of a live item.
+//
+// # Why rows are moved rather than deleted and re-inserted
+//
+// Because a removed membership carries history worth keeping: its soft-delete state is what lets a re-add
+// reinstate it in place (task 375), and `UNIQUE (albumId, photoId)` means a deleted row's identity is still
+// held. Deleting and re-inserting would either lose that or collide with it.
+func (c consumer) handleItemsReordered(msg cqrs.Message, year string) error {
+	var body ItemsReordered
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+
+	albumID := body.AlbumID
+	if albumID == "" {
+		albumID = subjectEntityID(msg.Subject())
+	}
+	if albumID == "" {
+		return fmt.Errorf("album items reordered with no albumId")
+	}
+	if len(body.PhotoIDs) == 0 {
+		// Nothing to do, and not an error: an empty album's order is trivially already correct, and refusing
+		// would turn a harmless client into a dropped message.
+		return nil
+	}
+
+	seen := make(map[string]bool, len(body.PhotoIDs))
+	for _, photoID := range body.PhotoIDs {
+		if !validRef(photoID) {
+			return fmt.Errorf("album items reordered with an invalid photoId")
+		}
+		if seen[photoID] {
+			// A photograph twice in one order is a contradiction about where it goes, and the fold would
+			// silently apply whichever came last. Refused, because the alternative is an album whose order
+			// does not match what the curator was shown.
+			return fmt.Errorf("album items reordered naming the same photograph twice")
+		}
+		seen[photoID] = true
+	}
+
+	// Step 1: vacate every position in this album, removed rows included.
+	if err := c.w.Consume(fmt.Sprintf(
+		"UPDATE album_item SET ordinal = ordinal + %d WHERE albumId=%s AND year=%s",
+		reorderOffset, quote(albumID), quote(year),
+	)); err != nil {
+		return err
+	}
+
+	// Step 2: place each named photograph at its new position.
+	//
+	// Scoped by photo id rather than by the old ordinal, which is what makes this idempotent on replay: after
+	// the first pass the offset has moved, but each photograph is still found by who it is.
+	for ordinal, photoID := range body.PhotoIDs {
+		if err := c.w.Consume(fmt.Sprintf(
+			"UPDATE album_item SET ordinal=%d WHERE albumId=%s AND year=%s AND photoId=%s",
+			ordinal, quote(albumID), quote(year), quote(photoID),
+		)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// reorderOffset vacates an album's ordinals during a reorder.
+//
+// Large enough that no real album's positions can reach into the offset range and collide with a vacated row:
+// a curated album is tens of photographs, and this is a million. Not `math.MaxInt` — the column is a signed
+// INT, so an offset near the maximum would overflow rather than move.
+//
+// A row left in the offset range is a visible symptom rather than a silent one: it sorts after everything and
+// a curator sees a photograph stuck at the end, which is a bug report. Silence would have been worse.
+const reorderOffset = 1000000
+
+// ItemsReordered rewrites the whole order of an album's items (task 378).
+//
+// # Why reordering is one event carrying the whole order
+//
+// Not one event per moved item, and this is forced by the schema rather than chosen for tidiness.
+// `album_item` has `PRIMARY KEY (albumId, ordinal)` **and** `UNIQUE KEY (albumId, photoId)`. Moving one item
+// to a position another holds therefore collides — and swapping two is not expressible as two independent
+// writes at all, because whichever lands first violates one of the two keys.
+//
+// So the unit of change is the order itself: the event carries the album's items in their new sequence, and
+// the fold rewrites them in one pass (see handleItemsReordered for the offset it needs).
+//
+// # Why it names photographs rather than ordinals
+//
+// An ordinal is a *position*, and positions are what this event changes — so a payload of ordinals would be
+// describing its own effect. Naming the photographs makes the event mean "this album's order is now this",
+// which is idempotent on replay and legible a year later, and it cannot express a contradiction like two
+// items at position 3.
+type ItemsReordered struct {
+	AlbumID string `json:"albumId"`
+	Year    string `json:"year"`
+
+	// PhotoIDs is every live item of the album, in its new order. Position in this slice is the new ordinal.
+	//
+	// Items the event does not mention are left where they are, which is what makes a partial reorder safe —
+	// but the handler sends the complete live order, because a curator dragging one photograph has implicitly
+	// restated the whole sequence.
+	PhotoIDs []string `json:"photoIds"`
+
+	ReorderedAt time.Time `json:"reorderedAt"`
 }
 
 // ItemRemoved takes one photograph out of an album (task 335).
@@ -431,11 +555,12 @@ func Subject(year, albumID, verb string) (cqrs.Subject, error) {
 // One word, no hyphen: a subject token may not contain a dot, and while a hyphen is legal it reads
 // badly next to the other entities' single-word verbs.
 const (
-	VerbCreated     = "created"
-	VerbUpdated     = "updated"
-	VerbItemAdded   = "itemadded"
-	VerbItemRemoved = "itemremoved"
-	VerbDeleted     = "deleted"
+	VerbCreated        = "created"
+	VerbUpdated        = "updated"
+	VerbItemAdded      = "itemadded"
+	VerbItemsReordered = "itemsreordered"
+	VerbItemRemoved    = "itemremoved"
+	VerbDeleted        = "deleted"
 )
 
 var _ cqrs.Consumer = consumer{}

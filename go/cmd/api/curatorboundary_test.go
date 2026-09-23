@@ -50,7 +50,11 @@ var adminOwnedFiles = map[string]bool{
 	// every sited position in the event, and is for that reason a separate interface from the one patrol-scoped
 	// handlers hold (PRD 002, checkpoint/curator.go).
 	"adminposition.go": true,
-	// More arrive with tasks 377–379: the patrol tag and the library delete.
+	// The album editor's page. Reads `AlbumCurator` so it can show a draft, a deleted album, and the memberships a
+	// curator removed — which is the whole reason it cannot use the public read: that one answers an identical
+	// "not found" for unknown, unpublished and deleted so the open web cannot enumerate drafts.
+	"adminalbumpage.go": true,
+	// The last arrives with task 379: the library delete.
 }
 
 // curatorReads are the model fields that return draft-visible data.

@@ -56,6 +56,16 @@ type patchAdminPhotosRequest struct {
 	// map.
 	CheckpointID string `json:"checkpointId,omitempty"`
 
+	// Caption sets the curator's words on the selection.
+	//
+	// On the **photograph**, not on an album item (PRD 022 §8.3): one place to edit, shared by every album it
+	// appears in. A per-album override is imaginable and deliberately deferred (§11 Q3) rather than built
+	// speculatively — the cost of guessing wrong is the exact bug the library split removed, two copies of one
+	// fact drifting apart.
+	//
+	// A pointer, so clearing a caption and not mentioning one are different requests.
+	Caption *string `json:"caption,omitempty"`
+
 	// ClearLocation removes the coordinate.
 	ClearLocation bool `json:"clearLocation,omitempty"`
 
@@ -138,9 +148,18 @@ func (app *application) patchAdminPhotosHandler(w http.ResponseWriter, r *http.R
 	if in.ClearLocation {
 		given++
 	}
+	if in.Caption != nil {
+		given++
+	}
 	if given != 1 {
 		app.BadRequestResponse(w, r,
-			errors.New("angiv præcis én ting: en position, et postnummer, eller at positionen skal fjernes"))
+			errors.New("angiv præcis én ting: en position, et postnummer, en billedtekst, "+
+				"eller at positionen skal fjernes"))
+		return
+	}
+
+	if in.Caption != nil {
+		app.setAdminPhotoCaptions(w, r, photoIDs, *in.Caption)
 		return
 	}
 
@@ -289,6 +308,73 @@ func (app *application) clearAdminPhotoLocations(w http.ResponseWriter, r *http.
 		app.ServerErrorResponse(w, r, err)
 	}
 }
+
+// setAdminPhotoCaptions writes a caption across a selection.
+//
+// # One caption, every album
+//
+// The caption is the photograph's, so this changes it everywhere the photograph appears (PRD 022 §8.3). That is
+// the point of the library split rather than a side effect: before it, the same photograph in two albums had two
+// captions, and a curator who fixed one had created a discrepancy invisible from both.
+//
+// Only the caption is mentioned on the event. `photo.Updated`'s pointer fields mean this cannot disturb a
+// coordinate — the mirror of the rule that stops a bulk position blanking captions.
+func (app *application) setAdminPhotoCaptions(w http.ResponseWriter, r *http.Request, photoIDs []string, caption string) {
+	if len([]rune(caption)) > maxAdminCaption {
+		app.BadRequestResponse(w, r, errors.New("billedteksten er for lang"))
+		return
+	}
+
+	now := time.Now().UTC()
+	updated := 0
+	for _, photoID := range photoIDs {
+		subject, serr := photo.Subject(app.config.eventYear, photoID, photo.VerbUpdated)
+		if serr != nil {
+			app.BadRequestResponse(w, r, serr)
+			return
+		}
+		if perr := app.commands.Publish(subject, photo.Updated{
+			PhotoID:   photoID,
+			Year:      app.config.eventYear,
+			Caption:   &caption,
+			UpdatedAt: now,
+		}); perr != nil {
+			app.Logger.Error("admin caption failed partway",
+				"updated", updated, "photoId", photoID, "err", perr)
+			app.writeAlbumPublishFailure(w, r, perr)
+			return
+		}
+		updated++
+	}
+
+	// The caption text is **not** logged. It is curator prose rather than an identifier, the log is a durable
+	// record, and there is nothing an operator would use it for.
+	app.Logger.Info("admin set a caption on a selection",
+		"count", updated, "cleared", caption == "", "ip", clientIP(r))
+
+	billeder := "billeder"
+	if updated == 1 {
+		billeder = "billede"
+	}
+	message := fmt.Sprintf("Billedtekst sat på %d %s.", updated, billeder)
+	if caption == "" {
+		message = fmt.Sprintf("Billedtekst fjernet fra %d %s.", updated, billeder)
+	}
+
+	if err := app.WriteJSON(w, http.StatusOK, patchAdminPhotosResponse{
+		Updated: updated,
+		Message: message,
+	}, nil); err != nil {
+		app.ServerErrorResponse(w, r, err)
+	}
+}
+
+// maxAdminCaption bounds a caption.
+//
+// Generous: a caption is a sentence or two on a public page, and a curator who wants three should not be stopped
+// by an arbitrary number. Present because the column is TEXT and an unbounded field on a write path is how a
+// projection row becomes a megabyte.
+const maxAdminCaption = 1000
 
 // adminVerdictMessage writes the sentence for a set, and the three verdicts read differently on purpose.
 //

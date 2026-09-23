@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/julienschmidt/httprouter"
 
 	"nathejk.dk/nathejk/table/album"
 )
@@ -94,6 +95,235 @@ func (app *application) listAdminAlbumsHandler(w http.ResponseWriter, r *http.Re
 	if err := app.WriteJSON(w, http.StatusOK, out, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
 	}
+}
+
+// updateAdminAlbumRequest edits an album's editorial fields.
+//
+// # Every field is a pointer, and the slug is absent
+//
+// Pointers so that "not mentioned" and "set to empty" are different messages — a curator clearing a description
+// and a curator renaming an album must not be the same request, or one silently wipes the other's field. The
+// same delta shape `album.Updated` uses, for the same reason.
+//
+// **There is no slug field, and there must never be one.** The slug is the album's public address, frozen at
+// creation, because a retitled album that answers 404 is a dead link in a family's chat history. `album.Updated`
+// has no slug field either, so the fold could not apply one even if this accepted it — two layers, as with
+// `published` on create.
+type updateAdminAlbumRequest struct {
+	Title       *string `json:"title,omitempty"`
+	Description *string `json:"description,omitempty"`
+	SortOrder   *int    `json:"sortOrder,omitempty"`
+
+	// Published is how an album reaches the frontpage. Only expressible here, never on create.
+	Published *bool `json:"published,omitempty"`
+}
+
+// updateAdminAlbumHandler edits an album.
+//
+// @Summary      Edit an album
+// @Description  Changes an album's title, description, sort order, or whether it is published. Every field is optional and only the ones sent are written, so editing one cannot wipe another. **The slug cannot be changed**: it is the album's public address and a retitled album answering 404 is a dead link in somebody's chat history. Publishing is only expressible here, never on create, because an album is assembled over several sittings. Unpublishing removes the album from the public frontpage within that page's 60-second cache window. Requires the admin credential.
+// @Tags         admin
+// @Accept       json
+// @Produce      json
+// @Param        albumId  path      string                   true  "album id"
+// @Param        request  body      updateAdminAlbumRequest  true  "the fields to change"
+// @Success      200  {object}  adminAlbumSummary
+// @Failure      400  {object}  map[string]string  "nothing to change, or an unusable value"
+// @Failure      401  {object}  map[string]string  "missing or wrong admin credential"
+// @Failure      404  {object}  map[string]string  "unknown album"
+// @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
+// @Failure      500  {object}  map[string]string
+// @Failure      503  {object}  map[string]string  "the albums or the event stream are unavailable"
+// @Router       /admin/albums/{albumId} [patch]
+func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.Request) {
+	if app.models.AlbumCurator == nil {
+		app.ServiceUnavailableResponse(w, r, "albummerne er ikke tilgængelige lige nu")
+		return
+	}
+
+	albumID := httprouter.ParamsFromContext(r.Context()).ByName("albumId")
+
+	var in updateAdminAlbumRequest
+	if err := app.ReadJSON(w, r, &in); err != nil {
+		app.BadRequestResponse(w, r, err)
+		return
+	}
+
+	if in.Title == nil && in.Description == nil && in.SortOrder == nil && in.Published == nil {
+		// Refused rather than treated as a no-op: a request that changes nothing is a broken client, and the fold
+		// would silently drop it.
+		app.BadRequestResponse(w, r, errors.New("der er ingen ændringer i forespørgslen"))
+		return
+	}
+	if in.Title != nil {
+		title := strings.TrimSpace(*in.Title)
+		if title == "" {
+			app.BadRequestResponse(w, r, errors.New("albummet skal have en titel"))
+			return
+		}
+		if len([]rune(title)) > maxAdminAlbumTitle {
+			app.BadRequestResponse(w, r, errors.New("titlen er for lang"))
+			return
+		}
+		in.Title = &title
+	}
+	if in.Description != nil && len([]rune(*in.Description)) > maxAdminAlbumDesc {
+		app.BadRequestResponse(w, r, errors.New("beskrivelsen er for lang"))
+		return
+	}
+
+	a, _, found, err := app.models.AlbumCurator.Album(app.config.eventYear, albumID)
+	if err != nil {
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+	if !found {
+		app.NotFoundResponse(w, r)
+		return
+	}
+
+	if perr := app.publishAlbum(album.VerbUpdated, albumID, album.Updated{
+		AlbumID:     albumID,
+		Year:        app.config.eventYear,
+		Title:       in.Title,
+		Description: in.Description,
+		SortOrder:   in.SortOrder,
+		Published:   in.Published,
+		UpdatedAt:   time.Now().UTC(),
+	}); perr != nil {
+		app.writeAlbumPublishFailure(w, r, perr)
+		return
+	}
+
+	// Publishing is the one edit with a public consequence, so it is logged as its own fact rather than folded
+	// into "updated": "when did this go live" is a question somebody will ask.
+	if in.Published != nil {
+		app.Logger.Info("admin changed an album's publication",
+			"albumId", albumID, "slug", a.Slug, "published", *in.Published, "ip", clientIP(r))
+	} else {
+		app.Logger.Info("admin edited an album", "albumId", albumID, "slug", a.Slug, "ip", clientIP(r))
+	}
+
+	// The response reflects what was asked for, applied over what was read. The projection is downstream of the
+	// log so it has not caught up yet, and echoing the stale row would show the curator their edit failing.
+	out := adminAlbumSummary{
+		AlbumID:     a.ID,
+		Slug:        a.Slug,
+		Title:       a.Title,
+		Description: a.Description,
+		SortOrder:   a.SortOrder,
+		Published:   a.Published,
+		Deleted:     a.Deleted,
+		ItemCount:   a.ItemCount,
+	}
+	if in.Title != nil {
+		out.Title = *in.Title
+	}
+	if in.Description != nil {
+		out.Description = *in.Description
+	}
+	if in.SortOrder != nil {
+		out.SortOrder = *in.SortOrder
+	}
+	if in.Published != nil {
+		out.Published = *in.Published
+	}
+
+	if err := app.WriteJSON(w, http.StatusOK, out, nil); err != nil {
+		app.ServerErrorResponse(w, r, err)
+	}
+}
+
+// reorderAdminAlbumItemsRequest states an album's new order.
+type reorderAdminAlbumItemsRequest struct {
+	// PhotoIDs is the album's live items in their new order. Position is the new ordinal.
+	PhotoIDs []string `json:"photoIds"`
+}
+
+// reorderAdminAlbumItemsHandler rewrites an album's order.
+//
+// @Summary      Reorder an album's photographs
+// @Description  Rewrites the order of an album's photographs. The request carries the album's live items in their new sequence, and position in that list becomes the new ordinal — one event for the whole order rather than one per moved item, because `album_item` is keyed on both the position and the photograph, so moving one item into a position another holds cannot be expressed as independent writes. The **cover is the first live item**, so reordering changes the cover; there is no separate cover field to set. Requires the admin credential.
+// @Tags         admin
+// @Accept       json
+// @Produce      json
+// @Param        albumId  path      string                         true  "album id"
+// @Param        request  body      reorderAdminAlbumItemsRequest  true  "the live items in their new order"
+// @Success      204  "reordered"
+// @Failure      400  {object}  map[string]string  "an empty order, a duplicate, or a photograph not in this album"
+// @Failure      401  {object}  map[string]string  "missing or wrong admin credential"
+// @Failure      404  {object}  map[string]string  "unknown album"
+// @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
+// @Failure      500  {object}  map[string]string
+// @Failure      503  {object}  map[string]string  "the albums or the event stream are unavailable"
+// @Router       /admin/albums/{albumId}/items [patch]
+func (app *application) reorderAdminAlbumItemsHandler(w http.ResponseWriter, r *http.Request) {
+	if app.models.AlbumCurator == nil {
+		app.ServiceUnavailableResponse(w, r, "albummerne er ikke tilgængelige lige nu")
+		return
+	}
+
+	albumID := httprouter.ParamsFromContext(r.Context()).ByName("albumId")
+
+	var in reorderAdminAlbumItemsRequest
+	if err := app.ReadJSON(w, r, &in); err != nil {
+		app.BadRequestResponse(w, r, err)
+		return
+	}
+
+	photoIDs, err := dedupeAdminIDs(in.PhotoIDs, "billeder")
+	if err != nil {
+		app.BadRequestResponse(w, r, err)
+		return
+	}
+	// De-duplication above quietly drops a repeat, which would leave the order shorter than the curator sent and
+	// therefore not the order they were shown. Refused instead.
+	if len(photoIDs) != len(in.PhotoIDs) {
+		app.BadRequestResponse(w, r, errors.New("samme billede optræder flere gange i rækkefølgen"))
+		return
+	}
+
+	_, items, found, err := app.models.AlbumCurator.Album(app.config.eventYear, albumID)
+	if err != nil {
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+	if !found {
+		app.NotFoundResponse(w, r)
+		return
+	}
+
+	// Every named photograph must actually be in this album. Without the check a typo'd id would be published, the
+	// fold's per-photograph UPDATE would match nothing, and the album would come back in an order the curator did
+	// not ask for — with one item stranded in the offset range (see handleItemsReordered).
+	member := make(map[string]bool, len(items))
+	for _, it := range items {
+		if !it.Removed {
+			member[it.PhotoID] = true
+		}
+	}
+	for _, photoID := range photoIDs {
+		if !member[photoID] {
+			app.BadRequestResponse(w, r,
+				fmt.Errorf("et af billederne ligger ikke i dette album"))
+			return
+		}
+	}
+
+	if perr := app.publishAlbum(album.VerbItemsReordered, albumID, album.ItemsReordered{
+		AlbumID:     albumID,
+		Year:        app.config.eventYear,
+		PhotoIDs:    photoIDs,
+		ReorderedAt: time.Now().UTC(),
+	}); perr != nil {
+		app.writeAlbumPublishFailure(w, r, perr)
+		return
+	}
+
+	app.Logger.Info("admin reordered an album",
+		"albumId", albumID, "count", len(photoIDs), "ip", clientIP(r))
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // createAdminAlbumRequest creates an album.

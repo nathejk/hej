@@ -274,10 +274,21 @@ func TestUpdatedCannotExpressAClear(t *testing.T) {
 	if !strings.Contains(src, "photo.LocationCleared{") {
 		t.Error("clearing must publish photo.LocationCleared")
 	}
+
 	// The clear path must not reach for Updated at all.
-	clear := src[strings.Index(src, "func (app *application) clearAdminPhotoLocations"):]
-	clear = clear[:strings.Index(clear, "\n// adminVerdictMessage")]
-	if strings.Contains(clear, "photo.Updated{") {
+	//
+	// Sliced to the function's own body rather than to the next comment heading: the first version ran to
+	// `adminVerdictMessage` and started failing the moment `setAdminPhotoCaptions` was inserted between them — that
+	// function legitimately publishes `Updated`, so the test was reading the wrong code.
+	start := strings.Index(src, "func (app *application) clearAdminPhotoLocations")
+	if start < 0 {
+		t.Fatal("clearAdminPhotoLocations no longer exists; this guard needs updating")
+	}
+	body := src[start:]
+	if end := strings.Index(body[1:], "\nfunc "); end >= 0 {
+		body = body[:end+1]
+	}
+	if strings.Contains(body, "photo.Updated{") {
 		t.Error("the clear path must not publish photo.Updated; the log would lose the intent")
 	}
 }

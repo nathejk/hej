@@ -269,6 +269,11 @@ func (app *application) routes() http.Handler {
 		router.HandlerFunc(http.MethodGet, "/api/admin/albums", app.requireAdmin(app.listAdminAlbumsHandler))
 		router.HandlerFunc(http.MethodPost, "/api/admin/albums", app.requireAdmin(app.createAdminAlbumHandler))
 		router.HandlerFunc(http.MethodPost, "/api/admin/albums/items", app.requireAdmin(app.addAdminAlbumItemsHandler))
+		// The album editor (task 378). The slug is **not** editable: it is the album's public address, frozen at
+		// creation, and neither the request shape nor the event has a field for it.
+		router.HandlerFunc(http.MethodGet, "/admin/album/:slug", app.requireAdmin(app.adminAlbumPageHandler))
+		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId", app.requireAdmin(app.updateAdminAlbumHandler))
+		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId/items", app.requireAdmin(app.reorderAdminAlbumItemsHandler))
 		// The bulk position (task 376). The bounds check is re-run for every set — a curator-placed point is not
 		// exempt, because nothing reaches the public map unverified.
 		router.HandlerFunc(http.MethodPatch, "/api/admin/photos", app.requireAdmin(app.patchAdminPhotosHandler))
