@@ -302,11 +302,6 @@ func (app *application) routes() http.Handler {
 		// caller so the group-scoped ones are visible to whoever asked — a fixture nobody can
 		// see would be worse than none.
 		router.HandlerFunc(http.MethodPost, "/api/dev/glimt-fixture", app.requireAuth(app.devGlimtFixtureHandler))
-		// Album fixture data (task 333). Nothing else in the app creates an album — there is no
-		// participant-facing path that produces one — so without this the frontpage covers, the album
-		// grid, the unpublished-album state and the bounds verdicts cannot be looked at before the
-		// curation tool exists (PRD 011 §11 Q5).
-		router.HandlerFunc(http.MethodPost, "/api/dev/album-fixture", app.requireAuth(app.devAlbumFixtureHandler))
 	}
 
 	return router

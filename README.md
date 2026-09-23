@@ -205,6 +205,21 @@ Seeded records are recognisable on sight: every name starts with `TEST ` and eve
 number with `+4599`. Note the seeder publishes to the **shared** broker and cannot
 un-publish, which is why it refuses to run against a real event year.
 
+### Photo albums (PRD 022)
+
+There is no album fixture. There used to be one — `/api/dev/album-fixture` — and it was deleted in task
+383 once `/admin` could do the same job for real, because a fixture that publishes events in a shape the
+projection has since changed is a generator of warnings rather than of test data.
+
+So: open `https://hej.local.nathejk.dk/admin`, log in with `ADMIN_USER` / `ADMIN_PASSWORD` from
+`docker-compose.yml`, drag some photographs in, create an album, select them, add them to it and tick
+**Udgivet**. That is the whole loop, and it is the same loop a photographer and a curator use — which is
+the point: the states worth looking at (an unpublished album, a coordinate outside the race area, an item
+with no caption) are now states you produce the way a real user produces them.
+
+Note `PUBLIC_ALBUMS=false` in dev: the albums section, the album pages, the map read and the album **media
+bytes** all answer 404 until you turn it on.
+
 ### The map fixture world (PRD 016)
 
 The map is the one feature whose states you mostly **cannot** produce by hand. A relative

@@ -192,9 +192,15 @@ func (c consumer) handleUpdated(msg cqrs.Message, year string) error {
 // mean something. There is nothing to recover from such an event anyway: its `photoId` cannot be derived,
 // because the library row it would need to point at was never created.
 //
-// The blast radius is bounded to development. No album has ever been created outside `devalbum.go`, which
-// is the whole reason PRD 022 could change this shape at all; those fixtures simply lose their items and
-// are republished in the new shape.
+// The blast radius is bounded to development. No album has ever been created outside the dev fixture that
+// used to live in `cmd/api/devalbum.go`, which is the whole reason PRD 022 could change this shape at all;
+// those fixtures simply lose their items and are recreated with the real tool.
+//
+// **The fixture is gone (task 383) and this tolerance stays.** Removing the producer does not remove the
+// history: developers have databases and brokers holding events it published, and every one of them still
+// arrives on every replay. Deleting this branch now would swap one boot-time wall of warnings for another,
+// which is the opposite of what §8.7 was careful about. It can go when the streams it reads are gone, and
+// not before.
 func (c consumer) handleItemAdded(msg cqrs.Message, year string) error {
 	var body ItemAdded
 	if err := msg.Body(&body); err != nil {

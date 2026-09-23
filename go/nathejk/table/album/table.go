@@ -105,7 +105,8 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
 //
 // What is genuinely lost is the items of any album created by the old dev fixture, because the new fold
 // skips legacy `itemadded` events (see consumer.go). That is accounted for: no album has ever existed
-// outside `cmd/api/devalbum.go`, which is the whole reason PRD 022 could change the event shape.
+// outside that fixture — `cmd/api/devalbum.go`, deleted in task 383 once the admin tool could replace it —
+// which is the whole reason PRD 022 could change the event shape.
 //
 // # Why it keys on `blobRef`
 //

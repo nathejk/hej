@@ -5,12 +5,10 @@ import (
 	"context"
 	"encoding/binary"
 	"io"
-	"strings"
 	"testing"
 
 	"nathejk.dk/internal/blob"
 	"nathejk.dk/internal/imaging"
-	"nathejk.dk/nathejk/table/album"
 	"nathejk.dk/nathejk/table/checkpoint"
 	"nathejk.dk/nathejk/table/photo"
 )
@@ -324,55 +322,11 @@ func TestAlbumQueriesOrNilIsAHonestNil(t *testing.T) {
 	}
 }
 
-// Album ids are used as subject tokens and as filenames-by-proxy; the fixture's must survive.
-func TestDevAlbumFixtureSlugsAreUsableAsSubjectTokens(t *testing.T) {
-	for _, spec := range devAlbumFixtures() {
-		id := "dev-album-" + spec.slug
-		if _, err := album.Subject("2026", id, album.VerbCreated); err != nil {
-			t.Errorf("fixture album %q yields an unusable subject: %v", spec.slug, err)
-		}
-		if strings.ContainsAny(spec.slug, "./ *>") {
-			t.Errorf("fixture slug %q is not URL-safe", spec.slug)
-		}
-	}
-}
-
-// The fixture's states are the reason it exists: one unpublished album, one out-of-bounds coordinate,
-// one item with no caption and no coordinate, and mixed orientations in one album.
-func TestDevAlbumFixtureCoversTheStatesWorthSeeing(t *testing.T) {
-	specs := devAlbumFixtures()
-
-	var unpublished, withCoordinate, plain, portrait, landscape int
-	for _, spec := range specs {
-		if !spec.published {
-			unpublished++
-		}
-		for _, item := range spec.items {
-			switch {
-			case item.lat != nil:
-				withCoordinate++
-			case item.caption == "":
-				plain++
-			}
-			if item.h > item.w {
-				portrait++
-			}
-			if item.w > item.h {
-				landscape++
-			}
-		}
-	}
-
-	if unpublished == 0 {
-		t.Error("no unpublished album: the invisible-to-the-public state cannot be checked")
-	}
-	if withCoordinate == 0 {
-		t.Error("no coordinates: the map cannot be looked at")
-	}
-	if plain == 0 {
-		t.Error("no item without a caption: the card must not reserve space for one")
-	}
-	if portrait == 0 || landscape == 0 {
-		t.Error("want both orientations in the fixture: that is what catches a grid bug")
-	}
-}
+// The two tests that stood here asserted things about the album dev fixture: that its slugs were usable as
+// subject tokens, and that it covered the states worth looking at (an unpublished album, an out-of-bounds
+// coordinate, an item with no caption, both orientations).
+//
+// They went with the fixture in task 383. Neither was a statement about the product — both described the
+// shape of a hand-written development convenience, so with the convenience gone there is nothing left for
+// them to be true or false about. The properties themselves did not go unguarded: `publicvisibility_test.go`
+// (task 382) asserts every one of those states against the real reads, from a fixture it builds itself.
