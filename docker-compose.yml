@@ -140,7 +140,7 @@ services:
       #
       # Flip to "true" to work on the albums, and use `/admin` to create one — the dev album fixture was
       # retired in task 383 now that the real tool can do it.
-      PUBLIC_ALBUMS: "false"
+      PUBLIC_ALBUMS: "true"
       # The photographer admin tool (PRD 022). `/admin`, behind HTTP basic auth.
       #
       # Set here so the tool exists in dev at all: **there is no default password in the code**, in any
