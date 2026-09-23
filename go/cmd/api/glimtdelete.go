@@ -199,9 +199,20 @@ func (app *application) purgeGlimtBlobs(ctx context.Context, glimtID string, ref
 // # Every owner of the blob store must be listed here
 //
 // One function asking each owner in turn, because there is no way to discover an owner automatically
-// and a missed one means deleted bytes on somebody else's live page. Today: other glimt, and album
-// items (PRD 011). Add the next one here, and add a test like
+// and a missed one means deleted bytes on somebody else's live page. Today: other glimt, and the
+// photograph library (PRD 022). Add the next one here, and add a test like
 // `TestGlimtDeleteKeepsBytesAnAlbumStillUses` with it.
+//
+// # Why it asks the library rather than the albums
+//
+// It used to ask `album.RefsInUse`, because before PRD 022 an album item *was* a photograph and carried
+// the refs. After the library split (§8.3) the refs live on `photo`, and asking the album side would have
+// been actively dangerous rather than merely wrong: an album join answers "which refs are used by
+// photographs that are **in an album**", so a library photograph that no curator has arranged yet would
+// be reported unused — and a glimt takedown would delete a photographer's bytes.
+//
+// Asking the library covers every photograph, albumed or not, which is why `album.RefsInUse` was deleted
+// rather than reimplemented (see the note where it used to be, in album/querier.go).
 //
 // # It fails as a whole, on purpose
 //
@@ -214,17 +225,17 @@ func (app *application) refsUsedElsewhere(glimtID string, refs []string) (map[st
 		return nil, err
 	}
 
-	// Nil when there is no database or the projection did not build. Not an error here: with no album
-	// projection there are no album items to protect, so there is nothing this check would have found.
-	// That is different from a *failing* album read, which is an error above.
-	if app.models.Albums != nil {
-		// nil exclusion: no album item is being removed here, so every album item that references
+	// Nil when there is no database or the projection did not build. Not an error here: with no photo
+	// projection there are no library photographs to protect, so there is nothing this check would have
+	// found. That is different from a *failing* read, which is an error.
+	if app.models.Photos != nil {
+		// nil exclusion: no photograph is being deleted here, so every live photograph that references
 		// these bytes is a reason to keep them.
-		albumRefs, aerr := app.models.Albums.RefsInUse(app.config.eventYear, nil, refs)
-		if aerr != nil {
-			return nil, fmt.Errorf("checking album media: %w", aerr)
+		photoRefs, perr := app.models.Photos.RefsInUse(app.config.eventYear, nil, refs)
+		if perr != nil {
+			return nil, fmt.Errorf("checking library photographs: %w", perr)
 		}
-		for ref := range albumRefs {
+		for ref := range photoRefs {
 			inUse[ref] = true
 		}
 	}

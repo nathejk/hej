@@ -55,6 +55,11 @@ type Table struct {
 // cmd/api through internal/commands. It is in the signature because every other entity has it and a
 // consistent shape is worth more than dropping one parameter.
 func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
+	// The shape change has to happen before the CREATE, because CREATE TABLE IF NOT EXISTS will not
+	// alter an existing table. See dropLegacyAlbumItem.
+	if err := dropLegacyAlbumItem(w, r); err != nil {
+		return nil, err
+	}
 	if err := w.Consume(tableSchema); err != nil {
 		return nil, fmt.Errorf("album: create tables: %w", err)
 	}
@@ -62,6 +67,66 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
 		consumer: consumer{w: w},
 		querier:  querier{db: r},
 	}, nil
+}
+
+// dropLegacyAlbumItem rebuilds `album_item` once, if it still has its pre-PRD-022 shape.
+//
+// # Why this exists at all
+//
+// `CREATE TABLE IF NOT EXISTS` creates new tables and never changes existing ones, which is exactly what
+// the projections want almost always — but PRD 022 §8.3 did not add a column to `album_item`, it replaced
+// nine of them with one. On a database that already holds the old table the CREATE is a no-op, the fold's
+// INSERT names a `photoId` column that does not exist, and **every album item fails to write** while the
+// service otherwise looks healthy. PRD 022 §8.11 requires this to be handled deliberately rather than
+// discovered, which is what this function is.
+//
+// # Why a DROP here does not contradict the person projection's rule
+//
+// `person/table.go` states the house rule plainly: its column list is additive by design, and "a DROP
+// COLUMN on every boot is exactly the kind of destructive statement that pattern exists to keep out". It
+// keeps `verifiedAgainstPhone` forever rather than dropping it.
+//
+// That rule is about **columns holding data somebody might still want**, and two things make this
+// different:
+//
+//  1. `album_item` is a pure projection with no independent truth in it. Every row is derived from an
+//     `itemadded` event on a stream that is never rewritten, so dropping the table destroys nothing a
+//     replay does not immediately rebuild. `person` carries columns whose source events predate the
+//     column, which is why *it* cannot be so casual.
+//  2. This runs **once**. After the rebuild `blobRef` no longer exists, the guard finds nothing, and no
+//     further boot touches the table. It is a migration that happens to live in code, not a destructive
+//     statement on a schedule.
+//
+// What is genuinely lost is the items of any album created by the old dev fixture, because the new fold
+// skips legacy `itemadded` events (see consumer.go). That is accounted for: no album has ever existed
+// outside `cmd/api/devalbum.go`, which is the whole reason PRD 022 could change the event shape.
+//
+// # Why it keys on `blobRef`
+//
+// One column that existed before and cannot exist after — so its presence is an unambiguous "this is the
+// old table". Keying on the *absence* of `photoId` would be subtly wrong: a half-applied migration could
+// leave a table with neither, and this way such a table is rebuilt rather than left broken.
+func dropLegacyAlbumItem(w cqrs.Writer, r cqrs.Reader) error {
+	var n int
+	// The same INFORMATION_SCHEMA lookup cqrs.EnsureColumn uses, and the same dialect assumption: this
+	// repository is MariaDB, and there is no dialect-neutral way to ask.
+	err := r.QueryRow(`
+		SELECT COUNT(*)
+		FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE()
+		  AND TABLE_NAME = 'album_item'
+		  AND COLUMN_NAME = 'blobRef'`).Scan(&n)
+	if err != nil {
+		return fmt.Errorf("album: check album_item shape: %w", err)
+	}
+	if n == 0 {
+		// Either a fresh database, or one already rebuilt. Both are the normal case.
+		return nil
+	}
+	if err := w.Consume("DROP TABLE album_item"); err != nil {
+		return fmt.Errorf("album: rebuild album_item for PRD 022: %w", err)
+	}
+	return nil
 }
 
 // CreateTableSql exposes the schema, matching the other entities' shape.

@@ -76,35 +76,6 @@ func (s *albumStore) BySlug(_, slug string) (album.Album, []album.Item, bool, er
 
 func (s *albumStore) Plottable(string) ([]album.PlottableItem, error) { return nil, s.err }
 
-// RefsInUse honours the exclusion set, because that is the property under test in task 335: without it
-// an item being removed reports its own bytes as in use and nothing is ever deleted.
-func (s *albumStore) RefsInUse(_ string, excluding []album.ItemKey, refs []string) (map[string]bool, error) {
-	out := map[string]bool{}
-	if s.err != nil {
-		return nil, s.err
-	}
-	excluded := map[album.ItemKey]bool{}
-	for _, k := range excluding {
-		excluded[k] = true
-	}
-	for _, e := range s.albums {
-		if e.deleted {
-			continue
-		}
-		for _, it := range e.items {
-			if excluded[album.ItemKey{AlbumID: e.album.ID, Ordinal: it.Ordinal}] {
-				continue
-			}
-			for _, ref := range refs {
-				if it.Ref == ref || it.ThumbRef == ref {
-					out[ref] = true
-				}
-			}
-		}
-	}
-	return out, nil
-}
-
 // albumApp is a public app with two published albums, one draft, and real bytes in the blob store.
 func albumApp(t *testing.T) (*application, *albumStore) {
 	t.Helper()

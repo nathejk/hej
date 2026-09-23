@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -138,84 +137,52 @@ func TestRemovalBoundsTheReason(t *testing.T) {
 	}
 }
 
-// **The mirror of task 333's fix.** Removing an album photograph must not delete bytes a glimt still
-// shows — content addressing makes identical bytes one object, in both directions.
-func TestRemovingAnAlbumItemKeepsBytesAGlimtStillUses(t *testing.T) {
+// # The purge tests after PRD 022
+//
+// Five tests here used to assert that removing an album item deleted its bytes where nothing else
+// referenced them, with a careful sharing check against the glimt and against other album items.
+//
+// That behaviour is **gone on purpose**, and the reason is worth more than the tests were. Before the
+// library split an album item *was* the photograph, so taking it out of the album was the only way that
+// photograph stopped existing and a purge was correct. Now the photograph lives in `photo` and outlives
+// every album it appears in — so purging on removal would blank it in the library and in every other
+// album, which is the exact bug the old sharing check existed to prevent, reintroduced from the other end.
+//
+// Byte deletion moved to the library's own delete path (task 379), where `photo.RefsInUse` can ask the
+// question about the thing being deleted. What is asserted here instead is the new invariant: **a removal
+// from an album never touches bytes.** The glimt side of the old hazard is still covered, in
+// albumblobs_test.go, which now stubs the library.
+
+// Removing a photograph from an album must leave its bytes alone: it is still in the library, and possibly
+// in other albums.
+func TestRemovingAnAlbumItemKeepsTheBytes(t *testing.T) {
 	app, store, _, srv, cookies := removalApp(t, true)
 
-	shared, err := app.blobs.Put(context.Background(), []byte("a photograph in an album and a glimt"))
+	kept, err := app.blobs.Put(context.Background(), []byte("a photograph taken out of one album"))
 	if err != nil {
 		t.Fatalf("seeding: %v", err)
 	}
-	orphan, err := app.blobs.Put(context.Background(), []byte("a photograph in the album only"))
+	thumb, err := app.blobs.Put(context.Background(), []byte("its thumbnail"))
 	if err != nil {
 		t.Fatalf("seeding: %v", err)
 	}
-
-	// The album item holds both refs; a surviving glimt holds the shared one.
-	store.albums[0].items[0].Ref = shared.String()
-	store.albums[0].items[0].ThumbRef = orphan.String()
-	glimtStore := app.models.Glimt.(*stubGlimt)
-	glimtStore.rows[0].Media[0].Ref = shared.String()
+	store.albums[0].items[0].Ref = kept.String()
+	store.albums[0].items[0].ThumbRef = thumb.String()
 
 	if resp := deleteAs(t, srv, "/api/albums/al-1/items/0", cookies, ""); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("want 204, got %d", resp.StatusCode)
 	}
 
-	if exists, _ := app.blobs.Exists(context.Background(), shared); !exists {
-		t.Error("the shared object was deleted: a glimt that used it is now blank")
-	}
-	if exists, _ := app.blobs.Exists(context.Background(), orphan); exists {
-		t.Error("the unshared object should have been deleted")
-	}
-}
-
-// A second item in the same album holding identical bytes is also a reason to keep them.
-func TestRemovingAnAlbumItemKeepsBytesAnotherItemUses(t *testing.T) {
-	app, store, _, srv, cookies := removalApp(t, true)
-
-	shared, err := app.blobs.Put(context.Background(), []byte("the same photograph twice"))
-	if err != nil {
-		t.Fatalf("seeding: %v", err)
-	}
-	store.albums[0].items[0].Ref = shared.String()
-	store.albums[0].items[0].ThumbRef = ""
-	store.albums[0].items[1].Ref = shared.String()
-
-	if resp := deleteAs(t, srv, "/api/albums/al-1/items/0", cookies, ""); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("want 204, got %d", resp.StatusCode)
-	}
-
-	if exists, _ := app.blobs.Exists(context.Background(), shared); !exists {
-		t.Error("bytes another item in the same album still uses must survive")
+	for name, ref := range map[string]blob.Ref{"full": kept, "thumbnail": thumb} {
+		if exists, _ := app.blobs.Exists(context.Background(), ref); !exists {
+			t.Errorf("the %s object was deleted: the photograph is still in the library", name)
+		}
 	}
 }
 
-// If either owner cannot be asked, nothing is deleted. Leaking disk is recoverable.
-func TestRemovalKeepsEverythingWhenTheSharingCheckFails(t *testing.T) {
-	app, store, _, srv, cookies := removalApp(t, true)
-
-	ref, err := app.blobs.Put(context.Background(), []byte("a photograph"))
-	if err != nil {
-		t.Fatalf("seeding: %v", err)
-	}
-	store.albums[0].items[0].Ref = ref.String()
-	store.albums[0].items[0].ThumbRef = ""
-
-	// The glimt half fails. The album half is fine, so this asserts the union fails as a whole rather
-	// than proceeding on a partial answer.
-	app.models.Glimt.(*stubGlimt).refsErr = errors.New("database is down")
-
-	if resp := deleteAs(t, srv, "/api/albums/al-1/items/0", cookies, ""); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("the removal itself should still succeed, got %d", resp.StatusCode)
-	}
-	if exists, _ := app.blobs.Exists(context.Background(), ref); !exists {
-		t.Fatal("an unanswerable sharing question must leave the objects in place")
-	}
-}
-
-// Deleting a whole album gathers every item's refs before the fold hides them.
-func TestDeletingAnAlbumConsidersEveryItemsBytes(t *testing.T) {
+// Deleting a whole album does not delete its photographs. The album was an arrangement; the photographs
+// were only arranged.
+func TestDeletingAnAlbumKeepsItsPhotographsBytes(t *testing.T) {
 	app, store, _, srv, cookies := removalApp(t, true)
 
 	first, err := app.blobs.Put(context.Background(), []byte("item one"))
@@ -236,8 +203,8 @@ func TestDeletingAnAlbumConsidersEveryItemsBytes(t *testing.T) {
 	}
 
 	for name, ref := range map[string]blob.Ref{"first": first, "second": second} {
-		if exists, _ := app.blobs.Exists(context.Background(), ref); exists {
-			t.Errorf("%s item's bytes should have been deleted with the album", name)
+		if exists, _ := app.blobs.Exists(context.Background(), ref); !exists {
+			t.Errorf("%s item's bytes were deleted with the album; the photograph outlives it", name)
 		}
 	}
 }
@@ -282,31 +249,10 @@ func TestRemovalPromptnessIsBoundedByThePageCache(t *testing.T) {
 	}
 }
 
-// **The bug a test caught, locked in.** `RefsInUse` is a year-wide question, so the removal path must
-// name the items it is removing — otherwise they report their **own** bytes as in use. And because the
-// fold is asynchronous their rows are still live at the moment the check runs, so the check would look
-// correct and delete nothing, ever. That is a bug that never fails, it just quietly fills a disk.
-func TestRemovalExcludesTheItemsBeingRemovedFromTheSharingCheck(t *testing.T) {
-	app, store, _, srv, cookies := removalApp(t, true)
-
-	solo, err := app.blobs.Put(context.Background(), []byte("a photograph in exactly one place"))
-	if err != nil {
-		t.Fatalf("seeding: %v", err)
-	}
-	store.albums[0].items[0].Ref = solo.String()
-	store.albums[0].items[0].ThumbRef = ""
-
-	if resp := deleteAs(t, srv, "/api/albums/al-1/items/0", cookies, ""); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("want 204, got %d", resp.StatusCode)
-	}
-
-	// The item's row is still live in the stub — exactly as it would be in production, where the fold
-	// has not run yet. If the exclusion were missing, the object would survive.
-	if exists, _ := app.blobs.Exists(context.Background(), solo); exists {
-		t.Fatal("the removed item's own bytes were kept: the sharing check is not excluding it, so nothing " +
-			"would ever be deleted")
-	}
-}
+// The exclusion-set test that used to live here went with the purge (see the note above): there is no
+// sharing check on this path any more, because nothing on it deletes bytes. The property it guarded — that
+// a delete path must not let the thing being deleted vote to keep its own bytes — still matters and is now
+// the library's, asserted in albumblobs_test.go and, for the deletion itself, in task 379.
 
 // Removal is soft in the fold, which is where it is decided — see the album projection's
 // `TestItemRemovedIsASoftDelete`. Recorded here as a pointer rather than duplicated: a destructive

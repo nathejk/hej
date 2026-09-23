@@ -1,16 +1,13 @@
 package main
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/julienschmidt/httprouter"
 
-	"nathejk.dk/internal/blob"
 	"nathejk.dk/nathejk/table/album"
 )
 
@@ -106,10 +103,12 @@ func (app *application) removeAlbumItemHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// The item is looked up before publishing, for two reasons: a removal of something that does not
-	// exist should answer 404 rather than putting a no-op on an append-only log, and the refs are
-	// needed to decide what bytes may go.
-	item, found, err := app.albumItemAt(albumID, ordinal)
+	// Looked up first so that an album or an ordinal that does not exist answers 404 rather than putting
+	// a no-op on an append-only log.
+	//
+	// The item itself is no longer needed — before PRD 022 its refs decided what bytes could go, and now
+	// no bytes go at all (see the note below). The lookup stays for the 404.
+	_, found, err := app.albumItemAt(albumID, ordinal)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -135,25 +134,36 @@ func (app *application) removeAlbumItemHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Event first, bytes second — the same order `purgeOneGlimt` argues for, and for the same reason.
-	// If the bytes went first and the publish then failed, the retry would come back to a row whose
-	// refs are already gone, and anything sharing them would be blank permanently with no record of
-	// why. Publishing first means a failure leaves the photograph in place and visible, which for a
-	// takedown is the wrong direction — but it is the *recoverable* wrong direction, and a curator who
-	// sees the photograph still there will press the button again.
-	//
-	// The item being removed is excluded from the sharing check: the fold is asynchronous, so its row
-	// is still live right now and would otherwise report its own bytes as in use.
-	app.purgeAlbumItemBlobs(r.Context(), albumID,
-		[]album.ItemKey{{AlbumID: albumID, Ordinal: ordinal}}, refsOfAlbumItem(item))
+	// Event first, and — new with PRD 022 — that is the *whole* operation. See the note on
+	// albumItemRemovalKeepsTheBytes below for why no blobs are purged here any more.
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// # Removing an item no longer deletes bytes, and that is a behaviour change worth stating
+//
+// Before PRD 022, `album_item` *was* the photograph: taking it out of the album was the only way that
+// photograph existed, so the removal was a takedown and it purged the objects nothing else referenced.
+//
+// After the library split (§8.3) removing an item takes one photograph out of **one album** and leaves it
+// in the library and in every other album it belongs to. Purging its bytes would blank it everywhere else
+// — the exact bug the old code's sharing check existed to prevent, reintroduced by a stale assumption
+// rather than by a missing check.
+//
+// Deleting the *photograph* is the act that frees bytes, and it lives in the library's own delete path
+// (task 379) where `photo.RefsInUse` can ask the question properly. A curator has both actions and PRD 022
+// §5 requires the copy to make the difference obvious, because one of the two is what an organizer means
+// when they say "take it down".
+//
+// The consequence accepted here: an item removed from every album leaves its bytes on disk until somebody
+// deletes the photograph. That is a photograph the curator still has in the library, so the bytes are not
+// orphaned — they are simply not published. PRD 022 §11 Q2 settled that we do not expire photographs, so
+// there is nothing for a cleanup to do either.
+
 // deleteAlbumHandler takes a whole album down.
 //
 // @Summary      Delete an album
-// @Description  Takes a whole curated album off the public site, marking it and every photograph in it removed. A soft removal, like the per-photograph one, so an accidental deletion is recoverable. Bytes are deleted only where nothing else references them. Requires the Team section, re-checked per request.
+// @Description  Takes a whole curated album off the public site, marking it and every membership in it removed. A soft removal, like the per-photograph one, so an accidental deletion is recoverable. The photographs themselves stay in the library and keep their bytes — deleting an album is not deleting its photographs. Requires the Team section, re-checked per request.
 // @Tags         public-site
 // @Accept       json
 // @Produce      json
@@ -188,9 +198,10 @@ func (app *application) deleteAlbumHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Every item's refs, gathered before the album disappears from the published read — after the
-	// fold there would be no way to find out which bytes the album held without replaying the log.
-	items, found, err := app.albumItems(albumID)
+	// Looked up first so an unknown album answers 404 rather than appending a no-op to the log. Before
+	// PRD 022 this also gathered every item's refs before the album vanished from the published read;
+	// the photographs now outlive the album, so there is nothing to gather.
+	_, found, err := app.albumItems(albumID)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -215,15 +226,6 @@ func (app *application) deleteAlbumHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	var refs []string
-	var excluding []album.ItemKey
-	for _, it := range items {
-		refs = append(refs, refsOfAlbumItem(it)...)
-		// Every item in this album is on its way out, so none of them counts as a reason to keep bytes.
-		excluding = append(excluding, album.ItemKey{AlbumID: albumID, Ordinal: it.Ordinal})
-	}
-	app.purgeAlbumItemBlobs(r.Context(), albumID, excluding, refs)
-
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -241,102 +243,6 @@ func (app *application) readRemovalReason(w http.ResponseWriter, r *http.Request
 		return "", false
 	}
 	return in.Reason, true
-}
-
-// refsOfAlbumItem returns the blob refs one item holds.
-func refsOfAlbumItem(it album.Item) []string {
-	var refs []string
-	if it.Ref != "" {
-		refs = append(refs, it.Ref)
-	}
-	if it.ThumbRef != "" {
-		refs = append(refs, it.ThumbRef)
-	}
-	return refs
-}
-
-// purgeAlbumItemBlobs deletes the objects nothing else references.
-//
-// # The mirror of task 333's fix
-//
-// Task 333 stopped the glimt delete path from deleting bytes an **album** still used. This is the same
-// hazard in the other direction: an album photograph may be byte-identical to a glimt a participant
-// posted — content addressing makes those one object — so removing the album item must not blank the
-// glimt.
-//
-// Both owners are asked, and a ref in use by either is kept. And as there, if either cannot be asked,
-// **nothing is deleted**: leaking disk is recoverable, blanking somebody else's photograph is not, and
-// it would be invisible to us.
-func (app *application) purgeAlbumItemBlobs(ctx context.Context, albumID string, excluding []album.ItemKey, refs []string) {
-	if len(refs) == 0 {
-		return
-	}
-
-	inUse, err := app.albumRefsUsedElsewhere(excluding, refs)
-	if err != nil {
-		app.Logger.Error("could not check whether album media is shared; leaving the objects in place",
-			"err", err, "albumId", albumID)
-		return
-	}
-
-	for _, ref := range refs {
-		if inUse[ref] {
-			app.Logger.Debug("album media kept; something else references the same bytes",
-				"albumId", albumID, "ref", ref)
-			continue
-		}
-		r := blob.Ref(ref)
-		if !r.Valid() {
-			app.Logger.Error("skipping non-hash album ref during removal", "albumId", albumID, "ref", ref)
-			continue
-		}
-		if derr := app.blobs.Delete(ctx, r); derr != nil {
-			// Logged and carried on. The item is already gone from every view; what remains is
-			// unreferenced bytes, which no URL can reach because the media handler needs a row.
-			app.Logger.Error("deleting album media", "err", derr, "albumId", albumID, "ref", ref)
-		}
-	}
-}
-
-// albumRefsUsedElsewhere reports which refs anything other than the items being removed still
-// references.
-//
-// The counterpart of `refsUsedElsewhere` in glimtdelete.go, and the same rule applies: **every owner of
-// the blob store must be listed here.** Today that is other albums and the glimt.
-//
-// # The exclusion is not optional, and a test caught that
-//
-// `RefsInUse` is a year-wide question, so without naming the items being removed they would report
-// their **own** refs as in use — and because the fold is asynchronous, their rows are still live at the
-// moment this runs. The check would have looked correct and deleted nothing, ever. That is the kind of
-// bug that never shows up as a failure, only as a disk filling quietly over years.
-func (app *application) albumRefsUsedElsewhere(excluding []album.ItemKey, refs []string) (map[string]bool, error) {
-	inUse := map[string]bool{}
-
-	if app.models.Albums != nil {
-		albumRefs, err := app.models.Albums.RefsInUse(app.config.eventYear, excluding, refs)
-		if err != nil {
-			return nil, fmt.Errorf("checking album media: %w", err)
-		}
-		for ref := range albumRefs {
-			inUse[ref] = true
-		}
-	}
-
-	// Nil when there is no database or the projection did not build: no glimt to protect, so nothing
-	// this check would have found. Distinct from a *failing* glimt read, which is an error.
-	if app.models.Glimt != nil {
-		// "" as the excluded glimt id, because no glimt is being removed here — every glimt that
-		// references these bytes is a reason to keep them.
-		glimtRefs, err := app.models.Glimt.RefsUsedElsewhere(app.config.eventYear, "", refs)
-		if err != nil {
-			return nil, fmt.Errorf("checking glimt media: %w", err)
-		}
-		for ref := range glimtRefs {
-			inUse[ref] = true
-		}
-	}
-	return inUse, nil
 }
 
 // albumItemAt finds one item of a published album.

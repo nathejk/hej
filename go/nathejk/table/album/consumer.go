@@ -167,7 +167,7 @@ func (c consumer) handleUpdated(msg cqrs.Message, year string) error {
 	))
 }
 
-// handleItemAdded writes one photograph.
+// handleItemAdded records that a photograph sits at a position in an album.
 //
 // Keyed by (albumId, ordinal) and upserted, so a replay converges rather than accumulating — and so a
 // curator replacing the photograph at position 3 is one event rather than a remove and an add that
@@ -176,6 +176,22 @@ func (c consumer) handleUpdated(msg cqrs.Message, year string) error {
 // `deleted=0` is set on insert **and** on update here, unlike the parent's `deleted`. That is not an
 // inconsistency: adding an item at an ordinal is a deliberate act that supersedes whatever was there,
 // including a removal, whereas an album's create event is not a statement about its takedown history.
+//
+// # A legacy event is skipped, not refused
+//
+// Before PRD 022 this event carried the photograph itself — a `ref`, a caption, a coordinate — rather
+// than a `photoId` (§8.7). Those events are still on the stream, because the stream is never rewritten,
+// and they arrive on every replay.
+//
+// They are ignored by returning nil rather than an error, and the distinction matters: the stream library
+// **logs a handler error and drops the message**, so refusing them would print a warning per legacy item
+// on every single boot — a wall of noise that teaches the reader nothing and buries the errors that do
+// mean something. There is nothing to recover from such an event anyway: its `photoId` cannot be derived,
+// because the library row it would need to point at was never created.
+//
+// The blast radius is bounded to development. No album has ever been created outside `devalbum.go`, which
+// is the whole reason PRD 022 could change this shape at all; those fixtures simply lose their items and
+// are republished in the new shape.
 func (c consumer) handleItemAdded(msg cqrs.Message, year string) error {
 	var body ItemAdded
 	if err := msg.Body(&body); err != nil {
@@ -189,16 +205,16 @@ func (c consumer) handleItemAdded(msg cqrs.Message, year string) error {
 	if albumID == "" {
 		return fmt.Errorf("album item added with no albumId")
 	}
-	if !validRef(body.Ref) {
-		// An item is a photograph; with no usable content hash there is nothing to show, and the ref
-		// is the one string here that could otherwise become a filesystem path.
-		return fmt.Errorf("album item added with an invalid ref")
+
+	if body.PhotoID == "" {
+		// A pre-PRD-022 event. See the header: skipped silently and deliberately.
+		return nil
 	}
-	// A malformed thumbnail ref costs the thumbnail, not the item — the page falls back to the full
-	// image. The same rule the glimt and portrait folds apply.
-	thumbRef := body.ThumbRef
-	if thumbRef != "" && !validRef(thumbRef) {
-		thumbRef = ""
+	if !validRef(body.PhotoID) {
+		// A photo id is a content hash, and it is the one string here that could otherwise become a
+		// filesystem path or reach a URL. Unlike the empty case above this is not a legacy event — it is a
+		// malformed one — so it is refused loudly.
+		return fmt.Errorf("album item added with an invalid photoId")
 	}
 
 	addedAt := body.AddedAt
@@ -206,41 +222,13 @@ func (c consumer) handleItemAdded(msg cqrs.Message, year string) error {
 		return fmt.Errorf("album item added with no addedAt")
 	}
 
-	verdict := body.BoundsVerdict
-	switch verdict {
-	case BoundsNone, BoundsInside, BoundsOutside, BoundsUnknown:
-	default:
-		// An unrecognised verdict becomes `unknown`, never `inside`. The map read filters on this
-		// column, so the failure direction matters: a typo must make a photograph unplottable rather
-		// than plot one whose coordinate was never checked.
-		verdict = BoundsUnknown
-	}
-
-	// A coordinate is only stored when it is actually usable. Without both halves there is nothing to
-	// plot and nothing for a curator to correct, so a half-coordinate is dropped rather than written
-	// as a NULL beside a real number — which would read as "we have the latitude", and we do not.
-	lat, lng := "NULL", "NULL"
-	if body.Lat != nil && body.Lng != nil {
-		lat = fmt.Sprintf("%f", *body.Lat)
-		lng = fmt.Sprintf("%f", *body.Lng)
-	} else if verdict != BoundsNone {
-		// A verdict about a coordinate that did not arrive. Recorded as `none`, because the verdict
-		// would otherwise claim a judgement about a value nothing stored.
-		verdict = BoundsNone
-	}
-
 	return c.w.Consume(fmt.Sprintf(
-		"INSERT INTO album_item SET albumId=%s, year=%s, ordinal=%d, blobRef=%s, thumbRef=%s, "+
-			"caption=%s, width=%d, height=%d, bytes=%d, latitude=%s, longitude=%s, "+
-			"boundsVerdict=%s, addedAt=%s, deleted=0 "+
+		"INSERT INTO album_item SET albumId=%s, year=%s, ordinal=%d, photoId=%s, addedAt=%s, "+
+			"deleted=0 "+
 			"ON DUPLICATE KEY UPDATE "+
-			"year=VALUES(year), blobRef=VALUES(blobRef), thumbRef=VALUES(thumbRef), "+
-			"caption=VALUES(caption), width=VALUES(width), height=VALUES(height), "+
-			"bytes=VALUES(bytes), latitude=VALUES(latitude), longitude=VALUES(longitude), "+
-			"boundsVerdict=VALUES(boundsVerdict), addedAt=VALUES(addedAt), deleted=0",
-		quote(albumID), quote(year), body.Ordinal, quote(body.Ref), quote(thumbRef),
-		quote(body.Caption), body.Width, body.Height, body.Bytes, lat, lng,
-		quote(verdict), quote(formatTime(addedAt)),
+			"year=VALUES(year), photoId=VALUES(photoId), addedAt=VALUES(addedAt), deleted=0",
+		quote(albumID), quote(year), body.Ordinal, quote(body.PhotoID),
+		quote(formatTime(addedAt)),
 	))
 }
 

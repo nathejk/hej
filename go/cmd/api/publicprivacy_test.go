@@ -345,13 +345,30 @@ func TestPublicPatrolTypeHasNowhereToPutAPerson(t *testing.T) {
 // only when a field genuinely looks personal, which is when a human should look.
 func isPersonShaped(field string) bool {
 	lower := strings.ToLower(field)
+
+	// Known-safe names, listed one by one rather than by loosening a needle.
+	//
+	// `photoId` is a **content hash of a curated photograph** (PRD 022 §8.3) — an album item names the
+	// library photograph it displays. It is not a picture of a person and it identifies no person.
+	//
+	// The `photo` needle below stays blunt on purpose, and this list is why that is affordable. In this
+	// codebase a person's picture is consistently a **portrait** (`PortraitRef`, `PortraitThumbRef`,
+	// `imaging.Portrait`), while "photo" means a photograph as an object — so dropping the needle would
+	// cost little today and would stop catching a genuinely bad `PhotoOfPerson` or `PersonPhotoRef`
+	// tomorrow. An allowlist keeps the trap set and makes each exception a deliberate line somebody had to
+	// write here, next to the reasoning.
+	switch lower {
+	case "photoid":
+		return false
+	}
+
 	for _, needle := range []string{
 		"person", "phone", "portrait", "photo", "author", "curator", "uploader",
 		"contactname", "email", "birth", "address",
 	} {
 		if strings.Contains(lower, needle) {
-			// "Photos" as a collection of pictures is fine; a "photo" of somebody is not. The types here
-			// have no such field today, so the false positive is cheap and the check stays blunt.
+			// "Photos" as a collection of pictures is fine; a "photo" of somebody is not. See the
+			// allowlist above for the names that have had to be excepted.
 			return true
 		}
 	}

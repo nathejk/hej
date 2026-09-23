@@ -1,5 +1,14 @@
 -- Curated photo albums for the public frontpage (PRD 011 §6 section 1, task 333).
 --
+-- # What this file holds after PRD 022
+--
+-- **Arrangements, not photographs.** An album is a title, a URL, an order and a staging state; the
+-- photographs it arranges live in `photo` (PRD 022 §8.3, task 364). Before PRD 022 this file held both,
+-- and the coordinate, the caption and the blob refs were columns on `album_item`.
+--
+-- If you came here looking for those, they are in `photo/table.sql`, along with the reasoning about EXIF
+-- and the bounds verdict that used to be in this header. What follows is what is still true of an album.
+--
 -- # What makes these different from glimt
 --
 -- A glimt is something a participant shared. An album is something an **organizer chose**. That is
@@ -15,32 +24,28 @@
 -- What the schema does owe that decision is the ability to **take something back out**, because
 -- permission is withdrawable and mistakes happen. Hence `deleted` on both tables (task 335).
 --
--- # The coordinate column is the point of this table
+-- # Publication lives here, and only here
 --
--- `latitude`/`longitude` on an item is the one field here that does not exist for glimt, and it exists
--- for one narrow reason: a curated photograph may be plotted on the public map.
+-- This is now the more important half of the split. `photo` has no `published` column and no visibility
+-- flag of any kind, so **a photograph reaches the open web only by being referenced from a published row
+-- in this file**. The library cannot publish anything; an album can.
 --
--- The media pipeline destroys EXIF — including GPS — by re-encoding, and **that does not change**
--- (`internal/imaging`, PRD 003 §6). The coordinate is read from the original bytes *before* they are
--- re-encoded and written here instead. The distinction is worth stating because it is exactly the kind
--- of thing a later reader will try to simplify away:
+-- That makes `published`/`deleted` on `album` the single gate PRD 011 §0b depends on, which is why the
+-- querier applies them in SQL rather than leaving them to a caller, and why the curator's draft-visible
+-- reads are a separate interface that no public handler can reach (PRD 022 §8.8).
 --
---   * a coordinate in a column is a decision somebody made, which a curator can see, correct, and
---     delete;
---   * a coordinate inside a stored file is a leak waiting to happen.
+-- # Everything here is rebuildable, and none of it is bytes
 --
--- Never "fix" the pipeline to keep EXIF because this column needs a value.
+-- These are projections, replayed from the stream on every boot. Unlike before PRD 022, nothing in this
+-- file points into the blob store at all — `album_item` holds a `photoId`, and the refs it used to carry
+-- are `photo`'s. The blob store is still the one thing in this service that cannot be rebuilt and must be
+-- backed up (PRD 008 §8); it is simply no longer reachable from here.
 --
--- # Everything here is rebuildable except the blobs
---
--- These are projections, replayed from the stream on every boot. `blobRef`/`thumbRef` point into the
--- content-addressed store, which is the one thing in this service that cannot be rebuilt and therefore
--- the one thing that must be backed up (PRD 008 §8).
---
--- **And those objects may be shared with a glimt.** Content addressing means identical bytes are one
--- object, and an organizer curating an album from a photograph a participant also posted publicly is
--- not a corner case — it is the expected workflow. Anything that deletes blobs must check both tables;
--- see the note in cmd/api/glimtdelete.go.
+-- One consequence for anything that deletes blobs: the question "does anything still reference these
+-- bytes?" is no longer asked of this file. It is asked of `photo` and of `glimt`, because content
+-- addressing means identical bytes are one object and an organizer curating an album from a photograph a
+-- participant also posted publicly is the expected workflow rather than a corner case. See
+-- cmd/api/glimtdelete.go and task 368.
 CREATE TABLE IF NOT EXISTS album (
     albumId VARCHAR(99) NOT NULL,
     year VARCHAR(99) NOT NULL,
@@ -79,11 +84,30 @@ CREATE TABLE IF NOT EXISTS album (
     UNIQUE KEY year_slug (year, slug)
 );
 
--- One photograph in an album.
+-- One photograph's place in an album.
 --
--- Its own table rather than a JSON column on `album`, for the reason the glimt media table gives: the
--- map reads *located items across every album* and never wants the parent rows, and the frontpage
--- reads one cover per album and never wants the rest.
+-- # This table is a membership, and used to be a photograph
+--
+-- Until PRD 022 it *was* the photograph: it carried `blobRef`, `thumbRef`, `caption`, the dimensions and
+-- the coordinate inline. Everything that is a fact about a photograph now lives in `photo` (PRD 022
+-- §8.3), and what is left here is the only fact this table was ever the right home for: **which
+-- photograph sits at which position in which album.**
+--
+-- The change was forced by two requirements the old shape cannot express — a photograph in *no* album,
+-- and the same photograph in *two*. The second is the one that was actually a bug: two albums meant two
+-- rows, each with its own copy of the coordinate and the caption, free to disagree, with nothing to
+-- notice when they did. A curator who corrected a location in one album and not the other had made a
+-- bug invisible from both. See `photo/table.sql`.
+--
+-- # `(albumId, ordinal)` is still the key, deliberately
+--
+-- It would have been tidier to key this on `(albumId, photoId)` — that is what a membership *is*, and it
+-- would make "add a photograph already in this album" a natural no-op. It is not done, because the
+-- ordinal is in the **public URL**: `/api/public/albums/{albumId}/media/{ordinal}`. Changing the key
+-- would change how every curated photograph is addressed, on pages families have already been sent.
+--
+-- The consequence is that adding the same photograph twice at different ordinals is expressible here,
+-- and is prevented above this table rather than by it (see the `album_photo` unique key below).
 CREATE TABLE IF NOT EXISTS album_item (
     albumId VARCHAR(99) NOT NULL,
     year VARCHAR(99) NOT NULL,
@@ -93,44 +117,20 @@ CREATE TABLE IF NOT EXISTS album_item (
     -- invisible reordering bug is the kind that is noticed by the person who arranged it.
     ordinal INT NOT NULL,
 
-    -- Content hashes into the blob store. Validated with blob.Ref.Valid before writing, as the glimt
-    -- and portrait folds do: a ref is the one string here that could otherwise become a filesystem
-    -- path.
-    blobRef VARCHAR(64) NOT NULL DEFAULT "",
-    thumbRef VARCHAR(64) NOT NULL DEFAULT "",
-
-    caption TEXT NOT NULL,
-
-    width INT NOT NULL DEFAULT 0,
-    height INT NOT NULL DEFAULT 0,
-    bytes INT NOT NULL DEFAULT 0,
-
-    -- Where the photograph was taken, read from EXIF before the bytes were re-encoded. See the
-    -- header. NULL is the normal case — most photographs have no usable fix, and a curator may also
-    -- have removed one deliberately.
-    latitude DOUBLE NULL DEFAULT NULL,
-    longitude DOUBLE NULL DEFAULT NULL,
-
-    -- What the race-area check made of that coordinate: inside | outside | none | unknown.
-    --
-    -- Stored rather than recomputed on read, and the four values are not three:
-    --
-    --   * `none`    — the file carried no usable coordinate. Nothing to plot, nothing wrong.
-    --   * `inside`  — plottable.
-    --   * `outside` — a coordinate that is not in the race area: a phone with no fix, a photograph
-    --                 taken at home, a mistyped edit. **Kept, not discarded**, and not plotted. A
-    --                 curator has to be able to see that an item was rejected rather than wonder why
-    --                 it is missing from the map — and discarding the value would destroy the evidence
-    --                 that anything happened.
-    --   * `unknown` — there was a coordinate but no race area to judge it against (no positioned
-    --                 checkpoints yet). Distinct from `outside` on purpose: `outside` is a statement
-    --                 about the photograph, `unknown` is a statement about us, and conflating them
-    --                 would silently condemn every early-season upload.
-    boundsVerdict VARCHAR(16) NOT NULL DEFAULT "none",
+    -- The photograph. A content hash, and a foreign key into `photo` in every sense except the
+    -- declaration — these are projections folded from independent event streams, so a real constraint
+    -- would make the arrival order of two messages load-bearing. An item naming a photograph that has
+    -- not been folded yet reads as an item with nothing to show, which is what a join produces anyway.
+    photoId VARCHAR(64) NOT NULL DEFAULT "",
 
     addedAt DATETIME NOT NULL,
 
     -- Soft delete, for the same reason as the parent's.
+    --
+    -- Note this is a *different act* from deleting the photograph: removing an item takes one photograph
+    -- out of one album and leaves it in the library and in every other album. PRD 022 §5 requires the
+    -- difference to be obvious in the curator's copy, because one of the two is what an organizer means
+    -- when they say "take it down".
     deleted TINYINT(1) NOT NULL DEFAULT 0,
 
     updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -139,11 +139,17 @@ CREATE TABLE IF NOT EXISTS album_item (
 
     -- One album's items in order: the album page.
     KEY album_order (albumId, deleted, ordinal),
-    -- Every plottable item in the year, across albums: the map. `boundsVerdict` is in the key so the
-    -- read does not have to filter a scan of every photograph in the event.
-    KEY year_plottable (year, deleted, boundsVerdict),
-    -- The shared-blob check, which must be able to ask "does any album item reference this ref?"
-    -- cheaply — it runs inside the glimt delete path.
-    KEY ref_lookup (blobRef),
-    KEY thumb_lookup (thumbRef)
+
+    -- One photograph in one album, at most once. This is what makes "add this selection to this album"
+    -- safe to re-run over photographs that are already in it — the insert collides instead of producing
+    -- the same picture twice in one grid.
+    --
+    -- A unique key rather than the primary key, for the URL reason in the header. It does mean a
+    -- *reorder* has to move rows rather than rewrite an ordinal in place, which is the price of keeping
+    -- the public address stable.
+    UNIQUE KEY album_photo (albumId, photoId),
+
+    -- Which albums a photograph is in: the curator's "not in any album" filter, and the reverse lookup
+    -- an undelete would need.
+    KEY photo_albums (year, photoId, deleted)
 );

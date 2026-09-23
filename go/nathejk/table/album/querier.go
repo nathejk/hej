@@ -19,6 +19,17 @@ import (
 // That is a deliberate omission rather than an oversight. PRD 011 §0b.2 puts photo permission upstream
 // of this feature, so there is no audit question this table is the answer to, and a `curatorPersonId`
 // column would be a personal identifier on the one surface that must name no person (task 337).
+//
+// # Every read joins the photograph, and every join filters it
+//
+// After PRD 022 §8.3 an album item is a membership and the photograph is `photo`'s row, so each read here
+// joins the two. The joins are **inner** and every one of them requires `photo.deleted = 0`, which is
+// what makes a curator's deletion take effect everywhere at once: a deleted photograph stops satisfying
+// the join and therefore vanishes from the album page, the cover, the item count and the map without any
+// of those reads knowing it happened.
+//
+// That is why `photo`'s delete fold deliberately leaves `album_item` alone. The guarantee lives here, in
+// SQL, rather than in a fold that has to remember every table — see photo/consumer.go's handleDeleted.
 type Queries interface {
 	// Published returns the year's published albums in curator order, with a cover and an item count.
 	//
@@ -37,30 +48,6 @@ type Queries interface {
 	// SQL rather than by the caller, so a handler cannot plot an unchecked coordinate by forgetting to
 	// ask.
 	Plottable(year string) ([]PlottableItem, error)
-
-	// RefsInUse reports which of the given blob refs any live album item still references.
-	//
-	// Exists for the blob-sharing hazard, and it is the read that stops a real bug: content addressing
-	// means identical bytes are one object, so an album photograph and a glimt can share a ref — and
-	// the glimt delete path would otherwise delete the album's bytes. See cmd/api/glimtdelete.go.
-	//
-	// `excluding` names items whose references do not count, which is what makes the read usable by the
-	// *album* removal path as well. Without it, an item being removed would report its own refs as in
-	// use — and since the fold is asynchronous, the row is still live at the moment the check runs, so
-	// nothing would ever be deleted. The glimt path passes nil: no album is being removed there, so
-	// every album item that references the bytes is a reason to keep them.
-	//
-	// This mirrors glimt's `RefsUsedElsewhere(year, glimtID, refs)`, at item granularity rather than
-	// entity granularity — because one photograph can be removed from an album that keeps the rest.
-	//
-	// Both the full ref and the thumbnail count as a use: a thumbnail is as shareable as the image.
-	RefsInUse(year string, excluding []ItemKey, refs []string) (map[string]bool, error)
-}
-
-// ItemKey identifies one photograph, for the exclusion set above.
-type ItemKey struct {
-	AlbumID string
-	Ordinal int
 }
 
 // Album is one curated collection.
@@ -84,8 +71,21 @@ type Album struct {
 }
 
 // Item is one photograph in an album.
+//
+// # Assembled from two tables
+//
+// After PRD 022 §8.3 the membership is `album_item`'s and everything else is `photo`'s, so this type is
+// the result of a join rather than a row. The shape is unchanged from before the split, which is why
+// `cmd/api`'s album page and removal path did not have to move with it.
 type Item struct {
-	Ordinal  int
+	Ordinal int
+
+	// PhotoID is the library photograph at this position.
+	//
+	// New with the split, and it is what the curator's surfaces address a photograph by — the ordinal
+	// identifies a *slot in this album*, which is not the same thing and is not stable across a reorder.
+	PhotoID string
+
 	Ref      string
 	ThumbRef string
 	Caption  string
@@ -130,9 +130,11 @@ func (q querier) Published(year string) ([]Album, error) {
 	rows, err := q.db.Query(`
 		SELECT a.albumId, a.slug, a.title, a.description, a.sortOrder,
 		       (SELECT COUNT(*) FROM album_item i
-		         WHERE i.albumId = a.albumId AND i.deleted = 0) AS itemCount,
+		         JOIN photo p ON p.photoId = i.photoId
+		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0) AS itemCount,
 		       (SELECT MIN(i.ordinal) FROM album_item i
-		         WHERE i.albumId = a.albumId AND i.deleted = 0) AS coverOrdinal
+		         JOIN photo p ON p.photoId = i.photoId
+		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0) AS coverOrdinal
 		FROM album a
 		WHERE a.year = ? AND a.deleted = 0 AND a.published = 1
 		ORDER BY a.sortOrder ASC, a.albumId ASC`, year)
@@ -197,13 +199,21 @@ func (q querier) BySlug(year, slug string) (Album, []Item, bool, error) {
 	return a, items, true, nil
 }
 
+// items returns one album's live items, in curator order.
+//
+// The join to `photo` is inner and requires the photograph to be live, which is what makes a deleted
+// photograph disappear from this album without anything having told the album so. An item whose
+// photograph has not been folded yet behaves identically — invisible rather than a row with nothing in it
+// — and that is the correct answer for two projections folded from independent streams, where the arrival
+// order of two messages is not something a page should be able to notice.
 func (q querier) items(albumID string) ([]Item, error) {
 	rows, err := q.db.Query(`
-		SELECT ordinal, blobRef, thumbRef, caption, width, height, latitude, longitude,
-		       boundsVerdict
-		FROM album_item
-		WHERE albumId = ? AND deleted = 0
-		ORDER BY ordinal ASC`, albumID)
+		SELECT i.ordinal, i.photoId, p.blobRef, p.thumbRef, p.caption, p.width, p.height,
+		       p.latitude, p.longitude, p.boundsVerdict
+		FROM album_item i
+		JOIN photo p ON p.photoId = i.photoId
+		WHERE i.albumId = ? AND i.deleted = 0 AND p.deleted = 0
+		ORDER BY i.ordinal ASC`, albumID)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +223,7 @@ func (q querier) items(albumID string) ([]Item, error) {
 	for rows.Next() {
 		var it Item
 		var lat, lng sql.NullFloat64
-		if err := rows.Scan(&it.Ordinal, &it.Ref, &it.ThumbRef, &it.Caption,
+		if err := rows.Scan(&it.Ordinal, &it.PhotoID, &it.Ref, &it.ThumbRef, &it.Caption,
 			&it.Width, &it.Height, &lat, &lng, &it.BoundsVerdict); err != nil {
 			return nil, err
 		}
@@ -234,15 +244,22 @@ func (q querier) items(albumID string) ([]Item, error) {
 // The `boundsVerdict = 'inside'` filter is in the SQL and not in the caller, which is the point: a
 // handler cannot plot an unchecked or out-of-bounds coordinate by forgetting a condition. The album
 // must also be published and undeleted — an unpublished album's photographs must not appear on the map
-// before the album itself is visible.
+// before the album itself is visible — and the photograph must be live, so a curator's deletion takes a
+// pin off the map as well as a picture off the page.
+//
+// Three tables and five conditions in one statement, deliberately. Assembling this in Go would mean the
+// publication gate and the verdict gate lived in different places from each other, and the whole safety
+// claim of this read is that neither can be forgotten independently.
 func (q querier) Plottable(year string) ([]PlottableItem, error) {
 	rows, err := q.db.Query(`
-		SELECT i.albumId, a.slug, i.ordinal, i.latitude, i.longitude
+		SELECT i.albumId, a.slug, i.ordinal, p.latitude, p.longitude
 		FROM album_item i
 		JOIN album a ON a.albumId = i.albumId
-		WHERE i.year = ? AND i.deleted = 0 AND i.boundsVerdict = ?
+		JOIN photo p ON p.photoId = i.photoId
+		WHERE i.year = ? AND i.deleted = 0
+		  AND p.deleted = 0 AND p.boundsVerdict = ?
 		  AND a.deleted = 0 AND a.published = 1
-		  AND i.latitude IS NOT NULL AND i.longitude IS NOT NULL
+		  AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL
 		ORDER BY i.albumId ASC, i.ordinal ASC`, year, BoundsInside)
 	if err != nil {
 		return nil, err
@@ -260,94 +277,21 @@ func (q querier) Plottable(year string) ([]PlottableItem, error) {
 	return out, rows.Err()
 }
 
-// RefsInUse reports which of refs any live album item still references.
+// RefsInUse was here, and its removal is the point rather than a tidy-up (PRD 022 §8.3, tasks 364/368).
 //
-// # Why `deleted = 0` and not every row
+// It answered "does any live album item still reference these bytes?", which the glimt and album delete
+// paths united with glimt's own answer before purging an object. After the library split there are no
+// refs in this file to answer it with — an item holds a `photoId` — so the question moved to
+// `photo.Queries.RefsInUse`.
 //
-// A soft-deleted item's bytes are no longer reachable from any page, so keeping them alive would mean
-// a takedown never frees disk. The cost of being wrong in this direction is bounded and recoverable
-// (an object deleted while a removed item still names it — and that item's photograph is already gone
-// from every view), while the other direction blanks a live album.
+// **It could not simply be reimplemented here as a join, and this is the part worth reading.** A join
+// through `album_item` answers a *narrower* question: which refs are used by photographs that are in an
+// album. Narrower is the dangerous direction for a purge, because the caller deletes what is reported
+// unused — so a library photograph in no album would have been reported unused by this read and had its
+// bytes deleted by an unrelated glimt takedown. One subsumed-looking method would have been a
+// data-loss bug rather than dead code.
 //
-// # Why the exclusion is applied in Go rather than in SQL
-//
-// The set is one or two items for a single removal, or one album's worth for a deletion — never large.
-// Building a compound `NOT (albumId = ? AND ordinal = ?)` chain into the WHERE clause would add
-// per-call SQL construction and a second placeholder-counting bug waiting to happen, to save filtering
-// a handful of rows.
-//
-// Empty refs in, empty out, and no query. The same rule the checkpoint projection's bounded reads
-// follow: treating an empty filter as "everything" is how a narrow read becomes a table scan — and here
-// it would answer "every ref is in use", which would stop the purge from ever deleting anything.
-func (q querier) RefsInUse(year string, excluding []ItemKey, refs []string) (map[string]bool, error) {
-	inUse := map[string]bool{}
-	if len(refs) == 0 {
-		return inUse, nil
-	}
-
-	excluded := make(map[ItemKey]bool, len(excluding))
-	for _, k := range excluding {
-		excluded[k] = true
-	}
-
-	args := make([]any, 0, len(refs)*2+1)
-	args = append(args, year)
-	for _, ref := range refs {
-		args = append(args, ref)
-	}
-	for _, ref := range refs {
-		args = append(args, ref)
-	}
-
-	marks := placeholders(len(refs))
-	rows, err := q.db.Query(`
-		SELECT albumId, ordinal, blobRef, thumbRef
-		FROM album_item
-		WHERE year = ? AND deleted = 0
-		  AND (blobRef IN (`+marks+`) OR thumbRef IN (`+marks+`))`, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	wanted := make(map[string]bool, len(refs))
-	for _, ref := range refs {
-		wanted[ref] = true
-	}
-	for rows.Next() {
-		var key ItemKey
-		var full, thumb string
-		if err := rows.Scan(&key.AlbumID, &key.Ordinal, &full, &thumb); err != nil {
-			return nil, err
-		}
-		if excluded[key] {
-			continue
-		}
-		// Filtered against what was asked for, because a matching row carries both its refs and only
-		// one of them may be the one in question.
-		if wanted[full] {
-			inUse[full] = true
-		}
-		if wanted[thumb] {
-			inUse[thumb] = true
-		}
-	}
-	return inUse, rows.Err()
-}
-
-// placeholders renders n comma-separated `?` marks.
-func placeholders(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	out := make([]byte, 0, n*3)
-	for i := 0; i < n; i++ {
-		if i > 0 {
-			out = append(out, ',', ' ')
-		}
-		out = append(out, '?')
-	}
-	return string(out)
-}
+// `photo`'s version asks the library directly and therefore covers every photograph, albumed or not.
+// `placeholders` went with it, since nothing else here builds an IN clause.
 
 var _ Queries = querier{}

@@ -8,6 +8,7 @@ import (
 
 	"nathejk.dk/internal/commands"
 	"nathejk.dk/nathejk/table/album"
+	"nathejk.dk/nathejk/table/photo"
 )
 
 // The album dev fixture (PRD 011, task 333).
@@ -175,25 +176,72 @@ func (app *application) devAlbumFixtureHandler(w http.ResponseWriter, r *http.Re
 			// nothing, since `devFixtureImage` encodes from pixels. Taking the same bounds check the
 			// real path takes, rather than asserting a verdict, so a fixture cannot claim a photograph
 			// is plottable when the rule says otherwise.
-			verdict := album.BoundsNone
+			var location *photo.Location
 			if item.lat != nil && item.lng != nil {
-				verdict = app.albumBoundsVerdict(*item.lat, *item.lng)
+				location = &photo.Location{
+					Lat:           *item.lat,
+					Lng:           *item.lng,
+					BoundsVerdict: app.albumBoundsVerdict(*item.lat, *item.lng),
+				}
+			}
+
+			// Two events per photograph since PRD 022, in this order: the photograph enters the library,
+			// then an album references it. That is the real curator's order too — upload, then arrange —
+			// and it is why the fixture had to change rather than merely being renamed.
+			//
+			// The id is the content hash of the stored rendition, exactly as the real upload path derives
+			// it, so re-running this fixture converges on the same library rows instead of accumulating
+			// duplicates. That is a genuine improvement on the old fixture, which grew the album every time
+			// it was called.
+			photoID := stored.Ref
+			addedAt := createdAt.Add(time.Duration(ordinal) * time.Minute)
+
+			subject, serr := photo.Subject(app.config.eventYear, photoID, photo.VerbUploaded)
+			if serr != nil {
+				app.ServerErrorResponse(w, r, fmt.Errorf("fixture photo subject: %w", serr))
+				return
+			}
+			if err := app.commands.Publish(subject, photo.Uploaded{
+				PhotoID:    photoID,
+				Year:       app.config.eventYear,
+				Ref:        stored.Ref,
+				ThumbRef:   stored.ThumbRef,
+				Width:      stored.Width,
+				Height:     stored.Height,
+				Bytes:      stored.Bytes,
+				Location:   location,
+				UploadedAt: addedAt,
+			}); err != nil {
+				app.writeAlbumPublishFailure(w, r, err)
+				return
+			}
+
+			// The caption belongs to the photograph now, not to the membership, so it is a separate update.
+			// A real curator writes captions long after uploading, which is the shape this mirrors.
+			if item.caption != "" {
+				captionSubject, cerr := photo.Subject(app.config.eventYear, photoID, photo.VerbUpdated)
+				if cerr != nil {
+					app.ServerErrorResponse(w, r, fmt.Errorf("fixture caption subject: %w", cerr))
+					return
+				}
+				caption := item.caption
+				if err := app.commands.Publish(captionSubject, photo.Updated{
+					PhotoID:   photoID,
+					Year:      app.config.eventYear,
+					Caption:   &caption,
+					UpdatedAt: addedAt,
+				}); err != nil {
+					app.writeAlbumPublishFailure(w, r, err)
+					return
+				}
 			}
 
 			if err := app.publishAlbum(album.VerbItemAdded, albumID, album.ItemAdded{
-				AlbumID:       albumID,
-				Year:          app.config.eventYear,
-				Ordinal:       ordinal,
-				Ref:           stored.Ref,
-				ThumbRef:      stored.ThumbRef,
-				Caption:       item.caption,
-				Width:         stored.Width,
-				Height:        stored.Height,
-				Bytes:         stored.Bytes,
-				Lat:           item.lat,
-				Lng:           item.lng,
-				BoundsVerdict: verdict,
-				AddedAt:       createdAt.Add(time.Duration(ordinal) * time.Minute),
+				AlbumID: albumID,
+				Year:    app.config.eventYear,
+				Ordinal: ordinal,
+				PhotoID: photoID,
+				AddedAt: addedAt,
 			}); err != nil {
 				app.writeAlbumPublishFailure(w, r, err)
 				return

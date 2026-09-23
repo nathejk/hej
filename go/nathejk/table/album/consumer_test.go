@@ -7,6 +7,8 @@ import (
 
 	"github.com/jrgensen/cqrs"
 	"github.com/jrgensen/cqrs/cqrstest"
+
+	"nathejk.dk/nathejk/table/photo"
 )
 
 func fold(t *testing.T, subject string, body any) []string {
@@ -45,7 +47,9 @@ func ref(c string) string { return strings.Repeat(c, 64) }
 func str(s string) *string { return &s }
 func b(v bool) *bool       { return &v }
 func i(v int) *int         { return &v }
-func f(v float64) *float64 { return &v }
+
+// There was an `f(float64) *float64` here too, for the coordinates `ItemAdded` used to carry. It went with
+// them to the photo package (PRD 022 §8.3) — `staticcheck` is what noticed, via the dev container's gates.
 
 func TestCreatedWritesTheAlbum(t *testing.T) {
 	stmts := fold(t, "NATHEJK.2026.album.al-1.created", Created{
@@ -181,20 +185,25 @@ func TestUpdatedWithNothingIsANoOp(t *testing.T) {
 	}
 }
 
-func TestItemAddedWritesThePhotograph(t *testing.T) {
+// # The item tests after PRD 022
+//
+// Nine tests used to live here covering coordinates, verdicts, refs and thumbnails, because `album_item`
+// carried all of that. They were not deleted — they moved to `nathejk/table/photo/consumer_test.go` with
+// the columns they describe, and in one case got stricter on the way (a `none` verdict beside a real
+// coordinate is now `unknown` rather than being dropped).
+//
+// What is left to test here is what an album item still is: a photograph at a position.
+
+func TestItemAddedWritesTheMembership(t *testing.T) {
 	stmts := fold(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
-		AlbumID: "al-1", Year: "2026", Ordinal: 2,
-		Ref: ref("a"), ThumbRef: ref("b"), Caption: "Ved posten",
-		Width: 1600, Height: 1200, Bytes: 240000,
-		Lat: f(55.7332), Lng: f(12.2648), BoundsVerdict: BoundsInside, AddedAt: at,
+		AlbumID: "al-1", Year: "2026", Ordinal: 2, PhotoID: ref("a"), AddedAt: at,
 	})
 
 	if len(stmts) != 1 {
 		t.Fatalf("want 1 statement, got %d", len(stmts))
 	}
 	for _, want := range []string{
-		"INSERT INTO album_item", "ordinal=2", ref("a"), ref("b"), `"Ved posten"`,
-		"latitude=55.7332", "longitude=12.2648", `boundsVerdict="inside"`, "deleted=0",
+		"INSERT INTO album_item", "ordinal=2", `photoId="` + ref("a") + `"`, "deleted=0",
 	} {
 		if !strings.Contains(stmts[0], want) {
 			t.Errorf("statement is missing %s\ngot: %s", want, stmts[0])
@@ -202,112 +211,77 @@ func TestItemAddedWritesThePhotograph(t *testing.T) {
 	}
 }
 
-// The common case: no coordinate at all.
-func TestItemAddedWithoutACoordinateWritesNull(t *testing.T) {
+// The membership carries nothing but the membership. A caption or a coordinate reappearing on this table
+// would recreate the divergence PRD 022 §8.3 removed — two albums holding two copies of one fact.
+func TestItemAddedWritesNoPhotographFields(t *testing.T) {
 	stmts := fold(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
-		AlbumID: "al-1", Year: "2026", Ordinal: 0,
-		Ref: ref("a"), BoundsVerdict: BoundsNone, AddedAt: at,
+		AlbumID: "al-1", Year: "2026", Ordinal: 0, PhotoID: ref("a"), AddedAt: at,
 	})
-	for _, want := range []string{"latitude=NULL", "longitude=NULL", `boundsVerdict="none"`} {
-		if !strings.Contains(stmts[0], want) {
-			t.Errorf("statement is missing %s\ngot: %s", want, stmts[0])
-		}
-	}
-}
-
-// An out-of-bounds coordinate is **kept** and not plotted. Discarding it would destroy the evidence a
-// curator needs to see that something was rejected rather than mysteriously missing.
-func TestItemAddedKeepsAnOutOfBoundsCoordinate(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
-		AlbumID: "al-1", Year: "2026", Ordinal: 0, Ref: ref("a"),
-		Lat: f(40.7128), Lng: f(-74.0060), BoundsVerdict: BoundsOutside, AddedAt: at,
-	})
-	if !strings.Contains(stmts[0], "latitude=40.7128") {
-		t.Errorf("the coordinate must be stored even when rejected\ngot: %s", stmts[0])
-	}
-	if !strings.Contains(stmts[0], `boundsVerdict="outside"`) {
-		t.Errorf("want the outside verdict\ngot: %s", stmts[0])
-	}
-}
-
-// **The failure direction that matters.** A verdict we do not recognise must make the photograph
-// unplottable, never plottable — the map read filters on this column.
-func TestItemAddedDowngradesAnUnknownVerdict(t *testing.T) {
-	for _, verdict := range []string{"", "Inside", "yes", "insid", "true"} {
-		stmts := fold(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
-			AlbumID: "al-1", Year: "2026", Ordinal: 0, Ref: ref("a"),
-			Lat: f(55.7), Lng: f(12.2), BoundsVerdict: verdict, AddedAt: at,
-		})
-		if !strings.Contains(stmts[0], `boundsVerdict="unknown"`) {
-			t.Errorf("verdict %q should become unknown\ngot: %s", verdict, stmts[0])
-		}
-		if strings.Contains(stmts[0], `boundsVerdict="inside"`) {
-			t.Errorf("verdict %q must never become plottable", verdict)
-		}
-	}
-}
-
-// A verdict about a coordinate that did not arrive would claim a judgement about nothing.
-func TestItemAddedWithAVerdictButNoCoordinateRecordsNone(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
-		AlbumID: "al-1", Year: "2026", Ordinal: 0, Ref: ref("a"),
-		BoundsVerdict: BoundsInside, AddedAt: at,
-	})
-	if !strings.Contains(stmts[0], `boundsVerdict="none"`) {
-		t.Errorf("a verdict without a coordinate must record none\ngot: %s", stmts[0])
-	}
-}
-
-// Half a coordinate is not a position.
-func TestItemAddedIgnoresAHalfCoordinate(t *testing.T) {
-	for name, body := range map[string]ItemAdded{
-		"latitude only":  {AlbumID: "al-1", Year: "2026", Ref: ref("a"), Lat: f(55.7), BoundsVerdict: BoundsInside, AddedAt: at},
-		"longitude only": {AlbumID: "al-1", Year: "2026", Ref: ref("a"), Lng: f(12.2), BoundsVerdict: BoundsInside, AddedAt: at},
+	for _, forbidden := range []string{
+		"blobRef", "thumbRef", "caption", "width", "height", "bytes",
+		"latitude", "longitude", "boundsVerdict",
 	} {
-		stmts := fold(t, "NATHEJK.2026.album.al-1.itemadded", body)
-		if !strings.Contains(stmts[0], "latitude=NULL") || !strings.Contains(stmts[0], "longitude=NULL") {
-			t.Errorf("%s: want both NULL\ngot: %s", name, stmts[0])
-		}
-		if !strings.Contains(stmts[0], `boundsVerdict="none"`) {
-			t.Errorf("%s: want the none verdict\ngot: %s", name, stmts[0])
+		if strings.Contains(stmts[0], forbidden) {
+			t.Errorf("an album item must not carry %s — that is the photograph's\ngot: %s",
+				forbidden, stmts[0])
 		}
 	}
 }
 
-// A ref is the one string here that could become a filesystem path.
-func TestItemAddedRefusesABadRef(t *testing.T) {
-	for _, r := range []string{
-		"", "short", strings.Repeat("A", 64), strings.Repeat("a", 63), strings.Repeat("g", 64),
+// A pre-PRD-022 event: it named the bytes directly and has no photoId.
+//
+// Skipped, and **not** refused. The stream library logs a handler error and drops the message, so
+// refusing would print a warning per legacy item on every boot — noise that teaches nobody anything and
+// buries the errors that matter. There is also nothing to recover: the library row such an event would
+// need to point at was never created.
+func TestItemAddedSkipsALegacyEvent(t *testing.T) {
+	// The old shape, as JSON, because the Go struct no longer has the fields to express it.
+	legacy := map[string]any{
+		"albumId": "al-1", "year": "2026", "ordinal": 0,
+		"ref": ref("a"), "thumbRef": ref("b"), "caption": "Ved posten",
+		"width": 1600, "height": 1200, "boundsVerdict": "inside",
+		"addedAt": at,
+	}
+
+	if err := foldErr(t, "NATHEJK.2026.album.al-1.itemadded", legacy); err != nil {
+		t.Fatalf("a legacy item event must not fail the replay: %v", err)
+	}
+	stmts := fold(t, "NATHEJK.2026.album.al-1.itemadded", legacy)
+	if len(stmts) != 0 {
+		t.Errorf("a legacy item event must write nothing, got %d: %v", len(stmts), stmts)
+	}
+}
+
+// A photo id is a content hash, and it is the one string here that could otherwise become a filesystem
+// path or reach a URL. Unlike the empty case above, a malformed one is not a legacy event — it is a bug —
+// so it is refused loudly.
+func TestItemAddedRefusesAnInvalidPhotoID(t *testing.T) {
+	for _, id := range []string{
+		"short", strings.Repeat("A", 64), strings.Repeat("a", 63), strings.Repeat("g", 64),
 		"../../etc/passwd" + strings.Repeat("a", 48),
 	} {
 		err := foldErr(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
-			AlbumID: "al-1", Year: "2026", Ref: r, BoundsVerdict: BoundsNone, AddedAt: at,
+			AlbumID: "al-1", Year: "2026", PhotoID: id, AddedAt: at,
 		})
 		if err == nil {
-			t.Errorf("ref %q should be refused", r)
+			t.Errorf("photoId %q should be refused", id)
 		}
 	}
 }
 
-// A malformed thumbnail costs the thumbnail, not the photograph — the page falls back to the full image.
-func TestItemAddedDropsABadThumbRefButKeepsTheItem(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
-		AlbumID: "al-1", Year: "2026", Ref: ref("a"), ThumbRef: "nonsense",
-		BoundsVerdict: BoundsNone, AddedAt: at,
+func TestItemAddedRefusesAZeroTimestamp(t *testing.T) {
+	err := foldErr(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
+		AlbumID: "al-1", Year: "2026", PhotoID: ref("a"),
 	})
-	if !strings.Contains(stmts[0], `thumbRef=""`) {
-		t.Errorf("want an empty thumbRef\ngot: %s", stmts[0])
-	}
-	if !strings.Contains(stmts[0], ref("a")) {
-		t.Error("the item itself must survive a bad thumbnail ref")
+	if err == nil {
+		t.Error("want an error for a missing addedAt")
 	}
 }
 
 // Re-adding at an ordinal supersedes whatever was there, including a removal.
 func TestItemAddedClearsTheDeletedFlag(t *testing.T) {
 	stmts := fold(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
-		AlbumID: "al-1", Year: "2026", Ordinal: 1, Ref: ref("a"),
-		BoundsVerdict: BoundsNone, AddedAt: at,
+		AlbumID: "al-1", Year: "2026", Ordinal: 1, PhotoID: ref("a"), AddedAt: at,
 	})
 	clause := stmts[0][strings.Index(stmts[0], "ON DUPLICATE KEY UPDATE"):]
 	if !strings.Contains(clause, "deleted=0") {
@@ -407,6 +381,38 @@ func TestPlottableOnlyAcceptsInside(t *testing.T) {
 	for _, verdict := range []string{BoundsNone, BoundsOutside, BoundsUnknown, "", "yes"} {
 		if Plottable(verdict) {
 			t.Errorf("%q must not be plottable", verdict)
+		}
+	}
+}
+
+// The verdict constants here are legacy duplicates of `photo`'s, which is their canonical home after
+// PRD 022 §8.3. They are kept because this package's querier still selects the column — through a join to
+// `photo` — and `cmd/api` has callers written against these names.
+//
+// Duplicated string constants cannot be checked by the compiler, and the values are compared against each
+// other in SQL (`WHERE p.boundsVerdict = ?` is fed `album.BoundsInside`), so a drift would not fail to
+// build — it would silently stop matching and quietly empty the public map. Hence a test.
+func TestVerdictsAgreeWithThePhotoPackage(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		mine, theirs string
+	}{
+		{"none", BoundsNone, photo.BoundsNone},
+		{"inside", BoundsInside, photo.BoundsInside},
+		{"outside", BoundsOutside, photo.BoundsOutside},
+		{"unknown", BoundsUnknown, photo.BoundsUnknown},
+	} {
+		if tc.mine != tc.theirs {
+			t.Errorf("%s has drifted: album has %q, photo has %q — the join compares these",
+				tc.name, tc.mine, tc.theirs)
+		}
+	}
+
+	// And the rule itself must agree, not just the strings: `Plottable` is applied on both sides of the
+	// split and a divergence would mean one of them plots what the other rejects.
+	for _, verdict := range []string{BoundsNone, BoundsInside, BoundsOutside, BoundsUnknown, "nonsense"} {
+		if Plottable(verdict) != photo.Plottable(verdict) {
+			t.Errorf("Plottable(%q) disagrees between the packages", verdict)
 		}
 	}
 }

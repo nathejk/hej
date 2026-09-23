@@ -71,6 +71,24 @@ type Updated struct {
 }
 
 // ItemAdded puts one photograph in an album.
+//
+// # This event used to carry the photograph
+//
+// Before PRD 022 it named the bytes directly: a `ref`, a thumbnail, a caption, dimensions and a
+// coordinate. It now names a **photograph in the library** and nothing else, because that is all an
+// album membership is (PRD 022 §8.3).
+//
+// This is a breaking change to a published event shape, and the only honest justification is that **no
+// album has ever been created outside the development fixture** — there was no curation tool, which is
+// why PRD 022 exists. There is no production history to respect here, only dev history, and the fold
+// tolerates the old shape rather than erroring on it (see handleItemAdded).
+//
+// # What the fold gains from the narrowing
+//
+// Nothing to validate but an id and an ordinal. The refs, the dimensions and the verdict are `photo`'s
+// problem and are validated once where they are written, rather than on every event that mentions a
+// photograph — which also means a photograph in three albums can no longer arrive with three different
+// captions.
 type ItemAdded struct {
 	AlbumID string `json:"albumId"`
 	Year    string `json:"year"`
@@ -78,46 +96,32 @@ type ItemAdded struct {
 	// Ordinal is the curator's position for this item. Explicit, because the ordering is editorial.
 	Ordinal int `json:"ordinal"`
 
-	// Ref and ThumbRef are content hashes. ThumbRef may be "" when one could not be produced; the
-	// page falls back to the full item rather than rendering a gap, as the glimt grid does.
-	Ref      string `json:"ref"`
-	ThumbRef string `json:"thumbRef,omitempty"`
-
-	Caption string `json:"caption,omitempty"`
-
-	Width  int `json:"width,omitempty"`
-	Height int `json:"height,omitempty"`
-	Bytes  int `json:"bytes,omitempty"`
-
-	// Lat and Lng are where the photograph was taken, read from EXIF **before** the bytes were
-	// re-encoded (which strips it). Nil when the file carried no usable fix, which is the common case.
+	// PhotoID is the library photograph this position holds — a content hash, validated as one.
 	//
-	// Pointers rather than zero values because 0,0 is a real place in the Atlantic and also what a
-	// camera with no fix writes — the same reasoning the checkpoint projection applies to an unset
-	// position. `imaging.ReadGPS` already refuses 0,0, and this shape means the refusal survives
-	// serialisation instead of arriving as a coordinate off Ghana.
-	Lat *float64 `json:"lat,omitempty"`
-	Lng *float64 `json:"lng,omitempty"`
-
-	// BoundsVerdict is what the race-area check made of that coordinate: BoundsNone, BoundsInside,
-	// BoundsOutside or BoundsUnknown.
-	//
-	// Decided at ingest and carried on the event rather than recomputed at read time, because the race
-	// area changes as organizers site checkpoints — so a verdict recomputed next week would be a
-	// different verdict, silently, for a photograph nobody touched. The event records what was
-	// decided when the photograph was accepted, which is the fact a curator was shown.
-	BoundsVerdict string `json:"boundsVerdict"`
+	// Its absence is how the fold recognises a legacy event and skips it, so this field is load-bearing
+	// beyond simply naming the photograph.
+	PhotoID string `json:"photoId"`
 
 	AddedAt time.Time `json:"addedAt"`
 }
 
-// The bounds verdicts. Four values, and the reasoning for each is in table.sql.
+// The bounds verdicts, kept here for the readers that still name them.
 //
-// Constants rather than free strings because the projection filters the map read on this column: a
-// typo'd verdict would not error, it would quietly make a photograph unplottable — or, worse, plot one
-// that had been judged out of bounds.
+// **`photo` is the canonical home for these** (PRD 022 §8.3): after the library split, a verdict is a
+// fact about a photograph rather than about an album position, and `photo.Bounds*` is what new code should
+// use. These stay because the album *querier* still selects the column — through a join to `photo` — and
+// because `cmd/api` has callers that were written against them.
+//
+// The values must stay byte-identical to `photo`'s. They are duplicated rather than aliased on purpose:
+// an alias would make the two packages permanently dependent to express an agreement that is only needed
+// while both names exist, and the compiler cannot check a string constant's meaning either way. The guard
+// is `TestVerdictsAgreeWithThePhotoPackage`, which fails if they drift.
+//
+// Constants rather than free strings because the map read filters on this column: a typo'd verdict would
+// not error, it would quietly make a photograph unplottable — or, worse, plot one that had been judged
+// out of bounds.
 const (
-	// BoundsNone means the photograph carried no usable coordinate. Nothing to plot, nothing wrong.
+	// BoundsNone means there is no usable coordinate. Nothing to plot, nothing wrong.
 	BoundsNone = "none"
 	// BoundsInside means the coordinate is in the race area, so it may be plotted.
 	BoundsInside = "inside"
