@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed), with maintainer
 **Created:** 2026-09-22
-**Last updated:** 2026-09-22
+**Last updated:** 2026-09-23
 **Approved:** 2026-09-22
 **Shipped:**
 **Target users:** organizer (photographer, curator)
@@ -377,7 +377,31 @@ So: a page on the service. This answers PRD 011 §11 Q5 with its option (b).
 ### 8.2 The credential: basic auth, and what it costs
 
 The maintainer asked for basic auth, and it is the right call here, but it must be recorded as a
-**deliberate exception** because it is genuinely new to this service. Today there is no inbound
+**deliberate exception** because it is genuinely new to this service.
+
+> **Decision, 2026-09-23 (maintainer): this is explicitly interim.** "We will have a major rework of the
+> authentication workflow before next year's race adding role based access, so for now we just need
+> something simple, a shared account with username/password supplied as env vars in docker-compose file
+> will do."
+>
+> That changes the status of everything below from *the design* to *the stopgap*, and it is worth being
+> precise about what it does and does not license.
+>
+> It **does** license the shared credential, the env-var configuration, and the absence of per-person
+> identity — accepted costs of an interim tool rather than problems to solve now. It also settles §11 Q4's
+> harder half.
+>
+> It does **not** license building anything a role model would later have to unpick. Two things follow, and
+> both are already true of the implementation: the credential stays confined to this one tool (it is not a
+> session and must never become a second way to authenticate as a person, below), and no projection may
+> grow a curator or uploader column that a real account system would have to reconcile with (§8.3). An
+> interim credential is cheap to replace; an interim *identity* written into a year's event data is not.
+>
+> The migration this leaves is deliberately dull: when roles arrive, `requireAdmin` is replaced by whatever
+> the new model provides and the two env vars are deleted. Nothing else in this PRD's surface changes,
+> because nothing else knows the credential exists.
+
+Today there is no inbound
 credential of any kind in `go/`: every authenticated route is `requireAuth` → an HMAC-signed session
 cookie from an SMS PIN → a **per-request lookup** in the `person` projection for authorization. There
 is no bearer token, no API key, and no admin role. (The single `Authorization: Basic` in the tree is
@@ -702,10 +726,16 @@ by design.
    library.
 3. **Does a per-album caption override get built?** §8.3 defers it. A photograph in "Natten" and in
    "Postmandskabet" might want different words. My recommendation is to wait for a curator to ask.
-4. **Who holds the credential, and how is it rotated?** A process question, not a code one, but the
-   PRD should not ship without an answer: who generates it, where it is stored, who is told, and what
-   happens after the event. "It stays in a chat message until next year" is the default outcome if
-   nobody decides otherwise.
+4. ~~**Who holds the credential, and how is it rotated?**~~ **Partly resolved (2026-09-23, maintainer):**
+   the shared env-var credential is accepted as an **interim** arrangement, to be replaced by role-based
+   access in the authentication rework planned before next year's race (§8.2). That settles the shape of the
+   answer and removes any pressure to design something better now.
+
+   What remains is the operational half, still a process question rather than a code one: who generates the
+   password for this event, where it is kept, who is told, and whether it is retired afterwards. The prod
+   compose points at `openssl rand -base64 24`, and the tool is absent until somebody sets one — so the
+   default outcome of deciding nothing is a tool that does not exist. That is the safe direction, but it is
+   not a plan.
 5. **Is 32 MB the right per-file ceiling** (§8.9), and does a storage ceiling apply to an organizer
    upload at all? I recommend a ceiling generous enough never to be hit by a real photograph but
    present enough to stop a stuck script.
