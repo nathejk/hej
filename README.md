@@ -207,6 +207,10 @@ un-publish, which is why it refuses to run against a real event year.
 
 ### Photo albums (PRD 022)
 
+The curator's own half-page — the credential, the year, and what delete means — is
+[`docs/billedarkiv-for-fotografer.md`](docs/billedarkiv-for-fotografer.md). It is written for a volunteer
+with a camera, not for a developer, and it is the thing to hand over with the password.
+
 There is no album fixture. There used to be one — `/api/dev/album-fixture` — and it was deleted in task
 383 once `/admin` could do the same job for real, because a fixture that publishes events in a shape the
 projection has since changed is a generator of warnings rather than of test data.
