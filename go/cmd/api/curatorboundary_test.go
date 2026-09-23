@@ -33,7 +33,11 @@ var adminOwnedFiles = map[string]bool{
 	// The tool's page shell. Reads `PhotoCurator.Counts` for the header, and is behind `requireAdmin` —
 	// registered only inside `adminRoutesEnabled`, so it does not exist without a password (task 370).
 	"adminpage.go": true,
-	// More arrive with tasks 372–379: the uploader, the contact sheet, the album editor.
+	// The upload endpoint. Reads `PhotoCurator.Photo` to tell "already uploaded" from "previously deleted" —
+	// a distinction only the curator read can make, because the public read reports both as not found, and
+	// getting it wrong would mean a re-upload silently restoring a photograph somebody objected to.
+	"adminupload.go": true,
+	// More arrive with tasks 373–379: the contact sheet, the album editor.
 }
 
 // curatorReads are the model fields that return draft-visible data.

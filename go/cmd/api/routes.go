@@ -252,6 +252,9 @@ func (app *application) routes() http.Handler {
 	// walks this block and the rest of the table to keep the two apart.
 	if adminRoutesEnabled(app.config) {
 		router.HandlerFunc(http.MethodGet, "/admin", app.requireAdmin(app.adminIndexHandler))
+		// One file per request (task 372). The batching is the browser's, which is what keeps one bad file
+		// from failing a batch of three hundred — see adminupload.go's header.
+		router.HandlerFunc(http.MethodPost, "/api/admin/photos", app.requireAdmin(app.uploadAdminPhotoHandler))
 	}
 
 	// Development-only routes (PRD 014 §8). Registered rather than guarded, so outside
