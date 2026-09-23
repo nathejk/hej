@@ -198,11 +198,25 @@ type albumMapPhoto struct {
 // @Tags         public-site
 // @Produce      json
 // @Success      200  {object}  albumMapResponse
+// @Failure      404  {object}  map[string]string  "the curated albums are switched off for this deployment"
 // @Failure      429  {object}  map[string]string  "read rate limit, by IP"
 // @Failure      503  {object}  map[string]string  "albums are unavailable"
 // @Router       /public/albums [get]
 func (app *application) albumMapHandler(w http.ResponseWriter, r *http.Request) {
 	if !app.allowPublicSiteRead(w, r) {
+		return
+	}
+	// The same gate `albumPageHandler` applies, and it was missing here (found while verifying task 376).
+	//
+	// Task 359's whole argument is that hiding the section is not enough: *"A section removed from a page whose
+	// links keep serving is not hidden, it is unadvertised: old links, shared messages and indexes all still reach
+	// it."* With the flag off the frontpage showed no album section and `/{year}/album/{slug}` answered 404 — while
+	// this endpoint went on serving every published album's slug and the coordinates of its photographs.
+	//
+	// 404 rather than an empty list, matching the album page: an empty list says "come back later", while 404 says
+	// "there is nothing here", and a crawler should be told the second.
+	if !app.config.publicAlbums {
+		app.NotFoundResponse(w, r)
 		return
 	}
 	if app.models.Albums == nil {

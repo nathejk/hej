@@ -42,10 +42,15 @@ import (
 var tableSchema string
 
 // Table is the checkpoint projection: a cqrs.Consumer that folds checkpoint events into
-// the read model, and the querier the app reads through.
+// the read model, and the queriers the app reads through.
+//
+// Both queriers are embedded, so `*Table` satisfies `Queries` and `CuratorQueries` — but they are separate
+// *types* (see curator.go), so the wiring in cmd/api has to choose which interface it hands to whom. That is
+// what keeps "there is no way to ask for all checkpoints" true of the interface patrol-scoped handlers hold.
 type Table struct {
 	consumer
 	querier
+	curatorQuerier
 }
 
 // New creates the table if needed and returns the projection.
@@ -90,8 +95,9 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader, opts ...Option) (*Table
 	}
 
 	t := &Table{
-		consumer: consumer{w: w},
-		querier:  querier{db: r},
+		consumer:       consumer{w: w},
+		querier:        querier{db: r},
+		curatorQuerier: curatorQuerier{db: r},
 	}
 	for _, opt := range opts {
 		opt(t)

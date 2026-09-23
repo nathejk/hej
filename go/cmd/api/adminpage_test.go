@@ -260,22 +260,43 @@ func TestAdminUploaderExplainsEveryFailureInDanish(t *testing.T) {
 // Checked against git rather than by inspection, because the failure would be somebody reaching for a helper
 // library at the moment the JavaScript gets awkward — which is precisely when nobody re-reads the PRD.
 func TestTheAdminToolAddsNothingToTheFrontend(t *testing.T) {
-	// The page's script must not pull anything in.
-	//
-	// Scoped to the template rather than the whole file, because the file is Go source and its own `import`
-	// block is not a frontend dependency — which the first version of this test cheerfully flagged.
 	src := adminSource(t, "adminpage.go")
+
+	// The one permitted external script, and the reason it is permitted.
+	//
+	// PRD 022 §7 names the map island as the single exception to this page's no-build-step rule: the public
+	// patrol page already ships vendored, self-hosted Leaflet (task 342), and reusing those exact files is
+	// cheaper than introducing a second way to draw a map. It is **vendored**, not a CDN — which is the part that
+	// matters, since a CDN would put a third party in a position to log who looked at the event's photographs.
+	//
+	// An allowlist rather than dropping the check: everything else still fails, including a second copy of
+	// Leaflet, a clustering plugin, or the same library from a CDN.
+	const vendoredLeaflet = `<script src="/vendor/leaflet.js" defer></script>`
+	if !strings.Contains(src, vendoredLeaflet) {
+		t.Error("the map island must load the same vendored Leaflet the public patrol page uses")
+	}
+	scriptTags := strings.Count(src, "<script src=")
+	if scriptTags != 1 {
+		t.Errorf("want exactly one external script (the vendored Leaflet), found %d — a second one is a new "+
+			"dependency and needs its own decision", scriptTags)
+	}
+	for _, cdn := range []string{"unpkg", "jsdelivr", "cdn.", "googleapis", "//cdnjs"} {
+		if strings.Contains(src, cdn) {
+			t.Errorf("the admin page references %q: the map libraries are vendored precisely so no third party "+
+				"learns who looked at the event's photographs", cdn)
+		}
+	}
+
+	// And the page's own script pulls nothing in.
 	script := src[strings.Index(src, "<script>"):]
-	for _, smell := range []string{
-		"<script src=", "import ", "require(", "cdn.", "unpkg", "jsdelivr",
-	} {
+	for _, smell := range []string{"import ", "require(", "importScripts", "eval("} {
 		if strings.Contains(script, smell) {
 			t.Errorf("the admin page's script references %q: it must have no build step and no dependency", smell)
 		}
 	}
 
-	// And no file was added under vue/ for it. `git status` rather than a directory listing, so this asserts
-	// about the change rather than about the tree.
+	// No file was added under vue/ for it. `git status` rather than a directory listing, so this asserts about
+	// the change rather than about the tree.
 	out, err := exec.Command("git", "status", "--porcelain", "--", "../../../vue").Output()
 	if err != nil {
 		t.Skipf("git is unavailable, skipping the vue/ check: %v", err)
@@ -285,11 +306,31 @@ func TestTheAdminToolAddsNothingToTheFrontend(t *testing.T) {
 		if line == "" {
 			continue
 		}
-		// An added file is the thing forbidden. `vite.config.ts` is *modified* by task 370, which routes
-		// /admin to the BFF in dev — a routing fix, not a frontend for the tool, and without it the page is
-		// unreachable in a dev browser.
+		// An added file is the thing forbidden. `vite.config.ts` is *modified* by task 370, which routes /admin
+		// to the BFF in dev — a routing fix, not a frontend for the tool, and without it the page is unreachable
+		// in a dev browser.
 		if strings.HasPrefix(line, "A ") || strings.HasPrefix(line, "??") {
 			t.Errorf("the admin tool must add no file under vue/: %s", line)
 		}
+	}
+}
+
+// The map is an **enhancement, never a requirement** — the rule the public island already follows. Where Leaflet
+// cannot run, the checkpoint picker is a complete way to do the job, so the panel must not depend on the map
+// having drawn.
+func TestTheAdminPositionPanelWorksWithoutTheMap(t *testing.T) {
+	src := adminSource(t, "adminpage.go")
+
+	// The island bails out rather than throwing when Leaflet is absent.
+	if !strings.Contains(src, "if (typeof L === 'undefined') return") {
+		t.Error("the map must degrade silently when Leaflet is unavailable, not throw and take the panel with it")
+	}
+	// The container starts hidden and is only revealed once the island draws, as the public page's does.
+	if !strings.Contains(src, `<div id="posmap" hidden>`) {
+		t.Error("the map container must start hidden, so a blocked island leaves no empty grey box")
+	}
+	// And the post picker is a real form control, not something the map builds.
+	if !strings.Contains(src, `<select id="cppick">`) {
+		t.Error("the checkpoint picker must be server-rendered markup, so it works without the map")
 	}
 }

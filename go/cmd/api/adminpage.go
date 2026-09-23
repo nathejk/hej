@@ -143,6 +143,13 @@ var adminTemplates = template.Must(template.New("admin").Parse(`
      index is an invitation, and the cost of saying it twice is one line. -->
 <meta name="robots" content="noindex, nofollow">
 <title>Billedarkiv {{.Year}} — Nathejk</title>
+<!-- The map island's Leaflet, **vendored and self-hosted** like the public patrol page's (task 342). Not a CDN:
+     see scripts/vendor-leaflet.sh for the reasoning, which applies here too — and the same files, so this page
+     adds no new dependency and no second mapping library. This is the one exception to the page's
+     no-build-step rule (PRD 022 §7), and it is an exception because reusing the island is cheaper than
+     introducing a second way to draw a map. -->
+<link rel="stylesheet" href="/vendor/leaflet.css">
+<script src="/vendor/leaflet.js" defer></script>
 <style>
 :root { color-scheme: light dark; }
 * { box-sizing: border-box; }
@@ -306,6 +313,24 @@ h2 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
 #albumlist label { display: flex; gap: 0.5rem; align-items: baseline; }
 #albumlist .draft { color: #92400e; font-size: 0.8125rem; }
 #albumlist .count { color: #52525b; font-size: 0.8125rem; }
+
+/* The position panel shares the album panel's chrome. */
+#pospanel {
+  margin-top: 0.5rem; padding: 1rem; background: #fff;
+  border: 1px solid #d4d4d8; border-radius: 0.5rem; max-width: 34rem;
+}
+#pospanel h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+#pospanel p { margin: 0.5rem 0; }
+#pospanel .hint { color: #52525b; font-size: 0.875rem; }
+#pospanel button {
+  font: inherit; font-size: 0.875rem; cursor: pointer;
+  background: #18181b; color: #fafafa; border: 1px solid #18181b;
+  padding: 0.375rem 0.75rem; border-radius: 0.375rem;
+}
+#pospanel button:disabled { opacity: 0.5; cursor: not-allowed; }
+#pospanel #closepos, #pospanel #doclear { background: #fff; color: #18181b; border-color: #d4d4d8; }
+#pospanel select { font: inherit; padding: 0.375rem; border: 1px solid #d4d4d8; border-radius: 0.375rem; }
+#posmap { height: 18rem; border-radius: 0.375rem; margin: 0.5rem 0; }
 svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 </style>
@@ -376,7 +401,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
   <div id="actions" hidden aria-live="polite">
     <span id="selcount"></span>
     <button type="button" data-act="album">Tilføj til album</button>
-    <button type="button" data-act="position" disabled>Sæt position</button>
+    <button type="button" data-act="position">Sæt position</button>
     <button type="button" data-act="patrol" disabled>Tag patrulje</button>
     <button type="button" data-act="delete" disabled>Slet</button>
     <button type="button" id="clearsel">Ryd valg</button>
@@ -400,6 +425,29 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     <p>
       <button type="button" id="doadd">Tilføj</button>
       <button type="button" id="closepanel">Annuller</button>
+    </p>
+  </div>
+
+  <!-- The position panel (task 376). Inline like the album one, for the same reason: navigating away loses the
+       selection, and the selection is the input to the action. -->
+  <div id="pospanel" hidden role="dialog" aria-label="Sæt position">
+    <h3>Sæt position</h3>
+    <p id="posnote"></p>
+    <p>
+      <label for="cppick">Vælg en post</label>
+      <select id="cppick">
+        <option value="">— eller klik på kortet —</option>
+      </select>
+    </p>
+    <!-- The map island's container, hidden until Leaflet actually draws — the same treatment the public patrol
+         page gives it. Where the island cannot run, the post picker above is still a complete way to do the
+         job, which is what keeps the map an enhancement rather than a requirement. -->
+    <div id="posmap" hidden></div>
+    <p id="pospicked" class="hint"></p>
+    <p>
+      <button type="button" id="doposition" disabled>Sæt position</button>
+      <button type="button" id="doclear">Fjern position</button>
+      <button type="button" id="closepos">Annuller</button>
     </p>
   </div>
 </main>
@@ -682,14 +730,17 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     const n = selected.size;
     actions.hidden = n === 0;
     selCount.textContent = n === 1 ? '1 valgt' : n + ' valgte';
-    // The remaining three actions arrive with tasks 376-379. They stay disabled rather than absent so the shape
-    // of the tool is visible, and so the selection can be exercised against the bar it will drive.
+    // The remaining two actions arrive with tasks 377 and 379. They stay disabled rather than absent so the
+    // shape of the tool is visible, and so the selection can be exercised against the bar it will drive.
     for (const b of actions.querySelectorAll('button[data-act]')) {
-      if (b.dataset.act !== 'album') b.disabled = true;
+      if (b.dataset.act !== 'album' && b.dataset.act !== 'position') b.disabled = true;
     }
-    // Closing the bar closes the panel with it: a panel acting on an empty selection is a button that cannot
+    // Closing the bar closes the panels with it: a panel acting on an empty selection is a button that cannot
     // do anything.
-    if (n === 0 && panel) panel.hidden = true;
+    if (n === 0) {
+      if (panel) panel.hidden = true;
+      if (posPanel) posPanel.hidden = true;
+    }
   }
 
   function paint(cell) {
@@ -1026,6 +1077,172 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     const b = e.target.closest('button[data-act]');
     if (!b || b.disabled) return;
     if (b.dataset.act === 'album') openAlbumPanel();
+    if (b.dataset.act === 'position') openPositionPanel();
+  });
+
+  // --- the bulk position (task 376) -----------------------------------------
+  //
+  // Two ways to give the point, and the post picker is the one a curator actually uses: they know "Post 3", not
+  // a coordinate. The id is sent rather than the coordinate, so the server resolves it — a stale coordinate in
+  // this browser must not become a pin on a public map.
+
+  const posPanel = document.getElementById('pospanel');
+  const posNote = document.getElementById('posnote');
+  const cpPick = document.getElementById('cppick');
+  const posMapEl = document.getElementById('posmap');
+  const posPicked = document.getElementById('pospicked');
+  const doPosition = document.getElementById('doposition');
+
+  // The point chosen by clicking the map, if any. A post chosen in the select wins, because it is the more
+  // precise statement of intent — and the server is told which of the two, never both.
+  let clicked = null;
+  let posMap = null;
+  let posMarker = null;
+
+  function describeChoice() {
+    const cp = cpPick.value;
+    if (cp) {
+      const name = cpPick.options[cpPick.selectedIndex].textContent;
+      posPicked.textContent = 'Valgt: ' + name;
+      doPosition.disabled = false;
+      return;
+    }
+    if (clicked) {
+      posPicked.textContent = 'Valgt på kortet: ' + clicked.lat.toFixed(5) + ', ' + clicked.lng.toFixed(5);
+      doPosition.disabled = false;
+      return;
+    }
+    posPicked.textContent = '';
+    doPosition.disabled = true;
+  }
+
+  async function openPositionPanel() {
+    posPanel.hidden = false;
+    panel.hidden = true;
+    clicked = null;
+    cpPick.value = '';
+    describeChoice();
+    posNote.textContent = selected.size === 1
+      ? '1 billede får positionen.'
+      : selected.size + ' billeder får positionen.';
+
+    await loadCheckpoints();
+    drawPositionMap();
+  }
+
+  async function loadCheckpoints() {
+    try {
+      const res = await fetch('/api/admin/checkpoints');
+      if (!res.ok) return;
+      const data = await res.json();
+
+      // Rebuilt each time the panel opens, because posts get sited during the season and a stale list would
+      // offer a post that no longer resolves.
+      while (cpPick.options.length > 1) cpPick.remove(1);
+      for (const c of data.checkpoints) {
+        const o = document.createElement('option');
+        o.value = c.id;
+        o.textContent = c.name;
+        o.dataset.lat = c.lat;
+        o.dataset.lng = c.lng;
+        cpPick.append(o);
+      }
+      // An empty list is the ordinary early-season state, and it is the same condition that makes a
+      // curator-placed point unjudgeable — so the two are explained together rather than leaving the curator to
+      // connect them.
+      if (!data.checkpoints.length) {
+        posNote.textContent += ' Ingen poster har en placering endnu, så positionen kan ikke vurderes' +
+          ' — billederne kommer ikke på kortet før posterne er sat.';
+      }
+    } catch (err) {
+      // The picker is an aid, not the mechanism: clicking the map still works.
+    }
+  }
+
+  // The map island, reusing the vendored Leaflet and the shared layer config the public map uses (task 353), so
+  // the curator places points on the same base map the app and the public pages draw.
+  async function drawPositionMap() {
+    if (typeof L === 'undefined') return; // Leaflet blocked or still loading: the picker is enough
+    if (posMap) { posMap.invalidateSize(); return; }
+
+    let layers = null;
+    try {
+      const res = await fetch('/maplayers.json');
+      if (res.ok) layers = await res.json();
+    } catch (err) { /* fall through to no base layer */ }
+
+    posMapEl.hidden = false;
+    posMap = L.map(posMapEl).setView([55.7332, 12.2648], 11);
+
+    const base = layers && layers.layers && layers.layers[0];
+    if (base && base.url) {
+      if (base.kind === 'wms') {
+        L.tileLayer.wms(base.url, Object.assign({}, base.params || {})).addTo(posMap);
+      } else {
+        L.tileLayer(base.url, { attribution: base.attribution || '' }).addTo(posMap);
+      }
+    }
+
+    posMap.on('click', (e) => {
+      clicked = { lat: e.latlng.lat, lng: e.latlng.lng };
+      // Choosing on the map clears the post, so the two cannot both be sent — the server refuses that, and it
+      // should never have to.
+      cpPick.value = '';
+      if (posMarker) posMarker.remove();
+      posMarker = L.marker(e.latlng).addTo(posMap);
+      describeChoice();
+    });
+  }
+
+  cpPick.addEventListener('change', () => {
+    if (cpPick.value) {
+      clicked = null;
+      if (posMarker) { posMarker.remove(); posMarker = null; }
+      const o = cpPick.options[cpPick.selectedIndex];
+      if (posMap && o.dataset.lat) {
+        const ll = [parseFloat(o.dataset.lat), parseFloat(o.dataset.lng)];
+        posMarker = L.marker(ll).addTo(posMap);
+        posMap.setView(ll, 14);
+      }
+    }
+    describeChoice();
+  });
+
+  document.getElementById('closepos').addEventListener('click', () => { posPanel.hidden = true; });
+
+  async function sendPosition(payload) {
+    posNote.textContent = 'Gemmer…';
+    try {
+      const res = await fetch('/api/admin/photos', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({ photoIds: Array.from(selected) }, payload)),
+      });
+      const out = await res.json().catch(() => null);
+      if (!res.ok) {
+        posNote.textContent = (out && out.error) || 'Kunne ikke gemme positionen.';
+        return;
+      }
+      // The server writes the sentence, because it is the side that ran the bounds check and knows which of the
+      // three verdicts happened — and two of them are refusals the curator must not mistake for a fault at
+      // their end.
+      note.textContent = out.message || 'Gemt.';
+      posPanel.hidden = true;
+      selected.clear();
+      load(true);
+    } catch (err) {
+      posNote.textContent = 'Kunne ikke gemme positionen. Prøv igen.';
+    }
+  }
+
+  doPosition.addEventListener('click', () => {
+    if (cpPick.value) { sendPosition({ checkpointId: cpPick.value }); return; }
+    if (clicked) { sendPosition({ location: { lat: clicked.lat, lng: clicked.lng } }); return; }
+    posNote.textContent = 'Vælg en post eller klik på kortet.';
+  });
+
+  document.getElementById('doclear').addEventListener('click', () => {
+    sendPosition({ clearLocation: true });
   });
 
   // The initial load runs last, after every declaration it can reach.

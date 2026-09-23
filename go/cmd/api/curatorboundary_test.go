@@ -46,11 +46,20 @@ var adminOwnedFiles = map[string]bool{
 	// including **removed** memberships, which a public read cannot see and which decide whether a re-add takes
 	// a new ordinal or reinstates the old one. Also `SlugTaken`, which must count deleted albums.
 	"adminalbum.go": true,
-	// More arrive with tasks 376–379: the bulk position, the patrol tag and the library delete.
+	// The bulk position. Reads `PhotoCurator` for availability, and `CheckpointCurator` — which can enumerate
+	// every sited position in the event, and is for that reason a separate interface from the one patrol-scoped
+	// handlers hold (PRD 002, checkpoint/curator.go).
+	"adminposition.go": true,
+	// More arrive with tasks 377–379: the patrol tag and the library delete.
 }
 
 // curatorReads are the model fields that return draft-visible data.
-var curatorReads = []string{"models.AlbumCurator", "models.PhotoCurator"}
+//
+// `CheckpointCurator` is here too, although what it widens is different: not publication visibility but what can
+// be **enumerated about the event's geography**. `checkpoint.Queries` deliberately cannot be asked for all
+// checkpoints (PRD 002), so a handler reaching this field is reaching past that boundary and should be an admin
+// one.
+var curatorReads = []string{"models.AlbumCurator", "models.PhotoCurator", "models.CheckpointCurator"}
 
 // TestOnlyTheAdminSurfaceReadsTheCuratorInterfaces fails if a curator read is used outside the admin files.
 func TestOnlyTheAdminSurfaceReadsTheCuratorInterfaces(t *testing.T) {

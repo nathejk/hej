@@ -178,6 +178,23 @@ type Models struct {
 	// Read-only here, like the rest: creating, editing and deleting go through internal/commands.
 	AlbumCurator album.CuratorQueries
 	PhotoCurator photo.CuratorQueries
+
+	// CheckpointCurator is the admin tool's checkpoint list — the year's **sited** posts, so a curator can set a
+	// photograph's position by naming "Post 3" rather than by reading a coordinate (PRD 022 §6).
+	//
+	// # Why this is not `Checkpoints` below
+	//
+	// `checkpoint.Queries`' doc states the property that package exists to hold: there is no way to ask it for
+	// *all* checkpoints, because both its reads are bounded by ids the caller already named, and the event area is
+	// deliberately not fully known to participants (PRD 002). Adding an `All` there would have handed every
+	// patrol-scoped handler a way to enumerate every position in the event.
+	//
+	// So the enumerating read is a separate interface on a separate field, and a handler holding `Checkpoints`
+	// structurally cannot reach it. Same mechanism as AlbumCurator/PhotoCurator above.
+	//
+	// **May be nil**, and a nil means the checkpoint picker is unavailable — the curator falls back to clicking a
+	// point on the map, which is the degraded mode rather than a failure.
+	CheckpointCurator checkpoint.CuratorQueries
 }
 
 // MapReads is the patrol-scoped map read API.
@@ -245,6 +262,17 @@ func WithCuratorReads(a album.CuratorQueries, p photo.CuratorQueries) Option {
 		mo.AlbumCurator = a
 		mo.PhotoCurator = p
 	}
+}
+
+// WithCheckpointCurator supplies the admin tool's checkpoint list (PRD 022 §6, task 376). Omit it and
+// Models.CheckpointCurator is nil, which means the curator sets positions by clicking the map rather than by
+// naming a post.
+//
+// Its own option rather than a third parameter on WithCuratorReads, because it crosses a different boundary: the
+// album and photograph curator reads widen *publication* visibility, while this one widens what can be
+// enumerated about the event's geography. Two boundaries, two call sites to audit.
+func WithCheckpointCurator(q checkpoint.CuratorQueries) Option {
+	return func(mo *Models) { mo.CheckpointCurator = q }
 }
 
 // WithPublicPatrols supplies the public patrol read model (PRD 011). Omit it and Models.PublicPatrols is

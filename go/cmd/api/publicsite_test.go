@@ -80,6 +80,31 @@ func TestAnAlbumPageIsGoneWhenTheSectionIsHidden(t *testing.T) {
 	}
 }
 
+// **The gap this rule had, found while verifying task 376.** The frontpage hid the section and the album page
+// answered 404 — but `/api/public/albums` went on serving every published album's slug and the coordinates of its
+// photographs. That is precisely the "unadvertised but serving" state the test above argues against, one
+// directory along.
+//
+// It mattered more once a curator could *place* those coordinates in bulk (task 376): the endpoint was the one
+// public surface still disclosing them while the feature was supposedly switched off.
+func TestTheAlbumMapIsGoneWhenTheSectionIsHidden(t *testing.T) {
+	app, _, _ := publicApp(t)
+	app.config.publicAlbums = false
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	resp, body := getPublic(t, srv.URL+"/api/public/albums", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("want 404 for the album map while the feature is hidden, got %d", resp.StatusCode)
+	}
+	// And nothing leaks in the body either — no slug, no coordinate.
+	for _, forbidden := range []string{"\"lat\"", "\"slug\"", "\"album\""} {
+		if strings.Contains(string(body), forbidden) {
+			t.Errorf("the hidden album map still returns %s\n%s", forbidden, body)
+		}
+	}
+}
+
 // And the switch is not a one-way door: on, the album that was hidden is a page again. Worth a test because the
 // value of a flag over a deletion is precisely that it comes back — an env change, not a release.
 func TestTheAlbumsComeBackWhenSwitchedOn(t *testing.T) {
@@ -91,6 +116,16 @@ func TestTheAlbumsComeBackWhenSwitchedOn(t *testing.T) {
 	_, body := getPublic(t, srv.URL+"/2026", nil)
 	if !strings.Contains(string(body), ">Billeder<") {
 		t.Errorf("the section should be back\n%s", body)
+	}
+
+	// The map read comes back with it, so the fix above cannot become a one-way door of its own.
+	//
+	// Asserted as "not 404" rather than "200": this fixture has no album projection, so the honest answer here is
+	// 503 ("come back later"). What matters is that the *flag* is no longer what stops it — and the two are
+	// deliberately different statuses for exactly this reason.
+	resp, _ := getPublic(t, srv.URL+"/api/public/albums", nil)
+	if resp.StatusCode == http.StatusNotFound {
+		t.Error("the album map must not 404 when the section is switched on")
 	}
 }
 

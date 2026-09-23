@@ -269,6 +269,12 @@ func (app *application) routes() http.Handler {
 		router.HandlerFunc(http.MethodGet, "/api/admin/albums", app.requireAdmin(app.listAdminAlbumsHandler))
 		router.HandlerFunc(http.MethodPost, "/api/admin/albums", app.requireAdmin(app.createAdminAlbumHandler))
 		router.HandlerFunc(http.MethodPost, "/api/admin/albums/items", app.requireAdmin(app.addAdminAlbumItemsHandler))
+		// The bulk position (task 376). The bounds check is re-run for every set — a curator-placed point is not
+		// exempt, because nothing reaches the public map unverified.
+		router.HandlerFunc(http.MethodPatch, "/api/admin/photos", app.requireAdmin(app.patchAdminPhotosHandler))
+		// The picker's posts. Deliberately **not** on `checkpoint.Queries`, which has no way to ask for all
+		// checkpoints at all — see checkpoint/curator.go.
+		router.HandlerFunc(http.MethodGet, "/api/admin/checkpoints", app.requireAdmin(app.listAdminCheckpointsHandler))
 	}
 
 	// Development-only routes (PRD 014 §8). Registered rather than guarded, so outside

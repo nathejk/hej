@@ -801,6 +801,10 @@ func run(logger *slog.Logger) error {
 			// The admin tool's draft-visible reads. Deliberately a separate option from the two above, so
 			// that this one line is the entire answer to "what can see an unpublished album?" (PRD 022 §8.8).
 			data.WithCuratorReads(albumCuratorOrNil(albums), photoCuratorOrNil(photos)),
+			// The admin tool's checkpoint list. A separate option from the reads above because it crosses a
+			// different boundary — those widen publication visibility, this widens what can be enumerated about
+			// the event's geography (PRD 002). See data.WithCheckpointCurator.
+			data.WithCheckpointCurator(checkpointCuratorOrNil(checkpoints)),
 			data.WithPublicPatrols(publicPatrolQueriesOrNil(publicPatrols)),
 			data.WithYears(yearQueriesOrNil(years)),
 			data.WithPatrolPhotos(patrolPhotoQueriesOrNil(patrolPhotos))),
