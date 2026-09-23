@@ -157,6 +157,27 @@ type Models struct {
 	// Read-only here by construction, like Glimt and Albums: uploading, editing and deleting go through
 	// internal/commands, and the bytes through app.blobs.
 	Photos photo.Queries
+
+	// AlbumCurator and PhotoCurator are the **admin tool's** reads: drafts, removals, and photographs no
+	// album references (PRD 022 §8.8).
+	//
+	// # Why these are separate fields rather than flags on the two above
+	//
+	// Because a public handler must be *structurally unable* to serve a draft album, not merely unlikely to.
+	// `Albums` is publication-filtered in SQL and `BySlug` returns one "not found" for unknown, unpublished
+	// and deleted so the open web cannot enumerate drafts. An `includeUnpublished bool` on those reads would
+	// have been cheaper and would have put every public handler one argument away from defeating that.
+	//
+	// The rule this follows is `publicpatrol`'s: *"It is not here" is a property; "we do not select it" is a
+	// habit.* A handler that never receives these fields cannot misuse them, and the only code that holds
+	// them is behind the admin credential.
+	//
+	// **May be nil**, and a nil here is the safest of all the projections: nothing public reads them, so a
+	// nil takes the curator's tool away (a 503 on the admin surface) and cannot affect a single public page.
+	//
+	// Read-only here, like the rest: creating, editing and deleting go through internal/commands.
+	AlbumCurator album.CuratorQueries
+	PhotoCurator photo.CuratorQueries
 }
 
 // MapReads is the patrol-scoped map read API.
@@ -211,6 +232,19 @@ func WithAlbums(q album.Queries) Option {
 // this projection. The field's doc records the one caller for which nil and error must stay distinct.
 func WithPhotos(q photo.Queries) Option {
 	return func(mo *Models) { mo.Photos = q }
+}
+
+// WithCuratorReads supplies the admin tool's draft-visible reads (PRD 022 §8.8). Omit it and both
+// Models.AlbumCurator and Models.PhotoCurator are nil, which the admin handlers must treat as a 503.
+//
+// One option supplying both, because they are always wanted together — the tool needs albums and
+// photographs to do anything at all — and because a single call site makes the boundary easy to audit:
+// grep for this function and you have found everywhere curator reads enter the application.
+func WithCuratorReads(a album.CuratorQueries, p photo.CuratorQueries) Option {
+	return func(mo *Models) {
+		mo.AlbumCurator = a
+		mo.PhotoCurator = p
+	}
 }
 
 // WithPublicPatrols supplies the public patrol read model (PRD 011). Omit it and Models.PublicPatrols is

@@ -180,6 +180,27 @@ func albumQueriesOrNil(t *album.Table) album.Queries {
 	return t
 }
 
+// albumCuratorOrNil and photoCuratorOrNil narrow the projections to the **admin tool's** read APIs, or nil
+// (PRD 022 §8.8, task 366).
+//
+// The same typed-nil guard as the others, and one extra reason to keep them separate from
+// `albumQueriesOrNil`/`photoQueriesOrNil` rather than returning both from one: these two return the
+// draft-visible interfaces, and their call sites are what an auditor greps for to answer "who can see an
+// unpublished album?". Two names, two greps, one answer each.
+func albumCuratorOrNil(t *album.Table) album.CuratorQueries {
+	if t == nil {
+		return nil
+	}
+	return t
+}
+
+func photoCuratorOrNil(t *photo.Table) photo.CuratorQueries {
+	if t == nil {
+		return nil
+	}
+	return t
+}
+
 // photoQueriesOrNil narrows the photograph library to its read API, or nil (PRD 022, task 363).
 //
 // The same typed-nil guard as albumQueriesOrNil, and the consequence of getting it wrong is the same one:

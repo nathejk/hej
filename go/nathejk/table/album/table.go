@@ -43,10 +43,15 @@ import (
 var tableSchema string
 
 // Table is the album projection: a cqrs.Consumer that folds album events into the read model, and the
-// querier the app reads through.
+// queriers the app reads through.
+//
+// Both queriers are embedded, so `*Table` satisfies `Queries` and `CuratorQueries` — but they are separate
+// *types* (see curator.go), so the wiring in cmd/api has to choose which interface it hands to whom. That
+// choice is the boundary PRD 022 §8.8 draws, and it is made once, visibly, in main.go.
 type Table struct {
 	consumer
 	querier
+	curatorQuerier
 }
 
 // New creates the tables if needed and returns the projection.
@@ -64,8 +69,9 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
 		return nil, fmt.Errorf("album: create tables: %w", err)
 	}
 	return &Table{
-		consumer: consumer{w: w},
-		querier:  querier{db: r},
+		consumer:       consumer{w: w},
+		querier:        querier{db: r},
+		curatorQuerier: curatorQuerier{db: r},
 	}, nil
 }
 

@@ -769,6 +769,9 @@ func run(logger *slog.Logger) error {
 			data.WithGlimt(glimtQueriesOrNil(glimts)),
 			data.WithAlbums(albumQueriesOrNil(albums)),
 			data.WithPhotos(photoQueriesOrNil(photos)),
+			// The admin tool's draft-visible reads. Deliberately a separate option from the two above, so
+			// that this one line is the entire answer to "what can see an unpublished album?" (PRD 022 §8.8).
+			data.WithCuratorReads(albumCuratorOrNil(albums), photoCuratorOrNil(photos)),
 			data.WithPublicPatrols(publicPatrolQueriesOrNil(publicPatrols)),
 			data.WithYears(yearQueriesOrNil(years)),
 			data.WithPatrolPhotos(patrolPhotoQueriesOrNil(patrolPhotos))),
