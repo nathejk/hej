@@ -157,8 +157,16 @@ services:
       #
       #   export ADMIN_USER=foto ADMIN_PASSWORD="$(openssl rand -base64 24)"
       #
+      # **Generate it — do not choose it.** That line is a requirement, not a suggestion: task 388 removed the
+      # IP rate limiter that used to sit on the credential check (it counted every request rather than every
+      # guess, so the curator's own thumbnails exhausted it), which leaves this password's entropy as the only
+      # control on the whole admin surface. A human-chosen password here is an unbounded guess away from a
+      # write path into the blob store — the one store in this service that cannot be rebuilt from the log.
+      # Nothing in the code enforces a minimum length; the boot log prints it so it can be checked.
+      #
       # PRD 022 §11 Q4 is still open and is a process question rather than a code one: who generates this,
-      # where it is kept, who is told, and what happens to it when the event is over.
+      # where it is kept, who is told, and what happens to it when the event is over. It matters more now
+      # than it did when the limiter was there.
       ADMIN_USER: ${ADMIN_USER:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       # Free space that must survive an admin photo upload (PRD 022 §8.11, §11 Q5; task 384).

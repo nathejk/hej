@@ -212,18 +212,6 @@ type application struct {
 	// confirms once, so there is no legitimate per-user burst to accommodate, and the thing
 	// worth blunting is one client looping — not one member retrying twice.
 	confirmLimiter *ratelimit.Limiter
-	// adminAuthLimiter throttles admin credential checks by client IP (PRD 022 §8.2, task 371).
-	//
-	// The only limiter here that guards a **shared password** rather than a person's endpoint, and the reason
-	// it exists at all: a credential that is pasted into a chat message and rotated only by redeploy must not
-	// also be guessable at network speed.
-	//
-	// Keyed by IP because an unauthenticated attempt carries nothing else — there is no user to key on, which
-	// is what makes this different from every limiter above it. The tradeoff (a curator sharing a NAT with an
-	// attacker can be locked out) is argued in `allowAdminAttempt`.
-	//
-	// Nil when the admin tool is not configured, like the glimt limiters: no routes, nothing to limit.
-	adminAuthLimiter *ratelimit.Limiter
 	// contactChecks counts failed recall attempts per login session, so a member who cannot
 	// remember their contact number is let out of the check after three tries instead of being
 	// stuck in it (PRD 015, task 227). Also the idempotency guard for the give-up outcome.
@@ -782,9 +770,13 @@ func run(logger *slog.Logger) error {
 	// perfectly good production posture for most of the year, and warning about it would train people to
 	// ignore the warning.
 	if adminRoutesEnabled(cfg) {
+		// The password's **length** rather than the password, because that is the only control on this surface
+		// since task 388 dropped the rate limiter — so "is it a generated secret or is it `foto2026`?" is a
+		// question the boot log should let somebody answer without asking anybody. The value itself is never
+		// logged, obviously.
 		logger.Info("photographer admin tool served at /admin",
 			"year", cfg.eventYear, "user", cfg.adminUser,
-			"attempts_per_hour_per_ip", adminAuthAttemptsPerHour)
+			"password_length", len(cfg.adminPassword))
 	} else {
 		logger.Info("photographer admin tool absent: no ADMIN_PASSWORD, so /admin and /api/admin/* are not registered")
 	}
@@ -917,26 +909,10 @@ func run(logger *slog.Logger) error {
 		// wrong — while leaving room for a shared network: a patrol on one hotspot all
 		// confirming during the same briefing must not throttle each other.
 		confirmLimiter: ratelimit.New(20, time.Hour),
-		// Thirty admin credential attempts per IP per hour, and only when the tool is configured at all.
+		// There is no admin limiter. Task 371 added one, task 388 removed it — the reasoning is at
+		// `requireAdmin` in middleware.go, and the consequence (the password's entropy is the only control on
+		// that surface) is at `config.adminPassword`.
 		//
-		// # The arithmetic, since this is the number guarding a shared password
-		//
-		// Thirty an hour is ~260k attempts a year from one address. Against a generated password of any
-		// reasonable length that is not a threat — which is the point: the limiter's job is to make the
-		// password's strength the thing that matters, rather than the attacker's bandwidth. It converts "how
-		// fast is the network" into "how long is the secret", and the secret is the part we control (PRD 022
-		// §8.2, §11 Q4).
-		//
-		// # Why it is generous rather than tight
-		//
-		// A curator gets the password from a chat message and may fumble it; a browser also re-sends the
-		// credential on every asset request, so one page load with a bad password is several attempts, not one.
-		// A tight limit would lock out the fumbling curator long before it inconvenienced anybody else.
-		//
-		// Hourly rather than per-minute, unlike the public read limiters, because this guards a secret rather
-		// than a resource: sustained slow guessing is the attack worth blunting, and a per-minute window
-		// forgives it every sixty seconds.
-		adminAuthLimiter: adminAuthLimiterFor(cfg),
 		// Long enough that a member who leaves the check open, locks their phone and comes back
 		// still has the same budget, short enough that the map does not accumulate one entry per
 		// login for the life of the process. Forgetting is the generous direction: it hands back

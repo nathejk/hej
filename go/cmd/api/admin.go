@@ -1,6 +1,6 @@
 package main
 
-// The photographer admin surface (PRD 022 §8.2, tasks 369–371).
+// The photographer admin surface (PRD 022 §8.2, tasks 369–371, 388).
 //
 // Everything on it is registered conditionally, in routes(), on the app having an admin password. A binary
 // with none serves no route defined here at all — the check is "is this route registered", not "is this
@@ -22,12 +22,16 @@ package main
 // The tool is used hard for a week and then not at all for a year. That is exactly the situation in which a
 // stale deployment goes unnoticed, so turning it off has to be something somebody will actually do: deleting
 // the password is that, and it takes the routes with it.
-
-import (
-	"time"
-
-	"nathejk.dk/internal/ratelimit"
-)
+//
+// # There is no rate limiter on this surface
+//
+// Task 371 added one; task 388 removed it. The reasoning lives at `requireAdmin` in middleware.go, beside the
+// checks that remain. The short version: it counted every request rather than every guess, so the contact
+// sheet's thumbnails spent the whole hourly budget on one page load — and against a shared credential it was
+// buying very little anyway, since the mechanism is interim and being replaced by role-based access.
+//
+// The consequence is stated rather than buried: **the password's entropy is the only control here.** See
+// `config.adminPassword` and the production compose.
 
 // adminRoutesEnabled reports whether the admin routes should be registered.
 //
@@ -46,22 +50,3 @@ import (
 func adminRoutesEnabled(cfg config) bool {
 	return cfg.adminPassword != ""
 }
-
-// adminAuthLimiterFor builds the credential-attempt limiter, or nil when the tool is not served.
-//
-// Nil rather than a limiter nobody consults, matching `limiterOrNil`'s shape for the glimt limits: there are
-// no routes to protect, so allocating a map to throttle requests that answer 404 would be ceremony.
-func adminAuthLimiterFor(cfg config) *ratelimit.Limiter {
-	if !adminRoutesEnabled(cfg) {
-		return nil
-	}
-	return ratelimit.New(adminAuthAttemptsPerHour, time.Hour)
-}
-
-// adminAuthAttemptsPerHour is the credential-attempt ceiling per client IP.
-//
-// A constant rather than configuration, unlike the glimt limits. Those are tuned against observed member
-// behaviour and were changed once already (task 324); this one guards a secret, and making it configurable
-// would mean the number protecting a shared password can be raised by whoever is debugging a lockout at the
-// time. The reasoning for the value is at the assignment in main.go.
-const adminAuthAttemptsPerHour = 30

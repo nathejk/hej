@@ -669,6 +669,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     if (status === 413) return 'Filen er for stor (over ' + drop.dataset.maxMb + ' MB).';
     if (status === 400) return 'Filen er ikke et billede vi kan læse.';
     if (status === 401) return 'Du er blevet logget ud. Genindlæs siden.';
+    if (status === 507) return 'Der er ikke plads på serveren. BEHOLD KORTET og sig det til en udvikler.';
     if (status === 429) return 'For mange forsøg. Vent et øjeblik og træk filerne ind igen.';
     if (status === 503) return 'Arkivet er ikke tilgængeligt lige nu. Prøv igen om et øjeblik.';
     return 'Fejl ' + status + '.';

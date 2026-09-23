@@ -208,6 +208,26 @@ type config struct {
 	// PRD 022 §11 Q4 is still open and is a process question, not a code one: who generates this, where it is
 	// kept, who is told, and what happens to it after the event.
 	//
+	// # This value's entropy is the only control on the admin surface (task 388)
+	//
+	// Read that literally. Task 371 added an IP rate limiter on the credential check and **task 388 removed
+	// it**: it counted every request rather than every guess, so the contact sheet's thumbnails exhausted the
+	// hourly budget on one page load, and against a shared credential it was buying little enough that
+	// carrying the machinery through to a replacement auth mechanism was not worth it. The reasoning is at
+	// `requireAdmin`.
+	//
+	// So there is nothing between this string and an attacker with bandwidth. **Generate it; do not choose
+	// it:**
+	//
+	//	openssl rand -base64 24
+	//
+	// That is not advice, it is the requirement that replaced the limiter. A human-chosen password on this
+	// surface — `nathejk2026`, `foto!` — is now an unbounded guess away from a write path into the blob store.
+	// Nothing in the code enforces a minimum, which is itself a deliberate gap rather than an oversight: the
+	// alternative is a deploy-time failure on a tool that is absent most of the year, and §11 Q4's owner is a
+	// better place to fix this than a length check. The boot log prints the length so the question can at
+	// least be answered without asking anybody.
+	//
 	// # There is deliberately no default, in any environment
 	//
 	// Not even in development. An empty password does not mean "allow everyone", it means **the routes are

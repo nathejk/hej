@@ -63,7 +63,6 @@ type adminAlbumSummary struct {
 // @Success      200  {object}  listAdminAlbumsResponse
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
-// @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the albums are unavailable"
 // @Router       /admin/albums [get]
@@ -133,7 +132,6 @@ type updateAdminAlbumRequest struct {
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "unknown album"
-// @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the albums or the event stream are unavailable"
 // @Router       /admin/albums/{albumId} [patch]
@@ -256,7 +254,6 @@ type reorderAdminAlbumItemsRequest struct {
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "unknown album"
-// @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the albums or the event stream are unavailable"
 // @Router       /admin/albums/{albumId}/items [patch]
@@ -358,7 +355,6 @@ type createAdminAlbumResponse struct {
 // @Failure      400  {object}  map[string]string  "missing or unusable title, or the slug is taken"
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
-// @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the albums or the event stream are unavailable"
 // @Router       /admin/albums [post]
@@ -482,7 +478,6 @@ type addAdminAlbumItemsResult struct {
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "an unknown album"
-// @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the albums or the event stream are unavailable"
 // @Router       /admin/albums/items [post]

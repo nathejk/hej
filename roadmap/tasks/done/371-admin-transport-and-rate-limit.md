@@ -76,3 +76,28 @@ confirmed in production-like conditions rather than asserted. Response headers c
 - [x] The comparison remains constant-time after the limiter is added, and additionally does not
       short-circuit on the username — asserted structurally
 - [x] Rate-limit rejections are logged with the client IP — confirmed in the live logs
+
+---
+
+## Superseded in part by task 388 (2026-09-23)
+
+Appended rather than edited, so the record of what was decided here stays intact.
+
+**The rate limiter described above was removed.** Its fatal flaw is visible in this task's own acceptance
+criteria: *"A correct credential **is** throttled by an attacker sharing the IP — documented rather than
+fixed."* That was the right thing to notice and the wrong thing to accept, because the limiter counted every
+request rather than every guess — so the curator did not need an attacker to be throttled, only their own
+contact sheet. It fetches one thumbnail per photograph, so a single page load of a real library spent four
+times the hourly budget, and a three-hundred-file hand-in could not complete at all.
+
+Reported by the maintainer as *"a little clicking around and I got 429"*; measured at 30 consecutive requests
+with the **correct** password before the 31st was refused.
+
+Counting only wrong passwords would have kept the brute-force protection at no cost to the curator, and was
+written and then dropped on the maintainer's decision: the authentication mechanism is interim and being
+replaced by role-based access before next year's race, so it is not worth carrying the machinery.
+
+**What this task landed that still stands:** HTTPS-only with the 421, `no-store`, `noindex`, the
+constant-time non-short-circuiting comparison, and one identical refusal for a missing credential, a wrong
+username and a wrong password. Only the limiter is gone — and with it, the password's entropy is now the only
+control on the surface. See task 388.

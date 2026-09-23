@@ -111,7 +111,6 @@ type patchAdminPhotosResponse struct {
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "an unknown checkpoint"
-// @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the library or the event stream are unavailable"
 // @Router       /admin/photos [patch]
@@ -427,7 +426,6 @@ type adminCheckpointView struct {
 // @Success      200  {object}  listAdminCheckpointsResponse
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
-// @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the checkpoints are unavailable"
 // @Router       /admin/checkpoints [get]

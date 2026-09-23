@@ -17,6 +17,9 @@ det siger ikke hvem der har lagt hvad op — værktøjet skriver aldrig dit navn
 - Skriv det ikke videre til andre. Bed om at få det, hvis du mangler det.
 - Det bliver **skiftet efter løbet**. Det gamle virker ikke til næste år, og det er med vilje.
 
+Du kan uploade og rette lige så meget du vil — der er ingen grænse for hvor mange billeder eller hvor mange
+klik. Hvis værktøjet står af midt i en upload, er det en fejl, ikke en grænse. Sig det.
+
 Kodeordet er ændret ved en omkonfiguration af serveren — det er ikke noget du kan gøre selv i
 værktøjet. Det tager en udvikler et par minutter.
 
@@ -104,7 +107,9 @@ Der står altid hvor mange billeder du er ved at slette, før du bekræfter. Læ
 ## Hvis noget ikke virker
 
 - **Siden vil ikke tage kodeordet.** Tjek at adressen starter med `https://`.
-- **"Adgang kræver login" igen og igen.** Du har prøvet for mange gange på kort tid. Vent et kvarter.
+- **"Adgang kræver login" igen og igen.** Tjek at brugernavn og kodeord er skrevet rigtigt — der er ingen
+  forskel på beskeden, uanset om det er det ene eller det andet der er galt. Er du i tvivl, så bed om at få
+  kodeordet igen.
 - **Et billede kom aldrig op.** Læg det op igen — værktøjet springer det over, hvis det allerede er der.
 - **Albummet står ikke på forsiden.** Har du trykket **Udgiv på forsiden**? Og har albummet billeder i?
 - **Alt andet.** Sig det. Skriv hvad du gjorde, og hvad der stod på skærmen.

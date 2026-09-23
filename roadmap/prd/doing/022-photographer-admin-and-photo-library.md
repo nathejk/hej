@@ -294,8 +294,14 @@ for that somebody to stand.
 - **Not indexed.** `X-Robots-Tag: noindex, nofollow` and `Cache-Control: no-store` on every admin
   response. An admin page in a search index is an invitation, and a cached one on a shared laptop is
   a leak.
-- **Rate limiting** on the credential check, by client IP, so a shared password is not brute-forceable
-  at speed. The comparison itself is constant-time.
+- ~~**Rate limiting** on the credential check, by client IP, so a shared password is not brute-forceable
+  at speed.~~ **Removed (2026-09-23, maintainer; task 388).** It counted every request rather than every
+  guess, so the contact sheet's thumbnails — one per photograph — spent the whole hourly budget on a single
+  page load, and a full hand-in was arithmetically impossible. Counting only the wrong passwords would have
+  fixed that, and was dropped too: the authentication mechanism is interim and being replaced by role-based
+  access (§8.2), so it is not worth carrying machinery for. **The consequence is that the password's entropy
+  is the only control on this surface**, which promotes §11 Q4 from operational tidiness to the one thing
+  standing there. The comparison itself is still constant-time.
 - **No personal data in the new projection.** The library row has no uploader, no curator, no person
   id, no name, no phone number, and emphatically no `phoneParent`. The structural privacy test
   (task 337) must walk the new types too.
@@ -423,9 +429,10 @@ What basic auth costs, stated plainly:
   and a redeploy, and the PRD should say so rather than imagine otherwise.
 - **No revocation of one person's access** without rotating for everybody.
 
-Mitigations, all required by §6: HTTPS-only, `no-store`, `noindex`, IP rate limiting on the check,
-constant-time comparison, a long generated password, and a log line for every write. And one
-structural mitigation worth naming: the credential grants **exactly this tool**. It is not a session,
+Mitigations, all required by §6: HTTPS-only, `no-store`, `noindex`, constant-time comparison, a long
+**generated** password, and a log line for every write. IP rate limiting on the check was one of these and
+was removed in task 388 — see §6 — which makes "a long generated password" load-bearing rather than
+advisory. And one structural mitigation worth naming: the credential grants **exactly this tool**. It is not a session,
 it does not populate the request context, and it must not become a second way to reach any existing
 authenticated endpoint.
 
@@ -676,7 +683,8 @@ by design.
 **Phase 2 — the door.** Basic auth, absent rather than open when unconfigured.
 - [x] Task 369: `requireAdmin` — a shared credential that grants exactly one tool
 - [x] Task 370: no password, no routes: the admin surface is absent when unconfigured
-- [x] Task 371: HTTPS-only, `no-store`, `noindex`, and a rate limit on the guess
+- [x] Task 371: HTTPS-only, `no-store`, `noindex`, and a rate limit on the guess — *the rate limit was
+      removed again in task 388; the rest stands*
 
 **Phase 3 — the tool.**
 - [x] Task 372: upload one photograph, idempotently, without resurrecting a deletion

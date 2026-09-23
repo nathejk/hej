@@ -57,36 +57,62 @@ const adminRealm = "Nathejk billedarkiv"
 
 // requireAdmin wraps a handler so it only runs for a request carrying the admin credential.
 //
-// The order of the checks is load-bearing and each one is cheaper than the next:
+// The order of the checks is load-bearing:
 //
 //  1. **Transport.** Refuse plain HTTP outside development before looking at a credential, because the
 //     credential is *in the request we are refusing* — checking it first would mean accepting a password
 //     over cleartext in order to tell somebody off for sending it over cleartext.
 //  2. **Headers.** `no-store` and `noindex` are set on the way in, so they are present on the 401s too.
-//  3. **Rate limit.** In front of the comparison, not behind it: a limiter that only counts *failures*
-//     after doing the work still lets an attacker make the server do the work.
-//  4. **Comparison.** Constant-time, over both fields.
+//  3. **Comparison.** Constant-time, over both fields.
+//
+// # There is no rate limit here, and that is a decision (task 388)
+//
+// Task 371 added one: 30 credential attempts per hour per IP, in front of the comparison, counting **every**
+// request rather than only the failures. It was removed, and the reasoning is worth keeping because the
+// removal looks like a weakening and is not quite.
+//
+// What it cost: every request through this wrapper spent a token, and the contact sheet fetches one
+// thumbnail per photograph — up to 120 on a page, plus the page, the library read, the album list and the
+// checkpoints. So the first page load of a real library spent four times the hourly budget and a
+// three-hundred-file hand-in was arithmetically impossible. Measured: thirty consecutive requests with the
+// *correct* password, and the thirty-first refused. That is PRD 022 §9's success condition failing outright.
+//
+// What it bought: less than it appears. The credential is **shared** (§8.2), so an attacker holding it is
+// indistinguishable from the curator by construction — there is no per-person signal to throttle, and once
+// the password is known a request ceiling is DoS protection rather than authentication protection. Against
+// the only real threat, guessing, a limiter matters in exactly one case: a password weak enough to be in
+// somebody's list. Against `openssl rand -base64 24` it is decorative.
+//
+// Counting only the wrong passwords would have kept that narrow benefit at no cost to the curator, and was
+// written and then dropped on the maintainer's decision: **the authentication mechanism is being replaced by
+// role-based access before next year's race** (§8.2), so the interim one is not worth carrying machinery for.
+//
+// **So the password's entropy is now the whole defence.** That raises the stakes on §11 Q4 — who generates
+// the credential and how — from an operational tidiness question to the only control on this surface. It is
+// said again at `config.adminPassword` and in the production compose, because those are where somebody
+// choosing a password will be looking.
 func (app *application) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !app.adminTransportOK(w, r) {
 			return
 		}
 
-		// Set before any outcome, so every response from this surface carries them — including the 401, the
-		// 429 and the 421. A cached admin response on a shared laptop is a leak whatever its status code.
+		// Set before any outcome, so every response from this surface carries them — including the 401 and
+		// the 421. A cached admin response on a shared laptop is a leak whatever its status code.
 		setAdminHeaders(w)
 
-		if !app.allowAdminAttempt(w, r) {
-			return
-		}
-
-		user, pass, ok := r.BasicAuth()
-		if !ok || !app.adminCredentialOK(user, pass) {
+		user, pass, presented := r.BasicAuth()
+		if !presented || !app.adminCredentialOK(user, pass) {
 			// One response for a missing credential, a wrong username and a wrong password. Nothing
 			// distinguishes them, so this cannot be used to confirm the username — which for a shared
 			// credential is half the secret.
 			w.Header().Set("WWW-Authenticate", `Basic realm="`+adminRealm+`", charset="UTF-8"`)
-			app.Logger.Warn("admin credential rejected", "ip", clientIP(r), "path", r.URL.Path)
+			if presented {
+				// Logged only when something was actually offered. A request with no credential is the first
+				// half of the basic-auth handshake, which every browser performs before it has anything to
+				// send — logging those would bury the ones that mean somebody guessed.
+				app.Logger.Warn("admin credential rejected", "ip", clientIP(r), "path", r.URL.Path)
+			}
 			http.Error(w, "Adgang kræver login.", http.StatusUnauthorized)
 			return
 		}
@@ -163,35 +189,6 @@ func (app *application) adminTransportOK(w http.ResponseWriter, r *http.Request)
 	// the credential is already in the request that arrived over cleartext, so the damage is done and the
 	// honest response is to refuse rather than to invite a retry that makes the same mistake look successful.
 	http.Error(w, "Dette værktøj kræver en sikker forbindelse.", http.StatusMisdirectedRequest)
-	return false
-}
-
-// allowAdminAttempt rate limits credential checks by client IP.
-//
-// # Why by IP, and why a new limiter
-//
-// Every other limiter in this service is keyed on a person, and there is no person here (PRD 022 §8.9). The
-// IP is the only thing an unauthenticated attempt carries.
-//
-// # The tradeoff, stated because it is real
-//
-// A curator behind the same NAT as an attacker can be locked out by that attacker. The limit is set high
-// enough that this needs deliberate abuse rather than a colleague reloading, and the alternative — no limit
-// — leaves a shared password exposed to an unbounded guess rate, which is the weaker position. If a curator
-// is ever locked out, the diagnosis is in the log line below rather than in a mystery.
-//
-// Counting **every** attempt rather than only failures is deliberate: a limiter that exempts successes lets
-// an attacker who has guessed correctly continue unthrottled, and one that only counts failures still has to
-// do the comparison to find out.
-func (app *application) allowAdminAttempt(w http.ResponseWriter, r *http.Request) bool {
-	if app.adminAuthLimiter == nil {
-		return true
-	}
-	if app.adminAuthLimiter.Allow(clientIP(r)) {
-		return true
-	}
-	app.Logger.Warn("admin credential attempts rate limited", "ip", clientIP(r), "path", r.URL.Path)
-	app.RateLimitMessageResponse(w, r, "For mange forsøg. Prøv igen om et øjeblik.")
 	return false
 }
 

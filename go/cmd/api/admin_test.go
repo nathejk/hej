@@ -10,9 +10,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
-
-	"nathejk.dk/internal/ratelimit"
 )
 
 // The admin door (PRD 022 §8.2, tasks 369–371).
@@ -40,8 +37,6 @@ func adminApp(t *testing.T) (*application, *httptest.Server) {
 	app.config.eventYear = "2026"
 	app.config.adminUser = testAdminUser
 	app.config.adminPassword = testAdminPass
-	// Generous, so no test trips a limit it is not testing. The tests that DO test the limit build their own.
-	app.adminAuthLimiter = ratelimit.New(1000, time.Minute)
 
 	srv := httptest.NewServer(app.routes())
 	t.Cleanup(srv.Close)
@@ -173,7 +168,6 @@ func TestAdminCredentialIsNotASession(t *testing.T) {
 	app := newTestApp(t)
 	app.config.adminUser = testAdminUser
 	app.config.adminPassword = testAdminPass
-	app.adminAuthLimiter = ratelimit.New(1000, time.Minute)
 
 	var sawSession bool
 	probe := app.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
@@ -220,7 +214,6 @@ func TestAdminRefusesPlainHTTP(t *testing.T) {
 	app := newTestApp(t) // env: "testing", so the development exemption does not apply
 	app.config.adminUser = testAdminUser
 	app.config.adminPassword = testAdminPass
-	app.adminAuthLimiter = ratelimit.New(1000, time.Minute)
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
@@ -251,7 +244,6 @@ func TestAdminAllowsPlainHTTPInDevelopment(t *testing.T) {
 	app.config.eventYear = "2026"
 	app.config.adminUser = testAdminUser
 	app.config.adminPassword = testAdminPass
-	app.adminAuthLimiter = ratelimit.New(1000, time.Minute)
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
@@ -269,38 +261,65 @@ func TestAdminAllowsPlainHTTPInDevelopment(t *testing.T) {
 	}
 }
 
-// Guessing is rate limited by IP, and **every** attempt counts — not only the failures.
+// **The admin surface does not throttle authenticated requests** (task 388).
 //
-// A limiter that exempted successes would let an attacker who guessed correctly continue unthrottled; one
-// counting only failures still has to run the comparison to find out which it was.
-func TestAdminCredentialAttemptsAreRateLimited(t *testing.T) {
-	app := newTestApp(t)
-	app.config.adminUser = testAdminUser
-	app.config.adminPassword = testAdminPass
-	app.adminAuthLimiter = ratelimit.New(3, time.Minute)
+// This is the regression test for the bug that made the tool unusable, and it is written as the shape of the
+// real workload rather than as "the limiter is gone": the contact sheet fetches one thumbnail per photograph,
+// so a single page load of a full library is well over a hundred requests through `requireAdmin`, and a
+// hand-in is three hundred more. Any per-request ceiling on this surface — a limiter, a semaphore, a
+// well-meant "are you sure you are not a script" — breaks PRD 022 §9's success condition, and it breaks it
+// silently after the feature looked fine in a test with three photographs.
+//
+// 400 rather than a token number, because the failure it guards against was **30**. A count that could be
+// mistaken for a plausible limit would not have caught it.
+func TestTheAdminSurfaceDoesNotThrottleAuthenticatedRequests(t *testing.T) {
+	_, srv := adminApp(t)
 
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
-
-	for i := 0; i < 3; i++ {
-		resp := getAdmin(t, srv, "/admin", "nobody", "guess")
-		if resp.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("attempt %d: want 401 while within the limit, got %d", i+1, resp.StatusCode)
+	for i := 0; i < 400; i++ {
+		resp := getAdmin(t, srv, "/admin", testAdminUser, testAdminPass)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("request %d with the correct credential answered %d. The curator's work must not be "+
+				"rationed: one contact sheet is one request per photograph, and a hand-in is three hundred "+
+				"more (PRD 022 §9, task 388)", i+1, resp.StatusCode)
 		}
 	}
+}
 
-	resp := getAdmin(t, srv, "/admin", "nobody", "guess")
-	if resp.StatusCode != http.StatusTooManyRequests {
-		t.Errorf("want 429 once the limit is reached, got %d", resp.StatusCode)
-	}
+// A wrong credential is refused every time, and refused the same way.
+//
+// Without a limiter there is nothing to exhaust, so the interesting property is that repetition changes
+// nothing: no lockout, no different status, no leak of which half was wrong. The password's entropy is the
+// only control on this surface now (task 388), which is recorded at `requireAdmin` and at
+// `config.adminPassword` rather than implied here.
+func TestAWrongAdminCredentialIsAlwaysRefusedIdentically(t *testing.T) {
+	_, srv := adminApp(t)
 
-	// And the correct credential is throttled too, which is the documented tradeoff rather than an oversight:
-	// the limiter is in front of the comparison, so it cannot know the credential was right without doing the
-	// work it exists to ration. `allowAdminAttempt` records why that is the safer direction.
-	resp = getAdmin(t, srv, "/admin", testAdminUser, testAdminPass)
-	if resp.StatusCode != http.StatusTooManyRequests {
-		t.Errorf("the limiter sits in front of the comparison, so a correct credential is also throttled; "+
-			"got %d — if this changed deliberately, update allowAdminAttempt's doc", resp.StatusCode)
+	var first string
+	for i, c := range [][2]string{
+		{"nobody", "guess"},
+		{"nobody", "guess"},
+		{testAdminUser, "wrong-password"},
+		{"wrong-user", testAdminPass},
+	} {
+		resp := getAdmin(t, srv, "/admin", c[0], c[1])
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: want 401, got %d", i+1, resp.StatusCode)
+		}
+		if got := resp.Header.Get("WWW-Authenticate"); !strings.Contains(got, "Basic realm=") {
+			t.Errorf("attempt %d: want a challenge so the browser re-prompts, got %q", i+1, got)
+		}
+		// One answer for a wrong username and a wrong password, or the response confirms the username — which
+		// for a shared credential is half the secret.
+		if i == 0 {
+			first = string(body)
+		} else if string(body) != first {
+			t.Errorf("attempt %d answered differently; a wrong username and a wrong password must be "+
+				"indistinguishable\nfirst: %q\nthis:  %q", i+1, first, body)
+		}
 	}
 }
 
@@ -479,7 +498,6 @@ func TestPublicAlbumsFlagDoesNotDisableTheAdminTool(t *testing.T) {
 	app.config.publicAlbums = false
 	app.config.adminUser = testAdminUser
 	app.config.adminPassword = testAdminPass
-	app.adminAuthLimiter = ratelimit.New(1000, time.Minute)
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()

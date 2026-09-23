@@ -73,7 +73,6 @@ type adminPatrolResponse struct {
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "no patrol with that number this year"
-// @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the patrols are unavailable"
 // @Router       /admin/patrols/{number} [get]
@@ -145,7 +144,6 @@ type tagAdminPhotosResponse struct {
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "no patrol with that number this year"
-// @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the patrols or the event stream are unavailable"
 // @Router       /admin/photos/tags [post]
@@ -251,7 +249,6 @@ func (app *application) tagAdminPhotosHandler(w http.ResponseWriter, r *http.Req
 // @Failure      400  {object}  map[string]string  "a missing id"
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
-// @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the event stream is unavailable"
 // @Router       /admin/photos/{photoId}/tags/{teamId} [delete]

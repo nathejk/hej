@@ -241,13 +241,22 @@ func TestAdminUploaderKeepsGoingAfterAFailure(t *testing.T) {
 
 // Every HTTP failure the endpoint can produce has a Danish sentence. A curator reading three hundred rows
 // should never meet a bare status code.
+//
+// **507 is the one that matters most** (task 384): it means the volume is full, and the right action — keep
+// the card, do not clear it — is the opposite of what somebody would guess from "upload failed". It was
+// missing until task 388 went looking.
+//
+// 429 stays in the list although `requireAdmin` no longer produces one (task 388 dropped the limiter). The
+// endpoint is behind Traefik and a proxy-originated 429 is still reachable, so the sentence is cheap
+// insurance — and a client that renders a bare code for it would be a worse outcome than one line of dead
+// JavaScript.
 func TestAdminUploaderExplainsEveryFailureInDanish(t *testing.T) {
 	src := adminSource(t, "adminpage.go")
 
 	reason := src[strings.Index(src, "function httpReason"):]
 	reason = reason[:strings.Index(reason, "// --- rows")]
 
-	for _, status := range []string{"413", "400", "401", "429", "503"} {
+	for _, status := range []string{"413", "400", "401", "507", "429", "503"} {
 		if !strings.Contains(reason, status) {
 			t.Errorf("status %s has no plain-language reason; the endpoint can return it", status)
 		}
