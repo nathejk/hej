@@ -206,5 +206,21 @@ caption is where prose goes.
   these two did not.
 - **Deliberately not built:** a photographer roster or picker. That would mean holding a list of volunteers'
   names in this service, which is what §6 is arranged against. The remembered default is the cheap fix.
-- Still open: whether the credit should reach the **diploma** photograph (task 361) and the patrol page once
-  patrol tags surface publicly (§11 Q1). Noted so it is not re-derived.
+- ~~Still open: whether the credit should reach the **diploma** photograph (task 361)~~ — **resolved
+  (2026-09-23, maintainer): no credit line on diplomas.** This confirms a decision task 361 had already taken
+  and guarded, which is worth recording rather than re-deriving:
+
+  `internal/diploma`'s package doc states it in as many words — *"What this package still refuses is a person:
+  no name, no phone, no email, **no photographer credit**"* — and `TestADiplomaCannotCarryAPerson` enforces it
+  with an **allowlist** over the `Diploma` struct's fields. So a `Credit` field would fail the moment it was
+  added, with no needle to guess and nothing to except. That is a stronger guard than the library's denylist,
+  and the right shape for a five-field type on an unauthenticated surface.
+
+  The reasoning behind it still holds under task 393: a diploma is a document **about a patrol**, handed to
+  that patrol, and a credit is editorial furniture for a page somebody is browsing. The album page is where an
+  attribution belongs because that is where the photograph is being *presented*; the diploma is where it is
+  being *given*.
+
+  No code changed for this. The guard was already correct.
+- Still open: whether the credit should reach the **patrol page**, once patrol tags surface publicly (§11 Q1).
+  Noted so it is not re-derived.
