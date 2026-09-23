@@ -161,6 +161,19 @@ services:
       # where it is kept, who is told, and what happens to it when the event is over.
       ADMIN_USER: ${ADMIN_USER:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Free space that must survive an admin photo upload (PRD 022 §8.11, §11 Q5; task 384).
+      #
+      # Left to the code's 2 GiB default on purpose: overriding it here would be a number nobody revisits,
+      # and the one machine where it matters is the one where `${BLOB_DIR}` lives. Raise it via the
+      # environment if that volume is shared with something that also grows. An **empty** value is the
+      # default rather than zero — `envInt64` falls back on anything it cannot parse, so a forgotten variable
+      # leaves the floor on instead of switching it off.
+      #
+      # The reason it exists: the blob store is the only non-rebuildable data in this service (PRD 008 §8),
+      # it grows monotonically because §11 Q2 resolved photographs are never purged, and §8.11 calls capacity
+      # the largest operational risk in the PRD. This is the code's half of that — it turns "the disk filled
+      # up mid-batch" into a 507 on one photograph. It is **not** a substitute for watching the volume.
+      ADMIN_DISK_FLOOR_BYTES: ${ADMIN_DISK_FLOOR_BYTES:-}
       # Where foto serves photograph objects (task 361). Fetched once per photograph into this stack's own blob
       # volume, then never again — so foto being down costs new photographs, not diplomas already rendered.
       # Empty means diplomas carry no photograph, which is a safe default rather than an error.

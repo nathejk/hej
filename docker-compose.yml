@@ -138,7 +138,8 @@ services:
       # hide them *now*, and a dev environment that still shows the fixture albums would hide the change from
       # the only person looking at it.
       #
-      # Flip to "true" to work on the albums, and remember `/api/dev/album-fixture` creates the two dev albums.
+      # Flip to "true" to work on the albums, and use `/admin` to create one — the dev album fixture was
+      # retired in task 383 now that the real tool can do it.
       PUBLIC_ALBUMS: "false"
       # The photographer admin tool (PRD 022). `/admin`, behind HTTP basic auth.
       #
@@ -155,6 +156,17 @@ services:
       # must be able to assemble albums before the public section is switched on (PRD 022 §6).
       ADMIN_USER: "foto"
       ADMIN_PASSWORD: "dev-insecure-admin-password"
+      # Free space that must survive an admin photo upload (PRD 022 §8.11, §11 Q5; task 384).
+      #
+      # A floor under the **volume**, not a quota over the feature. A quota cannot work here because §11 Q2
+      # resolved that these photographs are never purged — it would refuse a legitimate hand-in the first
+      # year the number was too small. What needs preventing is the disk filling mid-batch with a
+      # photographer's card already wiped, and that is a property of the disk. See `cmd/api/adminstorage.go`.
+      #
+      # Lowered to 200 MiB here purely so a laptop with a nearly full disk can still be developed on; the
+      # code's default is 2 GiB and that is the number production should keep. `0` switches it off, which is
+      # a bad idea anywhere a photographer might upload.
+      ADMIN_DISK_FLOOR_BYTES: "209715200"
       # Where foto serves photograph objects (task 361). The bytes are fetched once per photograph and kept in
       # this stack's own blob volume, so this is an ingest dependency rather than a request-path one.
       #

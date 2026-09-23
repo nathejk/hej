@@ -131,6 +131,7 @@ type adminUploadLocation struct {
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      413  {object}  map[string]string  "larger than 32 MiB"
 // @Failure      429  {object}  map[string]string  "too many credential attempts from this address"
+// @Failure      507  {object}  map[string]string  "the blob volume would drop below its free-space floor; keep the card and tell a developer"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the library or the event stream are unavailable"
 // @Router       /admin/photos [post]
@@ -161,6 +162,14 @@ func (app *application) uploadAdminPhotoHandler(w http.ResponseWriter, r *http.R
 		default:
 			app.BadRequestResponse(w, r, err)
 		}
+		return
+	}
+
+	// **Before the bytes are stored, not after.** There is no point discovering the volume is full once the
+	// object is on it, and `storeAlbumImage` writes two objects (the rendition and its thumbnail) with no way
+	// to undo half of it. The check is against the raw size, which over-counts slightly because the stored
+	// rendition is usually smaller — over-counting is the safe direction for a floor.
+	if app.writeAdminDiskResponse(w, r, app.checkAdminDiskFloor(int64(len(raw)))) {
 		return
 	}
 

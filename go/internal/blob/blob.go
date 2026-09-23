@@ -57,6 +57,24 @@ func ComputeRef(data []byte) Ref {
 	return Ref(hex.EncodeToString(sum[:]))
 }
 
+// FreeSpacer is a store that can report the free space of the volume it lives on.
+//
+// # An optional capability, not a widening of Store
+//
+// `Store` is deliberately thin because the choice between object storage and a mounted volume is still open
+// (PRD 008 §11 Q4). "How much room is left" has no answer for a memory store and a different one for a
+// bucket, so it is a separate interface a store may satisfy: callers type-assert and **fail open** when it
+// is absent. A memory store has no volume, and refusing uploads in a test because of that would be
+// nonsense.
+//
+// Declared here rather than beside the only implementation because the implementation is platform-specific
+// (`free_unix.go`) and callers are not — an interface that vanished on a platform would take `cmd/api` with
+// it.
+type FreeSpacer interface {
+	// FreeBytes returns the bytes available to this process on the volume holding the objects.
+	FreeBytes() (uint64, error)
+}
+
 // Store is the storage seam.
 //
 // Kept thin on purpose: the production choice between object storage and a mounted

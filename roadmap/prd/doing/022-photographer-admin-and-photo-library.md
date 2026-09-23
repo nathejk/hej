@@ -736,9 +736,35 @@ by design.
    compose points at `openssl rand -base64 24`, and the tool is absent until somebody sets one — so the
    default outcome of deciding nothing is a tool that does not exist. That is the safe direction, but it is
    not a plan.
-5. **Is 32 MB the right per-file ceiling** (§8.9), and does a storage ceiling apply to an organizer
-   upload at all? I recommend a ceiling generous enough never to be hit by a real photograph but
-   present enough to stop a stuck script.
+5. **Is 32 MB the right per-file ceiling** (§8.9)? Still open, and still wants a real card's worth of
+   files held up against it rather than a guess.
+
+   ~~And does a storage ceiling apply to an organizer upload at all?~~ **Resolved (2026-09-23, task 384):
+   yes — but as a floor under the volume, not a quota over the feature.**
+
+   The recommendation above was "a ceiling generous enough never to be hit by a real photograph but present
+   enough to stop a stuck script", and building it showed the instrument was wrong. `glimtstorage.go`'s
+   quota works because retention frees space on a schedule everybody was told about (PRD 019): a member who
+   hits their allowance has a way through. Q2 above removed exactly that property here — photographs are
+   never purged, so the store grows monotonically and a quota would refuse a *legitimate* hand-in the first
+   year the number was too small, in front of a photographer, mid-batch. That is the failure §8.11 names,
+   caused by the control meant to prevent it.
+
+   A quota is also blind to the thing that actually fills the disk. The volume holds portraits and glimt
+   media too, and in production it is a bind mount that may share a filesystem with anything; a per-feature
+   quota can be comfortably under its limit while `df` reports zero.
+
+   So the answer is a **free-space floor**: `ADMIN_DISK_FLOOR_BYTES`, default **2 GiB**, checked against the
+   result of the upload rather than the current state, refusing with 507 and a message that tells the
+   photographer to keep their card. It warns in the log at three times the floor, which is the "fires before
+   a batch can fill the volume" check task 384 asked for. It **fails open** when free space cannot be
+   measured, deliberately and for the reason the glimt ceiling gives: wrongly allowing an upload costs disk
+   an operator can see, wrongly refusing one costs a hand-in and possibly a card.
+
+   Two thousand megabytes is roughly twice one event's hand-in (§6), so the refusal arrives with a whole
+   batch's room still on the volume. **None of this answers the operational half of §8.11** — it converts a
+   silent partial write into a loud refusal, which is worth having and is not the same as having enough
+   disk.
 6. **Does the curator need an undelete?** The events are soft deletes, so the capability exists in
    the log; §6 ships no button. If a curator deletes 40 photographs with a mis-aimed "select all",
    the only recovery is a maintainer. That may be acceptable for v1; it should be a choice.

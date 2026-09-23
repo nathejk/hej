@@ -466,6 +466,11 @@ type config struct {
 	glimtMemberStorageBytes int64
 	// glimtTotalStorageBytes is the whole year's allowance, protecting the volume itself.
 	glimtTotalStorageBytes int64
+	// adminDiskFloorBytes is how much free space on the blob volume must survive an organizer upload.
+	//
+	// A floor under the *volume*, not a quota over the feature — see `adminstorage.go` for why PRD 022 §11
+	// Q5 is answered that way. **Zero disables it**, as with every other ceiling here.
+	adminDiskFloorBytes int64
 }
 
 func loadConfig() config {
@@ -515,6 +520,11 @@ func loadConfig() config {
 	flag.IntVar(&cfg.publicMediaReadsPerMinute, "public-media-reads-per-minute", envInt("PUBLIC_MEDIA_READS_PER_MINUTE", 12000), "Public media requests (album photographs, public glimt thumbnails) one IP may make per minute (0 disables the limit)")
 	flag.Int64Var(&cfg.glimtMemberStorageBytes, "glimt-member-storage-bytes", envInt64("GLIMT_MEMBER_STORAGE_BYTES", 500<<20), "Total media bytes one member may have stored (0 disables the ceiling)")
 	flag.Int64Var(&cfg.glimtTotalStorageBytes, "glimt-total-storage-bytes", envInt64("GLIMT_TOTAL_STORAGE_BYTES", 0), "Total media bytes the event may have stored (0 disables the ceiling)")
+	// 2 GiB, which is reserve rather than budget: roughly twice a full card's hand-in (PRD 022 §6 puts one at
+	// order 1 GB), so the refusal lands with a whole batch's worth of room still on the volume for everything
+	// else that shares it. Defaulted **on**, unlike the glimt total ceiling, because the thing it protects
+	// against needs no adversary — one photographer with a card does it by following instructions.
+	flag.Int64Var(&cfg.adminDiskFloorBytes, "admin-disk-floor-bytes", envInt64("ADMIN_DISK_FLOOR_BYTES", 2<<30), "Free bytes that must remain on the blob volume after an admin photo upload (0 disables the check)")
 	publicOverride := flag.String("public-page-patrol-override", envStr("PUBLIC_PAGE_PATROL_OVERRIDE", ""), "Patrol ids whose public page is open regardless of the gate, comma-separated (PRD 011)")
 	flag.Parse()
 	cfg.publicPagePatrolOverride = splitCSV(*publicOverride)
