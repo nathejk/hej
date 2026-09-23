@@ -54,7 +54,11 @@ var adminOwnedFiles = map[string]bool{
 	// curator removed — which is the whole reason it cannot use the public read: that one answers an identical
 	// "not found" for unknown, unpublished and deleted so the open web cannot enumerate drafts.
 	"adminalbumpage.go": true,
-	// The last arrives with task 379: the library delete.
+	// The two removals. Reads `PhotoCurator.Photo` to capture a photograph's refs **before** the fold hides it —
+	// afterwards there is no way to learn which bytes it held — and to tell an already-deleted one from an unknown
+	// one, which the public read cannot. Reads `AlbumCurator.Album` to resolve a photograph to its position,
+	// including the removed memberships a public read does not return.
+	"admindelete.go": true,
 }
 
 // curatorReads are the model fields that return draft-visible data.

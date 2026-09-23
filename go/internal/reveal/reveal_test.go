@@ -624,7 +624,7 @@ func TestResolvableHandoutCheckgroupStillUsesRule2(t *testing.T) {
 }
 
 // Route order is (checkgroup order, checkpoint order), and both halves are only available on the server.
-// Sorted here so the client can trust the response \u2014 a frontend redoing this sort would need the group order
+// Sorted here so the client can trust the response — a frontend redoing this sort would need the group order
 // shipped to it as well, and one that forgot would point arrows at the wrong "next" post while looking
 // entirely correct.
 func TestRouteOrderSpansCheckgroups(t *testing.T) {

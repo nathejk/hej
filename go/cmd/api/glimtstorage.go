@@ -24,7 +24,7 @@ import (
 //
 // # Two ceilings, two different status codes
 //
-// The distinction is not pedantry \u2014 it decides what the client tells the member to do:
+// The distinction is not pedantry — it decides what the client tells the member to do:
 //
 //   - **Per member: 429.** It is their quota, and they can act on it: delete something, or wait for
 //     retention. The message says so.

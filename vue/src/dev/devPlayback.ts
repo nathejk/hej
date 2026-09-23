@@ -11,8 +11,8 @@ import { setMovingSource } from '@/dev/devGeolocation'
 //
 // Two constraints, both deliberate:
 //
-// 1. **Not derived from real track data.** That would be a participant's \u2014 in practice a minor's
-//    \u2014 actual movement history in committed source, which `.rules`' privacy posture rules out.
+// 1. **Not derived from real track data.** That would be a participant's — in practice a minor's
+//    — actual movement history in committed source, which `.rules`' privacy posture rules out.
 //    (PRD 014 open question 2, settled here.)
 // 2. **Not the event area.** `@/config/map` records that the area "is not fully known to
 //    participants, so we deliberately do not reveal it". A dev fixture must not be the thing that
@@ -82,7 +82,7 @@ function currentCoord(): { lat: number; lng: number } | null {
     }
     remaining -= leg.metres
   }
-  // Past the end: sit on the last vertex. The route is a loop, so this is also the start \u2014 which
+  // Past the end: sit on the last vertex. The route is a loop, so this is also the start — which
   // is why it does not need to emit a discontinuity to get back there.
   const last = ROUTE[ROUTE.length - 1]
   return { lat: last[0], lng: last[1] }

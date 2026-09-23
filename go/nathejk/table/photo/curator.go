@@ -28,7 +28,7 @@ import (
 // # This interface still may not carry a person
 //
 // The split is about *publication*, not about privacy, and the no-person rule is not relaxed by being
-// behind a credential. There is no uploader, no curator, no member \u2014 and after PRD 022 §8.2 there could
+// behind a credential. There is no uploader, no curator, no member — and after PRD 022 Â§8.2 there could
 // not honestly be one anyway, since the credential is shared. Task 381's structural walk covers these
 // types too.
 
@@ -53,7 +53,7 @@ type CuratorQueries interface {
 	// Photo returns one photograph including a deleted one, with its tags.
 	//
 	// Unlike `Queries.Get`, a deleted photograph is **found** here and reports itself deleted. A curator
-	// has to be able to see what they removed \u2014 that is the whole difference between a soft delete and a
+	// has to be able to see what they removed — that is the whole difference between a soft delete and a
 	// destructive one, and it is what an undelete would be built on (PRD 022 §11 Q6).
 	Photo(year, photoID string) (LibraryPhoto, bool, error)
 

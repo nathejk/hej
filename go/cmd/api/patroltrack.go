@@ -33,13 +33,13 @@ import (
 //
 // # The cache is not an optimisation, it is the requirement
 //
-// PRD 011 §8.4's actual concern was never storage \u2014 it was that **a public page must not do bulk work per
+// PRD 011 Â§8.4's actual concern was never storage — it was that **a public page must not do bulk work per
 // request**. A patrol of six at 30 s sampling is ~8,600 points; merging and simplifying that is cheap once
 // and wasteful a hundred times, and this route is unauthenticated, so "a hundred times" is somebody's
 // afternoon rather than a load test.
 //
-// So the merged result is cached per patrol. The cache is deliberately simple \u2014 a map with a TTL, no
-// eviction policy, no size bound \u2014 and that is safe because of what it holds: one entry per patrol per
+// So the merged result is cached per patrol. The cache is deliberately simple — a map with a TTL, no
+// eviction policy, no size bound — and that is safe because of what it holds: one entry per patrol per
 // event, a few hundred entries of a few hundred points. A patrol's route also does not change after the
 // race, which is what makes a long TTL correct rather than merely tolerable.
 
@@ -47,7 +47,7 @@ import (
 //
 // Long, because the input is immutable in practice: a patrol's recorded points stop arriving when the race
 // ends, and this page only opens once the patrol has finished (task 330). The one thing that *can* change is
-// a late-arriving batch from a phone that was offline for hours \u2014 which is exactly why this is not
+// a late-arriving batch from a phone that was offline for hours — which is exactly why this is not
 // `forever`. An hour means such a batch appears on the page within an hour of reaching us, and costs one
 // merge per patrol per hour in the worst case.
 const patrolTrackTTL = time.Hour

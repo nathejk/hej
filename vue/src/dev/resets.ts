@@ -18,13 +18,13 @@ import { clearDevOverrides } from '@/dev/devDevice'
 //
 // - `onboardingStore.reset()` already exists and already clears the persisted completion flag.
 //   Its comment says it is used by the dev/QA override *and by sign-out*, so this button
-//   exercises the same code the product does \u2014 if it stops working, sign-out is broken too.
+//   exercises the same code the product does — if it stops working, sign-out is broken too.
 // - `sessionStore.logout()` posts /api/auth/logout and drops the remembered identity even when
 //   the request fails, so it is preferable to clearing storage by hand.
 // - Dataset clearing goes through `offlineStore.clear(id)`, which dispatches to the handler the
 //   owning feature registered. Reaching past those handlers into IndexedDB would be the same
 //   mistake that store's header forbids ("anything here that starts fetching or evicting is a
-//   sign the registry has been reinvented") \u2014 and it would leave the dataset's *status* wrong,
+//   sign the registry has been reinvented") — and it would leave the dataset's *status* wrong,
 //   because the store's bookkeeping would not run. The readiness view would then report
 //   something that is not true, which is precisely the class of bug PRD 009 exists to prevent.
 
@@ -58,15 +58,15 @@ async function clearDatasets(): Promise<string[]> {
   const cleared: string[] = []
   for (const dataset of OFFLINE_DATASETS) {
     // `clear()` refuses anything marked unrecoverable, and the position track is the only such
-    // dataset. That refusal is correct in the product \u2014 the local copy may be the sole record
-    // of where a team was \u2014 so it is not bypassed here; the track is handled separately below,
+    // dataset. That refusal is correct in the product — the local copy may be the sole record
+    // of where a team was — so it is not bypassed here; the track is handled separately below,
     // where the reasoning is that a *developer's* fake track is not evidence of anything.
     if (dataset.unrecoverable) continue
     try {
       await offline.clear(dataset.id)
       cleared.push(dataset.id)
     } catch {
-      // One failing dataset must not stop the others \u2014 the same posture as the evictor loop
+      // One failing dataset must not stop the others — the same posture as the evictor loop
       // in @/helpers/offline/eviction.
     }
   }
@@ -101,7 +101,7 @@ async function clearCacheStorage(): Promise<number> {
 
 // Unregistering leaves the next load to fetch a fresh bundle. Registration is manual in
 // @/helpers/pwa (vite-plugin-pwa is configured with injectRegister: false), so there is no
-// framework call to undo \u2014 the registration object is the whole story.
+// framework call to undo — the registration object is the whole story.
 async function unregisterServiceWorkers(): Promise<number> {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return 0
   const registrations = await navigator.serviceWorker.getRegistrations()

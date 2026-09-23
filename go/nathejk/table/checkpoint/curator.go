@@ -48,7 +48,7 @@ type CuratorQueries interface {
 
 // PickerCheckpoint is one checkpoint as the curator's picker shows it.
 //
-// A narrower type than `Checkpoint` on purpose \u2014 see the package note above. A name, a place, and enough to sort
+// A narrower type than `Checkpoint` on purpose — see the package note above. A name, a place, and enough to sort
 // by.
 type PickerCheckpoint struct {
 	ID   types.CheckpointID
@@ -73,7 +73,7 @@ type curatorQuerier struct {
 //
 // `latitude IS NOT NULL` is not enough on its own: the projection writes 0,0 for a checkpoint whose position was
 // never set, and 0,0 is a real place in the Atlantic. The same exclusion `RaceArea` applies is applied here, for
-// the same reason \u2014 otherwise the picker offers a post in the Gulf of Guinea and the bounds check dutifully
+// the same reason — otherwise the picker offers a post in the Gulf of Guinea and the bounds check dutifully
 // judges it `outside`.
 func (q curatorQuerier) Positioned(year string) ([]PickerCheckpoint, error) {
 	rows, err := q.db.Query(`

@@ -51,24 +51,24 @@ means a restarted server relearns its subscribers as members open the app.
 
 ## What was implemented
 
-- `notifications.serverKey` \u2014 the key the server advertises, kept (not just a
+- `notifications.serverKey` — the key the server advertises, kept (not just a
   configured/not-configured boolean) so it can be compared.
 - `syncSubscription()` now: no subscription \u2192 not subscribed; subscription bound to a
   **different** key \u2192 unsubscribe and re-subscribe; otherwise subscribed, and
   re-registered with the BFF once per page load.
 - **The rotation heals itself invisibly.** Permission is already granted, so re-subscribing
-  raises no prompt \u2014 the member never learns anything happened.
+  raises no prompt — the member never learns anything happened.
 - `registeredEndpoint` guards the re-POST so returning to the page does not re-register on
   every `visibilitychange`; it is in memory on purpose, since a reload is exactly when
   re-registering is wanted.
 - `enable()` remembers the key it subscribed with, and now **fails** if the BFF did not
-  accept the registration \u2014 previously it reported success when the browser had a
+  accept the registration — previously it reported success when the browser had a
   subscription the server knew nothing about, i.e. push that could never arrive.
 
 ## Ordering, which is load-bearing
 
 `syncConfigured()` must complete **before** `syncSubscription()`, or the key is unknown and
-the staleness check silently no-ops \u2014 on the first visit after a rotation, the one moment
+the staleness check silently no-ops — on the first visit after a rotation, the one moment
 it exists for. Both call sites (`ProfileView`, `UpdatesView`) await it first, with the
 reason written next to them, because a future tidy-up to `Promise.all` would look like an
 improvement.
@@ -92,6 +92,6 @@ unreachable until they do. PRD 008 gave this service a database and an event log
 natural fix is a projection like every other read model. Not filed as part of this task
 because it belongs with the delivery work (a later PRD) that will actually read the store.
 
-If you still want a manual "force everyone to re-subscribe" lever \u2014 distinct from
-rotation, e.g. after wiping the store deliberately \u2014 that is a small addition and worth its
+If you still want a manual "force everyone to re-subscribe" lever — distinct from
+rotation, e.g. after wiping the store deliberately — that is a small addition and worth its
 own task; say so and I will add it.

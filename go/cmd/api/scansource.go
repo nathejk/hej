@@ -27,7 +27,7 @@ import (
 // # Why the adapter is here and not in internal/scans
 //
 // It needs the concrete projection type, and `internal/scans` must not import anything under
-// nathejk/table \u2014 the seam exists so that dependency runs one way only.
+// nathejk/table — the seam exists so that dependency runs one way only.
 func scanSourceFor(t *scan.Table, people person.Queries, year string, logger *slog.Logger) scans.Source {
 	if t == nil {
 		logger.Warn("no scan projection: serving mock registrations (development fallback)")
@@ -131,7 +131,7 @@ func (b banditter) BanditIDs(year string) (map[string]bool, error) {
 //
 // A hand-written loop rather than a shared struct, because the two types are deliberately separate: one
 // is a row in a read model, the other is a registration a patrol sees. Keeping them apart is what lets
-// the projection grow columns \u2014 the window and scheme it already carries for the verdict work \u2014 without
+// the projection grow columns — the window and scheme it already carries for the verdict work — without
 // widening what the handler is handed.
 type projectionAdapter struct {
 	t *scan.Table

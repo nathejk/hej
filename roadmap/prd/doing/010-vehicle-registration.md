@@ -25,7 +25,7 @@ car. See §8.
 ## 2. Problem & Motivation
 
 - **What problem does this solve?** Every vehicle connected to the race needs to be
-  known: for site parking and access, for insurance and liability, and \u2014 for cars \u2014
+  known: for site parking and access, for insurance and liability, and — for cars —
   because they are the pool that collects members off the route. Today that
   inventory is assembled by organisers rather than by the people who actually know
   the registration plate, and nothing in the participant-facing app asks.
@@ -51,7 +51,7 @@ car. See §8.
   the phone they already have.
 - The organisers get one complete inventory of vehicles associated with the race.
 - A car's seat count is captured, so the pickup pool is usable for dispatch.
-- Registration is editable and removable afterwards \u2014 plans change.
+- Registration is editable and removable afterwards — plans change.
 - Reuse shared-go's existing vehicle entity rather than inventing a parallel one.
 
 ## 4. Non-Goals
@@ -68,7 +68,7 @@ car. See §8.
   no other role has to argue its way in.
 - **Parking allocation, permits, or access control.** Downstream uses of the
   inventory, not this PRD.
-- **Vehicle tracking / position.** Out of scope, and deliberately so \u2014 see §11.
+- **Vehicle tracking / position.** Out of scope, and deliberately so — see §11.
 
 ## 5. User Stories & Scenarios
 
@@ -84,7 +84,7 @@ car. See §8.
 ### Primary path
 
 1. During onboarding (PRD 005), a bandit/gøgler/crew member reaches the vehicle step.
-2. They answer "are you bringing a vehicle?" \u2014 skipping is one tap.
+2. They answer "are you bringing a vehicle?" — skipping is one tap.
 3. If yes: registration plate (required), plus brand, model, colour, and **seats
    excluding the driver**.
 4. Optionally "…and a trailer", which asks for the trailer's plate and a description.
@@ -99,7 +99,7 @@ car. See §8.
   both fill it in. The plate is the natural identity, so a duplicate plate within a
   year should be detected and offered as "this car is already registered by X" rather
   than silently creating two rows the coordinator has to reconcile.
-- **A trailer with no car.** Legitimate \u2014 someone may tow with a car registered by
+- **A trailer with no car.** Legitimate — someone may tow with a car registered by
   someone else, or bring a trailer separately. Must not be blocked.
 - **Plate formatting.** shared-go asks for a country prefix (`"DK+AB12345"`). Users
   will type `ab 12 345`. Normalise, and do it in one place, or the duplicate
@@ -140,7 +140,7 @@ car. See §8.
       creating a second row.
 - [ ] The profile page (PRD 003) lists the user's vehicles and allows edit and
       remove.
-- [ ] Writes go through shared-go's `vehicle.Commands` \u2014 no new event vocabulary,
+- [ ] Writes go through shared-go's `vehicle.Commands` — no new event vocabulary,
       no direct SQL.
 - [ ] The registrant becomes the vehicle's custodian and first driver.
 - [ ] A failed write is reported and retryable.
@@ -163,7 +163,7 @@ car. See §8.
   comes first, so the majority who bring nothing answer in one tap and never see a form.
 - **The form** is short and ordered by what people know without looking: plate,
   then brand/model/colour, then seats. Seat count needs a label that makes
-  "excluding the driver" unmissable \u2014 an off-by-one here means a coordinator
+  "excluding the driver" unmissable — an off-by-one here means a coordinator
   dispatches a car with one seat too few at the worst moment.
 - **Trailer** is an explicit "tilføj anhænger" affordance after the car, not a
   separate flow, since the two are registered together in practice — but it produces a
@@ -273,11 +273,11 @@ read endpoint rather than for the whole feature.
 
 ### API endpoints (OpenAPI annotations mandatory, per `.rules`)
 
-- `GET /api/me/vehicles` \u2014 the caller's own vehicles. `200` / `401`.
-- `POST /api/me/vehicles` \u2014 register. `201` / `400` / `401` / `409` (duplicate plate).
-- `PATCH /api/me/vehicles/{id}` \u2014 edit; delta semantics matching
+- `GET /api/me/vehicles` — the caller's own vehicles. `200` / `401`.
+- `POST /api/me/vehicles` — register. `201` / `400` / `401` / `409` (duplicate plate).
+- `PATCH /api/me/vehicles/{id}` — edit; delta semantics matching
   `vehicle.UpdateFields`, where nil leaves a field alone and a zero value clears it.
-- `DELETE /api/me/vehicles/{id}` \u2014 remove (publishes `vehicle.deleted`).
+- `DELETE /api/me/vehicles/{id}` — remove (publishes `vehicle.deleted`).
 
 Authorisation is per-caller: a user may only read or modify vehicles they are the
 custodian of. Organiser-wide access stays in `hq`.

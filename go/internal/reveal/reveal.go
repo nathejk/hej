@@ -348,7 +348,7 @@ func revealsFor(
 func heldSheetIDs(handouts []maphandout.Handout) map[kort.KortID]bool {
 	held := make(map[kort.KortID]bool, len(handouts))
 	for _, h := range handouts {
-		// "" means the QR was registered before its sheet was recorded \u2014 unknown sheet, not no sheet. It
+		// "" means the QR was registered before its sheet was recorded — unknown sheet, not no sheet. It
 		// reveals nothing, because there is no checkpoint list to reveal, but it is still a real handout
 		// and appears in the patrol's list.
 		if h.MapID == "" {
@@ -362,7 +362,7 @@ func heldSheetIDs(handouts []maphandout.Handout) map[kort.KortID]bool {
 // reachedCheckgroups collects the groups this patrol has scanned at.
 //
 // Derived from attributed scans, so it inherits their limitation: a scan the personnel rota could not place
-// has no checkgroup and reveals nothing. That is an upstream data gap presenting as an under-reveal \u2014 the
+// has no checkgroup and reveals nothing. That is an upstream data gap presenting as an under-reveal — the
 // safe direction, and the reason task 260 counts unattributed scans.
 func reachedCheckgroups(scans []scan.Scan) []types.CheckgroupID {
 	seen := map[string]bool{}
@@ -379,8 +379,8 @@ func reachedCheckgroups(scans []scan.Scan) []types.CheckgroupID {
 
 // dedupeIDs removes repeats, keeping first-seen order.
 //
-// A checkpoint may be drawn on any number of sheets \u2014 adjacent sheets overlap by design, and every patrol
-// sheet's ground is also on the crew map \u2014 so seeing an id twice is normal rather than a bug.
+// A checkpoint may be drawn on any number of sheets — adjacent sheets overlap by design, and every patrol
+// sheet's ground is also on the crew map — so seeing an id twice is normal rather than a bug.
 func dedupeIDs(ids []types.CheckpointID) []types.CheckpointID {
 	if len(ids) == 0 {
 		return nil

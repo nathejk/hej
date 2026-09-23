@@ -5,7 +5,7 @@ import { checkForUpdate } from '@/helpers/pwa'
 //
 // # The problem this fixes
 //
-// `registerSW` checks for a new service worker exactly once, at registration \u2014 per *document*. On iOS an
+// `registerSW` checks for a new service worker exactly once, at registration — per *document*. On iOS an
 // installed PWA's document survives suspend/resume for a long time: task 280 measured 47 minutes on one
 // document, across seven cycles including a 32-minute suspension. So without this, a device that stays
 // open never learns a new build exists, and the only escape is the OS discarding the app. Found in the
@@ -17,13 +17,13 @@ import { checkForUpdate } from '@/helpers/pwa'
 //
 // # Why it reuses useFreshnessLoop
 //
-// Because it is the same question at a different cadence \u2014 "has something changed?", asked at the moments
-// worth asking \u2014 and that composable already owns every answer this needs: check on foreground, check on
+// Because it is the same question at a different cadence — "has something changed?", asked at the moments
+// worth asking — and that composable already owns every answer this needs: check on foreground, check on
 // an interval *while visible*, check on reconnect, stop entirely when hidden, and debounce repetition. A
 // second timer here would have to re-derive all of it, and would be the third thing in this app polling
 // on its own schedule, which is exactly what PRD 017 spent its effort removing.
 //
-// It is a **fourth** consumer of that convention (after contacts, the quiet prefetch, and the sync loop \u2014
+// It is a **fourth** consumer of that convention (after contacts, the quiet prefetch, and the sync loop —
 // the first two of which were collapsed into the third), which is the first real evidence that the
 // convention generalises rather than just being reusable in principle.
 //
@@ -36,7 +36,7 @@ import { checkForUpdate } from '@/helpers/pwa'
  * How often to ask, while the app is visible.
  *
  * Fifteen minutes: short enough that a fix shipped during an event reaches open devices within a
- * reasonable window, long enough to be free \u2014 a conditional request for one small file, so a few hundred
+ * reasonable window, long enough to be free — a conditional request for one small file, so a few hundred
  * devices work out to well under one request per second.
  *
  * Deliberately **not** served from `/api/config`, unlike PRD 017's interval. That lever exists so an

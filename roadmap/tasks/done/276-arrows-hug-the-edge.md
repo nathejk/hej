@@ -58,7 +58,7 @@ only 8 px — put it back near the edge, while any arrow exiting top or bottom f
   than tucked behind the status bar next to the buttons.
 - 2026-09-15 — This is the **third correction to the arrows** in one sitting (274 vanishing/jumping, 275
   wrong targets, 276 placement). All three shared a property: invisible to the test suite as written and to a
-  static screenshot, visible only with a finger on the glass. Recorded plainly \u2014 it is the strongest
+  static screenshot, visible only with a finger on the glass. Recorded plainly — it is the strongest
   argument yet that the deferred device pass (tasks 263/264) is not optional, and I have stopped treating
   "tests green" as "done" for this component.
 - 2026-09-15 — ✅ 26 placement specs + 10 zone specs; 609 frontend tests, type-check and build clean; all four

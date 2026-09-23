@@ -72,9 +72,9 @@ synced, was having its timestamp dropped on the way to the store.
 - 2026-09-02 — **The "aldrig" bug is the more embarrassing of the two.** A row reading `26,5 MB · 252 stk. ·
   aldrig` is self-contradictory, and on a page whose entire purpose is to be believed about what the phone
   holds, that is worse than an absent field. The Cache API genuinely cannot say when an entry was written,
-  so the honest rendering is silence \u2014 the size and count already prove the data is there. The directory's
+  so the honest rendering is silence — the size and count already prove the data is there. The directory's
   timestamp *was* known and was simply being dropped in `reportDirectory`.
 - 2026-09-02 — ✅ Green: 2 new tests, suite 393 across 32 files, `type-check` and `build` clean.
-- 2026-09-02 — **Not resolved: which candidate it actually was.** The next tap will say \u2014 either
+- 2026-09-02 — **Not resolved: which candidate it actually was.** The next tap will say — either
   "Løbsområdet er ikke lagt ind endnu" (the 404), "Forbindelsen holdt ikke" (network), or "Der gik noget galt
   i appen" with a `syncfail` line in `/sporing` naming the exception.

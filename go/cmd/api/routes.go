@@ -274,6 +274,12 @@ func (app *application) routes() http.Handler {
 		router.HandlerFunc(http.MethodGet, "/admin/album/:slug", app.requireAdmin(app.adminAlbumPageHandler))
 		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId", app.requireAdmin(app.updateAdminAlbumHandler))
 		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId/items", app.requireAdmin(app.reorderAdminAlbumItemsHandler))
+		// The two removals (task 379), and they are deliberately different endpoints for different acts: taking a
+		// photograph out of one album leaves it everywhere else and frees nothing, while deleting it from the
+		// library removes it from everything and purges its bytes. One of the two is what somebody means by "take
+		// it down" — see admindelete.go for the copy that has to carry that distinction.
+		router.HandlerFunc(http.MethodDelete, "/api/admin/albums/:albumId/items/:photoId", app.requireAdmin(app.removeAdminAlbumItemHandler))
+		router.HandlerFunc(http.MethodDelete, "/api/admin/photos/:photoId", app.requireAdmin(app.deleteAdminPhotoHandler))
 		// The bulk position (task 376). The bounds check is re-run for every set — a curator-placed point is not
 		// exempt, because nothing reaches the public map unverified.
 		router.HandlerFunc(http.MethodPatch, "/api/admin/photos", app.requireAdmin(app.patchAdminPhotosHandler))

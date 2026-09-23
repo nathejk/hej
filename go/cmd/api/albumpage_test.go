@@ -15,7 +15,7 @@ import (
 
 // albumStore is a stub that holds albums properly rather than returning fixed answers.
 //
-// Implemented for real \u2014 including the publication filter in `BySlug` \u2014 because the property under test
+// Implemented for real — including the publication filter in `BySlug` — because the property under test
 // is that an unpublished album is unreachable, and a stub that ignored `published` would make that test
 // pass while the behaviour was absent. The same reasoning `stubGlimt.RefsUsedElsewhere` records.
 type albumStore struct {

@@ -351,6 +351,31 @@ h2 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
   font: inherit; padding: 0.375rem 0.5rem; border: 1px solid #d4d4d8; border-radius: 0.375rem; width: 8rem;
 }
 #tagfound.ok { color: #166534; font-weight: 500; }
+
+/* The delete panel. The two choices are visually separated and the destructive one is marked, because the whole
+   point of this panel is that they are different acts (PRD 022 §5). */
+#delpanel {
+  margin-top: 0.5rem; padding: 1rem; background: #fff;
+  border: 1px solid #d4d4d8; border-radius: 0.5rem; max-width: 34rem;
+}
+#delpanel h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+#delpanel h4 { margin: 0 0 0.25rem; font-size: 0.9375rem; }
+#delpanel p { margin: 0.5rem 0; font-size: 0.9375rem; }
+#delpanel .choice { border: 1px solid #e4e4e7; border-radius: 0.375rem; padding: 0.75rem; margin: 0.75rem 0; }
+#delpanel .choice.danger { border-color: #fca5a5; background: #fef2f2; }
+#delpanel label { display: block; font-size: 0.875rem; color: #52525b; }
+#delpanel select, #delpanel input[type=text] {
+  font: inherit; padding: 0.375rem 0.5rem; border: 1px solid #d4d4d8; border-radius: 0.375rem;
+}
+#delpanel input[type=text] { width: 100%; }
+#delpanel button {
+  font: inherit; font-size: 0.875rem; cursor: pointer;
+  background: #fff; color: #18181b; border: 1px solid #d4d4d8;
+  padding: 0.375rem 0.75rem; border-radius: 0.375rem;
+}
+#delpanel button:disabled { opacity: 0.5; cursor: not-allowed; }
+/* The destructive action is the only red button in the tool. */
+#delpanel button.danger { background: #b91c1c; color: #fff; border-color: #b91c1c; font-weight: 500; }
 svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 </style>
@@ -423,7 +448,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     <button type="button" data-act="album">Tilføj til album</button>
     <button type="button" data-act="position">Sæt position</button>
     <button type="button" data-act="patrol">Tag patrulje</button>
-    <button type="button" data-act="delete" disabled>Slet</button>
+    <button type="button" data-act="delete">Fjern eller slet</button>
     <button type="button" id="clearsel">Ryd valg</button>
   </div>
 
@@ -485,6 +510,47 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       <button type="button" id="dotag" disabled>Tag billederne</button>
       <button type="button" id="closetag">Annuller</button>
     </p>
+  </div>
+  <!-- The delete panel (task 379). **The copy here is the substance, not decoration.**
+
+       PRD 022 §5 and §7 both single it out: removing a photograph from an album leaves it in the library and in
+       every other album, while deleting it from the library removes it from all of them — and one of those two is
+       what an organizer means when they say "take it down". If the two read alike, the wrong one gets pressed
+       under exactly the pressure that makes it matter.
+
+       So this panel offers **both**, states plainly what each does, and makes the destructive one visually
+       distinct. The safe one is offered first, because it is the one a curator usually wants. -->
+  <div id="delpanel" hidden role="dialog" aria-label="Fjern eller slet">
+    <h3>Fjern eller slet</h3>
+    <p id="delnote"></p>
+
+    <div class="choice">
+      <h4>Fjern fra et album</h4>
+      <p>Billederne bliver taget ud af det album du vælger. <strong>De bliver liggende i arkivet</strong> og i de
+      andre album de ligger i, og du kan lægge dem tilbage når som helst.</p>
+      <p>
+        <label for="delalbum">Album</label>
+        <select id="delalbum"><option value="">— vælg album —</option></select>
+        <button type="button" id="doremove" disabled>Fjern fra albummet</button>
+      </p>
+    </div>
+
+    <div class="choice danger">
+      <h4>Slet fra arkivet</h4>
+      <p><strong>Billederne forsvinder helt.</strong> De bliver fjernet fra alle album, de kan ikke ses
+      offentligt, og filerne bliver slettet. Det er det du skal bruge, hvis nogen har bedt om at få et billede
+      taget ned.</p>
+      <p>Det kan <strong>ikke</strong> fortrydes herfra — kun en udvikler kan hente et slettet billede frem igen.</p>
+      <p>
+        <label for="delreason">Hvorfor? (valgfrit, gemmes i loggen)</label>
+        <input type="text" id="delreason" maxlength="500" placeholder="En forælder har bedt om det">
+      </p>
+      <p>
+        <button type="button" id="dodelete" class="danger">Slet <span id="delcount"></span> fra arkivet</button>
+      </p>
+    </div>
+
+    <p><button type="button" id="closedel">Annuller</button></p>
   </div>
 </main>
 <script>
@@ -766,17 +832,15 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     const n = selected.size;
     actions.hidden = n === 0;
     selCount.textContent = n === 1 ? '1 valgt' : n + ' valgte';
-    // The last action arrives with task 379. It stays disabled rather than absent so the shape of the tool is
-    // visible, and so the selection can be exercised against the bar it will drive.
-    for (const b of actions.querySelectorAll('button[data-act]')) {
-      if (b.dataset.act === 'delete') b.disabled = true;
-    }
-    // Closing the bar closes the panels with it: a panel acting on an empty selection is a button that cannot
-    // do anything.
+    // Every action is wired now (tasks 375–379).
+    //
+    // Closing the bar closes the panels with it: a panel acting on an empty selection is a button that cannot do
+    // anything.
     if (n === 0) {
       if (panel) panel.hidden = true;
       if (posPanel) posPanel.hidden = true;
       if (tagPanel) tagPanel.hidden = true;
+      if (delPanel) delPanel.hidden = true;
     }
   }
 
@@ -1116,6 +1180,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     if (b.dataset.act === 'album') openAlbumPanel();
     if (b.dataset.act === 'position') openPositionPanel();
     if (b.dataset.act === 'patrol') openTagPanel();
+    if (b.dataset.act === 'delete') openDeletePanel();
   });
 
   // --- the bulk position (task 376) -----------------------------------------
@@ -1389,6 +1454,129 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     } catch (err) {
       tagNote.textContent = 'Kunne ikke tagge billederne. Prøv igen.';
     }
+  });
+
+  // --- removing and deleting (task 379) -------------------------------------
+  //
+  // Two different acts behind one button, and the panel's job is to make the difference unmissable. Removing from
+  // an album leaves the photograph in the archive; deleting takes it out of everything and frees its bytes. One of
+  // the two is what somebody means by "take it down", and if they read alike the wrong one gets pressed.
+  //
+  // Both loop the selection with the uploader's bounded concurrency rather than a bulk endpoint: one event per
+  // photograph keeps the audit log one line per act, which with a shared credential is the only record there is.
+
+  const delPanel = document.getElementById('delpanel');
+  const delNote = document.getElementById('delnote');
+  const delAlbum = document.getElementById('delalbum');
+  const delReason = document.getElementById('delreason');
+  const delCount = document.getElementById('delcount');
+  const doRemove = document.getElementById('doremove');
+
+  async function openDeletePanel() {
+    delPanel.hidden = false;
+    panel.hidden = true;
+    posPanel.hidden = true;
+    tagPanel.hidden = true;
+    delReason.value = '';
+    delAlbum.value = '';
+    doRemove.disabled = true;
+
+    const n = selected.size;
+    delNote.textContent = n === 1 ? '1 billede er valgt.' : n + ' billeder er valgt.';
+    delCount.textContent = n === 1 ? '1 billede' : n + ' billeder';
+
+    // Only albums the selection could plausibly be in are worth offering, but filtering that would need a read per
+    // photograph — so every live album is listed and the server answers 404 for a photograph that is not in the
+    // one chosen, which the loop below reports as "lå ikke i albummet".
+    try {
+      const res = await fetch('/api/admin/albums');
+      if (!res.ok) return;
+      const data = await res.json();
+      while (delAlbum.options.length > 1) delAlbum.remove(1);
+      for (const a of data.albums.filter((x) => !x.deleted)) {
+        const o = document.createElement('option');
+        o.value = a.albumId;
+        o.textContent = a.title + (a.published ? '' : ' (kladde)');
+        delAlbum.append(o);
+      }
+    } catch (err) { /* the album list is an aid; deleting does not need it */ }
+  }
+
+  delAlbum.addEventListener('change', () => { doRemove.disabled = !delAlbum.value; });
+  document.getElementById('closedel').addEventListener('click', () => { delPanel.hidden = true; });
+
+  // runOverSelection issues one request per selected photograph, three at a time.
+  //
+  // The uploader's pattern, for the uploader's reasons: one failure does not take the batch with it, and progress
+  // is real rather than a bar that finishes and then waits.
+  async function runOverSelection(makeRequest) {
+    const ids = Array.from(selected);
+    let ok = 0, missing = 0, failed = 0;
+    let i = 0;
+
+    async function worker() {
+      for (;;) {
+        const id = ids[i++];
+        if (id === undefined) return;
+        try {
+          const res = await makeRequest(id);
+          if (res.status === 404) missing++;
+          else if (res.ok || res.status === 204) ok++;
+          else failed++;
+        } catch (err) {
+          failed++;
+        }
+      }
+    }
+
+    await Promise.all([worker(), worker(), worker()]);
+    return { ok, missing, failed };
+  }
+
+  doRemove.addEventListener('click', async () => {
+    const albumId = delAlbum.value;
+    if (!albumId) return;
+
+    delNote.textContent = 'Fjerner…';
+    const r = await runOverSelection((id) =>
+      fetch('/api/admin/albums/' + encodeURIComponent(albumId) + '/items/' + encodeURIComponent(id),
+        { method: 'DELETE' }));
+
+    // Said plainly, including the ones that were not in the album: a curator who selected across albums needs to
+    // know why the number is smaller than their selection.
+    const bits = [r.ok + (r.ok === 1 ? ' billede fjernet' : ' billeder fjernet')];
+    if (r.missing) bits.push(r.missing + ' lå ikke i albummet');
+    if (r.failed) bits.push(r.failed + ' fejlede');
+    note.textContent = bits.join(' · ') + '.';
+
+    delPanel.hidden = true;
+    selected.clear();
+    load(true);
+  });
+
+  document.getElementById('dodelete').addEventListener('click', async () => {
+    const n = selected.size;
+    // A native confirm, deliberately: this is the one irreversible action in the tool, and the browser's own dialog
+    // is the one thing a curator cannot dismiss by muscle memory. The count is in the question because "select all
+    // in filter" makes a mis-aimed delete plausible (PRD 022 §11 Q6).
+    const word = n === 1 ? 'dette billede' : 'disse ' + n + ' billeder';
+    if (!window.confirm('Slet ' + word + ' fra arkivet?\n\n' +
+      'De forsvinder fra alle album og kan ikke ses offentligt. ' +
+      'Det kan ikke fortrydes herfra.')) return;
+
+    delNote.textContent = 'Sletter…';
+    const body = JSON.stringify({ reason: delReason.value });
+    const r = await runOverSelection((id) =>
+      fetch('/api/admin/photos/' + encodeURIComponent(id),
+        { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body }));
+
+    const bits = [r.ok + (r.ok === 1 ? ' billede slettet' : ' billeder slettet')];
+    if (r.failed) bits.push(r.failed + ' fejlede');
+    note.textContent = bits.join(' · ') + '.';
+
+    delPanel.hidden = true;
+    selected.clear();
+    load(true);
   });
 
   // The initial load runs last, after every declaration it can reach.
