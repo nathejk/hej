@@ -89,8 +89,19 @@ type Item struct {
 	Ref      string
 	ThumbRef string
 	Caption  string
-	Width    int
-	Height   int
+
+	// Credit is the photographer's credit line, or "" when there is none (task 393).
+	//
+	// Comes from the **photograph**, like the caption and for the same reason (PRD 022 §8.3): one place to edit,
+	// so every album shows the same attribution and two copies of one fact cannot drift.
+	//
+	// This is the one field on the public surface that names a human being, and it is the narrow, consented
+	// exception PRD 011's "names no person" claim now carries — a photographer's own credit, typed by a curator,
+	// never derived from the `person` projection. See the column comment in photo/table.sql for the bounds.
+	Credit string
+
+	Width  int
+	Height int
 
 	// Lat/Lng are nil unless the item carries a usable coordinate. Nil rather than zero for the reason
 	// the scan projection gives: 0,0 is the Atlantic off Ghana, and "not plottable" must be
@@ -208,7 +219,7 @@ func (q querier) BySlug(year, slug string) (Album, []Item, bool, error) {
 // order of two messages is not something a page should be able to notice.
 func (q querier) items(albumID string) ([]Item, error) {
 	rows, err := q.db.Query(`
-		SELECT i.ordinal, i.photoId, p.blobRef, p.thumbRef, p.caption, p.width, p.height,
+		SELECT i.ordinal, i.photoId, p.blobRef, p.thumbRef, p.caption, p.credit, p.width, p.height,
 		       p.latitude, p.longitude, p.boundsVerdict
 		FROM album_item i
 		JOIN photo p ON p.photoId = i.photoId
@@ -223,7 +234,7 @@ func (q querier) items(albumID string) ([]Item, error) {
 	for rows.Next() {
 		var it Item
 		var lat, lng sql.NullFloat64
-		if err := rows.Scan(&it.Ordinal, &it.PhotoID, &it.Ref, &it.ThumbRef, &it.Caption,
+		if err := rows.Scan(&it.Ordinal, &it.PhotoID, &it.Ref, &it.ThumbRef, &it.Caption, &it.Credit,
 			&it.Width, &it.Height, &lat, &lng, &it.BoundsVerdict); err != nil {
 			return nil, err
 		}

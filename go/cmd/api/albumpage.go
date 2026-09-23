@@ -53,8 +53,17 @@ type publicAlbumPageData struct {
 type publicAlbumItem struct {
 	Ordinal int
 	Caption string
-	Width   int
-	Height  int
+
+	// Credit is the photographer's credit line, or "" when there is none (task 393).
+	//
+	// **The only field on the public surface that names a human being**, and the one exception to the claim in
+	// publicprivacy_test.go's header. It names somebody who asked to be named, as the author of the
+	// photograph, from text a curator typed — never resolved from the `person` projection. The guard flags
+	// `credit` and excepts this exact field, so the exception is recorded rather than invisible.
+	Credit string
+
+	Width  int
+	Height int
 }
 
 // albumPageHandler renders one album.
@@ -113,6 +122,7 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 		data.Items = append(data.Items, publicAlbumItem{
 			Ordinal: it.Ordinal,
 			Caption: it.Caption,
+			Credit:  it.Credit,
 			Width:   it.Width,
 			Height:  it.Height,
 		})

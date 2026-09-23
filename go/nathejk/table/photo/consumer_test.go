@@ -106,6 +106,78 @@ func TestUploadedDoesNotOverwriteTheCaption(t *testing.T) {
 	}
 }
 
+// **A re-upload must not discard a photographer's credit** (task 393).
+//
+// The same rule as the caption, and the case is sharper. Re-dragging a card is the *documented recovery
+// procedure* when a batch half-failed (task 372) — the id is a content hash, so re-uploading the same file
+// republishes this event. A photographer following that advice must not silently lose their own attribution off
+// every photograph that came back.
+func TestUploadedDoesNotOverwriteTheCredit(t *testing.T) {
+	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+		PhotoID: hash("a"), Year: "2026", Ref: ref("b"), UploadedAt: at,
+	})
+
+	clause := stmts[0][strings.Index(stmts[0], "ON DUPLICATE KEY UPDATE"):]
+	if strings.Contains(clause, "credit") {
+		t.Errorf("the update clause must not set credit, or re-dragging a card would blank every "+
+			"attribution on it\n%s", clause)
+	}
+	if !strings.Contains(stmts[0][:strings.Index(stmts[0], "ON DUPLICATE")], `credit=""`) {
+		t.Error("the insert must give the NOT NULL credit column a value")
+	}
+}
+
+// An update carrying a credit writes only the credit.
+//
+// The pointer shape is what makes a bulk action safe: setting a credit on forty photographs must not blank forty
+// captions, and setting a position must not blank forty credits.
+func TestUpdatedWritesOnlyTheFieldsItCarries(t *testing.T) {
+	credit := "Foto: Anne Sørensen"
+	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".updated", Updated{
+		PhotoID: hash("a"), Year: "2026", Credit: &credit, UpdatedAt: at,
+	})
+	if len(stmts) != 1 {
+		t.Fatalf("want 1 statement, got %d: %v", len(stmts), stmts)
+	}
+	if !strings.Contains(stmts[0], `credit="Foto: Anne Sørensen"`) {
+		t.Errorf("the credit must be written\n%s", stmts[0])
+	}
+	for _, forbidden := range []string{"caption", "latitude", "boundsVerdict", "deleted"} {
+		if strings.Contains(stmts[0], forbidden) {
+			t.Errorf("an update carrying only a credit must not touch %s\n%s", forbidden, stmts[0])
+		}
+	}
+}
+
+// An over-long credit is truncated rather than refused, and never mid-rune.
+//
+// The API bounds the length on the way in; this is the belt to that braces. The column is VARCHAR(160) and
+// MariaDB in strict mode answers a longer value with a 1406, which the stream library turns into a dropped
+// message and a dead letter **on every replay** — the failure task 352 records on `postalCode`. Losing the tail
+// of a credit is a far better outcome than losing the event.
+//
+// Runes, not bytes: a Danish name is not ASCII, and slicing UTF-8 by byte index can leave half a character that
+// every reader then renders as a replacement glyph.
+func TestUpdatedTruncatesAnOverLongCredit(t *testing.T) {
+	long := strings.Repeat("ø", 200)
+	credit := long
+	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".updated", Updated{
+		PhotoID: hash("a"), Year: "2026", Credit: &credit, UpdatedAt: at,
+	})
+
+	if strings.Contains(stmts[0], strings.Repeat("ø", 161)) {
+		t.Errorf("the credit must be cut to the column's width\n%s", stmts[0])
+	}
+	if !strings.Contains(stmts[0], strings.Repeat("ø", 160)) {
+		t.Errorf("the credit must keep its first 160 runes\n%s", stmts[0])
+	}
+	// A byte-slice would have produced an invalid trailing sequence. Go's %q would escape it visibly, so the
+	// check is that the quoted form contains no escape at all.
+	if strings.Contains(stmts[0], `\x`) {
+		t.Errorf("the credit was cut mid-rune\n%s", stmts[0])
+	}
+}
+
 // There is no publishable state in this projection at all: a photograph reaches the open web only through
 // a published album. Asserted rather than assumed, because a `published` column added here later would
 // look harmless and would route around the one gate PRD 011 §0b depends on.

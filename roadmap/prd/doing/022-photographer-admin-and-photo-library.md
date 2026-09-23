@@ -302,9 +302,31 @@ for that somebody to stand.
   access (§8.2), so it is not worth carrying machinery for. **The consequence is that the password's entropy
   is the only control on this surface**, which promotes §11 Q4 from operational tidiness to the one thing
   standing there. The comparison itself is still constant-time.
-- **No personal data in the new projection.** The library row has no uploader, no curator, no person
-  id, no name, no phone number, and emphatically no `phoneParent`. The structural privacy test
-  (task 337) must walk the new types too.
+- **No personal data in the new projection — with one written-down exception.** The library row has no
+  uploader, no curator, no person id, no phone number, and emphatically no `phoneParent`. The structural
+  privacy test (task 337) must walk the new types too.
+
+  The exception is the **photographer's credit line** (task 393): a `credit` column, rendered under the
+  photograph on the public album page. It is the only field in this service that is *meant* to name a human
+  being, and the bounds are what make it acceptable rather than its size:
+
+  - it names a **consenting adult volunteer in a professional capacity**, because they asked to be credited —
+    not a participant, not a minor, not somebody who never agreed to be in this app;
+  - it is **free text a curator typed**. Never derived, never looked up, never joined to the `person`
+    projection. `TestACreditIsOnlyEverTypedNeverDerived` holds that, and it is the property doing the work:
+    the hazard was never that a name appears on a page, it is a system that starts taking names out of its
+    person records and publishing them. A string somebody typed cannot do that.
+
+  So it is a `credit`, not a `photographer`, and emphatically not a `creditPersonId`. `isPersonShaped` **flags
+  `credit`** and then excepts that exact field, which is deliberate: without the needle the one
+  person-naming field in the projection would have passed the walk in silence, and `CreditName` or
+  `CreditedBy` would too. There is no photographer roster and no picker — that would mean holding a list of
+  volunteers' names in this service, which is what this bullet is arranged against. A remembered default lives
+  in the **browser**, because a server-side "my credit" would be an attribution the shared credential cannot
+  honestly make (§8.2).
+
+  This narrows PRD 011's claim that the public site names no human being, and that narrowing is recorded in
+  `publicprivacy_test.go`'s header rather than left to be discovered in a diff.
 - **Upload limits.** A per-file ceiling (larger than glimt's 12 MB, since these are camera JPEGs —
   §8.9 proposes 32 MB) enforced with `http.MaxBytesReader`, plus a read deadline generous enough for
   a large file on a hotel connection.

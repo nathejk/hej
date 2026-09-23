@@ -666,6 +666,16 @@ will never install the app.
 - **Privacy.** This surface's privacy property is not "scoped correctly" but "has nothing to
   scope": it names no person. That is enforced in the projection (§8), not in the templates, and
   the one place it could be broken is an attributed track — which §6 forbids.
+
+  **Amended 2026-09-23 (PRD 022 task 393):** there is now exactly one exception, and it is narrow enough that
+  the property above still holds where it matters. A curated photograph may carry a **photographer's credit
+  line** — *"Foto: Anne Sørensen"* — which renders under it on an album page. The only person this surface may
+  name is somebody who **asked to be named**, in a professional capacity, as the author of a photograph:
+  never a participant, a minor, a guardian, a crew member or a leader. And it is text a curator **typed**,
+  never resolved from the `person` projection — which is the half that preserves the spirit of this bullet.
+  What this surface has always really guaranteed is not the absence of characters spelling a name; it is that
+  **this service does not take names out of its person records and put them on public pages.** A typed
+  attribution does not do that. See `cmd/api/publicprivacy_test.go`'s header and PRD 022 §6.
 - **Performance.** One patrol of six at 30 s sampling is roughly **8,600 points across ~2,160
   stream messages**. Cheap once; not cheap a hundred times a minute on an unauthenticated route.
   Cache the rendered patrol page, and treat "the morning-after WhatsApp spike" as the design load.

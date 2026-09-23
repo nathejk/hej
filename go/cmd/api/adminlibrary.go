@@ -47,8 +47,14 @@ type adminLibraryResponse struct {
 type adminLibraryPhoto struct {
 	ID      string `json:"id"`
 	Caption string `json:"caption,omitempty"`
-	Width   int    `json:"width,omitempty"`
-	Height  int    `json:"height,omitempty"`
+
+	// Credit is the photographer's credit line, or absent when there is none (task 393).
+	//
+	// The one person-shaped field the curator's tool carries, narrowly and deliberately — free text somebody
+	// typed, never derived from the `person` projection. See photo/table.sql's column comment for the bounds.
+	Credit string `json:"credit,omitempty"`
+	Width  int    `json:"width,omitempty"`
+	Height int    `json:"height,omitempty"`
 
 	// Lat/Lng are omitted when the photograph has no coordinate, which is the common case.
 	Lat *float64 `json:"lat,omitempty"`
@@ -151,6 +157,7 @@ func (app *application) listAdminPhotosHandler(w http.ResponseWriter, r *http.Re
 		out.Photos = append(out.Photos, adminLibraryPhoto{
 			ID:            p.ID,
 			Caption:       p.Caption,
+			Credit:        p.Credit,
 			Width:         p.Width,
 			Height:        p.Height,
 			Lat:           p.Lat,

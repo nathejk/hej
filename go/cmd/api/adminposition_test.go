@@ -126,8 +126,88 @@ func TestAdminBulkPositionMentionsOnlyTheLocation(t *testing.T) {
 	if upd.Caption != nil {
 		t.Error("a bulk position must not carry a caption; it would blank every caption in the selection")
 	}
+	if upd.Credit != nil {
+		t.Error("a bulk position must not carry a credit; it would blank every photographer's attribution " +
+			"in the selection (task 393)")
+	}
 	if upd.Location == nil {
 		t.Fatal("want the location")
+	}
+}
+
+// The photographer's credit, set over a whole selection (task 393).
+//
+// Bulk is the requirement rather than a convenience: a memory card is one photographer, so three hundred
+// photographs must take one action. This is the same argument the position action rests on.
+func TestAdminSetsACreditOnASelection(t *testing.T) {
+	_, srv, pub := positionApp(t)
+
+	resp := patchAdmin(t, srv, `{"photoIds":[`+selection(3)+`],"credit":"Foto: Anne Sørensen"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	if got := len(pub.Messages); got != 3 {
+		t.Fatalf("want one event per photograph, got %d", got)
+	}
+
+	var upd photo.Updated
+	if err := pub.Messages[0].Body(&upd); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if upd.Credit == nil || *upd.Credit != "Foto: Anne Sørensen" {
+		t.Errorf("want the credit on the event, got %v", upd.Credit)
+	}
+	// **Only** the credit. A credit action must not blank a caption or move a coordinate.
+	if upd.Caption != nil || upd.Location != nil {
+		t.Error("a credit must be the only thing the event carries")
+	}
+}
+
+// Clearing a credit is expressible, and distinguishable from not mentioning one.
+//
+// A photographer can ask to be uncredited, so this has to work — and it has to be a *different* request from a
+// bulk edit that happens not to mention a credit, which is exactly what the pointer is for.
+func TestAdminClearsACredit(t *testing.T) {
+	_, srv, pub := positionApp(t)
+
+	if resp := patchAdmin(t, srv, `{"photoIds":[`+selection(1)+`],"credit":""}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	var upd photo.Updated
+	if err := pub.Messages[0].Body(&upd); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if upd.Credit == nil {
+		t.Fatal("clearing must carry an empty credit, not omit the field — omitting it means \"leave it alone\"")
+	}
+	if *upd.Credit != "" {
+		t.Errorf("want an empty credit, got %q", *upd.Credit)
+	}
+}
+
+// An over-long credit is refused at the edge, with a Danish reason.
+//
+// The fold truncates as a safety net, but a curator who pasted a paragraph should be told rather than have it
+// silently shortened — the two together are belt and braces, not duplication.
+func TestAdminRefusesAnOverLongCredit(t *testing.T) {
+	_, srv, _ := positionApp(t)
+
+	long := strings.Repeat("a", 161)
+	resp := patchAdmin(t, srv, `{"photoIds":[`+selection(1)+`],"credit":"`+long+`"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400 for a credit over the column's width, got %d", resp.StatusCode)
+	}
+}
+
+// Exactly one action per request. A credit and a position together would be two decisions in one call, and the
+// endpoint refuses rather than resolving them by precedence — a precedence rule here is a silent decision about
+// forty photographs.
+func TestAdminRefusesACreditAndAPositionTogether(t *testing.T) {
+	_, srv, _ := positionApp(t)
+
+	body := `{"photoIds":[` + selection(1) + `],"credit":"Foto: X","location":{"lat":55.7,"lng":12.2}}`
+	if resp := patchAdmin(t, srv, body); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400 for two actions in one request, got %d", resp.StatusCode)
 	}
 }
 

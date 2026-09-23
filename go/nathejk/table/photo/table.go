@@ -75,6 +75,25 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
 	if err := w.Consume(tableSchema); err != nil {
 		return nil, fmt.Errorf("photo: create tables: %w", err)
 	}
+
+	// Additive drift only, following `checkpoint` and `person`. Every column here is **also** in table.sql, and
+	// the duplication is deliberate: table.sql builds a correct table on a fresh database, and these calls bring
+	// an existing one forward. `CREATE TABLE IF NOT EXISTS` is a no-op against a database that has already
+	// booted once, so without this an existing deployment keeps the old table and every read that names the new
+	// column fails at its first query.
+	//
+	// Found exactly that way: the credit line's column was added to table.sql, the suite passed — the stubs in
+	// `cmd/api` never touch a real schema — and the dev database simply did not have the column after a rebuild.
+	for _, col := range []struct{ name, ddl string }{
+		// The photographer's credit line (task 393). See table.sql for why this is the one column in this
+		// projection that names a person, and what bounds that.
+		{"credit", `credit VARCHAR(160) NOT NULL DEFAULT ""`},
+	} {
+		if err := cqrs.EnsureColumn(r, w, "photo", col.name, col.ddl); err != nil {
+			return nil, fmt.Errorf("photo: ensure column %s: %w", col.name, err)
+		}
+	}
+
 	return &Table{
 		consumer:       consumer{w: w},
 		querier:        querier{db: r},

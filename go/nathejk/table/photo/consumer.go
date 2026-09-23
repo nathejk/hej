@@ -79,7 +79,7 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 
 // handleUploaded writes the photograph row.
 //
-// Note what the update clause does **not** touch: `deleted`, and `caption`.
+// Note what the update clause does **not** touch: `deleted`, `caption`, and `credit`.
 //
 // `deleted` is left alone for the reason recorded at length in table.sql and on the Uploaded event.
 // Because the id is the content hash, a re-upload of the same file republishes *this* event — so
@@ -91,6 +91,10 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 // carries no caption at all (there is nothing to caption a file with at upload time), so including the
 // column in the clause would mean writing an empty string over an evening's editing. The insert lists it
 // so the NOT NULL column has a value on first arrival.
+//
+// `credit` is left alone for exactly the same reason, and the case is sharper: re-dragging a card is the
+// documented recovery procedure when a batch half-failed (task 372), and a photographer doing that must not
+// silently lose their own attribution off every photograph that came back.
 func (c consumer) handleUploaded(msg cqrs.Message, year string) error {
 	var body Uploaded
 	if err := msg.Body(&body); err != nil {
@@ -126,7 +130,7 @@ func (c consumer) handleUploaded(msg cqrs.Message, year string) error {
 	lat, lng, verdict := locationColumns(body.Location)
 
 	return c.w.Consume(fmt.Sprintf(
-		"INSERT INTO photo SET photoId=%s, year=%s, blobRef=%s, thumbRef=%s, caption=\"\", "+
+		"INSERT INTO photo SET photoId=%s, year=%s, blobRef=%s, thumbRef=%s, caption=\"\", credit=\"\", "+
 			"width=%d, height=%d, bytes=%d, latitude=%s, longitude=%s, boundsVerdict=%s, "+
 			"uploadedAt=%s "+
 			"ON DUPLICATE KEY UPDATE "+
@@ -166,6 +170,14 @@ func (c consumer) handleUpdated(msg cqrs.Message, year string) error {
 	var sets []string
 	if body.Caption != nil {
 		sets = append(sets, "caption="+quote(*body.Caption))
+	}
+	if body.Credit != nil {
+		// Truncated rather than refused, and only here. The column is VARCHAR(160) and MariaDB in strict mode
+		// would reject an over-long value with a 1406 and drop the message — the failure mode task 352 records
+		// on `postalCode`, where an upstream value too long for its column deadletters on every replay. The API
+		// validates the length on the way in (`maxAdminCredit`), so this is the belt to that braces: a credit
+		// that somehow got past it loses its tail instead of costing the whole event.
+		sets = append(sets, "credit="+quote(truncateRunes(*body.Credit, maxCreditRunes)))
 	}
 	if body.Location != nil {
 		// The coordinate and its verdict are written together, always. The Location type exists to make
@@ -401,6 +413,24 @@ func formatTime(t time.Time) string {
 // Same reasoning as the person, checkpoint, glimt, album and maphandout packages: cqrs.Writer takes a
 // finished statement rather than a statement plus arguments, so escaping is this file's responsibility.
 func quote(s string) string { return fmt.Sprintf("%q", s) }
+
+// maxCreditRunes bounds the credit line, matching `credit VARCHAR(160)` in table.sql.
+//
+// Runes rather than bytes, because the column is counted in characters and a Danish name is not ASCII: a
+// byte-counted limit would cut "Sørensen" a character early and, worse, could split a multi-byte rune.
+const maxCreditRunes = 160
+
+// truncateRunes shortens a string to at most n runes.
+//
+// Never mid-rune: slicing a UTF-8 string by byte index can leave half a character, which MariaDB stores as an
+// invalid sequence and every reader then renders as a replacement glyph.
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
+}
 
 // validSubjectToken rejects anything that would not survive as a single NATS subject token.
 //

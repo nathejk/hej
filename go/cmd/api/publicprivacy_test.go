@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -17,7 +18,7 @@ import (
 	"nathejk.dk/nathejk/table/publicpatrol"
 )
 
-// The public surface names no person (PRD 011 §6, §8; task 337).
+// The public surface names no person (PRD 011 §6, §8; task 337) — with one written-down exception (task 393).
 //
 // # What this file is for
 //
@@ -27,6 +28,26 @@ import (
 // rather than deferred.
 //
 // A claim like that is worth exactly as much as the test behind it. So this file is the test.
+//
+// # The one exception, and why the claim survives it
+//
+// Since task 393 a photograph may carry a **photographer's credit line** — *"Foto: Anne Sørensen"* — and that
+// renders on the public album page. So the claim is no longer "no name appears" but something narrower, and it
+// is stated here rather than discovered in a diff:
+//
+//   - **The only person the public surface may name is somebody who asked to be named**, in a professional
+//     capacity, as the author of a photograph. Nobody else: not a participant, not a minor, not a guardian,
+//     not a crew member, not a leader.
+//   - **A credit is typed, never derived.** It is free text a curator entered. Nothing joins it to the
+//     `person` projection, and `TestACreditIsOnlyEverTypedNeverDerived` is what keeps that true.
+//
+// The second point is the one doing the work. What this file has always really defended is not the absence of
+// characters that spell a name — it is that **this service does not take names out of its person records and
+// put them on public pages.** A curator typing an attribution does not do that. A lookup would, and is the
+// thing to keep failing.
+//
+// So `isPersonShaped` now flags `credit` and immediately excepts the exact field, which is deliberate: the
+// exception is written down in the guard rather than being invisible to it.
 //
 // # Enumeration, not a hand-written list
 //
@@ -337,6 +358,58 @@ func TestPublicPatrolTypeHasNowhereToPutAPerson(t *testing.T) {
 	}
 }
 
+// **A credit is only ever typed, never derived** (task 393).
+//
+// This is the property the credit-line exception rests on, and the only one worth a structural guard. A name on
+// a public page is a judgement somebody made; a name *looked up from our person records* and put on a public
+// page is a different thing entirely, and it is what every other assertion in this file exists to prevent.
+//
+// So: the write path for a credit must reach it from the request body and nowhere else. If a future edit
+// resolves a credit from `person`, from a session, or from a phone number, this fails — and it should, loudly,
+// because that is the change that would turn a consented attribution into a directory.
+func TestACreditIsOnlyEverTypedNeverDerived(t *testing.T) {
+	src, err := os.ReadFile("adminposition.go")
+	if err != nil {
+		t.Fatalf("reading adminposition.go: %v", err)
+	}
+	text := string(src)
+
+	setter := text[strings.Index(text, "func (app *application) setAdminPhotoCredits"):]
+	setter = setter[:strings.Index(setter, "\n// maxAdminCredit")]
+	if setter == "" {
+		t.Fatal("could not find setAdminPhotoCredits; this guard needs updating")
+	}
+
+	// The value comes from the parameter the handler passed in from the request body. Nothing else.
+	if !strings.Contains(setter, "Credit:    &credit,") {
+		t.Error("the credit written to the event must be the one the request carried")
+	}
+
+	for _, forbidden := range []struct{ needle, why string }{
+		{"models.People", "a credit must never be looked up in the person projection"},
+		{"PersonID", "a credit must not be resolved from a person id"},
+		{"contextGetSession", "a credit must not be taken from whoever is signed in — and on this surface " +
+			"there is nobody signed in anyway, which is the point of PRD 022 §8.2"},
+		{"Name", "a credit must not be assembled from anybody's name field"},
+	} {
+		if strings.Contains(setter, forbidden.needle) {
+			t.Errorf("setAdminPhotoCredits mentions %q: %s", forbidden.needle, forbidden.why)
+		}
+	}
+
+	// And the projection's fold writes it from the event, not from a join.
+	fold, ferr := os.ReadFile("../../nathejk/table/photo/consumer.go")
+	if ferr != nil {
+		t.Fatalf("reading photo/consumer.go: %v", ferr)
+	}
+	if !strings.Contains(string(fold), `sets = append(sets, "credit="+quote(truncateRunes(*body.Credit, maxCreditRunes)))`) {
+		t.Error("the fold must write the credit straight from the event body")
+	}
+	if strings.Contains(string(fold), "JOIN person") {
+		t.Error("the photo fold must not join the person projection for any reason")
+	}
+}
+
 // isPersonShaped flags field names that would carry something about a human being.
 //
 // A denylist of substrings rather than an allowlist of permitted fields, deliberately: an allowlist has
@@ -371,11 +444,37 @@ func isPersonShaped(field string) bool {
 	// `photoid` case to a prefix match, because `PhotoIdentityOf` would then pass too.
 	case "coverphotoid":
 		return false
+
+	// **The photographer's credit line** (task 393). The one field in this service that is *meant* to name a
+	// human being, and the only exception to the claim in this file's header.
+	//
+	// `credit` was added to the needles below **so that this exception has to be written down.** It matches no
+	// other needle and does not end in "By", so without that it would have slipped through unnoticed — which is
+	// the worst available outcome: the one field that intentionally carries a name would be the one field this
+	// guard says nothing about.
+	//
+	// What makes it acceptable is not that it is small, it is the bounds:
+	//
+	//   - it names a **consenting adult volunteer in a professional capacity**, because they asked to be
+	//     credited. Not a participant, not a minor, not somebody who never agreed to be in this app.
+	//   - it is **free text a curator typed** — never derived, never looked up, never joined to the `person`
+	//     projection. `TestACreditIsOnlyEverTypedNeverDerived` holds that, and it is the property that matters:
+	//     the hazard was never that a name appears on a page, it is a system that starts deriving names from its
+	//     person records and publishing them. A string somebody typed cannot do that.
+	//
+	// Only the exact name is excepted. `CreditName`, `CreditedBy` and `CreditPersonID` all still fail — the
+	// first two because the needle and the "By" suffix catch them, the last because `person` does.
+	case "credit":
+		return false
 	}
 
 	for _, needle := range []string{
 		"person", "phone", "portrait", "photo", "author", "curator", "uploader",
 		"contactname", "email", "birth", "address",
+		// `credit` is here **so the exception above is forced to be explicit** (task 393), not because a credit
+		// line is forbidden. Without it the one deliberately person-naming field in the service would pass this
+		// walk in silence, and any relative of it — `CreditName`, `CreditLine` — would too.
+		"credit",
 	} {
 		if strings.Contains(lower, needle) {
 			// "Photos" as a collection of pictures is fine; a "photo" of somebody is not. See the

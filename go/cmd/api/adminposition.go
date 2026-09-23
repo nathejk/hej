@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"nathejk.dk/nathejk/table/checkpoint"
@@ -66,6 +67,17 @@ type patchAdminPhotosRequest struct {
 	// A pointer, so clearing a caption and not mentioning one are different requests.
 	Caption *string `json:"caption,omitempty"`
 
+	// Credit sets the photographer's credit line on the selection (task 393).
+	//
+	// Settable over a **selection**, which is the point rather than a convenience: a memory card is one
+	// photographer, so three hundred photographs take one action.
+	//
+	// On the photograph like the caption, so every album shows the same attribution (PRD 022 §8.3).
+	//
+	// A pointer for the same reason as Caption, and it matters more here: a curator setting a position on forty
+	// photographs must not blank forty credits as a side effect.
+	Credit *string `json:"credit,omitempty"`
+
 	// ClearLocation removes the coordinate.
 	ClearLocation bool `json:"clearLocation,omitempty"`
 
@@ -101,7 +113,7 @@ type patchAdminPhotosResponse struct {
 // patchAdminPhotosHandler sets or clears a location across a selection.
 //
 // @Summary      Set or clear a location on many photographs
-// @Description  Sets one coordinate on a whole selection of library photographs, or clears theirs. The point may be given directly as `location`, or — preferably — as a `checkpointId`, which the server resolves to that checkpoint's coordinate so a stale coordinate in a browser cannot become a pin on a public map. **The race-area bounds check is re-run for every set**, and the resulting verdict is stored: a curator-placed point is not exempt, and only an `inside` verdict ever reaches the public map. A point judged `outside` is kept and reported as rejected rather than discarded, so the curator can see what was refused. With no checkpoint yet sited there is no area to judge against and the verdict is `unknown`, which is a statement about us rather than about the photograph. Clearing publishes a distinct event, so the log records the intent. Requires the admin credential.
+// @Description  Sets one coordinate on a whole selection of library photographs, or clears theirs. The point may be given directly as `location`, or — preferably — as a `checkpointId`, which the server resolves to that checkpoint's coordinate so a stale coordinate in a browser cannot become a pin on a public map. **The race-area bounds check is re-run for every set**, and the resulting verdict is stored: a curator-placed point is not exempt, and only an `inside` verdict ever reaches the public map. A point judged `outside` is kept and reported as rejected rather than discarded, so the curator can see what was refused. With no checkpoint yet sited there is no area to judge against and the verdict is `unknown`, which is a statement about us rather than about the photograph. Clearing publishes a distinct event, so the log records the intent. `caption` and `credit` are the other two things this endpoint sets, each on the whole selection and each mutually exclusive with the rest — a memory card is one photographer, so a credit line for three hundred photographs is one request. Requires the admin credential.
 // @Tags         admin
 // @Accept       json
 // @Produce      json
@@ -151,15 +163,23 @@ func (app *application) patchAdminPhotosHandler(w http.ResponseWriter, r *http.R
 	if in.Caption != nil {
 		given++
 	}
+	if in.Credit != nil {
+		given++
+	}
 	if given != 1 {
 		app.BadRequestResponse(w, r,
-			errors.New("angiv præcis én ting: en position, et postnummer, en billedtekst, "+
+			errors.New("angiv præcis én ting: en position, et postnummer, en billedtekst, et fotokredit, "+
 				"eller at positionen skal fjernes"))
 		return
 	}
 
 	if in.Caption != nil {
 		app.setAdminPhotoCaptions(w, r, photoIDs, *in.Caption)
+		return
+	}
+
+	if in.Credit != nil {
+		app.setAdminPhotoCredits(w, r, photoIDs, *in.Credit)
 		return
 	}
 
@@ -375,6 +395,85 @@ func (app *application) setAdminPhotoCaptions(w http.ResponseWriter, r *http.Req
 // by an arbitrary number. Present because the column is TEXT and an unbounded field on a write path is how a
 // projection row becomes a megabyte.
 const maxAdminCaption = 1000
+
+// setAdminPhotoCredits sets the photographer's credit line on a selection (task 393).
+//
+// A near-twin of `setAdminPhotoCaptions`, kept separate rather than generalised into a "set a text field"
+// helper: the two differ in their limit, their log line and their Danish, and a shared helper taking a column
+// name would be a write path that names its own column from a parameter. Two small functions beat one clever one
+// on a surface whose every write lands in a log nobody rewrites.
+//
+// # Why the credit *is* logged, where the caption is not
+//
+// `setAdminPhotoCaptions` deliberately keeps its text out of the log — curator prose, nothing an operator would
+// use. The credit is the opposite: it is the one field in this feature that names a person, so "who was credited
+// on which photographs, and when" is exactly the question somebody may have to answer later — a photographer
+// asking to be uncredited, or a mis-typed attribution on a public page. With a shared credential the log is the
+// only record there is (PRD 022 §8.2), and a name on a public page is worth more of it than a sentence about the
+// weather.
+//
+// # The value is whatever the request carried, and nothing else
+//
+// No lookup, no session, no person projection. That is the property the whole credit-line exception rests on and
+// `TestACreditIsOnlyEverTypedNeverDerived` is what holds it: a name a curator typed is a judgement somebody
+// made, while a name resolved out of our person records and printed on a public page is a different feature
+// nobody agreed to.
+func (app *application) setAdminPhotoCredits(w http.ResponseWriter, r *http.Request, photoIDs []string, credit string) {
+	credit = strings.TrimSpace(credit)
+	if len([]rune(credit)) > maxAdminCredit {
+		app.BadRequestResponse(w, r, errors.New("fotokreditten er for lang"))
+		return
+	}
+
+	now := time.Now().UTC()
+	updated := 0
+	for _, photoID := range photoIDs {
+		subject, serr := photo.Subject(app.config.eventYear, photoID, photo.VerbUpdated)
+		if serr != nil {
+			app.BadRequestResponse(w, r, serr)
+			return
+		}
+		if perr := app.commands.Publish(subject, photo.Updated{
+			PhotoID:   photoID,
+			Year:      app.config.eventYear,
+			Credit:    &credit,
+			UpdatedAt: now,
+		}); perr != nil {
+			app.Logger.Error("admin credit failed partway",
+				"updated", updated, "photoId", photoID, "err", perr)
+			app.writeAlbumPublishFailure(w, r, perr)
+			return
+		}
+		updated++
+	}
+
+	app.Logger.Info("admin set a photo credit on a selection",
+		"count", updated, "credit", credit, "cleared", credit == "", "ip", clientIP(r))
+
+	billeder := "billeder"
+	if updated == 1 {
+		billeder = "billede"
+	}
+	message := fmt.Sprintf("Fotokredit sat på %d %s.", updated, billeder)
+	if credit == "" {
+		message = fmt.Sprintf("Fotokredit fjernet fra %d %s.", updated, billeder)
+	}
+
+	if err := app.WriteJSON(w, http.StatusOK, patchAdminPhotosResponse{
+		Updated: updated,
+		Message: message,
+	}, nil); err != nil {
+		app.ServerErrorResponse(w, r, err)
+	}
+}
+
+// maxAdminCredit bounds a credit line, matching `credit VARCHAR(160)` in photo/table.sql.
+//
+// Tight where the caption's limit is generous, and on purpose: a credit line is "Foto: Anne Sørensen", possibly
+// with an organisation after it. A field that can hold prose will eventually hold prose, and the caption is where
+// prose goes — while a credit that overflowed its column would deadletter on every replay, which is the failure
+// task 352 records on `postalCode`.
+const maxAdminCredit = 160
 
 // adminVerdictMessage writes the sentence for a set, and the three verdicts read differently on purpose.
 //

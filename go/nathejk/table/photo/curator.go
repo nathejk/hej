@@ -136,9 +136,16 @@ type LibraryPhoto struct {
 	Ref      string
 	ThumbRef string
 	Caption  string
-	Width    int
-	Height   int
-	Bytes    int
+
+	// Credit is the photographer's credit line, or "" when there is none (task 393).
+	//
+	// The one person-shaped field in this projection, deliberately and narrowly — see the column comment in
+	// table.sql. Free text a curator typed; never derived from the `person` projection.
+	Credit string
+
+	Width  int
+	Height int
+	Bytes  int
 
 	// Lat/Lng are nil unless the photograph carries a usable coordinate.
 	Lat *float64
@@ -187,7 +194,7 @@ type curatorQuerier struct {
 // Shared so the two cannot disagree about what a LibraryPhoto contains — they scan into the same struct,
 // and a column added to one and not the other is a silent zero value.
 const libraryColumns = `
-	p.photoId, p.blobRef, p.thumbRef, p.caption, p.width, p.height, p.bytes,
+	p.photoId, p.blobRef, p.thumbRef, p.caption, p.credit, p.width, p.height, p.bytes,
 	p.latitude, p.longitude, p.boundsVerdict, p.deleted, p.uploadedAt,
 	(SELECT COUNT(*) FROM album_item i
 	  WHERE i.photoId = p.photoId AND i.deleted = 0) AS albumCount,
@@ -303,7 +310,7 @@ func scanLibraryPhoto(rows *sql.Rows) (LibraryPhoto, error) {
 	var p LibraryPhoto
 	var lat, lng sql.NullFloat64
 	var deleted int
-	if err := rows.Scan(&p.ID, &p.Ref, &p.ThumbRef, &p.Caption, &p.Width, &p.Height, &p.Bytes,
+	if err := rows.Scan(&p.ID, &p.Ref, &p.ThumbRef, &p.Caption, &p.Credit, &p.Width, &p.Height, &p.Bytes,
 		&lat, &lng, &p.BoundsVerdict, &deleted, &p.UploadedAt,
 		&p.AlbumCount, &p.TagCount); err != nil {
 		return LibraryPhoto{}, err

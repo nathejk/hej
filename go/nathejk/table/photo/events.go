@@ -127,6 +127,15 @@ type Updated struct {
 
 	Caption *string `json:"caption,omitempty"`
 
+	// Credit is the photographer's credit line (task 393).
+	//
+	// A pointer for the same reason `Caption` is one: "not mentioned" and "cleared" are different requests, and
+	// a bulk edit that set a position must not blank every credit in the selection as a side effect.
+	//
+	// The one field in this package that names a person, deliberately and narrowly — see `photo/table.sql`'s
+	// column comment for the bounds. Never derived from the `person` projection; only ever what somebody typed.
+	Credit *string `json:"credit,omitempty"`
+
 	// Location, when present, replaces the coordinate and its verdict together.
 	Location *Location `json:"location,omitempty"`
 

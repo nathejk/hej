@@ -490,6 +490,10 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   .photos figure { margin: 0; }
   .photos img { width: 100%; height: auto; border-radius: .25rem; background: #eee; display: block; }
   .photos figcaption { color: #555; font-size: .9rem; margin-top: .35rem; }
+  /* The photographer's credit (task 393). Its own block under the caption, quieter than it: the caption is
+     what the photograph is of, the credit is who took it, and running them together as one sentence would
+     read as though the photographer were part of the scene. */
+  .photos .credit { display: block; color: #777; font-size: .8rem; margin-top: .15rem; }
   /* The patrol page's header: who they are on the left, the diploma on the right. Flex rather than
      grid so it collapses to one column on a narrow screen without a media query. */
   .patrolhead { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start;
@@ -645,7 +649,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
          alt="{{if .Caption}}{{.Caption}}{{else}}Billede fra {{$album.Title}}{{end}}"
          loading="lazy" decoding="async"
          {{if and .Width .Height}}width="{{.Width}}" height="{{.Height}}"{{end}}>
-    {{if .Caption}}<figcaption>{{.Caption}}</figcaption>{{end}}
+    {{if or .Caption .Credit}}<figcaption>{{.Caption}}{{if .Credit}}<span class="credit">{{.Credit}}</span>{{end}}</figcaption>{{end}}
   </figure>
   {{end}}
 </div>

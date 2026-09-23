@@ -81,6 +81,30 @@ CREATE TABLE IF NOT EXISTS photo (
     -- remove: two copies of one fact, drifting.
     caption TEXT NOT NULL,
 
+    -- The photographer's credit line, e.g. "Foto: Anne Sørensen" (task 393). Empty when there is none.
+    --
+    -- # This is the one column in this table that names a person, and it is deliberate
+    --
+    -- Everything else here is arranged so the library names nobody — no uploader, no curator, no person id
+    -- (PRD 022 §6), enforced by a structural walk over these types rather than by review. This column is the
+    -- exception, and the bounds are what make it acceptable:
+    --
+    --   * it names a **consenting adult volunteer in a professional capacity**, because they asked to be
+    --     credited — not a participant, not a minor, not somebody who never agreed to be in this app;
+    --   * it is **free text a curator typed**. It is never derived, never looked up, and never joined to the
+    --     `person` projection. That is the property that matters: the hazard was never that a name appears on
+    --     a page, it is a system that starts deriving names from its person records and publishing them. A
+    --     string somebody typed cannot do that.
+    --
+    -- So it is a `credit`, not a `photographer`, and emphatically not a `creditPersonId`. If crediting the
+    -- same six people every year becomes tedious, the browser remembering the last one typed is the fix; a
+    -- roster would mean holding a list of volunteers' names in this service, which is what §6 is arranged
+    -- against.
+    --
+    -- VARCHAR(160), not TEXT like the caption: a credit line that can hold prose will eventually hold prose,
+    -- and the caption is where prose goes.
+    credit VARCHAR(160) NOT NULL DEFAULT "",
+
     width INT NOT NULL DEFAULT 0,
     height INT NOT NULL DEFAULT 0,
     bytes INT NOT NULL DEFAULT 0,

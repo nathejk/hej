@@ -488,6 +488,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     <button type="button" data-act="album">Tilføj til album</button>
     <button type="button" data-act="position">Sæt position</button>
     <button type="button" data-act="patrol">Tag patrulje</button>
+    <button type="button" data-act="credit">Fotokredit</button>
     <button type="button" data-act="delete">Fjern eller slet</button>
     <button type="button" id="clearsel">Ryd valg</button>
   </div>
@@ -556,6 +557,27 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       <button type="button" class="ghost" id="closetag">Annuller</button>
     </p>
   </div>
+  <!-- The credit sheet (task 393). The only place in this tool that records a person's name, and the copy says
+       so plainly — a curator typing a colleague's name onto a public page should know that is what they are
+       doing, rather than filling in a field that looks like a caption. -->
+  <div id="creditpanel" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Fotokredit">
+    <h3>Fotokredit</h3>
+    <p id="creditnote"></p>
+    <p>
+      <label for="credittext">Hvem har taget billederne?</label>
+      <input type="text" id="credittext" maxlength="160" placeholder="Foto: Anne Sørensen" autocomplete="off">
+    </p>
+    <p class="hint">Teksten står under billedet på hjemmesiden, så den kan læses af alle. Skriv kun navne på
+    fotografer, der selv har sagt ja til det.</p>
+    <p class="hint">Et helt kort er tit fra samme fotograf — vælg alle billederne og sæt kreditten én gang.
+    Browseren husker det du skrev sidst.</p>
+    <p>
+      <button type="button" id="docredit">Sæt fotokredit</button>
+      <button type="button" class="ghost" id="doclearcredit">Fjern fotokredit</button>
+      <button type="button" class="ghost" id="closecredit">Annuller</button>
+    </p>
+  </div>
+
   <!-- The delete panel (task 379). **The copy here is the substance, not decoration.**
 
        PRD 022 §5 and §7 both single it out: removing a photograph from an album leaves it in the library and in
@@ -1480,8 +1502,85 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     if (b.dataset.act === 'album') openAlbumPanel();
     if (b.dataset.act === 'position') openPositionPanel();
     if (b.dataset.act === 'patrol') openTagPanel();
+    if (b.dataset.act === 'credit') openCreditPanel();
     if (b.dataset.act === 'delete') openDeletePanel();
   });
+
+  // --- the photo credit (task 393) ------------------------------------------
+  //
+  // # The only field in this tool that records a person's name
+  //
+  // Everything else here is arranged so the library names nobody — no uploader, no curator, no person id
+  // (PRD 022 §6), held by a structural walk over the types rather than by review. This is the exception, and it
+  // is narrow on purpose: a **consenting adult volunteer, credited as the author of a photograph**, from text a
+  // curator typed. Nothing derives it, and nothing here can look a name up — there is no endpoint that would.
+  //
+  // The copy in the sheet says so, because a curator typing a colleague's name onto a public page should know
+  // that is what they are doing rather than filling in a field that looks like a caption.
+  //
+  // # Why the remembered default lives in the browser
+  //
+  // A card is one photographer, so the tedium is real: without something remembered, every batch means retyping
+  // the same line. It is in 'localStorage' and **not** on the server, deliberately — the credential is shared
+  // (§8.2), so a server-side "my credit" would be an attribution the tool cannot honestly make. The browser
+  // remembering what *this laptop* last typed claims nothing about who is using it.
+
+  const creditPanel = document.getElementById('creditpanel');
+  const creditNote = document.getElementById('creditnote');
+  const creditText = document.getElementById('credittext');
+  const CREDIT_KEY = 'hej.admin.lastCredit';
+
+  function openCreditPanel() {
+    openSheet(creditPanel);
+    creditNote.textContent = selected.size === 1
+      ? '1 billede får fotokreditten.'
+      : selected.size + ' billeder får fotokreditten.';
+    // Prefilled from the last one typed on this machine, so a second card is one click. Not prefilled from the
+    // selection: the photographs may carry different credits, and picking one of them to show would be a guess
+    // that silently overwrites the others when the curator presses the button.
+    try {
+      if (!creditText.value) creditText.value = window.localStorage.getItem(CREDIT_KEY) || '';
+    } catch (err) { /* storage disabled or full: the field is simply empty */ }
+    creditText.focus();
+    creditText.select();
+  }
+
+  document.getElementById('closecredit').addEventListener('click', () => { closeSheet(); });
+
+  async function sendCredit(credit) {
+    if (!selected.size) { creditNote.textContent = 'Vælg mindst ét billede.'; return; }
+    creditNote.textContent = 'Gemmer…';
+    try {
+      const res = await fetch('/api/admin/photos', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoIds: Array.from(selected), credit: credit }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        creditNote.textContent = (payload && payload.error) || 'Kunne ikke sætte fotokreditten.';
+        return;
+      }
+      if (credit) {
+        try { window.localStorage.setItem(CREDIT_KEY, credit); } catch (err) { /* nothing to recover */ }
+      }
+      closeSheet();
+      // Reloaded so the sheet shows what was actually written, not what the browser hoped.
+      load(true);
+    } catch (err) {
+      creditNote.textContent = 'Kunne ikke sætte fotokreditten. Prøv igen.';
+    }
+  }
+
+  document.getElementById('docredit').addEventListener('click', () => {
+    const credit = creditText.value.trim();
+    if (!credit) { creditNote.textContent = 'Skriv en fotokredit, eller brug “Fjern fotokredit”.'; return; }
+    sendCredit(credit);
+  });
+
+  // Clearing is its own button rather than "save an empty field", so removing an attribution is a deliberate act
+  // and not something a stray select-all-and-delete does on its way past.
+  document.getElementById('doclearcredit').addEventListener('click', () => sendCredit(''));
 
   // --- the bulk position (task 376) -----------------------------------------
   //

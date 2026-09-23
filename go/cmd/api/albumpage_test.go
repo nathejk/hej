@@ -13,6 +13,14 @@ import (
 
 // The public album pages (task 334).
 
+// fixtureCredit is the photographer's credit the album fixture carries (task 393).
+//
+// A distinctive name, because the point of it is to be **found** on the rendered page — the opposite of
+// `publicprivacy_test.go`'s `leakName`, which exists to be absent. Keeping the two in the same shape makes the
+// pair of assertions read as one statement: this surface may name a photographer and may not name a
+// participant.
+const fixtureCredit = "Foto: Vibeke Krogh"
+
 // albumStore is a stub that holds albums properly rather than returning fixed answers.
 //
 // Implemented for real — including the publication filter in `BySlug` — because the property under test
@@ -109,7 +117,10 @@ func seedAlbums(t *testing.T, app *application) *albumStore {
 			published: true,
 			items: []album.Item{
 				{Ordinal: 0, Ref: put("full-1"), ThumbRef: put("thumb-1"), Caption: "Ved målstregen",
-					Width: 1600, Height: 1200, Lat: &lat, Lng: &lng, BoundsVerdict: album.BoundsInside},
+					// A credit line (task 393). The fixture carries one because it is the only field on this
+					// surface that may name a person, so every walk over the public pages should meet it.
+					Credit: fixtureCredit,
+					Width:  1600, Height: 1200, Lat: &lat, Lng: &lng, BoundsVerdict: album.BoundsInside},
 				// No caption, and no thumbnail: the page must fall back to the full image.
 				{Ordinal: 1, Ref: put("full-2"), Width: 1200, Height: 1600, BoundsVerdict: album.BoundsNone},
 			},
@@ -132,6 +143,61 @@ func seedAlbums(t *testing.T, app *application) *albumStore {
 			},
 		},
 	}}
+}
+
+// **The one name the public surface may carry** (task 393).
+//
+// The photographer's credit renders, and it renders as its own line under the caption rather than run together
+// with it — the caption is what the photograph is *of*, the credit is who took it, and one sentence containing
+// both reads as though the photographer were part of the scene.
+//
+// Paired with `TestNoPublicResponseNamesAPerson`, which asserts a *participant's* name is absent from this same
+// page. Together they say the thing precisely: this surface may name somebody who asked to be named, as the
+// author of a photograph, and nobody else.
+func TestAlbumPageShowsThePhotographersCredit(t *testing.T) {
+	app, _ := albumApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
+	page := string(body)
+
+	if !strings.Contains(page, fixtureCredit) {
+		t.Errorf("the credit line must appear on the album page\n%s", page)
+	}
+	if !strings.Contains(page, `<span class="credit">`+fixtureCredit+`</span>`) {
+		t.Errorf("the credit must be its own element under the caption, not part of the caption's sentence\n%s",
+			page)
+	}
+
+	// The captionless second item has no credit either, so it must still render no figcaption at all — the
+	// credit must not resurrect an empty one.
+	if got := strings.Count(page, "<figcaption>"); got != 1 {
+		t.Errorf("want exactly one figcaption: one item has a caption and a credit, the other has neither; got %d",
+			got)
+	}
+}
+
+// A photograph with a credit and no caption still gets a figcaption — the credit alone is worth showing.
+//
+// The template condition is `or .Caption .Credit` rather than keying off the caption, and this is the case that
+// distinguishes the two: an uncaptioned photograph by a named photographer must still be attributed.
+func TestAlbumPageShowsACreditWithoutACaption(t *testing.T) {
+	app, store := albumApp(t)
+	// The second item has neither. Give it a credit only.
+	store.albums[0].items[1].Credit = "Foto: Jens Balle"
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
+	page := string(body)
+
+	if !strings.Contains(page, "Foto: Jens Balle") {
+		t.Errorf("a credit must render even with no caption\n%s", page)
+	}
+	if got := strings.Count(page, "<figcaption>"); got != 2 {
+		t.Errorf("want two figcaptions now that both items have something to say, got %d", got)
+	}
 }
 
 func TestFrontpageListsPublishedAlbums(t *testing.T) {
