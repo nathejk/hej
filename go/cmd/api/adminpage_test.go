@@ -239,6 +239,120 @@ func TestAdminUploaderKeepsGoingAfterAFailure(t *testing.T) {
 	}
 }
 
+// **The actions open as overlays, and there is one shell** (task 390).
+//
+// # What went wrong, and why "it worked" hid it
+//
+// The panels revealed inline below the contact sheet. With a selection made near the bottom of a
+// 120-thumbnail page the panel opened off-screen — the curator pressed a button and, as far as they could
+// tell, nothing happened. Reported that way.
+//
+// The constraint that survives is PRD 022 §7's: navigating away loses the selection, so no action may become
+// a route. An overlay satisfies it. A card underneath was never the requirement, only the first reading of it.
+func TestTheCuratorsActionsOpenAsOverlays(t *testing.T) {
+	src := adminSource(t, "adminpage.go")
+
+	// One scrim, shared, so exactly one sheet can be open. Four per-sheet backdrops would be four chances for
+	// two to be open at once.
+	if !strings.Contains(src, `<div id="scrim" hidden></div>`) {
+		t.Error("the overlays need a shared backdrop element")
+	}
+
+	// All four carry the shared class and real dialog semantics.
+	for _, id := range []string{"panel", "pospanel", "tagpanel", "delpanel"} {
+		needle := `<div id="` + id + `" class="sheet" hidden role="dialog" aria-modal="true"`
+		if !strings.Contains(src, needle) {
+			t.Errorf("%s is not a modal sheet: want %s", id, needle)
+		}
+	}
+
+	// Positioned over the viewport rather than in the flow — this is the bug, stated as a rule. An overlay that
+	// is `position: static` is a card again, whatever it is called.
+	css := src[strings.Index(src, ".sheet {"):]
+	css = css[:strings.Index(css, "}")]
+	for _, want := range []string{"position: fixed", "max-height", "overflow-y: auto"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("the sheet rule is missing %q — fixed so it cannot open off-screen, and scrollable so a "+
+				"tall one does not push its own buttons past the viewport", want)
+		}
+	}
+
+	// One shell, not four. The giveaway for the old shape is an opener hiding its siblings by hand.
+	for _, name := range []string{"panel", "posPanel", "tagPanel", "delPanel"} {
+		if strings.Contains(src, name+".hidden = ") {
+			t.Errorf("%s is shown or hidden directly; open and close belong in the shared shell, or a fifth "+
+				"action means a fifth place to get this right", name)
+		}
+	}
+	if n := strings.Count(src, "openSheet("); n < 5 {
+		t.Errorf("want the four actions plus the shell's own definition using openSheet, found %d", n)
+	}
+}
+
+// The keyboard half, which is not decoration.
+//
+// A curator tagging three hundred photographs works fast and from the keyboard. A dialog that traps nothing
+// and returns focus nowhere makes that impossible — and each of these is a thing that is invisible until
+// somebody tries to work quickly, at which point it is the whole experience.
+func TestTheOverlaysAreUsableFromTheKeyboard(t *testing.T) {
+	src := adminSource(t, "adminpage.go")
+
+	for _, want := range []struct{ needle, why string }{
+		{"e.key === 'Escape'", "Escape must close the sheet"},
+		{"e.key !== 'Tab'", "Tab must be trapped, or it walks off into the contact sheet behind the overlay"},
+		{"sheetOpener", "focus must return to the button that opened the sheet; otherwise closing it drops " +
+			"focus to the top of the document and the next Tab starts from the page header"},
+		{"sheetopen", "the body must not scroll behind an open sheet"},
+		{"focusFirst(", "opening a sheet must move focus into it"},
+	} {
+		if !strings.Contains(src, want.needle) {
+			t.Errorf("the sheet shell is missing %q: %s", want.needle, want.why)
+		}
+	}
+}
+
+// The delete sheet does not close on a stray backdrop click.
+//
+// Every other sheet does, because dismissing them costs nothing. This one is showing a count of photographs it
+// is about to delete permanently, with no undo (task 379, PRD 022 §11 Q6) — a misplaced click next to it should
+// not be how it goes away.
+func TestTheDeleteOverlayDoesNotCloseOnABackdropClick(t *testing.T) {
+	src := adminSource(t, "adminpage.go")
+
+	handler := src[strings.Index(src, "scrim.addEventListener"):]
+	handler = handler[:strings.Index(handler, "});")]
+	if !strings.Contains(handler, "delpanel") {
+		t.Error("the backdrop must refuse to dismiss the delete sheet: it carries a permanent, un-undoable " +
+			"action and the count the curator is meant to read before confirming")
+	}
+}
+
+// Leaflet must be measured after the sheet is visible.
+//
+// It computes its pixel size on creation and caches it. Created inside a container the browser has not laid
+// out, it gets zero — and the symptom is a map that loads one tile in the corner and ignores every drag. This
+// was safe while the panel was an inline card already in flow; the overlay made it unsafe, which is exactly
+// the kind of breakage a presentation-only change is assumed not to cause.
+func TestThePositionMapIsMeasuredAfterItsOverlayOpens(t *testing.T) {
+	src := adminSource(t, "adminpage.go")
+
+	opener := src[strings.Index(src, "async function openPositionPanel"):]
+	opener = opener[:strings.Index(opener, "\n  }")]
+
+	if !strings.Contains(opener, "invalidateSize") {
+		t.Error("the position sheet must invalidate the map's size after opening, or Leaflet keeps the zero it " +
+			"measured while the container was hidden")
+	}
+	// After a frame, not in the same tick: the sheet has only just been unhidden and layout has not run.
+	if !strings.Contains(opener, "requestAnimationFrame") {
+		t.Error("invalidateSize must run after layout has settled, not in the same tick as unhiding the sheet")
+	}
+	// And the map is drawn after openSheet, not before it.
+	if strings.Index(opener, "openSheet(") > strings.Index(opener, "drawPositionMap") {
+		t.Error("the sheet must be visible before the map is drawn")
+	}
+}
+
 // Every HTTP failure the endpoint can produce has a Danish sentence. A curator reading three hundred rows
 // should never meet a bare status code.
 //

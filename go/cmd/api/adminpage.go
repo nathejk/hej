@@ -291,89 +291,72 @@ h2 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
 #actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 #selcount { font-weight: 600; margin-right: auto; }
 
-/* The action panel. Inline, because navigating away would lose the selection (PRD 022 §7). */
-#panel {
-  margin-top: 0.5rem; padding: 1rem; background: #fff;
-  border: 1px solid #d4d4d8; border-radius: 0.5rem; max-width: 34rem;
+/* The action sheets (task 390).
+
+   # Overlays, not cards stacked under the contact sheet
+
+   They used to reveal inline below the grid. With a selection made near the bottom of a 120-thumbnail page
+   that opened the panel off-screen: the curator pressed a button and nothing appeared to happen.
+
+   Still **one page**, which is the hard constraint PRD 022 §7 imposes — navigating away would lose the
+   selection, so none of these may become a route. An overlay satisfies that; a card underneath was never the
+   requirement, only the first implementation of it.
+
+   One '.sheet' rule rather than four near-identical id blocks. The previous version repeated the same chrome
+   for #panel, #pospanel, #tagpanel and #delpanel, which is four places for a fifth action to be styled
+   slightly differently. */
+#scrim {
+  position: fixed; inset: 0; background: rgba(9, 9, 11, 0.55);
+  z-index: 40;
 }
-#panel h3 { margin: 0 0 0.5rem; font-size: 1rem; }
-#panel p { margin: 0.5rem 0; }
-#panel .hint { color: #52525b; font-size: 0.875rem; }
-#panel button {
+.sheet {
+  position: fixed; z-index: 50;
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: calc(100vw - 2rem); max-width: 34rem;
+  /* Tall sheets scroll inside themselves rather than growing past the viewport — the position sheet holds an
+     18rem map, and on a laptop in landscape that used to push its own buttons off the bottom. */
+  max-height: calc(100vh - 2rem); overflow-y: auto;
+  padding: 1rem; background: #fff;
+  border: 1px solid #d4d4d8; border-radius: 0.5rem;
+  box-shadow: 0 10px 40px rgba(9, 9, 11, 0.25);
+}
+.sheet h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+.sheet h4 { margin: 0 0 0.25rem; font-size: 0.9375rem; }
+.sheet p { margin: 0.5rem 0; }
+.sheet .hint { color: #52525b; font-size: 0.875rem; }
+.sheet button {
   font: inherit; font-size: 0.875rem; cursor: pointer;
   background: #18181b; color: #fafafa; border: 1px solid #18181b;
   padding: 0.375rem 0.75rem; border-radius: 0.375rem;
 }
-#panel #closepanel, #panel #createalbum { background: #fff; color: #18181b; border-color: #d4d4d8; }
-#panel input[type=text] {
+.sheet button:disabled { opacity: 0.5; cursor: not-allowed; }
+/* The secondary buttons: closing, and the actions that only look something up. */
+.sheet button.ghost { background: #fff; color: #18181b; border-color: #d4d4d8; }
+.sheet input[type=text], .sheet select {
   font: inherit; padding: 0.375rem 0.5rem; border: 1px solid #d4d4d8; border-radius: 0.375rem;
-  min-width: 14rem;
 }
+.sheet input[type=text] { min-width: 14rem; }
+/* Body scroll is locked while a sheet is open, or the backdrop scrolls the grid underneath it. */
+body.sheetopen { overflow: hidden; }
+
 #albumlist { display: grid; gap: 0.25rem; max-height: 14rem; overflow: auto; }
 #albumlist label { display: flex; gap: 0.5rem; align-items: baseline; }
 #albumlist .draft { color: #92400e; font-size: 0.8125rem; }
 #albumlist .count { color: #52525b; font-size: 0.8125rem; }
 
-/* The position panel shares the album panel's chrome. */
-#pospanel {
-  margin-top: 0.5rem; padding: 1rem; background: #fff;
-  border: 1px solid #d4d4d8; border-radius: 0.5rem; max-width: 34rem;
-}
-#pospanel h3 { margin: 0 0 0.5rem; font-size: 1rem; }
-#pospanel p { margin: 0.5rem 0; }
-#pospanel .hint { color: #52525b; font-size: 0.875rem; }
-#pospanel button {
-  font: inherit; font-size: 0.875rem; cursor: pointer;
-  background: #18181b; color: #fafafa; border: 1px solid #18181b;
-  padding: 0.375rem 0.75rem; border-radius: 0.375rem;
-}
-#pospanel button:disabled { opacity: 0.5; cursor: not-allowed; }
-#pospanel #closepos, #pospanel #doclear { background: #fff; color: #18181b; border-color: #d4d4d8; }
-#pospanel select { font: inherit; padding: 0.375rem; border: 1px solid #d4d4d8; border-radius: 0.375rem; }
 #posmap { height: 18rem; border-radius: 0.375rem; margin: 0.5rem 0; }
-
-/* The tag panel shares the other panels' chrome. */
-#tagpanel {
-  margin-top: 0.5rem; padding: 1rem; background: #fff;
-  border: 1px solid #d4d4d8; border-radius: 0.5rem; max-width: 34rem;
-}
-#tagpanel h3 { margin: 0 0 0.5rem; font-size: 1rem; }
-#tagpanel p { margin: 0.5rem 0; }
-#tagpanel .hint { color: #52525b; font-size: 0.875rem; }
-#tagpanel button {
-  font: inherit; font-size: 0.875rem; cursor: pointer;
-  background: #18181b; color: #fafafa; border: 1px solid #18181b;
-  padding: 0.375rem 0.75rem; border-radius: 0.375rem;
-}
-#tagpanel button:disabled { opacity: 0.5; cursor: not-allowed; }
-#tagpanel #closetag, #tagpanel #lookuppatrol { background: #fff; color: #18181b; border-color: #d4d4d8; }
-#tagpanel input[type=text] {
-  font: inherit; padding: 0.375rem 0.5rem; border: 1px solid #d4d4d8; border-radius: 0.375rem; width: 8rem;
-}
+#tagpanel input[type=text] { width: 8rem; min-width: 0; }
 #tagfound.ok { color: #166534; font-weight: 500; }
 
-/* The delete panel. The two choices are visually separated and the destructive one is marked, because the whole
-   point of this panel is that they are different acts (PRD 022 §5). */
-#delpanel {
-  margin-top: 0.5rem; padding: 1rem; background: #fff;
-  border: 1px solid #d4d4d8; border-radius: 0.5rem; max-width: 34rem;
-}
-#delpanel h3 { margin: 0 0 0.5rem; font-size: 1rem; }
-#delpanel h4 { margin: 0 0 0.25rem; font-size: 0.9375rem; }
-#delpanel p { margin: 0.5rem 0; font-size: 0.9375rem; }
+/* The delete sheet. The two choices are visually separated and the destructive one is marked, because the
+   whole point of it is that they are different acts (PRD 022 §5). */
+#delpanel p { font-size: 0.9375rem; }
 #delpanel .choice { border: 1px solid #e4e4e7; border-radius: 0.375rem; padding: 0.75rem; margin: 0.75rem 0; }
 #delpanel .choice.danger { border-color: #fca5a5; background: #fef2f2; }
 #delpanel label { display: block; font-size: 0.875rem; color: #52525b; }
-#delpanel select, #delpanel input[type=text] {
-  font: inherit; padding: 0.375rem 0.5rem; border: 1px solid #d4d4d8; border-radius: 0.375rem;
-}
 #delpanel input[type=text] { width: 100%; }
-#delpanel button {
-  font: inherit; font-size: 0.875rem; cursor: pointer;
-  background: #fff; color: #18181b; border: 1px solid #d4d4d8;
-  padding: 0.375rem 0.75rem; border-radius: 0.375rem;
-}
-#delpanel button:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Its buttons default to secondary, so the one red button is the only thing that looks like an action. */
+#delpanel button { background: #fff; color: #18181b; border-color: #d4d4d8; }
 /* The destructive action is the only red button in the tool. */
 #delpanel button.danger { background: #b91c1c; color: #fff; border-color: #b91c1c; font-weight: 500; }
 svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
@@ -452,9 +435,14 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     <button type="button" id="clearsel">Ryd valg</button>
   </div>
 
-  <!-- The panel opens inline rather than on its own page, because navigating away loses the selection
-       (PRD 022 §7). That is the one hard constraint on this layout. -->
-  <div id="panel" hidden role="dialog" aria-label="Tilføj til album">
+  <!-- The sheets open **over** the page rather than on their own route, because navigating away loses the
+       selection (PRD 022 §7). That is the one hard constraint on this layout, and it is why these are
+       overlays rather than pages — not why they were once cards underneath (task 390).
+
+       The scrim is a sibling rather than each sheet's own backdrop, so exactly one can be open. -->
+  <div id="scrim" hidden></div>
+
+  <div id="panel" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Tilføj til album">
     <h3>Tilføj til album</h3>
     <p id="panelnote"></p>
     <div id="albumlist"></div>
@@ -463,19 +451,19 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       <p>
         <label for="newtitle">Titel</label>
         <input type="text" id="newtitle" maxlength="120" placeholder="Lørdag morgen">
-        <button type="button" id="createalbum">Opret</button>
+        <button type="button" class="ghost" id="createalbum">Opret</button>
       </p>
       <p class="hint">Nye album er <strong>ikke</strong> udgivet. Du udgiver dem, når de er færdige.</p>
     </details>
     <p>
       <button type="button" id="doadd">Tilføj</button>
-      <button type="button" id="closepanel">Annuller</button>
+      <button type="button" class="ghost" id="closepanel">Annuller</button>
     </p>
   </div>
 
   <!-- The position panel (task 376). Inline like the album one, for the same reason: navigating away loses the
        selection, and the selection is the input to the action. -->
-  <div id="pospanel" hidden role="dialog" aria-label="Sæt position">
+  <div id="pospanel" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Sæt position">
     <h3>Sæt position</h3>
     <p id="posnote"></p>
     <p>
@@ -491,24 +479,24 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     <p id="pospicked" class="hint"></p>
     <p>
       <button type="button" id="doposition" disabled>Sæt position</button>
-      <button type="button" id="doclear">Fjern position</button>
-      <button type="button" id="closepos">Annuller</button>
+      <button type="button" class="ghost" id="doclear">Fjern position</button>
+      <button type="button" class="ghost" id="closepos">Annuller</button>
     </p>
   </div>
   <!-- The patrol tag panel (task 377). No picker and no roster: the curator types the number from the sign and
        the tool confirms which patrol it is. There is deliberately no endpoint that lists patrols. -->
-  <div id="tagpanel" hidden role="dialog" aria-label="Tag patrulje">
+  <div id="tagpanel" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Tag patrulje">
     <h3>Tag patrulje</h3>
     <p id="tagnote"></p>
     <p>
       <label for="tagnum">Patruljens nummer</label>
       <input type="text" id="tagnum" inputmode="numeric" maxlength="8" placeholder="42" autocomplete="off">
-      <button type="button" id="lookuppatrol">Find</button>
+      <button type="button" class="ghost" id="lookuppatrol">Find</button>
     </p>
     <p id="tagfound" class="hint"></p>
     <p>
       <button type="button" id="dotag" disabled>Tag billederne</button>
-      <button type="button" id="closetag">Annuller</button>
+      <button type="button" class="ghost" id="closetag">Annuller</button>
     </p>
   </div>
   <!-- The delete panel (task 379). **The copy here is the substance, not decoration.**
@@ -520,7 +508,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
 
        So this panel offers **both**, states plainly what each does, and makes the destructive one visually
        distinct. The safe one is offered first, because it is the one a curator usually wants. -->
-  <div id="delpanel" hidden role="dialog" aria-label="Fjern eller slet">
+  <div id="delpanel" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Fjern eller slet">
     <h3>Fjern eller slet</h3>
     <p id="delnote"></p>
 
@@ -550,7 +538,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       </p>
     </div>
 
-    <p><button type="button" id="closedel">Annuller</button></p>
+    <p><button type="button" class="ghost" id="closedel">Annuller</button></p>
   </div>
 </main>
 <script>
@@ -829,20 +817,83 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
   let offset = 0;
   let loading = false;
 
+  // --- the sheet shell (task 390) ---------------------------------------------
+  //
+  // One place that opens and closes an overlay, rather than each action hiding the other three by hand — which
+  // is what this replaced, four assignments per opener, and four more to forget when a fifth action lands.
+  //
+  // The keyboard handling is not decoration. A curator tagging three hundred photographs works fast and from
+  // the keyboard; a dialog that traps nothing and returns focus nowhere makes that impossible.
+  const scrim = document.getElementById('scrim');
+  // The element focus returns to when the sheet closes. Without it, closing a sheet drops focus to the top of
+  // the document and the next Tab starts from the page header.
+  let sheetOpener = null;
+  let openSheetEl = null;
+
+  function openSheet(el, opener) {
+    if (openSheetEl && openSheetEl !== el) closeSheet({ restore: false });
+    sheetOpener = opener || document.activeElement;
+    openSheetEl = el;
+    scrim.hidden = false;
+    el.hidden = false;
+    document.body.classList.add('sheetopen');
+    focusFirst(el);
+  }
+
+  function closeSheet(opts) {
+    if (!openSheetEl) return;
+    openSheetEl.hidden = true;
+    openSheetEl = null;
+    scrim.hidden = true;
+    document.body.classList.remove('sheetopen');
+    // Restored unless one sheet is handing over to another, where the opener is about to be replaced anyway.
+    if (!opts || opts.restore !== false) {
+      if (sheetOpener && sheetOpener.isConnected) sheetOpener.focus();
+      sheetOpener = null;
+    }
+  }
+
+  function focusables(el) {
+    return Array.prototype.filter.call(
+      el.querySelectorAll('button, [href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])'),
+      (n) => !n.disabled && n.offsetParent !== null
+    );
+  }
+
+  function focusFirst(el) {
+    const f = focusables(el);
+    if (f.length) f[0].focus();
+  }
+
+  // Escape closes, and Tab cycles inside the open sheet instead of walking off into the contact sheet behind
+  // it. Bound once on the document rather than per sheet.
+  document.addEventListener('keydown', (e) => {
+    if (!openSheetEl) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeSheet(); return; }
+    if (e.key !== 'Tab') return;
+    const f = focusables(openSheetEl);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+
+  // Clicking the backdrop closes. Deliberately **not** on the delete sheet: a stray click next to a
+  // confirmation that says how many photographs it will delete should not be how that dialog goes away.
+  scrim.addEventListener('click', () => {
+    if (openSheetEl && openSheetEl.id === 'delpanel') return;
+    closeSheet();
+  });
+
   function syncActions() {
     const n = selected.size;
     actions.hidden = n === 0;
     selCount.textContent = n === 1 ? '1 valgt' : n + ' valgte';
     // Every action is wired now (tasks 375–379).
     //
-    // Closing the bar closes the panels with it: a panel acting on an empty selection is a button that cannot do
+    // Closing the bar closes the sheet with it: an action on an empty selection is a button that cannot do
     // anything.
-    if (n === 0) {
-      if (panel) panel.hidden = true;
-      if (posPanel) posPanel.hidden = true;
-      if (tagPanel) tagPanel.hidden = true;
-      if (delPanel) delPanel.hidden = true;
-    }
+    if (n === 0) closeSheet();
   }
 
   function paint(cell) {
@@ -1067,7 +1118,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
   const newTitle = document.getElementById('newtitle');
 
   async function openAlbumPanel() {
-    panel.hidden = false;
+    openSheet(panel);
     panelNote.textContent = 'Henter album…';
     albumList.textContent = '';
 
@@ -1112,7 +1163,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
   }
 
   document.getElementById('closepanel').addEventListener('click', () => {
-    panel.hidden = true;
+    closeSheet();
   });
 
   document.getElementById('createalbum').addEventListener('click', async () => {
@@ -1165,7 +1216,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
 
       // The server writes the sentence, because it is the side that knows how many were already there.
       note.textContent = payload.message || 'Tilføjet.';
-      panel.hidden = true;
+      closeSheet();
       selected.clear();
       // Reloaded so the album marks on the thumbnails are right, which is how the curator sees what is left
       // to sort.
@@ -1220,9 +1271,15 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     doPosition.disabled = true;
   }
 
+  // # Why the map is drawn last, and why it is measured again after (task 390)
+  //
+  // Leaflet computes its pixel size when the map is created and caches it. Creating one inside a container
+  // that is hidden — or that the browser has not laid out yet — gives it a size of zero, and the symptom is a
+  // map that loads one tile in the corner and ignores every drag. So 'drawPositionMap' runs after 'openSheet'
+  // has made the sheet visible, and 'invalidateSize' is called on the frame after that, once layout has
+  // settled. It was safe while the panel was an inline card that was already in flow; it is not safe now.
   async function openPositionPanel() {
-    posPanel.hidden = false;
-    panel.hidden = true;
+    openSheet(posPanel);
     clicked = null;
     cpPick.value = '';
     describeChoice();
@@ -1231,7 +1288,8 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       : selected.size + ' billeder får positionen.';
 
     await loadCheckpoints();
-    drawPositionMap();
+    await drawPositionMap();
+    if (posMap) requestAnimationFrame(() => posMap.invalidateSize());
   }
 
   async function loadCheckpoints() {
@@ -1381,7 +1439,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     describeChoice();
   });
 
-  document.getElementById('closepos').addEventListener('click', () => { posPanel.hidden = true; });
+  document.getElementById('closepos').addEventListener('click', () => { closeSheet(); });
 
   async function sendPosition(payload) {
     posNote.textContent = 'Gemmer…';
@@ -1400,7 +1458,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       // three verdicts happened — and two of them are refusals the curator must not mistake for a fault at
       // their end.
       note.textContent = out.message || 'Gemt.';
-      posPanel.hidden = true;
+      closeSheet();
       selected.clear();
       load(true);
     } catch (err) {
@@ -1438,9 +1496,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
   let confirmedPatrol = null;
 
   function openTagPanel() {
-    tagPanel.hidden = false;
-    panel.hidden = true;
-    posPanel.hidden = true;
+    openSheet(tagPanel);
     confirmedPatrol = null;
     tagFound.textContent = '';
     tagFound.classList.remove('ok');
@@ -1498,7 +1554,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     tagFound.classList.remove('ok');
   });
 
-  document.getElementById('closetag').addEventListener('click', () => { tagPanel.hidden = true; });
+  document.getElementById('closetag').addEventListener('click', () => { closeSheet(); });
 
   doTag.addEventListener('click', async () => {
     if (!confirmedPatrol) { tagFound.textContent = 'Find patruljen først.'; return; }
@@ -1518,7 +1574,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
         return;
       }
       note.textContent = out.message || 'Tagget.';
-      tagPanel.hidden = true;
+      closeSheet();
       selected.clear();
       load(true);
     } catch (err) {
@@ -1543,10 +1599,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
   const doRemove = document.getElementById('doremove');
 
   async function openDeletePanel() {
-    delPanel.hidden = false;
-    panel.hidden = true;
-    posPanel.hidden = true;
-    tagPanel.hidden = true;
+    openSheet(delPanel);
     delReason.value = '';
     delAlbum.value = '';
     doRemove.disabled = true;
@@ -1573,7 +1626,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
   }
 
   delAlbum.addEventListener('change', () => { doRemove.disabled = !delAlbum.value; });
-  document.getElementById('closedel').addEventListener('click', () => { delPanel.hidden = true; });
+  document.getElementById('closedel').addEventListener('click', () => { closeSheet(); });
 
   // runOverSelection issues one request per selected photograph, three at a time.
   //
@@ -1619,7 +1672,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     if (r.failed) bits.push(r.failed + ' fejlede');
     note.textContent = bits.join(' · ') + '.';
 
-    delPanel.hidden = true;
+    closeSheet();
     selected.clear();
     load(true);
   });
@@ -1644,7 +1697,7 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     if (r.failed) bits.push(r.failed + ' fejlede');
     note.textContent = bits.join(' · ') + '.';
 
-    delPanel.hidden = true;
+    closeSheet();
     selected.clear();
     load(true);
   });
