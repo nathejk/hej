@@ -70,10 +70,33 @@ projection would make a year public the moment an album in it is published; conf
 deliberate acts, and "which years does this deployment serve?" becomes answerable from the environment instead
 of from the database.
 
-### Constraint 2 — the one that needs a decision: a year prefix is not just albums
+### Constraint 2 — the one that needed a decision: a year prefix is not just albums
 
-This is what makes the change larger than "add a year to the album route". `/{year}` today carries the whole
-public site:
+**Resolved (2026-09-23, maintainer): the full site, per year.**
+
+> *"2026 was first year for glimt, but yes future glimt and albums and patrulje page will exist every year."*
+
+So the albums-only variant recommended below is **not** wanted, and the concern that prompted it was partly
+moot: 2025 has no glimt at all, because 2026 was the first year for it. Going forward each year legitimately
+has its own glimt, albums and patrol pages, and `/{year}` should serve all of them.
+
+That simplifies the change — no second frontpage template — and leaves one consequence worth building for
+rather than discovering:
+
+**A past year's glimt page will always be empty, and that is the retention promise working.** `publicGlimt`
+passes `app.glimtPublicCutoff()` into `PublicFeed`, a **time-based** 30-day window (PRD 019 §6, task 310).
+Participants were told public glimt disappears after 30 days. So `/2026/glimt` will render an empty feed
+forever once that window passes, on a page that exists and is linked from the frontpage.
+
+That must not look broken. It needs honest Danish copy — something that says the glimt from that year are gone
+because that is what was promised, not "der er ingen glimt" as though nobody posted any. The frontpage's glimt
+strip for a past year has the same problem. **This is a copy decision in the implementation, not a reason to
+reopen the scope.**
+
+The earlier analysis of what a year prefix reaches is kept below, because the *routing* half of it still
+applies.
+
+### What a year prefix reaches (kept for the routing work)
 
 | Route | What making 2025 public would do |
 |---|---|
@@ -85,30 +108,17 @@ public site:
 
 **Glimt is safe, by design rather than by luck.** `publicGlimt` passes `app.glimtPublicCutoff()` into
 `PublicFeed`, and that cutoff is **time-based** — the 30-day public retention window of PRD 019 §6 (task 310).
-So 2025's glimt is filtered out whatever the routing does. It would render an empty section, which is a poor
-page rather than a leak.
+So a past year's glimt is filtered out whatever the routing does. It renders an empty section, which needs copy
+rather than a gate — see the resolution above.
 
-**Patrol pages are not.** They have no time gate at all — they open when a patrol finishes and stay open. They
-carry no person (task 338's `publicpatrol` projection has no name, phone or email, and a structural test holds
-that), so this is not a privacy *breach*; it is a decision about republishing last year's event that nobody has
-made. It must not happen as a side effect of wanting album pages.
+**Patrol pages have no time gate** — they open when a patrol finishes and stay open. They carry no person
+(task 338's `publicpatrol` projection has no name, phone or email, and a structural test holds that). The
+maintainer has confirmed these should exist per year.
 
-### Recommendation
+### Recommendation — superseded
 
-**A past year gets an albums-only public surface.** Specifically:
-
-- registered for a past year: `/{year}` (an albums-only index), `/{year}/album/{slug}`, `/{year}/privatliv`,
-  and the album media and map endpoints scoped to that year;
-- **not** registered for a past year: `/{year}/glimt`, `/{year}/patrulje`, `/{year}/patrulje/{number}`, the
-  report endpoints, the diploma routes;
-- the current year keeps the full site exactly as now.
-
-That needs an albums-only variant of the frontpage template, since today's renders the glimt strip and the
-patrol search unconditionally.
-
-**Awaiting confirmation of that scope before implementation.** The alternative — the full site for every
-configured year — republishes last year's patrol pages, and that is a decision to take deliberately rather
-than to inherit.
+~~A past year gets an albums-only public surface.~~ Overtaken by the resolution above: the full site, per year.
+Kept so the reasoning is not re-derived.
 
 ### Other work this implies
 
@@ -134,8 +144,9 @@ than to inherit.
 - [ ] Uploading into a past year is verified live, and the photograph lands in that year and nowhere else
 - [ ] PRD 022 §5 and §7 are updated: they currently state the year is immutable, and they will be wrong
 - [ ] Task 385's half-page is updated — it tells a photographer the year cannot be changed
-- [x] The publishing question above is answered in this file before implementation — *past years public too;
-      the scope of "public" still needs confirming, see the recommendation*
+- [x] The publishing question above is answered in this file before implementation — *past years public too,
+      and the **full site** per year (maintainer, 2026-09-23)*
 - [ ] Split: the curator's year selector and the multi-year **public** surface are separate pieces of work.
-      The first is this task. The second needs its own PRD amendment and its own tasks, because it changes a
-      published surface and must extend the privacy and visibility walks before it adds routes.
+      The first is this task. The second needs its own PRD — it changes a published surface, and `.rules`
+      requires one for a change of that size — and its own tasks, because it must extend the privacy and
+      visibility walks before it adds routes.
