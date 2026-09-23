@@ -360,6 +360,12 @@ func isPersonShaped(field string) bool {
 	switch lower {
 	case "photoid", "photoids":
 		return false
+	// A **collection** of photographs, and a flag about one (task 381). Same distinction as above: these
+	// name photographs as objects, not people. `Photos` is the library page's list; `PhotoDeleted` is the
+	// album view's "the photograph behind this membership is gone", which is precisely the field that keeps
+	// a deleted photograph from being rendered.
+	case "photos", "photodeleted":
+		return false
 	}
 
 	for _, needle := range []string{
@@ -371,6 +377,18 @@ func isPersonShaped(field string) bool {
 			// allowlist above for the names that have had to be excepted.
 			return true
 		}
+	}
+
+	// **Anything ending in "By"** (task 381). A suffix rather than a needle, because the field this whole
+	// check exists to stop is called `UploadedBy`, and none of the substrings above matches it — found by
+	// adding the field and watching the test pass, which is the only way that gap was ever going to surface.
+	//
+	// In this codebase `…By` names an actor without exception: `HiddenBy`, `hiddenBy`, `uploadedBy`. That is
+	// the shape PRD 022 §8.2 makes impossible to fill honestly anyway — the credential is shared, so there is
+	// no actor to name. A false positive here (`standby`, `nearby`) fails loudly and is excepted above with a
+	// reason, which is the right direction for this trap to err in.
+	if strings.HasSuffix(lower, "by") {
+		return true
 	}
 	// A bare "Name" is ambiguous — an album has a title, a patrol has a name — so it is not flagged.
 	// The fixture-value assertions above are what catch a person's name arriving in one.
