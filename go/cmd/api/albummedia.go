@@ -42,7 +42,7 @@ import (
 // recorded is the one that was true when the photograph was accepted, which is also the one a curator
 // was shown.
 
-// albumMediaPrepared is one photograph ready to be named in an ItemAdded event.
+// albumMediaPrepared is one photograph ready to be named in a photo.Uploaded event.
 type albumMediaPrepared struct {
 	Ref      string
 	ThumbRef string
@@ -50,14 +50,14 @@ type albumMediaPrepared struct {
 	Height   int
 	Bytes    int
 
-	// Lat/Lng are nil unless the file carried a usable coordinate. Nil rather than zero, because 0,0 is
-	// a real place and also what a camera with no fix writes — `imaging.ReadGPS` already refuses it, and
-	// pointers are what keep that refusal from arriving downstream as a coordinate off Ghana.
-	Lat *float64
-	Lng *float64
-
-	// BoundsVerdict is one of album.Bounds*.
-	BoundsVerdict string
+	// Location is nil unless the file carried a usable coordinate, which is the common case.
+	//
+	// A `*photo.Location` rather than a lat, a lng and a verdict side by side, for the reason that type's
+	// doc gives at length: a coordinate and the judgement made about it are one fact, and three separate
+	// fields make "moved the point, forgot the verdict" expressible. Nil rather than zero because 0,0 is a
+	// real place and also what a camera with no fix writes — `imaging.ReadGPS` already refuses it, and this
+	// shape is what keeps that refusal from arriving downstream as a coordinate off Ghana.
+	Location *photo.Location
 }
 
 // storeAlbumImage normalizes and stores one curated photograph.
@@ -96,16 +96,20 @@ func (app *application) storeAlbumImage(ctx context.Context, raw []byte) (albumM
 	}
 
 	out := albumMediaPrepared{
-		Ref:           ref.String(),
-		ThumbRef:      thumbRef,
-		Width:         prepared.Full.Width,
-		Height:        prepared.Full.Height,
-		Bytes:         len(prepared.Full.Bytes),
-		BoundsVerdict: album.BoundsNone,
+		Ref:      ref.String(),
+		ThumbRef: thumbRef,
+		Width:    prepared.Full.Width,
+		Height:   prepared.Full.Height,
+		Bytes:    len(prepared.Full.Bytes),
 	}
 	if hasCoordinate {
-		out.Lat, out.Lng = &lat, &lng
-		out.BoundsVerdict = app.albumBoundsVerdict(lat, lng)
+		// The verdict is decided here, at ingest, and travels with the coordinate. Never recomputed on
+		// read — see the file header.
+		out.Location = &photo.Location{
+			Lat:           lat,
+			Lng:           lng,
+			BoundsVerdict: app.albumBoundsVerdict(lat, lng),
+		}
 	}
 	return out, nil
 }
@@ -136,22 +140,22 @@ func (app *application) storeAlbumImage(ctx context.Context, raw []byte) (albumM
 // will not appear.
 func (app *application) albumBoundsVerdict(lat, lng float64) string {
 	if app.models.RaceAreas == nil {
-		return album.BoundsUnknown
+		return photo.BoundsUnknown
 	}
 	area, ok, err := app.models.RaceAreas.RaceArea(app.config.eventYear)
 	if err != nil {
 		// Cannot judge, so we say so rather than guessing in either direction. An error here becoming
 		// `outside` would silently unplot a whole batch because of a transient database problem.
 		app.Logger.Error("reading the race area for an album bounds check", "err", err)
-		return album.BoundsUnknown
+		return photo.BoundsUnknown
 	}
 	if !ok {
-		return album.BoundsUnknown
+		return photo.BoundsUnknown
 	}
 	if withinRaceBounds(area, lat, lng) {
-		return album.BoundsInside
+		return photo.BoundsInside
 	}
-	return album.BoundsOutside
+	return photo.BoundsOutside
 }
 
 // withinRaceBounds reports whether a coordinate is inside the area's bounding box.

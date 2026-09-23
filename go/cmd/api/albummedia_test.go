@@ -12,6 +12,7 @@ import (
 	"nathejk.dk/internal/imaging"
 	"nathejk.dk/nathejk/table/album"
 	"nathejk.dk/nathejk/table/checkpoint"
+	"nathejk.dk/nathejk/table/photo"
 )
 
 // jpegWithTestGPS builds a JPEG carrying an EXIF GPS block.
@@ -164,10 +165,10 @@ func TestAlbumBoundsVerdict(t *testing.T) {
 	app := newTestApp(t)
 	app.models.RaceAreas = stubRaceAreas{area: testRaceArea(), ok: true}
 
-	if got := app.albumBoundsVerdict(55.73, 12.26); got != album.BoundsInside {
+	if got := app.albumBoundsVerdict(55.73, 12.26); got != photo.BoundsInside {
 		t.Errorf("a coordinate at the event should be inside, got %q", got)
 	}
-	if got := app.albumBoundsVerdict(40.7128, -74.0060); got != album.BoundsOutside {
+	if got := app.albumBoundsVerdict(40.7128, -74.0060); got != photo.BoundsOutside {
 		t.Errorf("a coordinate in Manhattan should be outside, got %q", got)
 	}
 }
@@ -185,10 +186,10 @@ func TestAlbumBoundsVerdictIsUnknownWhenWeCannotJudge(t *testing.T) {
 		app.models.RaceAreas = areas
 
 		got := app.albumBoundsVerdict(55.73, 12.26)
-		if got != album.BoundsUnknown {
+		if got != photo.BoundsUnknown {
 			t.Errorf("%s: want unknown, got %q", name, got)
 		}
-		if got == album.BoundsOutside {
+		if got == photo.BoundsOutside {
 			t.Errorf("%s: must not blame the photograph for our own missing data", name)
 		}
 	}
@@ -196,7 +197,7 @@ func TestAlbumBoundsVerdictIsUnknownWhenWeCannotJudge(t *testing.T) {
 	// And with no projection at all.
 	app := newTestApp(t)
 	app.models.RaceAreas = nil
-	if got := app.albumBoundsVerdict(55.73, 12.26); got != album.BoundsUnknown {
+	if got := app.albumBoundsVerdict(55.73, 12.26); got != photo.BoundsUnknown {
 		t.Errorf("no race-area projection: want unknown, got %q", got)
 	}
 }
@@ -204,7 +205,7 @@ func TestAlbumBoundsVerdictIsUnknownWhenWeCannotJudge(t *testing.T) {
 // `unknown` must never be plottable: we could not check it, and plotting an unchecked coordinate on a
 // public page is the failure the whole verdict exists to prevent.
 func TestUnknownIsNotPlottable(t *testing.T) {
-	if album.Plottable(album.BoundsUnknown) {
+	if photo.Plottable(photo.BoundsUnknown) {
 		t.Fatal("an unchecked coordinate must not reach the map")
 	}
 }
@@ -224,14 +225,14 @@ func TestStoreAlbumImageReadsTheCoordinateAndStripsIt(t *testing.T) {
 		t.Fatalf("storeAlbumImage: %v", err)
 	}
 
-	if stored.Lat == nil || stored.Lng == nil {
+	if stored.Location == nil {
 		t.Fatal("want the coordinate carried out of the ingest")
 	}
-	if *stored.Lat < 55.73 || *stored.Lat > 55.74 {
-		t.Errorf("latitude %f is not the fixture's", *stored.Lat)
+	if stored.Location.Lat < 55.73 || stored.Location.Lat > 55.74 {
+		t.Errorf("latitude %f is not the fixture's", stored.Location.Lat)
 	}
-	if stored.BoundsVerdict != album.BoundsInside {
-		t.Errorf("want the inside verdict, got %q", stored.BoundsVerdict)
+	if stored.Location.BoundsVerdict != photo.BoundsInside {
+		t.Errorf("want the inside verdict, got %q", stored.Location.BoundsVerdict)
 	}
 
 	// The whole point: reading it did not mean keeping it.
@@ -258,11 +259,11 @@ func TestStoreAlbumImageWithoutACoordinate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storeAlbumImage: %v", err)
 	}
-	if stored.Lat != nil || stored.Lng != nil {
-		t.Error("a file with no GPS must yield no coordinate")
-	}
-	if stored.BoundsVerdict != album.BoundsNone {
-		t.Errorf("want the none verdict, got %q", stored.BoundsVerdict)
+	// No location at all rather than a zero coordinate with a `none` verdict: after PRD 022 the absence is
+	// expressed by the absence of the value, which is what makes "moved the point, forgot the verdict"
+	// unsayable downstream.
+	if stored.Location != nil {
+		t.Errorf("a file with no GPS must yield no location, got %+v", *stored.Location)
 	}
 	if stored.Ref == "" || len(stored.Ref) != 64 {
 		t.Errorf("want a content hash, got %q", stored.Ref)
@@ -280,13 +281,13 @@ func TestStoreAlbumImageKeepsAnOutOfBoundsCoordinate(t *testing.T) {
 		t.Fatalf("storeAlbumImage: %v", err)
 	}
 
-	if stored.Lat == nil {
+	if stored.Location == nil {
 		t.Fatal("the coordinate must be kept, so a curator can see what was rejected")
 	}
-	if stored.BoundsVerdict != album.BoundsOutside {
-		t.Errorf("want the outside verdict, got %q", stored.BoundsVerdict)
+	if stored.Location.BoundsVerdict != photo.BoundsOutside {
+		t.Errorf("want the outside verdict, got %q", stored.Location.BoundsVerdict)
 	}
-	if album.Plottable(stored.BoundsVerdict) {
+	if photo.Plottable(stored.Location.BoundsVerdict) {
 		t.Error("an out-of-bounds coordinate must not be plottable")
 	}
 }
@@ -310,11 +311,8 @@ func TestStoreAlbumImageTreatsNullIslandAsNoFix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storeAlbumImage: %v", err)
 	}
-	if stored.Lat != nil {
-		t.Error("0,0 must be treated as no fix rather than as a place")
-	}
-	if stored.BoundsVerdict != album.BoundsNone {
-		t.Errorf("want the none verdict, got %q", stored.BoundsVerdict)
+	if stored.Location != nil {
+		t.Errorf("0,0 must be treated as no fix rather than as a place, got %+v", *stored.Location)
 	}
 }
 
