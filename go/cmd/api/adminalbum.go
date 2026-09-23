@@ -52,6 +52,14 @@ type adminAlbumSummary struct {
 	Published   bool   `json:"published"`
 	Deleted     bool   `json:"deleted,omitempty"`
 	ItemCount   int    `json:"itemCount"`
+
+	// CoverPhotoID is the photograph the album opens with, or absent when it has none (task 391).
+	//
+	// A photo id rather than a URL, so the client builds the admin media address and the server does not
+	// hard-code one. Omitted rather than empty when an album has no live items, which is how a new album and an
+	// album whose photographs were all deleted both look — and both are states the list must render honestly
+	// rather than hide.
+	CoverPhotoID string `json:"coverPhotoId,omitempty"`
 }
 
 // listAdminAlbumsHandler returns every album in the year, drafts included.
@@ -81,14 +89,15 @@ func (app *application) listAdminAlbumsHandler(w http.ResponseWriter, r *http.Re
 	out := listAdminAlbumsResponse{Albums: make([]adminAlbumSummary, 0, len(rows))}
 	for _, a := range rows {
 		out.Albums = append(out.Albums, adminAlbumSummary{
-			AlbumID:     a.ID,
-			Slug:        a.Slug,
-			Title:       a.Title,
-			Description: a.Description,
-			SortOrder:   a.SortOrder,
-			Published:   a.Published,
-			Deleted:     a.Deleted,
-			ItemCount:   a.ItemCount,
+			AlbumID:      a.ID,
+			Slug:         a.Slug,
+			Title:        a.Title,
+			Description:  a.Description,
+			SortOrder:    a.SortOrder,
+			Published:    a.Published,
+			Deleted:      a.Deleted,
+			ItemCount:    a.ItemCount,
+			CoverPhotoID: a.CoverPhotoID,
 		})
 	}
 

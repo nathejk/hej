@@ -366,6 +366,11 @@ func isPersonShaped(field string) bool {
 	// a deleted photograph from being rendered.
 	case "photos", "photodeleted":
 		return false
+	// The photograph an album opens with (task 391). A content hash of a curated photograph, like `photoId`
+	// above — an album's cover, not a portrait of anybody. Listed separately rather than by loosening the
+	// `photoid` case to a prefix match, because `PhotoIdentityOf` would then pass too.
+	case "coverphotoid":
+		return false
 	}
 
 	for _, needle := range []string{

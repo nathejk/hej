@@ -77,6 +77,18 @@ type CuratorAlbum struct {
 	// uses, so the admin tool and the frontpage never disagree about how many photographs an album has.
 	ItemCount int
 
+	// CoverPhotoID is the photograph the album opens with, or "" when it has none (task 391).
+	//
+	// The **photograph**, not an ordinal, because the curator's surfaces address photographs — and because the
+	// admin media route takes a photo id, so the list renders a thumbnail with no second lookup. The public
+	// summary carries `CoverOrdinal` instead, since its media route is addressed by position within a published
+	// album; the two are the same photograph reached the two legitimate different ways.
+	//
+	// Chosen the same way the public cover is: the **lowest live ordinal**, because a curator orders an album
+	// deliberately and the first photograph is the one they chose to open with. Matching definitions matters
+	// here — a list whose cover differed from the frontpage's would make a curator distrust the list.
+	CoverPhotoID string
+
 	CreatedAt string
 }
 
@@ -114,7 +126,11 @@ func (q curatorQuerier) All(year string) ([]CuratorAlbum, error) {
 		       a.published, a.deleted, a.createdAt,
 		       (SELECT COUNT(*) FROM album_item i
 		         JOIN photo p ON p.photoId = i.photoId
-		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0) AS itemCount
+		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0) AS itemCount,
+		       (SELECT i.photoId FROM album_item i
+		         JOIN photo p ON p.photoId = i.photoId
+		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0
+		         ORDER BY i.ordinal ASC LIMIT 1) AS coverPhotoId
 		FROM album a
 		WHERE a.year = ?
 		ORDER BY a.deleted ASC, a.sortOrder ASC, a.albumId ASC`, year)
@@ -127,12 +143,16 @@ func (q curatorQuerier) All(year string) ([]CuratorAlbum, error) {
 	for rows.Next() {
 		var a CuratorAlbum
 		var published, deleted int
+		// NULL when the album has no live item, which is the normal state of a new album — so a nullable scan
+		// rather than a COALESCE, to keep "no cover" distinguishable from a photo id that is somehow empty.
+		var cover sql.NullString
 		if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Description, &a.SortOrder,
-			&published, &deleted, &a.CreatedAt, &a.ItemCount); err != nil {
+			&published, &deleted, &a.CreatedAt, &a.ItemCount, &cover); err != nil {
 			return nil, err
 		}
 		a.Published = published != 0
 		a.Deleted = deleted != 0
+		a.CoverPhotoID = cover.String
 		out = append(out, a)
 	}
 	return out, rows.Err()

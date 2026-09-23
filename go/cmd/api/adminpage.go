@@ -344,6 +344,48 @@ body.sheetopen { overflow: hidden; }
 #albumlist .draft { color: #92400e; font-size: 0.8125rem; }
 #albumlist .count { color: #52525b; font-size: 0.8125rem; }
 
+/* The album list (task 391). A grid of cards rather than a table: the cover is how a curator recognises an
+   album, and a table would put it in a column. */
+#albums { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
+#albums .card {
+  display: flex; gap: 0.625rem; align-items: flex-start;
+  padding: 0.625rem; background: #fff;
+  border: 1px solid #e4e4e7; border-radius: 0.5rem;
+}
+/* A draft is marked on the card itself, not only by a badge, so "what is not published" is answerable by
+   glancing rather than by reading every row. */
+#albums .card.draft { border-color: #fcd34d; background: #fffbeb; }
+#albums .card.gone { border-color: #e4e4e7; background: #fafafa; opacity: 0.65; }
+#albums .cover {
+  width: 4rem; height: 4rem; flex: none; object-fit: cover;
+  border-radius: 0.375rem; background: #f4f4f5;
+}
+/* An album with no live items has no cover. A dashed placeholder rather than a blank gap, so the row reads as
+   "empty album" instead of "image failed to load". */
+#albums .cover.none { border: 1px dashed #d4d4d8; }
+#albums .meta { min-width: 0; flex: 1; }
+#albums .t { font-weight: 600; display: block; overflow-wrap: anywhere; }
+#albums .s { color: #52525b; font-size: 0.8125rem; display: block; }
+#albums .badge {
+  display: inline-block; font-size: 0.75rem; padding: 0.0625rem 0.375rem;
+  border-radius: 0.25rem; margin-right: 0.25rem;
+}
+#albums .badge.pub { background: #dcfce7; color: #166534; }
+#albums .badge.drafty { background: #fef3c7; color: #92400e; }
+#albums .badge.del { background: #f4f4f5; color: #52525b; }
+#albums .acts { display: flex; gap: 0.375rem; margin-top: 0.375rem; flex-wrap: wrap; }
+#albums .acts a, #albums .acts button {
+  font: inherit; font-size: 0.8125rem; cursor: pointer; text-decoration: none;
+  background: #fff; color: #18181b; border: 1px solid #d4d4d8;
+  padding: 0.1875rem 0.5rem; border-radius: 0.375rem;
+}
+#albums .acts button:disabled { opacity: 0.5; cursor: not-allowed; }
+#newalbumbtn {
+  font: inherit; font-size: 0.875rem; cursor: pointer;
+  background: #18181b; color: #fafafa; border: 1px solid #18181b;
+  padding: 0.375rem 0.75rem; border-radius: 0.375rem;
+}
+
 #posmap { height: 18rem; border-radius: 0.375rem; margin: 0.5rem 0; }
 #tagpanel input[type=text] { width: 8rem; min-width: 0; }
 #tagfound.ok { color: #166534; font-weight: 500; }
@@ -404,6 +446,21 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
   </section>
 
   <ul id="rows"></ul>
+
+  <!-- The album list (task 391).
+
+       It sits above the contact sheet because it answers the question a curator opens this page with — "what
+       have I not published yet?" — whereas the sheet answers "what have I not sorted yet?".
+
+       Before this, the only album markup on the page was the assignment checkboxes inside the add-to-album
+       sheet, and the editor at /admin/album/{slug} was reachable only by typing a slug. So publishing was
+       built and unusable. -->
+  <h2>Album</h2>
+  <p id="albumsnote" class="hint" aria-live="polite"></p>
+  <div id="albums" data-year="{{.Year}}"></div>
+  <p>
+    <button type="button" id="newalbumbtn">Opret et album</button>
+  </p>
 
   <h2>Kontaktark</h2>
   <div id="filters" role="group" aria-label="Filtre">
@@ -1107,10 +1164,198 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
     cells[i].focus();
   });
 
+  // --- the album list (task 391) -------------------------------------------
+  //
+  // # Why this exists at all
+  //
+  // The album editor — /admin/album/{slug}, where publishing, the title, the description, the order and the
+  // captions live — had **no link from anywhere**. It was reachable only by typing a slug into the address bar,
+  // so the whole publish half of PRD 022 §5 was built and unusable. Reported that way.
+  //
+  // # Why publishing is here and not only in the editor
+  //
+  // "Publish this" is the common case and needs no editing. Making a curator open a page to press one button,
+  // when they are looking at a list that already says which albums are drafts, is the friction that makes a
+  // tool feel like a form.
+  //
+  // Drafts and **deleted** albums are shown, not filtered. This is the curator's read (task 366): the public
+  // one hides them, and the difference between the two is the whole reason there are two.
+
+  const albumsEl = document.getElementById('albums');
+  const albumsNote = document.getElementById('albumsnote');
+
+  async function loadAlbums() {
+    albumsNote.textContent = 'Henter album…';
+    try {
+      const res = await fetch('/api/admin/albums');
+      if (!res.ok) {
+        albumsNote.textContent = 'Kunne ikke hente album (fejl ' + res.status + ').';
+        return;
+      }
+      const data = await res.json();
+      renderAlbums(data.albums || []);
+    } catch (err) {
+      albumsNote.textContent = 'Kunne ikke hente album. Prøv igen.';
+    }
+  }
+
+  function renderAlbums(albums) {
+    albumsEl.textContent = '';
+    if (!albums.length) {
+      albumsNote.textContent = 'Der er ingen album endnu.';
+      return;
+    }
+    const drafts = albums.filter((a) => !a.published && !a.deleted).length;
+    // The count a curator actually wants: not "5 albums" but "2 of them are not published".
+    albumsNote.textContent = drafts === 0
+      ? 'Alle album er udgivet.'
+      : (drafts === 1 ? '1 album er ikke udgivet endnu.' : drafts + ' album er ikke udgivet endnu.');
+
+    for (const a of albums) albumsEl.append(albumCard(a));
+  }
+
+  function albumCard(a) {
+    const card = document.createElement('div');
+    card.className = 'card' + (a.deleted ? ' gone' : (a.published ? '' : ' draft'));
+    card.dataset.album = a.albumId;
+
+    // The cover, through the admin media route rather than the public one: this list shows unpublished albums,
+    // and the public route would — correctly — refuse their photographs.
+    if (a.coverPhotoId) {
+      const img = document.createElement('img');
+      img.className = 'cover';
+      img.src = '/api/admin/photos/' + encodeURIComponent(a.coverPhotoId) + '/media?variant=thumb';
+      img.alt = '';
+      img.loading = 'lazy';
+      card.append(img);
+    } else {
+      const ph = document.createElement('div');
+      ph.className = 'cover none';
+      card.append(ph);
+    }
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+
+    const t = document.createElement('span');
+    t.className = 't';
+    t.textContent = a.title;
+    meta.append(t);
+
+    const badges = document.createElement('span');
+    badges.className = 's';
+    badges.append(badge(a.deleted ? 'del' : (a.published ? 'pub' : 'drafty'),
+      a.deleted ? 'Slettet' : (a.published ? 'Udgivet' : 'Kladde')));
+    // The count is live items only, so an album whose photographs were all deleted reads 0 — rendered rather
+    // than hidden, because "why is this album empty" is a question with an answer the curator needs.
+    const n = document.createElement('span');
+    n.textContent = a.itemCount === 1 ? '1 billede' : a.itemCount + ' billeder';
+    badges.append(n);
+    meta.append(badges);
+
+    const acts = document.createElement('div');
+    acts.className = 'acts';
+
+    const edit = document.createElement('a');
+    edit.href = '/admin/album/' + encodeURIComponent(a.slug);
+    edit.textContent = 'Redigér';
+    acts.append(edit);
+
+    // A deleted album gets no publish button. Restoring one is not built (PRD 022 §11 Q6's neighbour), and a
+    // button that would publish something taken down is the wrong thing to offer.
+    if (!a.deleted) {
+      const pub = document.createElement('button');
+      pub.type = 'button';
+      pub.textContent = a.published ? 'Fjern fra forsiden' : 'Udgiv på forsiden';
+      pub.addEventListener('click', () => setPublished(a, pub));
+      acts.append(pub);
+    }
+
+    if (a.published && !a.deleted) {
+      const view = document.createElement('a');
+      view.href = '/' + albumsEl.dataset.year + '/album/' + encodeURIComponent(a.slug);
+      view.target = '_blank';
+      view.rel = 'noopener';
+      view.textContent = 'Se den';
+      acts.append(view);
+    }
+
+    meta.append(acts);
+    card.append(meta);
+    return card;
+  }
+
+  function badge(kind, text) {
+    const b = document.createElement('span');
+    b.className = 'badge ' + kind;
+    b.textContent = text;
+    return b;
+  }
+
+  async function setPublished(a, btn) {
+    btn.disabled = true;
+    const want = !a.published;
+    try {
+      // Publication is sent **alone** (task 378): a curator pressing this has said one thing, and bundling it
+      // with the album's other fields would let a half-typed title ride along with it.
+      const res = await fetch('/api/admin/albums/' + encodeURIComponent(a.albumId), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ published: want }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        albumsNote.textContent = (payload && payload.error) || 'Kunne ikke ændre albummet.';
+        btn.disabled = false;
+        return;
+      }
+      // The fold is asynchronous, so a reload now would show the old state. Said rather than papered over — the
+      // editor page carries the same sentence, and without it a curator presses the button twice.
+      albumsNote.textContent = want
+        ? 'Albummet er udgivet. Det slår igennem på forsiden inden for et minut.'
+        : 'Albummet er taget af forsiden. Det slår igennem inden for et minut.';
+      a.published = want;
+      btn.textContent = want ? 'Fjern fra forsiden' : 'Udgiv på forsiden';
+      btn.disabled = false;
+      const card = albumsEl.querySelector('[data-album="' + a.albumId + '"]');
+      if (card) card.className = 'card' + (want ? '' : ' draft');
+    } catch (err) {
+      albumsNote.textContent = 'Kunne ikke ændre albummet. Prøv igen.';
+      btn.disabled = false;
+    }
+  }
+
+  // Creating an album from the list, rather than only from inside the add-to-album sheet. The sheet's version
+  // exists because a curator creates an album *in order to* file a selection into it; this one exists because
+  // sometimes you just want the album.
+  document.getElementById('newalbumbtn').addEventListener('click', async () => {
+    const title = (window.prompt('Titel på det nye album') || '').trim();
+    if (!title) return;
+    albumsNote.textContent = 'Opretter…';
+    try {
+      const res = await fetch('/api/admin/albums', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        albumsNote.textContent = (payload && payload.error) || 'Kunne ikke oprette albummet.';
+        return;
+      }
+      await loadAlbums();
+      albumsNote.textContent = 'Albummet “' + payload.title + '” er oprettet som kladde.';
+    } catch (err) {
+      albumsNote.textContent = 'Kunne ikke oprette albummet. Prøv igen.';
+    }
+  });
+
+  loadAlbums();
+
   // --- the add-to-album action (task 375) ----------------------------------
   //
-  // The panel opens inline and the selection survives it, which is the constraint PRD 022 §7 puts on this
-  // layout: navigating away would lose the selection, and the selection is the input to every action.
+  // The sheet opens over the page and the selection survives it, which is the constraint PRD 022 §7 puts on
+  // this layout: navigating away would lose the selection, and the selection is the input to every action.
 
   const panel = document.getElementById('panel');
   const panelNote = document.getElementById('panelnote');
@@ -1183,6 +1428,9 @@ svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
       }
       newTitle.value = '';
       await openAlbumPanel();
+      // The list above is now stale by one album. Refreshed rather than left — a curator who creates an album
+      // here and then looks for it in the list should find it.
+      loadAlbums();
       // Tick the album just created, since creating one inline is something a curator does *in order to* file
       // the current selection into it.
       for (const cb of albumList.querySelectorAll('input[type=checkbox]')) {
