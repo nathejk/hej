@@ -89,6 +89,152 @@ func adminSource(t *testing.T, file string) string {
 	return string(b)
 }
 
+// adminPageSource returns the assembled admin page — markup, CSS and JavaScript — exactly as it is served.
+//
+// # Why this exists, and why it is better than reading the Go file
+//
+// Before task 394 the page was one raw-string literal in `adminpage.go`, so these guards read that **Go source
+// file** and grepped it. That worked and had a sharp edge: the needle could match a *Go comment*, so a rule
+// could pass against the prose explaining it rather than the code implementing it. It happened twice in one
+// session.
+//
+// This calls the same `mustInjectAdminAssets` the production template is built from, so what the assertions see
+// is what the browser gets — no Go, no reconstruction. A rule about the page is now tested against the page.
+//
+// Where a rule is genuinely about one language, `adminAsset` reads that file alone.
+func adminPageSource(t *testing.T) string {
+	t.Helper()
+	return mustInjectAdminAssets("adminui/page.html", "adminui/page.css", "adminui/page.js")
+}
+
+// adminAsset reads one of the admin tool's real asset files, by name under adminui/.
+func adminAsset(t *testing.T, name string) string {
+	t.Helper()
+	return mustReadAdminAsset("adminui/" + name)
+}
+
+// The admin tool's assets are real files (task 394).
+//
+// # What these guard, and why it is worth guarding
+//
+// The markup, CSS and JavaScript were one Go raw-string literal until task 394. A backtick anywhere in any of
+// the three terminated it — four incidents, each presenting as a Go syntax error pointing at a line of CSS — and
+// no editor could help with 1,400 lines of JavaScript inside a string.
+//
+// Now they are `adminui/page.{html,css,js}` and `adminui/album.{html,css,js}`, spliced into one document before
+// parsing. These tests hold the two properties that make that arrangement safe rather than merely tidier.
+
+// **The CSS and JS carry no template actions, so they are genuinely valid standalone files.**
+//
+// This is what separates "real files" from "fragments in a different location". A `{{.Year}}` in page.js would
+// make it un-lintable, un-formattable and un-runnable outside the Go template — and it would land inside
+// `<script>`, where `html/template` applies **JavaScript** escaping and mangles values in ways nobody notices
+// until a curator's browser does something strange.
+//
+// The rule this preserves predates the extraction: every value the script needs is read from a `data-` attribute
+// on an element. That was already true, which is the only reason the extraction was safe.
+func TestTheAdminAssetsCarryNoTemplateActions(t *testing.T) {
+	for _, name := range []string{"page.css", "page.js", "album.css", "album.js"} {
+		src := adminAsset(t, name)
+		if strings.Contains(src, "{{") {
+			t.Errorf("%s contains a template action. Pass the value through a data- attribute instead: an "+
+				"action here is escaped as JavaScript or CSS by html/template, and it stops this file being "+
+				"something a formatter or a linter can read", name)
+		}
+	}
+	// And the HTML is where the actions belong — asserted so a future "tidy-up" that moved them out and
+	// reintroduced JS interpolation would fail here rather than silently.
+	if !strings.Contains(adminAsset(t, "page.html"), "{{.Year}}") {
+		t.Error("page.html should carry the template's actions; if it no longer does, where did they go?")
+	}
+}
+
+// **Every injection marker resolves.** A typo in one produces a page with no styling or no behaviour, and no
+// error anywhere — so `mustInjectAdminAssets` panics, and this is the test that says so out loud.
+//
+// Asserted through the assembled output rather than by inspecting the markers: what matters is that the CSS and
+// the JS actually arrive in the served document.
+func TestTheAdminAssetsAreActuallyInjected(t *testing.T) {
+	page := adminPageSource(t)
+
+	if strings.Contains(page, "@inject") {
+		t.Error("an @inject marker survived into the assembled page, so one of the assets was not spliced in")
+	}
+	// A distinctive line from each file, so this fails if a marker is replaced with the wrong asset.
+	if !strings.Contains(page, ".sheet button:disabled") {
+		t.Error("page.css did not reach the assembled page")
+	}
+	if !strings.Contains(page, "function openSheet(") {
+		t.Error("page.js did not reach the assembled page")
+	}
+	// The document still closes properly — splicing into the wrong place would produce a page that renders as
+	// text, which every other guard in this package would sail straight past.
+	if !strings.HasSuffix(strings.TrimSpace(page), "{{end}}") {
+		t.Error("the assembled template no longer ends with its define block")
+	}
+}
+
+// A missing asset or marker fails at **init**, not at the first request.
+//
+// The whole point of panicking in `mustInjectAdminAssets` is that a broken page cannot be served: a binary that
+// refuses to start is a deploy that fails, while a page silently missing its stylesheet is a curator wondering
+// why the tool looks broken on the Tuesday after the event.
+func TestAMissingAdminAssetPanics(t *testing.T) {
+	for _, c := range []struct{ name, html, css, js string }{
+		{"missing html", "adminui/nope.html", "adminui/page.css", "adminui/page.js"},
+		{"missing css", "adminui/page.html", "adminui/nope.css", "adminui/page.js"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Error("want a panic: an unassemblable page must stop the binary, not reach a curator")
+				}
+			}()
+			_ = mustInjectAdminAssets(c.html, c.css, c.js)
+		})
+	}
+
+	// A marker that does not match is the subtler failure, and the one a rename would cause: the file exists, the
+	// splice silently does nothing, and the page loses its styling. Provoked by asking for a CSS file whose
+	// marker name differs from the one page.html carries.
+	t.Run("marker mismatch", func(t *testing.T) {
+		defer func() {
+			if recover() == nil {
+				t.Error("want a panic when the marker does not match the asset's filename")
+			}
+		}()
+		_ = mustInjectAdminAssets("adminui/page.html", "adminui/album.css", "adminui/page.js")
+	})
+}
+
+// The Go handlers no longer carry markup.
+//
+// The point of the extraction, stated as a rule so it does not creep back one convenient `<div>` at a time —
+// which is exactly how 1,700 lines accumulated in the first place.
+func TestTheAdminHandlersCarryNoMarkup(t *testing.T) {
+	for _, file := range []string{"adminpage.go", "adminalbumpage.go"} {
+		// **Comments stripped first.** These doc comments necessarily quote the tags being forbidden — the
+		// paragraph about `html/template` escaping actions inside `<script>` is the whole reason the rule
+		// exists. The first draft of this test failed against that paragraph, which is the same trap task 386's
+		// `foldBody` records: a guard that searches for forbidden text will find it in the prose forbidding it.
+		var code []string
+		for _, line := range strings.Split(adminSource(t, file), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "//") {
+				continue
+			}
+			code = append(code, line)
+		}
+		src := strings.Join(code, "\n")
+
+		for _, forbidden := range []string{"<!doctype", "<style>", "<script>", "<div"} {
+			if strings.Contains(src, forbidden) {
+				t.Errorf("%s contains %q. The markup, CSS and JavaScript live in adminui/ — putting any of it "+
+					"back here reopens the backtick trap (task 394)", file, forbidden)
+			}
+		}
+	}
+}
+
 func TestAdminPageServesWithTheCredential(t *testing.T) {
 	_, srv := adminApp(t)
 

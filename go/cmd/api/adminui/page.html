@@ -1,0 +1,240 @@
+{{define "admin"}}<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Belt and braces with the X-Robots-Tag header requireAdmin sets: a password-protected page in a search
+     index is an invitation, and the cost of saying it twice is one line. -->
+<meta name="robots" content="noindex, nofollow">
+<title>Billedarkiv {{.Year}} — Nathejk</title>
+<!-- The map island's Leaflet, **vendored and self-hosted** like the public patrol page's (task 342). Not a CDN:
+     see scripts/vendor-leaflet.sh for the reasoning, which applies here too — and the same files, so this page
+     adds no new dependency and no second mapping library. This is the one exception to the page's
+     no-build-step rule (PRD 022 §7), and it is an exception because reusing the island is cheaper than
+     introducing a second way to draw a map. -->
+<link rel="stylesheet" href="/vendor/leaflet.css">
+<script src="/vendor/leaflet.js" defer></script>
+<style>
+/* @inject page.css */
+</style>
+</head>
+<body>
+<header>
+  <h1>Billedarkiv</h1>
+  <span class="year" data-year="{{.Year}}">{{.Year}}</span>
+</header>
+<main>
+{{if .Unavailable}}
+  <p class="warn">Billedarkivet kan ikke læses lige nu. Du er logget ind, men databasen svarer ikke —
+  prøv igen om et øjeblik.</p>
+{{else}}
+  <ul class="counts" id="counts">
+    <li><span class="n" data-count="total">{{.Counts.Total}}</span><span class="k">billeder</span></li>
+    <li><span class="n" data-count="inNoAlbum">{{.Counts.InNoAlbum}}</span><span class="k">uden album</span></li>
+    <li><span class="n" data-count="withLocation">{{.Counts.WithLocation}}</span><span class="k">med position</span></li>
+    <li><span class="n" data-count="plottable">{{.Counts.Plottable}}</span><span class="k">på kortet</span></li>
+    <li><span class="n" data-count="outOfBounds">{{.Counts.OutOfBounds}}</span><span class="k">uden for området</span></li>
+    <li><span class="n" data-count="unknown">{{.Counts.Unknown}}</span><span class="k">ikke vurderet</span></li>
+    <li><span class="n" data-count="tagged">{{.Counts.Tagged}}</span><span class="k">med patrulje</span></li>
+    <li><span class="n" data-count="deleted">{{.Counts.Deleted}}</span><span class="k">slettede</span></li>
+  </ul>
+{{end}}
+
+  <h2>Læg billeder op</h2>
+  <section id="drop" class="idle" data-max-mb="{{.MaxUploadMB}}" aria-describedby="drophint">
+    <div class="row1">
+      <label class="filelabel" for="files">
+        <!-- Lucide: image-up -->
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7"/><path d="m21 15-3-3-3 3"/><path d="M18 12v9"/><circle cx="9" cy="9" r="2"/></svg>
+        Vælg billeder
+        <input type="file" id="files" multiple accept="image/*">
+      </label>
+      <div class="progress" hidden id="prog">
+        <div class="bar"><i id="bar"></i></div>
+        <div class="label" id="proglabel"></div>
+      </div>
+    </div>
+    <p class="hint" id="drophint">Træk en mappe eller en bunke filer herind. Op til {{.MaxUploadMB}} MB pr. billede.
+    Uploader du de samme filer igen, bliver de ikke lagt op to gange.</p>
+  </section>
+
+  <ul id="rows"></ul>
+
+  <!-- The album list (task 391).
+
+       It sits above the contact sheet because it answers the question a curator opens this page with — "what
+       have I not published yet?" — whereas the sheet answers "what have I not sorted yet?".
+
+       Before this, the only album markup on the page was the assignment checkboxes inside the add-to-album
+       sheet, and the editor at /admin/album/{slug} was reachable only by typing a slug. So publishing was
+       built and unusable. -->
+  <h2>Album</h2>
+  <p id="albumsnote" class="hint" aria-live="polite"></p>
+  <div id="albums" data-year="{{.Year}}"></div>
+  <p>
+    <button type="button" id="newalbumbtn">Opret et album</button>
+  </p>
+
+  <h2>Kontaktark</h2>
+  <div id="filters" role="group" aria-label="Filtre">
+    <button type="button" class="f on" data-q="">Alle</button>
+    <button type="button" class="f" data-q="album=none">Uden album</button>
+    <button type="button" class="f" data-q="location=no">Uden position</button>
+    <button type="button" class="f" data-q="location=yes">Med position</button>
+    <button type="button" class="f" data-q="verdict=outside">Uden for området</button>
+    <button type="button" class="f" data-q="verdict=unknown">Ikke vurderet</button>
+    <button type="button" class="f" data-q="tagged=yes">Med patrulje</button>
+    <button type="button" class="f" data-q="tagged=no">Uden patrulje</button>
+    <button type="button" class="f" data-q="deleted=1">Inkl. slettede</button>
+  </div>
+
+  <p id="sheetnote" class="todo" aria-live="polite"></p>
+  <p><button type="button" id="selall">Vælg alle der matcher filteret</button></p>
+  <div id="sheet" role="listbox" aria-multiselectable="true" aria-label="Billeder" tabindex="0"></div>
+  <p><button type="button" id="more" hidden>Hent flere</button></p>
+
+  <!-- The action bar is pinned rather than a page of its own, because navigating away loses the selection
+       (PRD 022 §7). Its four actions arrive with tasks 375–379; the bar and the selection they act on are
+       this task's. -->
+  <div id="actions" hidden aria-live="polite">
+    <span id="selcount"></span>
+    <button type="button" data-act="album">Tilføj til album</button>
+    <button type="button" data-act="position">Sæt position</button>
+    <button type="button" data-act="patrol">Tag patrulje</button>
+    <button type="button" data-act="credit">Fotokredit</button>
+    <button type="button" data-act="delete">Fjern eller slet</button>
+    <button type="button" id="clearsel">Ryd valg</button>
+  </div>
+
+  <!-- The sheets open **over** the page rather than on their own route, because navigating away loses the
+       selection (PRD 022 §7). That is the one hard constraint on this layout, and it is why these are
+       overlays rather than pages — not why they were once cards underneath (task 390).
+
+       The scrim is a sibling rather than each sheet's own backdrop, so exactly one can be open. -->
+  <div id="scrim" hidden></div>
+
+  <div id="panel" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Tilføj til album">
+    <h3>Tilføj til album</h3>
+    <p id="panelnote"></p>
+    <div id="albumlist"></div>
+    <details id="newalbum">
+      <summary>Opret et nyt album</summary>
+      <p>
+        <label for="newtitle">Titel</label>
+        <input type="text" id="newtitle" maxlength="120" placeholder="Lørdag morgen">
+        <button type="button" class="ghost" id="createalbum">Opret</button>
+      </p>
+      <p class="hint">Nye album er <strong>ikke</strong> udgivet. Du udgiver dem, når de er færdige.</p>
+    </details>
+    <p>
+      <button type="button" id="doadd">Tilføj</button>
+      <button type="button" class="ghost" id="closepanel">Annuller</button>
+    </p>
+  </div>
+
+  <!-- The position panel (task 376). Inline like the album one, for the same reason: navigating away loses the
+       selection, and the selection is the input to the action. -->
+  <div id="pospanel" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Sæt position">
+    <h3>Sæt position</h3>
+    <p id="posnote"></p>
+    <p>
+      <label for="cppick">Vælg en post</label>
+      <select id="cppick">
+        <option value="">— eller klik på kortet —</option>
+      </select>
+    </p>
+    <!-- The map island's container, hidden until Leaflet actually draws — the same treatment the public patrol
+         page gives it. Where the island cannot run, the post picker above is still a complete way to do the
+         job, which is what keeps the map an enhancement rather than a requirement. -->
+    <div id="posmap" hidden></div>
+    <p id="pospicked" class="hint"></p>
+    <p>
+      <button type="button" id="doposition" disabled>Sæt position</button>
+      <button type="button" class="ghost" id="doclear">Fjern position</button>
+      <button type="button" class="ghost" id="closepos">Annuller</button>
+    </p>
+  </div>
+  <!-- The patrol tag panel (task 377). No picker and no roster: the curator types the number from the sign and
+       the tool confirms which patrol it is. There is deliberately no endpoint that lists patrols. -->
+  <div id="tagpanel" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Tag patrulje">
+    <h3>Tag patrulje</h3>
+    <p id="tagnote"></p>
+    <p>
+      <label for="tagnum">Patruljens nummer</label>
+      <input type="text" id="tagnum" inputmode="numeric" maxlength="8" placeholder="42" autocomplete="off">
+      <button type="button" class="ghost" id="lookuppatrol">Find</button>
+    </p>
+    <p id="tagfound" class="hint"></p>
+    <p>
+      <button type="button" id="dotag" disabled>Tag billederne</button>
+      <button type="button" class="ghost" id="closetag">Annuller</button>
+    </p>
+  </div>
+  <!-- The credit sheet (task 393). The only place in this tool that records a person's name, and the copy says
+       so plainly — a curator typing a colleague's name onto a public page should know that is what they are
+       doing, rather than filling in a field that looks like a caption. -->
+  <div id="creditpanel" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Fotokredit">
+    <h3>Fotokredit</h3>
+    <p id="creditnote"></p>
+    <p>
+      <label for="credittext">Hvem har taget billederne?</label>
+      <input type="text" id="credittext" maxlength="160" placeholder="Foto: Anne Sørensen" autocomplete="off">
+    </p>
+    <p class="hint">Teksten står under billedet på hjemmesiden, så den kan læses af alle. Skriv kun navne på
+    fotografer, der selv har sagt ja til det.</p>
+    <p class="hint">Et helt kort er tit fra samme fotograf — vælg alle billederne og sæt kreditten én gang.
+    Browseren husker det du skrev sidst.</p>
+    <p>
+      <button type="button" id="docredit">Sæt fotokredit</button>
+      <button type="button" class="ghost" id="doclearcredit">Fjern fotokredit</button>
+      <button type="button" class="ghost" id="closecredit">Annuller</button>
+    </p>
+  </div>
+
+  <!-- The delete panel (task 379). **The copy here is the substance, not decoration.**
+
+       PRD 022 §5 and §7 both single it out: removing a photograph from an album leaves it in the library and in
+       every other album, while deleting it from the library removes it from all of them — and one of those two is
+       what an organizer means when they say "take it down". If the two read alike, the wrong one gets pressed
+       under exactly the pressure that makes it matter.
+
+       So this panel offers **both**, states plainly what each does, and makes the destructive one visually
+       distinct. The safe one is offered first, because it is the one a curator usually wants. -->
+  <div id="delpanel" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Fjern eller slet">
+    <h3>Fjern eller slet</h3>
+    <p id="delnote"></p>
+
+    <div class="choice">
+      <h4>Fjern fra et album</h4>
+      <p>Billederne bliver taget ud af det album du vælger. <strong>De bliver liggende i arkivet</strong> og i de
+      andre album de ligger i, og du kan lægge dem tilbage når som helst.</p>
+      <p>
+        <label for="delalbum">Album</label>
+        <select id="delalbum"><option value="">— vælg album —</option></select>
+        <button type="button" id="doremove" disabled>Fjern fra albummet</button>
+      </p>
+    </div>
+
+    <div class="choice danger">
+      <h4>Slet fra arkivet</h4>
+      <p><strong>Billederne forsvinder helt.</strong> De bliver fjernet fra alle album, de kan ikke ses
+      offentligt, og filerne bliver slettet. Det er det du skal bruge, hvis nogen har bedt om at få et billede
+      taget ned.</p>
+      <p>Det kan <strong>ikke</strong> fortrydes herfra — kun en udvikler kan hente et slettet billede frem igen.</p>
+      <p>
+        <label for="delreason">Hvorfor? (valgfrit, gemmes i loggen)</label>
+        <input type="text" id="delreason" maxlength="500" placeholder="En forælder har bedt om det">
+      </p>
+      <p>
+        <button type="button" id="dodelete" class="danger">Slet <span id="delcount"></span> fra arkivet</button>
+      </p>
+    </div>
+
+    <p><button type="button" class="ghost" id="closedel">Annuller</button></p>
+  </div>
+</main>
+<script>
+// @inject page.js
+</script>
+</body>
+</html>{{end}}

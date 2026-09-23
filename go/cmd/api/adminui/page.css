@@ -1,0 +1,252 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #f4f4f5;
+  color: #18181b;
+}
+header {
+  display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap;
+  padding: 1rem 1.5rem;
+  background: #18181b; color: #fafafa;
+  position: sticky; top: 0; z-index: 10;
+}
+/* Impact, as the app and the public site do for a major headline. Not a webfont: this page has no build step
+   and a headline face is not worth a network request. */
+h1 {
+  margin: 0;
+  font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+  font-size: 1.75rem; font-weight: normal; letter-spacing: 0.02em;
+}
+/* The year is the one thing on this page a curator cannot fix by editing, so it is the one thing given an
+   accent colour and its own size. PRD 022 §5. */
+.year {
+  font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+  font-size: 1.75rem; color: #fbbf24;
+}
+main { padding: 1.5rem; max-width: 72rem; }
+h2 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+     font-weight: normal; font-size: 1.25rem; letter-spacing: 0.02em; margin: 2rem 0 0.75rem; }
+
+.counts { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; padding: 0; margin: 0 0 1rem; list-style: none; }
+.counts li { min-width: 7rem; }
+.counts .n { display: block; font-size: 1.5rem; font-weight: 600; }
+.counts .k { color: #52525b; font-size: 0.875rem; }
+.warn { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 0.75rem 1rem; margin-bottom: 1.5rem; }
+
+/* The drop zone is a thin bar when idle and grows during a batch (PRD 022 §7). Driven by a class on the
+   section rather than by inline styles, so the two states are readable in one place. */
+#drop {
+  border: 2px dashed #a1a1aa; border-radius: 0.5rem; background: #fff;
+  padding: 0.75rem 1rem; transition: padding 0.15s ease, background 0.15s ease;
+}
+#drop.idle { padding: 0.75rem 1rem; }
+#drop.busy, #drop.hover { padding: 1.5rem 1rem; }
+#drop.hover { background: #eff6ff; border-color: #2563eb; }
+#drop .hint { color: #52525b; font-size: 0.9375rem; margin: 0; }
+#drop .row1 { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+/* A real label pointing at a real input: the whole control is keyboard reachable and screen-reader
+   labelled without any JavaScript, which is the accessibility requirement in PRD 022 §6. The input is
+   visually hidden rather than display:none, because display:none takes it out of the tab order. */
+.filelabel {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  background: #18181b; color: #fafafa; padding: 0.5rem 0.875rem; border-radius: 0.375rem;
+  cursor: pointer; font-weight: 500;
+}
+.filelabel:focus-within { outline: 3px solid #2563eb; outline-offset: 2px; }
+#files { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+.progress { flex: 1 1 12rem; min-width: 10rem; }
+.progress .bar { height: 0.5rem; background: #e4e4e7; border-radius: 999px; overflow: hidden; }
+.progress .bar > i { display: block; height: 100%; width: 0; background: #16a34a; transition: width 0.2s ease; }
+.progress .label { font-size: 0.875rem; color: #52525b; }
+
+#rows { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: 0.25rem; }
+#rows li {
+  display: grid; grid-template-columns: 3rem 1fr auto; gap: 0.75rem; align-items: center;
+  padding: 0.375rem 0.5rem; background: #fff; border-radius: 0.375rem; font-size: 0.9375rem;
+}
+#rows li.err { background: #fef2f2; }
+#rows li.skip { background: #f4f4f5; color: #52525b; }
+#rows img, #rows .noimg {
+  width: 3rem; height: 3rem; object-fit: cover; border-radius: 0.25rem; background: #e4e4e7;
+}
+#rows .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#rows .why { color: #b91c1c; font-size: 0.875rem; }
+#rows li.pending img { opacity: 0.45; }
+.state { font-size: 0.875rem; white-space: nowrap; display: flex; align-items: center; gap: 0.5rem; }
+/* The four position verdicts read differently on purpose. PRD 011 §6 requires a rejected coordinate to be
+   visible *as rejected* rather than merely absent from the map, and 'unknown' is a statement about us
+   rather than about the photograph — so it must not look like a rejection either. */
+.pos { font-size: 0.8125rem; padding: 0.0625rem 0.375rem; border-radius: 999px; }
+.pos.inside { background: #dcfce7; color: #166534; }
+.pos.outside { background: #fee2e2; color: #991b1b; }
+.pos.unknown { background: #fef3c7; color: #92400e; }
+.todo { color: #52525b; }
+
+/* --- the contact sheet ---------------------------------------------------- */
+#filters { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-bottom: 0.75rem; }
+.f {
+  font: inherit; font-size: 0.875rem; cursor: pointer;
+  background: #fff; color: #18181b; border: 1px solid #d4d4d8;
+  padding: 0.3125rem 0.75rem; border-radius: 999px;
+}
+.f:hover { border-color: #71717a; }
+.f.on { background: #18181b; color: #fafafa; border-color: #18181b; }
+.f:focus-visible, #sheet:focus-visible, .cell:focus-visible, button:focus-visible {
+  outline: 3px solid #2563eb; outline-offset: 2px;
+}
+
+#sheet {
+  display: grid; gap: 0.375rem;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+}
+.cell {
+  position: relative; cursor: pointer; background: #fff; border-radius: 0.375rem;
+  overflow: hidden; border: 3px solid transparent; padding: 0;
+}
+.cell img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #e4e4e7; }
+/* Selection is a border plus a tick, never colour alone: a curator working through a card for an hour should
+   not have to compare shades to know what a bulk action is about to apply to. */
+.cell[aria-selected="true"] { border-color: #2563eb; }
+.cell[aria-selected="true"] .tick { display: grid; }
+.tick {
+  display: none; position: absolute; top: 0.25rem; left: 0.25rem;
+  width: 1.25rem; height: 1.25rem; border-radius: 999px;
+  background: #2563eb; color: #fff; place-items: center; font-size: 0.75rem;
+}
+.marks { position: absolute; bottom: 0.25rem; left: 0.25rem; right: 0.25rem;
+         display: flex; gap: 0.25rem; flex-wrap: wrap; }
+.mark { font-size: 0.6875rem; padding: 0.0625rem 0.3125rem; border-radius: 999px; background: #27272aee; color: #fafafa; }
+.mark.outside { background: #b91c1ccc; }
+.mark.unknown { background: #b45309cc; }
+.mark.inside { background: #15803dcc; }
+.cell.gone { opacity: 0.5; }
+.cell.gone img { filter: grayscale(1); }
+
+#actions {
+  position: sticky; bottom: 0; z-index: 9;
+  display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+  margin-top: 1rem; padding: 0.75rem 1rem;
+  background: #18181b; color: #fafafa; border-radius: 0.5rem;
+}
+#actions button {
+  font: inherit; font-size: 0.875rem; cursor: pointer;
+  background: #3f3f46; color: #fafafa; border: 1px solid #52525b;
+  padding: 0.375rem 0.75rem; border-radius: 0.375rem;
+}
+#actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+#selcount { font-weight: 600; margin-right: auto; }
+
+/* The action sheets (task 390).
+
+   # Overlays, not cards stacked under the contact sheet
+
+   They used to reveal inline below the grid. With a selection made near the bottom of a 120-thumbnail page
+   that opened the panel off-screen: the curator pressed a button and nothing appeared to happen.
+
+   Still **one page**, which is the hard constraint PRD 022 §7 imposes — navigating away would lose the
+   selection, so none of these may become a route. An overlay satisfies that; a card underneath was never the
+   requirement, only the first implementation of it.
+
+   One '.sheet' rule rather than four near-identical id blocks. The previous version repeated the same chrome
+   for #panel, #pospanel, #tagpanel and #delpanel, which is four places for a fifth action to be styled
+   slightly differently. */
+#scrim {
+  position: fixed; inset: 0; background: rgba(9, 9, 11, 0.55);
+  z-index: 40;
+}
+.sheet {
+  position: fixed; z-index: 50;
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: calc(100vw - 2rem); max-width: 34rem;
+  /* Tall sheets scroll inside themselves rather than growing past the viewport — the position sheet holds an
+     18rem map, and on a laptop in landscape that used to push its own buttons off the bottom. */
+  max-height: calc(100vh - 2rem); overflow-y: auto;
+  padding: 1rem; background: #fff;
+  border: 1px solid #d4d4d8; border-radius: 0.5rem;
+  box-shadow: 0 10px 40px rgba(9, 9, 11, 0.25);
+}
+.sheet h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+.sheet h4 { margin: 0 0 0.25rem; font-size: 0.9375rem; }
+.sheet p { margin: 0.5rem 0; }
+.sheet .hint { color: #52525b; font-size: 0.875rem; }
+.sheet button {
+  font: inherit; font-size: 0.875rem; cursor: pointer;
+  background: #18181b; color: #fafafa; border: 1px solid #18181b;
+  padding: 0.375rem 0.75rem; border-radius: 0.375rem;
+}
+.sheet button:disabled { opacity: 0.5; cursor: not-allowed; }
+/* The secondary buttons: closing, and the actions that only look something up. */
+.sheet button.ghost { background: #fff; color: #18181b; border-color: #d4d4d8; }
+.sheet input[type=text], .sheet select {
+  font: inherit; padding: 0.375rem 0.5rem; border: 1px solid #d4d4d8; border-radius: 0.375rem;
+}
+.sheet input[type=text] { min-width: 14rem; }
+/* Body scroll is locked while a sheet is open, or the backdrop scrolls the grid underneath it. */
+body.sheetopen { overflow: hidden; }
+
+#albumlist { display: grid; gap: 0.25rem; max-height: 14rem; overflow: auto; }
+#albumlist label { display: flex; gap: 0.5rem; align-items: baseline; }
+#albumlist .draft { color: #92400e; font-size: 0.8125rem; }
+#albumlist .count { color: #52525b; font-size: 0.8125rem; }
+
+/* The album list (task 391). A grid of cards rather than a table: the cover is how a curator recognises an
+   album, and a table would put it in a column. */
+#albums { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
+#albums .card {
+  display: flex; gap: 0.625rem; align-items: flex-start;
+  padding: 0.625rem; background: #fff;
+  border: 1px solid #e4e4e7; border-radius: 0.5rem;
+}
+/* A draft is marked on the card itself, not only by a badge, so "what is not published" is answerable by
+   glancing rather than by reading every row. */
+#albums .card.draft { border-color: #fcd34d; background: #fffbeb; }
+#albums .card.gone { border-color: #e4e4e7; background: #fafafa; opacity: 0.65; }
+#albums .cover {
+  width: 4rem; height: 4rem; flex: none; object-fit: cover;
+  border-radius: 0.375rem; background: #f4f4f5;
+}
+/* An album with no live items has no cover. A dashed placeholder rather than a blank gap, so the row reads as
+   "empty album" instead of "image failed to load". */
+#albums .cover.none { border: 1px dashed #d4d4d8; }
+#albums .meta { min-width: 0; flex: 1; }
+#albums .t { font-weight: 600; display: block; overflow-wrap: anywhere; }
+#albums .s { color: #52525b; font-size: 0.8125rem; display: block; }
+#albums .badge {
+  display: inline-block; font-size: 0.75rem; padding: 0.0625rem 0.375rem;
+  border-radius: 0.25rem; margin-right: 0.25rem;
+}
+#albums .badge.pub { background: #dcfce7; color: #166534; }
+#albums .badge.drafty { background: #fef3c7; color: #92400e; }
+#albums .badge.del { background: #f4f4f5; color: #52525b; }
+#albums .acts { display: flex; gap: 0.375rem; margin-top: 0.375rem; flex-wrap: wrap; }
+#albums .acts a, #albums .acts button {
+  font: inherit; font-size: 0.8125rem; cursor: pointer; text-decoration: none;
+  background: #fff; color: #18181b; border: 1px solid #d4d4d8;
+  padding: 0.1875rem 0.5rem; border-radius: 0.375rem;
+}
+#albums .acts button:disabled { opacity: 0.5; cursor: not-allowed; }
+#newalbumbtn {
+  font: inherit; font-size: 0.875rem; cursor: pointer;
+  background: #18181b; color: #fafafa; border: 1px solid #18181b;
+  padding: 0.375rem 0.75rem; border-radius: 0.375rem;
+}
+
+#posmap { height: 18rem; border-radius: 0.375rem; margin: 0.5rem 0; }
+#tagpanel input[type=text] { width: 8rem; min-width: 0; }
+#tagfound.ok { color: #166534; font-weight: 500; }
+
+/* The delete sheet. The two choices are visually separated and the destructive one is marked, because the
+   whole point of it is that they are different acts (PRD 022 §5). */
+#delpanel p { font-size: 0.9375rem; }
+#delpanel .choice { border: 1px solid #e4e4e7; border-radius: 0.375rem; padding: 0.75rem; margin: 0.75rem 0; }
+#delpanel .choice.danger { border-color: #fca5a5; background: #fef2f2; }
+#delpanel label { display: block; font-size: 0.875rem; color: #52525b; }
+#delpanel input[type=text] { width: 100%; }
+/* Its buttons default to secondary, so the one red button is the only thing that looks like an action. */
+#delpanel button { background: #fff; color: #18181b; border-color: #d4d4d8; }
+/* The destructive action is the only red button in the tool. */
+#delpanel button.danger { background: #b91c1c; color: #fff; border-color: #b91c1c; font-weight: 500; }
+svg { width: 1.125em; height: 1.125em; stroke: currentColor; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

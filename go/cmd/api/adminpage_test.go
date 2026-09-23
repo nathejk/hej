@@ -117,7 +117,7 @@ func TestAdminPageStatesTheYearUnmistakably(t *testing.T) {
 // whole "one request per file" design balances on: one is needlessly slow, ten saturates the uplink so every
 // file slows together and per-file progress stops meaning anything.
 func TestAdminUploaderUsesThreeConcurrentRequests(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	if !strings.Contains(src, "const CONCURRENCY = 3") {
 		t.Error("the uploader's concurrency must be 3 — see the script's comment for why not 1 and not 10")
@@ -132,7 +132,7 @@ func TestAdminUploaderUsesThreeConcurrentRequests(t *testing.T) {
 // The three upload outcomes must look different, because two of them are not successes in the way a green row
 // would claim (task 372). A duplicate shown as a plain success makes a duplicated card undiagnosable.
 func TestAdminUploaderDistinguishesTheThreeOutcomes(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	for _, want := range []string{"'already'", "'deleted'", "Allerede lagt op", "Slettet tidligere"} {
 		if !strings.Contains(src, want) {
@@ -145,7 +145,7 @@ func TestAdminUploaderDistinguishesTheThreeOutcomes(t *testing.T) {
 // out-of-bounds coordinate to be visible *as rejected*, while `unknown` is a statement about us — we had no
 // race area to judge against — and blaming the photograph for that would be wrong.
 func TestAdminUploaderDistinguishesTheFourPositionStates(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	for _, want := range []string{
 		"har position",                 // inside
@@ -169,7 +169,7 @@ func TestAdminUploaderDistinguishesTheFourPositionStates(t *testing.T) {
 // inline styles so the two states are readable in one place.
 func TestAdminDropZoneCollapsesWhenIdle(t *testing.T) {
 	body := renderAdminPage(t)
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	if !strings.Contains(body, `<section id="drop" class="idle"`) {
 		t.Error("the drop zone must start in its idle (collapsed) state")
@@ -189,7 +189,7 @@ func TestAdminDropZoneCollapsesWhenIdle(t *testing.T) {
 // first hundred photographs of a card and drop the rest, which is the worst kind of bug here: it looks like it
 // worked.
 func TestAdminDropZoneReadsAWholeFolder(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	if !strings.Contains(src, "webkitGetAsEntry") {
 		t.Error("a dropped folder needs the entries API; dataTransfer.files is empty for a directory")
@@ -209,7 +209,7 @@ func TestAdminDropZoneReadsAWholeFolder(t *testing.T) {
 // photographer what they actually selected. The object URL must be revoked, or a 300-file batch holds 300
 // decoded bitmaps and the tab dies partway through exactly the batch it was built for.
 func TestAdminUploaderRevokesItsPreviewURLs(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	if !strings.Contains(src, "URL.createObjectURL(file)") {
 		t.Error("the row preview should come from the local file rather than a server round trip")
@@ -223,7 +223,7 @@ func TestAdminUploaderRevokesItsPreviewURLs(t *testing.T) {
 // continues regardless of outcome, and the fetch is wrapped so a network error becomes a row rather than an
 // unhandled rejection.
 func TestAdminUploaderKeepsGoingAfterAFailure(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	if !strings.Contains(src, ".finally(() => {") {
 		t.Error("the queue must advance in a finally, so a failed file does not stall the batch")
@@ -251,7 +251,7 @@ func TestAdminUploaderKeepsGoingAfterAFailure(t *testing.T) {
 // A feature with no route to it is indistinguishable from a missing feature, and nothing in the suite noticed
 // because every endpoint it needs was tested directly.
 func TestTheAdminPageListsTheYearsAlbums(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	if !strings.Contains(src, `<div id="albums" data-year="{{.Year}}"></div>`) {
 		t.Error("the page needs a container for the album list, carrying the year so a published album can be " +
@@ -273,7 +273,7 @@ func TestTheAdminPageListsTheYearsAlbums(t *testing.T) {
 // Task 378's reasoning, which this must not undo: a curator pressing publish has said one thing, so bundling it
 // with the album's other fields would let a half-typed title ride along with the publication.
 func TestPublishingFromTheAlbumListSendsPublicationAlone(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	fn := src[strings.Index(src, "async function setPublished"):]
 	fn = fn[:strings.Index(fn, "\n  }\n")]
@@ -296,7 +296,7 @@ func TestPublishingFromTheAlbumListSendsPublicationAlone(t *testing.T) {
 // hides them so drafts cannot be enumerated, and this one shows them because "what have I not published yet"
 // is the question a curator opens the page with.
 func TestTheAlbumListShowsDraftsAndDeletedAlbums(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	// No client-side filter on either flag. The add-to-album sheet legitimately filters deleted ones out
 	// (you cannot file a photograph into a deleted album), so this is scoped to the list's own renderer.
@@ -332,7 +332,7 @@ func TestTheAlbumListShowsDraftsAndDeletedAlbums(t *testing.T) {
 // The list shows unpublished albums, and the public media route would — correctly — refuse their photographs
 // (task 382). A list whose draft covers were all broken images would be a list a curator stops trusting.
 func TestTheAlbumListCoversUseTheAdminMediaRoute(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	card := src[strings.Index(src, "function albumCard"):]
 	card = card[:strings.Index(card, "function badge")]
@@ -362,7 +362,7 @@ func TestTheAlbumListCoversUseTheAdminMediaRoute(t *testing.T) {
 // The constraint that survives is PRD 022 §7's: navigating away loses the selection, so no action may become
 // a route. An overlay satisfies it. A card underneath was never the requirement, only the first reading of it.
 func TestTheCuratorsActionsOpenAsOverlays(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	// One scrim, shared, so exactly one sheet can be open. Four per-sheet backdrops would be four chances for
 	// two to be open at once.
@@ -407,7 +407,7 @@ func TestTheCuratorsActionsOpenAsOverlays(t *testing.T) {
 // and returns focus nowhere makes that impossible — and each of these is a thing that is invisible until
 // somebody tries to work quickly, at which point it is the whole experience.
 func TestTheOverlaysAreUsableFromTheKeyboard(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	for _, want := range []struct{ needle, why string }{
 		{"e.key === 'Escape'", "Escape must close the sheet"},
@@ -429,7 +429,7 @@ func TestTheOverlaysAreUsableFromTheKeyboard(t *testing.T) {
 // is about to delete permanently, with no undo (task 379, PRD 022 §11 Q6) — a misplaced click next to it should
 // not be how it goes away.
 func TestTheDeleteOverlayDoesNotCloseOnABackdropClick(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	handler := src[strings.Index(src, "scrim.addEventListener"):]
 	handler = handler[:strings.Index(handler, "});")]
@@ -446,7 +446,7 @@ func TestTheDeleteOverlayDoesNotCloseOnABackdropClick(t *testing.T) {
 // was safe while the panel was an inline card already in flow; the overlay made it unsafe, which is exactly
 // the kind of breakage a presentation-only change is assumed not to cause.
 func TestThePositionMapIsMeasuredAfterItsOverlayOpens(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	opener := src[strings.Index(src, "async function openPositionPanel"):]
 	opener = opener[:strings.Index(opener, "\n  }")]
@@ -477,7 +477,7 @@ func TestThePositionMapIsMeasuredAfterItsOverlayOpens(t *testing.T) {
 // insurance — and a client that renders a bare code for it would be a worse outcome than one line of dead
 // JavaScript.
 func TestAdminUploaderExplainsEveryFailureInDanish(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	reason := src[strings.Index(src, "function httpReason"):]
 	reason = reason[:strings.Index(reason, "// --- rows")]
@@ -495,7 +495,7 @@ func TestAdminUploaderExplainsEveryFailureInDanish(t *testing.T) {
 // Checked against git rather than by inspection, because the failure would be somebody reaching for a helper
 // library at the moment the JavaScript gets awkward — which is precisely when nobody re-reads the PRD.
 func TestTheAdminToolAddsNothingToTheFrontend(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	// The one permitted external script, and the reason it is permitted.
 	//
@@ -554,7 +554,7 @@ func TestTheAdminToolAddsNothingToTheFrontend(t *testing.T) {
 // cannot run, the checkpoint picker is a complete way to do the job, so the panel must not depend on the map
 // having drawn.
 func TestTheAdminPositionPanelWorksWithoutTheMap(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	// The island bails out rather than throwing when Leaflet is absent.
 	if !strings.Contains(src, "if (typeof L === 'undefined') return") {
@@ -584,7 +584,7 @@ func TestTheAdminPositionPanelWorksWithoutTheMap(t *testing.T) {
 //
 // So this asserts the three things that make it render, each of which was missing.
 func TestTheAdminPositionMapDrawsARealBaseLayer(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	island := src[strings.Index(src, "async function drawPositionMap"):]
 	island = island[:strings.Index(island, "function attachTileRetry")]
@@ -620,7 +620,7 @@ func TestTheAdminPositionMapDrawsARealBaseLayer(t *testing.T) {
 // the risk, so the three properties that matter are pinned here — each one is a thing a simplifying rewrite
 // would drop, and each one would leave a retry that appears to work.
 func TestTheAdminTileRetryMatchesTheApp(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 	retry := src[strings.Index(src, "function attachTileRetry"):]
 	retry = retry[:strings.Index(retry, "\n  }\n")+4]
 

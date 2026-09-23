@@ -387,7 +387,7 @@ func TestTheDeletePanelDistinguishesTheTwoRemovals(t *testing.T) {
 
 // The destructive action is the visually distinct one, and it is the only red button in the tool.
 func TestTheDestructiveActionLooksDifferent(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	if !strings.Contains(src, `id="dodelete" class="danger"`) {
 		t.Error("the delete button must carry the danger class")
@@ -404,7 +404,7 @@ func TestTheDestructiveActionLooksDifferent(t *testing.T) {
 // The irreversible action confirms, with the count in the question — because "select all in filter" makes a
 // mis-aimed delete plausible, and v1 ships no undelete (PRD 022 §11 Q6).
 func TestDeletingConfirmsWithTheCount(t *testing.T) {
-	src := adminSource(t, "adminpage.go")
+	src := adminPageSource(t)
 
 	confirm := src[strings.Index(src, "dodelete"):]
 	if !strings.Contains(confirm, "window.confirm(") {
