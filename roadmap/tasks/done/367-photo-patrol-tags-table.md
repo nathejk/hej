@@ -1,11 +1,11 @@
 # 367 — `photo_patrol`: a photograph is attributed to a patrol, never to a person
 
-**Status:** open
+**Status:** done
 **Priority:** medium
 **Created:** 2026-09-22
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-09-22
+**Completed:** 2026-09-23
 
 ## Description
 
@@ -37,22 +37,39 @@ established — a projection that ignores an event it was not yet taught about w
 a photograph somebody took down. A subscription to a verb whose table does not exist fails on the first
 message, so `photo_patrol` had to exist at the same moment the subscription did.
 
-Already done and tested in `go/nathejk/table/photo/`: the table with `PRIMARY KEY (year, photoId,
-teamId)` and both indexes; `PatrolTagged` / `PatrolUntagged` with `TeamID` **and** `Number`; the
-idempotent tag fold (re-tagging converges and supersedes an earlier untag); the refusal of a tag with no
-`teamId`; and the soft-delete untag.
+**The curator read landed with task 366** as `CuratorQueries.Tags`, returning the id and the number. The
+patrol's *name* is deliberately not joined: resolving a number to a name already exists in
+`publicpatrol.ByNumber`, and duplicating that join would mean two places decide what a patrol is called — so
+the handler resolves it for display, which also keeps this projection out of `public_patrol` entirely.
 
-**What is left** is the reads and the two assertions:
+**This task closed the two assertions** (`photo/tag_test.go`):
+
+`TestATagSurvivesARenumbering` is the one that matters. Because `teamNumber` is not unique per year and
+numbers are handed out late, a tag keyed on the number would silently start pointing at a different patrol.
+The test pins all three halves of the defence: the insert keys on `teamId`, the update clause refreshes
+`teamNumber` but never `teamId`, and the untag matches by id and does not mention the number at all. Once
+tags become public (§11 Q1) the failure this prevents is a photograph on the wrong family's page.
+
+`TestNoPublicReadTouchesTheTags` asserts that `querier.go` — the file holding the public interface — does not
+know the table's name, and that the public photo type has no tag field, not even a count. "Not yet" is the
+kind of constraint that decays into "why not", so it is a test rather than a comment. The complementary half,
+keeping `CuratorQueries.Tags` out of public handlers, is `cmd/api/curatorboundary_test.go` from task 366.
+
+Also added `TestUntaggingIsNarrowedToOnePatrol`, which was not asked for: the untag must be scoped by all
+three key parts, because dropping the photo id clears that patrol's tag on *every* photograph and dropping
+the team id clears *every* tag on that photograph. A group shot with two patrols in it is ordinary, and
+correcting one attribution must not clear both.
 
 ## Acceptance Criteria
 
 - [x] `photo_patrol` stores `(photoId, teamId)` as its key, plus `year` and the `teamNumber` as it was
       resolved, with a comment recording why both are kept
 - [x] `patroltagged` / `patroluntagged` fold idempotently; re-tagging is a no-op, not a duplicate row
-- [ ] A test proves a tag survives a renumbering: the same `teamId` still resolves after the number
+- [x] A test proves a tag survives a renumbering: the same `teamId` still resolves after the number
       changes hands
 - [x] The table and its event types have no member, name, phone or email field, and no place to add one
-- [ ] No read reachable from a public handler touches `photo_patrol` — asserted by a test, not by
-      inspection
+- [x] No read reachable from a public handler touches `photo_patrol` — asserted by two tests, one either side
+      of the projection boundary
 - [x] Untagging leaves the photograph and its other tags intact
-- [ ] The curator read returns a photograph's tags with the patrol's number and name for display
+- [x] The curator read returns a photograph's tags with the patrol's number, and the name is resolved by the
+      handler through the one read that already owns that mapping
