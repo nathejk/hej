@@ -427,6 +427,10 @@ func (app *application) renderPublicPageStatus(w http.ResponseWriter, name strin
 var publicSiteFuncs = template.FuncMap{
 	"hold": publicHoldLabel,
 	"date": eventtime.Danish,
+	// `photos` renders "1 billede" or "12 billeder" (task 387). A function rather than an `{{if}}` in the card,
+	// because the same count appears in the admin tool's markup and in six Go sentences, and this page was the one
+	// of the nine written without the singular. See plural.go.
+	"photos": photoCount,
 }
 
 // publicSiteTemplates is the whole site: one layout plus one template per page.
@@ -589,7 +593,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
       {{end}}
       <span class="name">{{.Title}}</span>
       {{if .Description}}<span class="meta">{{.Description}}</span>{{end}}
-      {{if .Count}}<span class="meta">{{.Count}} billeder</span>{{end}}
+      {{if .Count}}<span class="meta">{{photos .Count}}</span>{{end}}
     </a>
     {{end}}
   </div>

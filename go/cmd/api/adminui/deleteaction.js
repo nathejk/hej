@@ -21,8 +21,8 @@ function initDeleteAction(ctx) {
     doRemove.disabled = true;
 
     const n = ctx.selected.size;
-    delNote.textContent = n === 1 ? '1 billede er valgt.' : n + ' billeder er valgt.';
-    delCount.textContent = n === 1 ? '1 billede' : n + ' billeder';
+    delNote.textContent = ctx.photoCount(n) + ' er valgt.';
+    delCount.textContent = ctx.photoCount(n);
 
     // The album select is a fragment. Fetched on open rather than at page load, because albums are created while
     // this page is open.
@@ -75,7 +75,7 @@ function initDeleteAction(ctx) {
 
     // Said plainly, including the ones that were not in the album: a curator who ctx.selected across albums needs to
     // know why the number is smaller than their selection.
-    const bits = [r.ok + (r.ok === 1 ? ' billede fjernet' : ' billeder fjernet')];
+    const bits = [ctx.photoCount(r.ok) + ' fjernet'];
     if (r.missing) bits.push(r.missing + ' lå ikke i albummet');
     if (r.failed) bits.push(r.failed + ' fejlede');
     ctx.actionNote.textContent = bits.join(' · ') + '.';
@@ -92,6 +92,9 @@ function initDeleteAction(ctx) {
     // A native confirm, deliberately: this is the one irreversible action in the tool, and the browser's own dialog
     // is the one thing a curator cannot dismiss by muscle memory. The count is in the question because "select all
     // in filter" makes a mis-aimed delete plausible (PRD 022 §11 Q6).
+    // Its own wording rather than ctx.photoCount, because a confirmation asks about *these* photographs and a
+    // demonstrative does not compose with a count: "slet 1 billede?" is a form, "slet dette billede?" is a
+    // question. Task 379 made the point that this sentence is the one a curator actually reads.
     const word = n === 1 ? 'dette billede' : 'disse ' + n + ' billeder';
     if (!window.confirm('Slet ' + word + ' fra arkivet?\n\n' +
       'De forsvinder fra alle album og kan ikke ses offentligt. ' +
@@ -103,7 +106,7 @@ function initDeleteAction(ctx) {
       fetch('/api/admin/photos/' + encodeURIComponent(id),
         { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body }));
 
-    const bits = [r.ok + (r.ok === 1 ? ' billede slettet' : ' billeder slettet')];
+    const bits = [ctx.photoCount(r.ok) + ' slettet'];
     if (r.failed) bits.push(r.failed + ' fejlede');
     ctx.actionNote.textContent = bits.join(' · ') + '.';
 

@@ -15,9 +15,8 @@ function initAlbumAction(ctx) {
     ctx.openSheet(panel);
     // The count is the browser's sentence to write — no fragment knows the selection. The fragment writes the
     // one only it can: "der er ingen album endnu".
-    panelNote.textContent = ctx.selected.size === 1
-      ? 'Vælg et eller flere album. 1 billede bliver lagt i dem.'
-      : 'Vælg et eller flere album. ' + ctx.selected.size + ' billeder bliver lagt i dem.';
+    panelNote.textContent = 'Vælg et eller flere album. ' + ctx.photoCount(ctx.selected.size) +
+      ' bliver lagt i dem.';
     // Fetched on open rather than once at page load, because albums get created while this page is open — by the
     // list above, or by the form inside this very sheet.
     //

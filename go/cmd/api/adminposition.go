@@ -316,14 +316,10 @@ func (app *application) clearAdminPhotoLocations(w http.ResponseWriter, r *http.
 	app.Logger.Info("admin cleared a position on a selection",
 		"count", cleared, "reason", reason, "ip", clientIP(r))
 
-	billeder := "billeder"
-	if cleared == 1 {
-		billeder = "billede"
-	}
 	if err := app.WriteJSON(w, http.StatusOK, patchAdminPhotosResponse{
 		Updated:   cleared,
 		Plottable: false,
-		Message:   fmt.Sprintf("Position fjernet fra %d %s.", cleared, billeder),
+		Message:   fmt.Sprintf("Position fjernet fra %s.", photoCount(cleared)),
 	}, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
 	}
@@ -372,13 +368,9 @@ func (app *application) setAdminPhotoCaptions(w http.ResponseWriter, r *http.Req
 	app.Logger.Info("admin set a caption on a selection",
 		"count", updated, "cleared", caption == "", "ip", clientIP(r))
 
-	billeder := "billeder"
-	if updated == 1 {
-		billeder = "billede"
-	}
-	message := fmt.Sprintf("Billedtekst sat på %d %s.", updated, billeder)
+	message := fmt.Sprintf("Billedtekst sat på %s.", photoCount(updated))
 	if caption == "" {
-		message = fmt.Sprintf("Billedtekst fjernet fra %d %s.", updated, billeder)
+		message = fmt.Sprintf("Billedtekst fjernet fra %s.", photoCount(updated))
 	}
 
 	if err := app.WriteJSON(w, http.StatusOK, patchAdminPhotosResponse{
@@ -450,13 +442,9 @@ func (app *application) setAdminPhotoCredits(w http.ResponseWriter, r *http.Requ
 	app.Logger.Info("admin set a photo credit on a selection",
 		"count", updated, "credit", credit, "cleared", credit == "", "ip", clientIP(r))
 
-	billeder := "billeder"
-	if updated == 1 {
-		billeder = "billede"
-	}
-	message := fmt.Sprintf("Fotokredit sat på %d %s.", updated, billeder)
+	message := fmt.Sprintf("Fotokredit sat på %s.", photoCount(updated))
 	if credit == "" {
-		message = fmt.Sprintf("Fotokredit fjernet fra %d %s.", updated, billeder)
+		message = fmt.Sprintf("Fotokredit fjernet fra %s.", photoCount(updated))
 	}
 
 	if err := app.WriteJSON(w, http.StatusOK, patchAdminPhotosResponse{
@@ -484,22 +472,24 @@ const maxAdminCredit = 160
 //   - `unknown` is a statement about **us**: we had no race area to judge against, which happens before the
 //     checkpoints are sited. Saying "outside" here would blame the curator for our missing data.
 func adminVerdictMessage(n int, verdict string) string {
-	billeder := "billeder"
-	if n == 1 {
-		billeder = "billede"
-	}
+	// The pronoun the sentence continues with. "Position sat på 1 billede. De vises på kortet." is what this read
+	// after task 387 fixed the count alone — agreement is not finished when the noun agrees.
+	//
+	// `den` in the `outside` and `unknown` branches is **not** this pronoun: it refers to the position, which is
+	// singular whatever the selection holds.
+	it := photoPronoun(n)
 
 	switch verdict {
 	case photo.BoundsInside:
-		return fmt.Sprintf("Position sat på %d %s. De vises på kortet.", n, billeder)
+		return fmt.Sprintf("Position sat på %s. %s vises på kortet.", photoCount(n), upperFirst(it))
 	case photo.BoundsOutside:
-		return fmt.Sprintf("Position sat på %d %s, men den ligger uden for løbsområdet, "+
-			"så de vises ikke på kortet.", n, billeder)
+		return fmt.Sprintf("Position sat på %s, men den ligger uden for løbsområdet, "+
+			"så %s vises ikke på kortet.", photoCount(n), it)
 	case photo.BoundsUnknown:
-		return fmt.Sprintf("Position sat på %d %s. Den kunne ikke vurderes, fordi ingen poster "+
-			"har en placering endnu — så de vises ikke på kortet.", n, billeder)
+		return fmt.Sprintf("Position sat på %s. Den kunne ikke vurderes, fordi ingen poster "+
+			"har en placering endnu — så %s vises ikke på kortet.", photoCount(n), it)
 	default:
-		return fmt.Sprintf("Position sat på %d %s.", n, billeder)
+		return fmt.Sprintf("Position sat på %s.", photoCount(n))
 	}
 }
 

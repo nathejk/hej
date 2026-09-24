@@ -31,10 +31,19 @@ function initContactSheet(ctx) {
   let order = [];
   let lastClicked = null;
   let query = '';
+
+  // chosen renders "1 valgt" or "12 valgte" (task 387).
+  //
+  // Local rather than on the context, because both places that count a *selection* are in this file. `valgt` is an
+  // adjective rather than a noun, which is why it does not go through `ctx.photoCount`: "1 billede valgt" and "1
+  // valgt" inflect on different words.
+  function chosen(n) {
+    return n === 1 ? '1 valgt' : n + ' valgte';
+  }
   function syncActions() {
     const n = selected.size;
     actions.hidden = n === 0;
-    selCount.textContent = n === 1 ? '1 valgt' : n + ' valgte';
+    selCount.textContent = chosen(n);
     // Every action is wired now (tasks 375–379).
     //
     // Closing the bar closes the sheet with it: an action on an empty selection is a button that cannot do
@@ -158,7 +167,8 @@ function initContactSheet(ctx) {
       }
       for (const cell of sheet.querySelectorAll('.cell')) paint(cell);
       syncActions();
-      actionNote.textContent = (selected.size - before) + ' billeder lagt til valget — ' + selected.size + ' valgte i alt';
+      actionNote.textContent = ctx.photoCount(selected.size - before) + ' lagt til valget — ' +
+        chosen(selected.size) + ' i alt';
     } catch (err) {
       actionNote.textContent = 'Kunne ikke hente alle billeder. Prøv igen.';
     } finally {

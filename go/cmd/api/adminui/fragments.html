@@ -56,7 +56,7 @@ page.html triggers on `load` and the fragment triggers only on the `albums-chang
           {{else}}<span class="badge drafty">Kladde</span>{{end}}
           {{/* Live items only, so an album whose photographs were all deleted reads 0 — rendered rather than
                hidden, because "why is this album empty" is a question with an answer the curator needs. */}}
-          <span>{{if eq .ItemCount 1}}1 billede{{else}}{{.ItemCount}} billeder{{end}}</span>
+          <span>{{photos .ItemCount}}</span>
         </span>
 
         <div class="acts">
@@ -118,7 +118,7 @@ the list answers "what have I got", and you cannot file a photograph into an alb
     {{/* A draft is marked, because "why is it not on the frontpage" is the question a curator asks after filing
          forty photographs into an album they never published. */}}
     {{if not .Published}}<span class="draft">kladde</span>{{end}}
-    <span class="count">{{if eq .ItemCount 1}}1 billede{{else}}{{.ItemCount}} billeder{{end}}</span>
+    <span class="count">{{photos .ItemCount}}</span>
   </label>
   {{end}}
   {{else}}
@@ -275,7 +275,7 @@ Everything that is not a cell arrives as an out-of-band swap, which is how one r
     {{if eq .BoundsVerdict "inside"}}<span class="mark inside">position</span>
     {{else if eq .BoundsVerdict "outside"}}<span class="mark outside">uden for området</span>
     {{else if eq .BoundsVerdict "unknown"}}<span class="mark unknown">ikke vurderet</span>{{end}}
-    {{if .AlbumCount}}<span class="mark">{{if eq .AlbumCount 1}}1 album{{else}}{{.AlbumCount}} album{{end}}</span>{{end}}
+    {{if .AlbumCount}}<span class="mark">{{albums .AlbumCount}}</span>{{end}}
     {{if .TagCount}}<span class="mark">patrulje</span>{{end}}
     {{if .Deleted}}<span class="mark outside">slettet</span>{{end}}
   </span>

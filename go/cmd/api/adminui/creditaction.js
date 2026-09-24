@@ -26,9 +26,7 @@ function initCreditAction(ctx) {
 
   function openCreditPanel() {
     ctx.openSheet(creditPanel);
-    creditNote.textContent = ctx.selected.size === 1
-      ? '1 billede får fotokreditten.'
-      : ctx.selected.size + ' billeder får fotokreditten.';
+    creditNote.textContent = ctx.photoCount(ctx.selected.size) + ' får fotokreditten.';
     // Prefilled from the last one typed on this machine, so a second card is one click. Not prefilled from the
     // selection: the photographs may carry different credits, and picking one of them to show would be a guess
     // that silently overwrites the others when the curator presses the button.

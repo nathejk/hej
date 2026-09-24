@@ -218,10 +218,6 @@ func (app *application) tagAdminPhotosHandler(w http.ResponseWriter, r *http.Req
 	app.Logger.Info("admin tagged photographs with a patrol",
 		"count", tagged, "teamId", p.TeamID, "number", p.Number, "ip", clientIP(r))
 
-	billeder := "billeder"
-	if tagged == 1 {
-		billeder = "billede"
-	}
 	if err := app.WriteJSON(w, http.StatusOK, tagAdminPhotosResponse{
 		Tagged: tagged,
 		Patrol: adminPatrolResponse{
@@ -231,7 +227,7 @@ func (app *application) tagAdminPhotosHandler(w http.ResponseWriter, r *http.Req
 			Group:  p.GroupName,
 			Korps:  p.KorpsLabel(),
 		},
-		Message: fmt.Sprintf("%d %s tagget med patrulje %s.", tagged, billeder, p.Number),
+		Message: fmt.Sprintf("%s tagget med patrulje %s.", photoCount(tagged), p.Number),
 	}, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
 	}

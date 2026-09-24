@@ -201,9 +201,19 @@ var adminPageScripts = []string{
 // One set rather than two, because a fragment is a piece of this page: parsing them together means the page's
 // shell and the fragment it swaps in cannot drift onto different template syntax, and a broken fragment is a
 // panic at init rather than a 500 the first time a curator presses a button.
-var adminTemplates = template.Must(template.Must(template.New("admin").Parse(
+var adminTemplates = template.Must(template.Must(template.New("admin").Funcs(adminTemplateFuncs).Parse(
 	mustInjectAdminAssets("adminui/page.html", "adminui/page.css", adminPageScripts...),
 )).Parse(mustReadAdminAsset("adminui/fragments.html")))
+
+// adminTemplateFuncs are the Danish counts (task 387).
+//
+// The same definitions the public site registers and the Go sentences call, so a count cannot read one way in the
+// curator's list and another on the frontpage — which is the failure that produced "1 billeder" there. See
+// plural.go for why these are per-noun rather than one pluralise().
+var adminTemplateFuncs = template.FuncMap{
+	"photos": photoCount,
+	"albums": albumCount,
+}
 
 // mustInjectAdminAssets splices a page's CSS and its scripts into its HTML, ready to be parsed.
 //

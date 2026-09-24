@@ -50,9 +50,7 @@ function initPositionAction(ctx) {
   async function openPositionPanel() {
     ctx.openSheet(posPanel);
     clicked = null;
-    posNote.textContent = ctx.selected.size === 1
-      ? '1 billede får positionen.'
-      : ctx.selected.size + ' billeder får positionen.';
+    posNote.textContent = ctx.photoCount(ctx.selected.size) + ' får positionen.';
 
     ctx.fragment('GET', '/admin/fragments/checkpointpicker', '#cppickwrap');
     describeChoice();

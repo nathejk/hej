@@ -26,9 +26,7 @@ function initPatrolAction(ctx) {
   function openTagPanel() {
     ctx.openSheet(tagPanel);
     clearPatrolConfirmation();
-    tagNote.textContent = ctx.selected.size === 1
-      ? '1 billede bliver tagget.'
-      : ctx.selected.size + ' billeder bliver tagget.';
+    tagNote.textContent = ctx.photoCount(ctx.selected.size) + ' bliver tagget.';
     tagNum.focus();
   }
 

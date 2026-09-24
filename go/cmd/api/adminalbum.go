@@ -670,14 +670,12 @@ func adminAddedMessage(added, albums int) string {
 	if added == 0 {
 		return "Billederne lå allerede i de valgte album."
 	}
-	billeder := "billeder"
-	if added == 1 {
-		billeder = "billede"
-	}
+	// "i albummet" when there is one, because naming the count of a thing there is only one of reads as a form
+	// rather than a sentence.
 	if albums == 1 {
-		return fmt.Sprintf("%d %s lagt i albummet.", added, billeder)
+		return fmt.Sprintf("%s lagt i albummet.", photoCount(added))
 	}
-	return fmt.Sprintf("%d %s lagt i %d album.", added, billeder, albums)
+	return fmt.Sprintf("%s lagt i %s.", photoCount(added), albumCount(albums))
 }
 
 // dedupeAdminIDs cleans a selection: trimmed, de-duplicated, order preserved, non-empty.

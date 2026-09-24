@@ -214,10 +214,19 @@ func TestFrontpageListsPublishedAlbums(t *testing.T) {
 		// The cover is the album's first item, addressed through the media route.
 		"/api/public/albums/al-1/media/0?variant=thumb",
 		"2 billeder",
+		// **And the singular** (task 387). "Natten" holds one photograph, and this page rendered "1 billeder"
+		// to every family that opened it until then — asserting only the plural above was what let that ship.
+		"1 billede<",
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the frontpage is missing %q\n%s", want, page)
 		}
+	}
+
+	// Said the other way round too, because "1 billede<" above is also a substring of "1 billeder" without the
+	// closing bracket — and a needle that can match the bug it is guarding against is not a guard.
+	if strings.Contains(page, "1 billeder") {
+		t.Errorf("an album with one photograph must not read \"1 billeder\"\n%s", page)
 	}
 
 	// And the empty state must be gone now that there are albums.

@@ -57,6 +57,18 @@ function initAdminTool() {
     document.body.dispatchEvent(new Event('albums-changed'));
   };
 
+  // photoCount renders "1 billede" or "12 billeder" (task 387).
+  //
+  // On the context rather than copied into each sheet, for the reason task 387 found the hard way: the same
+  // ternary was written out at eight call sites here and six in Go, and the one place it was written *without* the
+  // singular was the public frontpage, where it read "1 billeder" to every family that opened it. A grammatical
+  // fact repeated fourteen times is a grammatical fact that will be got wrong.
+  //
+  // It cannot share the Go definition in `plural.go` — there is no build step on this surface and nothing compiles
+  // these files together — so there are exactly two copies, which is the floor. `TestTheAdminCountsAgreeAcrossGo
+  // AndJavaScript` holds them equal.
+  ctx.photoCount = (n) => (n === 1 ? '1 billede' : n + ' billeder');
+
   initSheetShell(ctx);
   initContactSheet(ctx);
 
