@@ -164,7 +164,7 @@ The original questions, for the record:
 - [x] `/<year>/photos` shows upload, filters and the contact sheet; filters are in the URL
 - [x] An album can be deleted from the list, behind a confirm prompt that names it and says the photographs stay
 - [ ] No public page links to an admin page
-- [ ] `album=<id>` filter on the library read and the photos fragment, ordered by ordinal, with tests
+- [x] `album=<id>` filter on the library read and the photos fragment, ordered by ordinal, with tests
 - [ ] Action sheets and selection are shared code between views 2 and 3, not copies
 - [ ] A shared head/nav across the three pages
 - [ ] Verified with a year-sized fixture (~20 albums, ~3,000 photos): no view loads more than one page of

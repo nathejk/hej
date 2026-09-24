@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"nathejk.dk/nathejk/table/album"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -201,6 +202,34 @@ func TestAdminLibraryTranslatesEveryFilter(t *testing.T) {
 	}
 }
 
+// `album={id}` narrows to one album (task 396), and an id naming no album of this year is refused like any other
+// unknown value — including `album=all`, which must not read as "an empty album called all".
+func TestAdminLibraryFiltersToOneAlbum(t *testing.T) {
+	curator := &libraryCurator{}
+	app, srv := libraryApp(t, curator)
+	app.models.AlbumCurator = newAlbumCurator(&curatedAlbum{a: album.CuratorAlbum{ID: "al-1", Slug: "natten"}})
+
+	for _, path := range []string{"/api/admin/photos?album=al-1", "/admin/fragments/photos?album=al-1"} {
+		curator.filters = nil
+		if got := getAdmin(t, srv, path, testAdminUser, testAdminPass).StatusCode; got != http.StatusOK {
+			t.Fatalf("%s: want 200, got %d", path, got)
+		}
+		if len(curator.filters) != 1 || curator.filters[0].AlbumID != "al-1" || curator.filters[0].InNoAlbum {
+			t.Errorf("%s: want one read for album al-1, got %+v", path, curator.filters)
+		}
+	}
+
+	curator.filters = nil
+	for _, q := range []string{"album=al-nope", "album=all", "album=al%201"} {
+		if got := getAdmin(t, srv, "/api/admin/photos?"+q, testAdminUser, testAdminPass).StatusCode; got != http.StatusBadRequest {
+			t.Errorf("%s: want 400, got %d", q, got)
+		}
+	}
+	if len(curator.filters) != 0 {
+		t.Errorf("a refused album must not reach the projection, got %d reads", len(curator.filters))
+	}
+}
+
 func boolPtrEqual(a, b *bool) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
@@ -216,7 +245,9 @@ func boolPtrEqual(a, b *bool) bool {
 // forty photographs.
 func TestAdminLibraryRefusesAnUnknownFilterValue(t *testing.T) {
 	curator := &libraryCurator{}
-	_, srv := libraryApp(t, curator)
+	app, srv := libraryApp(t, curator)
+	// An album store with no albums, so `album=all` is refused as an unknown album rather than for lack of one.
+	app.models.AlbumCurator = newAlbumCurator()
 
 	for _, q := range []string{
 		"album=all", "location=maybe", "verdict=insid", "verdict=plottable", "tagged=perhaps",

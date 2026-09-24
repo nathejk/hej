@@ -81,6 +81,10 @@ type Filter struct {
 	// The filter that makes the workflow work: after a card dump this is "what have I not sorted yet".
 	InNoAlbum bool
 
+	// AlbumID limits the result to one album's live members, **in the album's order** rather than newest first
+	// (task 396). It is what the album editor's grid reads, so the editor and the contact sheet are one renderer.
+	AlbumID string
+
 	// HasLocation selects photographs with, or without, a coordinate. Nil means either.
 	HasLocation *bool
 
@@ -218,6 +222,12 @@ func (f Filter) where(year string) (string, []any) {
 			`NOT EXISTS (SELECT 1 FROM album_item i
 			              WHERE i.photoId = p.photoId AND i.deleted = 0)`)
 	}
+	if f.AlbumID != "" {
+		conds = append(conds,
+			`EXISTS (SELECT 1 FROM album_item i
+			          WHERE i.photoId = p.photoId AND i.albumId = ? AND i.year = p.year AND i.deleted = 0)`)
+		args = append(args, f.AlbumID)
+	}
 	if f.HasLocation != nil {
 		if *f.HasLocation {
 			conds = append(conds, "p.latitude IS NOT NULL AND p.longitude IS NOT NULL")
@@ -256,6 +266,17 @@ func (q curatorQuerier) Library(year string, f Filter, limit, offset int) ([]Lib
 	}
 
 	where, args := f.where(year)
+	order := "p.uploadedAt DESC, p.photoId DESC"
+	if f.AlbumID != "" {
+		// One album is shown in the order the curator arranged it, since that is what the editor is for. A
+		// subquery rather than a join, so the row shape stays `libraryColumns` and the scan is shared; an
+		// album is at most a few hundred rows. `(albumId, year, photoId)` is unique among live items, so this
+		// yields one ordinal, and `photoId` still breaks any tie.
+		order = `(SELECT i.ordinal FROM album_item i
+		           WHERE i.photoId = p.photoId AND i.albumId = ? AND i.year = p.year AND i.deleted = 0
+		           LIMIT 1), p.photoId`
+		args = append(args, f.AlbumID)
+	}
 	// `photoId` breaks ties on the timestamp. Without it a page boundary falling inside a batch uploaded
 	// in the same second could show one photograph twice and skip another, because MariaDB is under no
 	// obligation to order equal keys consistently between two queries.
@@ -263,7 +284,7 @@ func (q curatorQuerier) Library(year string, f Filter, limit, offset int) ([]Lib
 		SELECT `+libraryColumns+`
 		FROM photo p
 		WHERE `+where+`
-		ORDER BY p.uploadedAt DESC, p.photoId DESC
+		ORDER BY `+order+`
 		LIMIT `+fmt.Sprint(limit)+` OFFSET `+fmt.Sprint(offset), args...)
 	if err != nil {
 		return nil, err

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/julienschmidt/httprouter"
 
@@ -75,10 +76,10 @@ type adminLibraryPhoto struct {
 // listAdminPhotosHandler returns one page of the year's library.
 //
 // @Summary      List the year's photograph library
-// @Description  Returns one page of the configured event year's photographs, newest first, with the counts the tool's header shows. Filters compose: `album=none` limits to photographs no live album references, `location=yes|no` to those with or without a coordinate, `verdict=inside|outside|unknown|none` to one bounds verdict, `tagged=yes|no` to those with or without a patrol attribution, and `deleted=1` includes ones the curator removed. This read is **draft-visible** — it returns photographs no album references and, on request, deleted ones — which is why it is on the curator interface and behind the admin credential rather than on any public read. Requires the admin credential.
+// @Description  Returns one page of the configured event year's photographs, newest first, with the counts the tool's header shows. Filters compose: `album=none` limits to photographs no live album references, `album={albumId}` to one album's live members in the album's own order, `location=yes|no` to those with or without a coordinate, `verdict=inside|outside|unknown|none` to one bounds verdict, `tagged=yes|no` to those with or without a patrol attribution, and `deleted=1` includes ones the curator removed. This read is **draft-visible** — it returns photographs no album references and, on request, deleted ones — which is why it is on the curator interface and behind the admin credential rather than on any public read. Requires the admin credential.
 // @Tags         admin
 // @Produce      json
-// @Param        album     query     string  false  "none: only photographs in no album"
+// @Param        album     query     string  false  "none: only photographs in no album; an album id: that album's members, in album order"
 // @Param        location  query     string  false  "yes or no: with or without a coordinate"
 // @Param        verdict   query     string  false  "inside, outside, unknown or none"
 // @Param        tagged    query     string  false  "yes or no: with or without a patrol tag"
@@ -123,6 +124,24 @@ func (app *application) readAdminLibraryPage(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		app.BadRequestResponse(w, r, err)
 		return adminLibraryResponse{}, false
+	}
+	// An album id must name an album of this year, for the reason every other filter value is refused rather than
+	// ignored: `album=all`, or a typo, reading as an empty album is a grid the curator misreads. Deleted albums
+	// count — their editor still opens.
+	if filter.AlbumID != "" {
+		if app.models.AlbumCurator == nil {
+			app.ServiceUnavailableResponse(w, r, "albummerne er ikke tilgængelige lige nu")
+			return adminLibraryResponse{}, false
+		}
+		_, _, found, err := app.models.AlbumCurator.Album(app.config.eventYear, filter.AlbumID)
+		if err != nil {
+			app.ServerErrorResponse(w, r, err)
+			return adminLibraryResponse{}, false
+		}
+		if !found {
+			app.BadRequestResponse(w, r, errors.New(`ukendt album i "album"`))
+			return adminLibraryResponse{}, false
+		}
 	}
 
 	limit := adminQueryInt(r, "limit", 120)
@@ -211,12 +230,16 @@ func adminLibraryFilter(r *http.Request) (photo.Filter, error) {
 	q := r.URL.Query()
 	var f photo.Filter
 
-	switch v := q.Get("album"); v {
-	case "":
-	case "none":
+	// `none`, or one album's id (task 396). Bound as a parameter, never spliced, so it is only bounded here;
+	// readAdminLibraryPage then refuses one that names no album of this year.
+	switch v := q.Get("album"); {
+	case v == "":
+	case v == "none":
 		f.InNoAlbum = true
+	case len(v) <= 99 && !strings.ContainsAny(v, " \t\r\n"):
+		f.AlbumID = v
 	default:
-		return f, errors.New(`ukendt værdi for "album" (kun "none")`)
+		return f, errors.New(`ukendt værdi for "album" ("none" eller et album-id)`)
 	}
 
 	switch v := q.Get("location"); v {
