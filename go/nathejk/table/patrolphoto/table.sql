@@ -45,9 +45,8 @@ CREATE TABLE IF NOT EXISTS patrol_photo (
     width INT NOT NULL DEFAULT 0,
     height INT NOT NULL DEFAULT 0,
 
-    -- The crew's "needs a look" flag (the camera app's XXX_ filename prefix). Carried upstream without meaning;
-    -- this app gives it one, and it is a conservative one: a flagged photograph is never chosen *automatically*
-    -- for a public surface. See querier.Cover for why an explicit choice still wins over it.
+    -- The crew's "needs a look" flag (the camera app's XXX_ filename prefix). Recorded, and no longer acted on:
+    -- whether a patrol's photographs may be shown is decided by patrol_photo_consent below.
     attention TINYINT(1) NOT NULL DEFAULT 0,
 
     -- When the shutter was pressed, as the camera app reported it. The ordering key for "the newest start
@@ -73,6 +72,20 @@ CREATE TABLE IF NOT EXISTS patrol_photo_cover (
     teamId VARCHAR(99) NOT NULL DEFAULT "",
     ref CHAR(64) NOT NULL DEFAULT "",
     selectedAt DATETIME NULL DEFAULT NULL,
+
+    PRIMARY KEY (year, teamId)
+);
+
+-- Whether a patrol's photographs may be used at all (hq's Fototilladelse, `photoconsented`).
+--
+-- One row per patrol, overwritten by each decision. No row means consent, which is hq's default. `refused` is 1
+-- when the patrol, or any named member of it, refused: the photographs are of the whole patrol, so one member's
+-- refusal withholds all of them. The photographs stay in patrol_photo — a refusal can be withdrawn — and every
+-- read excludes them while it stands.
+CREATE TABLE IF NOT EXISTS patrol_photo_consent (
+    year VARCHAR(99) NOT NULL DEFAULT "",
+    teamId VARCHAR(99) NOT NULL DEFAULT "",
+    refused TINYINT(1) NOT NULL DEFAULT 0,
 
     PRIMARY KEY (year, teamId)
 );

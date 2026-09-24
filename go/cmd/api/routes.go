@@ -310,6 +310,9 @@ func (app *application) routes() http.Handler {
 		// Deleting a whole album (task 396). The same `album.Deleted` the Team section's in-app takedown publishes,
 		// so the projection has one way an album goes. The photographs stay in the library.
 		router.HandlerFunc(http.MethodPost, "/admin/fragments/albums/:albumId/deleted", app.requireAdmin(app.requireAdminYear(app.deleteAdminAlbumFragmentHandler)))
+		// The diploma photographs into one draft album, tagged by patrol (task 397). Not under `:albumId`: it finds
+		// or creates its own album. See admindiplomaalbum.go.
+		router.HandlerFunc(http.MethodPost, "/admin/fragments/diplomaalbum", app.requireAdmin(app.requireAdminYear(app.createDiplomaAlbumFragmentHandler)))
 		// The action sheets' pickers (step 4). POST rather than GET for the two that read the boxes a curator has
 		// already ticked: those ids travel in a body, and a GET carrying a hundred repeated query parameters is a
 		// URL length limit waiting to be found.

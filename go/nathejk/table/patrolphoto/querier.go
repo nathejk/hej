@@ -13,6 +13,19 @@ type Queries interface {
 	// One read for both callers — the diploma now, the gallery shortly — so they cannot disagree about which
 	// picture is a patrol's.
 	Cover(year, teamID string) (Photo, bool, error)
+
+	// Teams lists the year's patrols that Cover has a photograph for, by patrol number.
+	//
+	// The admin tool's "diploma photographs into an album" action walks this (task 397); a patrol whose
+	// Fototilladelse records a refusal is not listed, for the reason Cover returns nothing for it.
+	Teams(year string) ([]Team, error)
+}
+
+// Team is one patrol with a usable photograph.
+type Team struct {
+	TeamID string
+	// Number is the patrol's number from `public_patrol`, or "" when it has not been given one.
+	Number string
 }
 
 // Photo is one photograph, as this app may use it.
@@ -40,24 +53,19 @@ type querier struct {
 
 // Cover picks the photograph that represents a patrol.
 //
-// # A flagged photograph is never used, and never fetched
+// # A refused patrol's photographs are never used, and never fetched
 //
-// The maintainer's rule (2026-09-22): *"if attention flag is raised, then skip photo, do not download"*. So
-// `attention` is a **filter, not a preference** — flagged rows are excluded by the WHERE clause, which means their
-// ref never leaves this package, and `internal/photobytes` is never asked for their bytes. "Do not download" is
-// therefore a property of the query rather than a rule a caller has to remember.
+// When hq's Fototilladelse says the patrol, or anyone on it, refused (`patrol_photo_consent.refused`), no
+// photograph of it is returned — the refusal is in the WHERE clause, so the ref never leaves this package and
+// `internal/photobytes` is never asked for the bytes. "Never served" is a property of the query rather than a rule
+// a caller has to remember.
 //
-// This overrides how it worked when the projection landed a day earlier, where an explicit cover selection won
-// even if the photograph was flagged, on the grounds that a human had chosen it. The maintainer's rule is the
-// safer one and the simpler one: the flag is the crew saying *"somebody should look at this"* — blurred, wrong
-// team, or something that should not be published — and a public certificate is the wrong place to find out what
-// they meant. A flagged cover falls through to the next unflagged candidate, so the patrol still gets a picture
-// where one exists.
+// The crew's `attention` flag used to be that filter (2026-09-22). It no longer is: consent is the rule
+// (2026-09-24), and a flagged photograph is a candidate like any other.
 //
 // # What is left, in the order it is applied
 //
-//  1. **An explicit choice wins**, among unflagged photographs: if `patrol_photo_cover` names a ref that still
-//     exists and is not flagged, that is the cover.
+//  1. **An explicit choice wins**: if `patrol_photo_cover` names a ref that still exists, that is the cover.
 //  2. **Otherwise the newest `start` photograph.** The diploma's subject is the patrol at the start line, which is
 //     what `diplom` printed and what the maintainer asked for.
 //  3. **Otherwise any photograph**, newest first, so a patrol photographed only at the finish still gets one.
@@ -74,13 +82,15 @@ func (q querier) Cover(year, teamID string) (Photo, bool, error) {
 
 	// The joined cover ref decides the first sort key: 0 for the chosen photograph, 1 for everything else. Then
 	// `type='start'` ahead of other categories, before capturedAt breaks the remaining ties newest-first. There is
-	// no `attention` sort key, because flagged rows are not in the result at all.
+	// no consent sort key, because a refused patrol's rows are not in the result at all.
 	rows, err := q.db.Query(`
 		SELECT p.ref, p.thumbRef, p.contentType, p.width, p.height, p.type
 		FROM patrol_photo p
 		LEFT JOIN patrol_photo_cover c
 		  ON c.year = p.year AND c.teamId = p.teamId AND c.ref = p.ref AND c.ref <> ''
-		WHERE p.year = ? AND p.teamId = ? AND p.attention = 0
+		LEFT JOIN patrol_photo_consent k
+		  ON k.year = p.year AND k.teamId = p.teamId
+		WHERE p.year = ? AND p.teamId = ? AND COALESCE(k.refused, 0) = 0
 		ORDER BY
 		  CASE WHEN c.ref IS NOT NULL THEN 0 ELSE 1 END ASC,
 		  CASE WHEN p.type = 'start' THEN 0 ELSE 1 END ASC,
@@ -106,6 +116,40 @@ func (q querier) Cover(year, teamID string) (Photo, bool, error) {
 	p.ThumbRef = thumb.String
 	p.ContentType = contentType.String
 	return p, true, rows.Err()
+}
+
+// Teams lists the patrols Cover would answer for.
+//
+// The same two conditions as Cover's WHERE clause — a photograph in the year, and no refusal — so the two cannot
+// disagree about which patrols have a picture. The number is joined from `public_patrol` rather than asked of it,
+// because that projection deliberately has no list read (see publicpatrol.Queries) and this is a curator's read.
+func (q querier) Teams(year string) ([]Team, error) {
+	if year == "" {
+		return nil, nil
+	}
+	rows, err := q.db.Query(`
+		SELECT p.teamId, COALESCE(MIN(pp.teamNumber), '')
+		FROM patrol_photo p
+		LEFT JOIN patrol_photo_consent k
+		  ON k.year = p.year AND k.teamId = p.teamId
+		LEFT JOIN public_patrol pp
+		  ON pp.year = p.year AND pp.teamId = p.teamId
+		WHERE p.year = ? AND COALESCE(k.refused, 0) = 0
+		GROUP BY p.teamId
+		ORDER BY CAST(COALESCE(MIN(pp.teamNumber), '') AS UNSIGNED) ASC, p.teamId ASC`, year)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Team
+	for rows.Next() {
+		var t Team
+		if err := rows.Scan(&t.TeamID, &t.Number); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }
 
 var _ Queries = querier{}

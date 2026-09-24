@@ -8,6 +8,7 @@ import (
 
 	"github.com/jrgensen/cqrs"
 	"github.com/jrgensen/cqrs/cqrstest"
+	"github.com/nathejk/shared-go/types"
 )
 
 const (
@@ -16,8 +17,8 @@ const (
 	thumb = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 )
 
-// **A flagged photograph must never be chosen, and never fetched** (the maintainer's rule, 2026-09-22: *"if
-// attention flag is raised, then skip photo, do not download"*).
+// **A refused patrol's photographs must never be chosen, and never fetched**; the crew's attention flag no longer
+// decides anything (the maintainer's rule, 2026-09-24).
 //
 // # Why this reads the source instead of running the query
 //
@@ -25,11 +26,9 @@ const (
 // seven methods and tests nothing about SQL semantics, and this package's convention (like every other table here)
 // is that folds get unit tests while reads are covered through stubs in `cmd/api`.
 //
-// What actually needs guarding is narrow and textual: that the flag is applied as a **filter** rather than a sort
-// key. That distinction is the whole rule — as a sort key a flagged photograph is still returned when it is the
-// only one, its ref reaches `internal/photobytes`, and the bytes are downloaded and stored. "Do not download" is
-// a property of the WHERE clause.
-func TestAFlaggedPhotographIsFilteredOutRatherThanDeprioritised(t *testing.T) {
+// What needs guarding is narrow and textual: that the refusal is a **filter** in the WHERE clause, so a refused
+// patrol's ref never reaches `internal/photobytes`, and that attention is no longer one.
+func TestARefusedPatrolIsFilteredOutAndAttentionIsNot(t *testing.T) {
 	source, err := os.ReadFile("querier.go")
 	if err != nil {
 		t.Fatalf("reading querier.go: %v", err)
@@ -37,13 +36,11 @@ func TestAFlaggedPhotographIsFilteredOutRatherThanDeprioritised(t *testing.T) {
 	// Comments explain the rule and would otherwise satisfy the assertions below — the same trap the map island's
 	// spec fell into, where a file's own documentation passed a test about its behaviour.
 	code := stripLineComments(string(source))
-
-	if !strings.Contains(code, "p.attention = 0") {
-		t.Error("Cover must exclude flagged photographs in its WHERE clause, so their refs never reach the fetcher")
+	if !strings.Contains(code, "COALESCE(k.refused, 0) = 0") {
+		t.Error("Cover must exclude a refused patrol in its WHERE clause, so its refs never reach the fetcher")
 	}
-	// As a sort key it would be a preference, which is exactly what the maintainer replaced.
-	if strings.Contains(code, "p.attention ASC") || strings.Contains(code, "p.attention DESC") {
-		t.Error("attention must not be a sort key: a flagged photograph would still be returned when it is the only one")
+	if strings.Contains(code, "attention") {
+		t.Error("attention must no longer filter or order the cover")
 	}
 }
 
@@ -285,7 +282,7 @@ func TestTheSubscriptionMatchesOnlyPhotographVerbs(t *testing.T) {
 			}
 		}
 	}
-	// And the three that must match, or the projection silently folds nothing.
+	// And the four that must match, or the projection silently folds nothing.
 	for _, subject := range []string{
 		"NATHEJK.2026.patrulje.team-42.photographed",
 		"NATHEJK.2026.patrulje.team-42.photopurged",
@@ -299,6 +296,38 @@ func TestTheSubscriptionMatchesOnlyPhotographVerbs(t *testing.T) {
 		}
 		if !matched {
 			t.Errorf("%q matches none of the subscriptions", subject)
+		}
+	}
+}
+
+// **Any refusal withholds the patrol, and the newest decision replaces the last.** A named member counts the same
+// as teamRefused because the photographs are not tagged per person; clearing every box must restore consent,
+// which only an overwrite can do.
+func TestPhotoConsentIsFoldedAsState(t *testing.T) {
+	const subject = "NATHEJK.2025.patrulje.team-42.photoconsented"
+	for _, tc := range []struct {
+		name string
+		body PhotoConsentSet
+		want string
+	}{
+		{"everyone consents", PhotoConsentSet{TeamID: "team-42"}, "refused=0"},
+		{"somebody, unknown who", PhotoConsentSet{TeamID: "team-42", TeamRefused: true}, "refused=1"},
+		{"named members", PhotoConsentSet{TeamID: "team-42", MemberIDs: []types.MemberID{"m-1"}}, "refused=1"},
+		{"blank member ids", PhotoConsentSet{TeamID: "team-42", MemberIDs: []types.MemberID{""}}, "refused=0"},
+	} {
+		stmts := fold(t, subject, tc.body)
+		if len(stmts) != 1 {
+			t.Fatalf("%s: want 1 statement, got %v", tc.name, stmts)
+		}
+		for _, want := range []string{
+			"INSERT INTO patrol_photo_consent", tc.want,
+			// The patrol's own year, from the subject — the body carries none.
+			`year="2025"`, `teamId="team-42"`,
+			"ON DUPLICATE KEY UPDATE refused=VALUES(refused)",
+		} {
+			if !strings.Contains(stmts[0], want) {
+				t.Errorf("%s: statement is missing %q:\n%s", tc.name, want, stmts[0])
+			}
 		}
 	}
 }

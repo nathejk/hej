@@ -104,6 +104,15 @@ page.html triggers on `load` and the fragment triggers only on the `albums-chang
            aria-label="Titel på et nyt album">
     <button type="submit">Opret album</button>
   </form>
+
+  {{/* The diploma photographs (task 397): every patrol's diploma photograph into the draft album "Diplombilleder",
+       tagged with its number. Safe to press again — it adds only what is new. Patrols that refused photographs
+       have no diploma photograph and are never included. */}}
+  <button type="button" class="ghost"
+          hx-post="/admin/fragments/diplomaalbum" hx-target="#albums" hx-swap="outerHTML"
+          hx-disabled-elt="this">
+    Læg diplombilleder i album
+  </button>
 </section>
 {{end}}
 

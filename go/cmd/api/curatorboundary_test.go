@@ -67,6 +67,10 @@ var adminOwnedFiles = map[string]bool{
 	// These endpoints return HTML rather than JSON, which does not widen anything: the same `requireAdmin`
 	// applies, so the draft-visible data reaches the same person it would have as JSON.
 	"adminfragments.go": true,
+	// The diploma photographs into an album (task 397). Reads `PhotoCurator.Photo` so a photograph a curator
+	// deleted stays deleted, `Tags` to avoid re-tagging, and `AlbumCurator.All`/`Album` to find its draft album and
+	// the memberships already in it — removed ones included, so a photograph taken out stays out.
+	"admindiplomaalbum.go": true,
 }
 
 // curatorReads are the model fields that return draft-visible data.

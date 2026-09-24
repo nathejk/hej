@@ -16,7 +16,7 @@ type consumer struct {
 	w cqrs.Writer
 }
 
-// Consumes lists the three verbs.
+// Consumes lists the four verbs.
 //
 // The colon after NATHEJK is how upstream spells these and `SubjectFromStr` normalises it to a dot — kept to
 // match foto's and hq's own declarations character for character, so grepping any of the three repos for how
@@ -26,6 +26,7 @@ func (c consumer) Consumes() []cqrs.Subject {
 		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.photographed"),
 		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.photopurged"),
 		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.photocoverselected"),
+		cqrs.SubjectFromStr("NATHEJK:*.patrulje.*.photoconsented"),
 	}
 }
 
@@ -49,8 +50,10 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 		return c.handlePurged(msg, subject)
 	case subject.Match("NATHEJK.*.patrulje.*.photocoverselected"):
 		return c.handleCoverSelected(msg, subject)
+	case subject.Match("NATHEJK.*.patrulje.*.photoconsented"):
+		return c.handleConsented(msg, subject)
 	}
-	// A subject that matches nothing is a no-op, not an error: this consumer subscribes to three verbs and the
+	// A subject that matches nothing is a no-op, not an error: this consumer subscribes to four verbs and the
 	// stream carries many.
 	return nil
 }
@@ -151,6 +154,27 @@ func (c consumer) handleCoverSelected(msg cqrs.Message, subject cqrs.Subject) er
 		"INSERT INTO patrol_photo_cover SET year=%s, teamId=%s, ref=%s, selectedAt=%s "+
 			"ON DUPLICATE KEY UPDATE ref=VALUES(ref), selectedAt=VALUES(selectedAt)",
 		quote(year), quote(teamID), quote(body.Ref), datetime(body.SelectedAt),
+	))
+}
+
+// handleConsented records whether the patrol's photographs may be used at all.
+//
+// A plain overwrite, because the newest message is the whole decision: clearing every box in hq publishes
+// `teamRefused:false` with no members, and that must restore consent rather than be ignored. The photographs
+// themselves are left in place — a refusal can be withdrawn — and are kept out of every read instead.
+func (c consumer) handleConsented(msg cqrs.Message, subject cqrs.Subject) error {
+	var body PhotoConsentSet
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+	year, teamID := identify("", string(body.TeamID), subject)
+	if year == "" || teamID == "" {
+		return fmt.Errorf("photoconsented with no year or team")
+	}
+	return c.w.Consume(fmt.Sprintf(
+		"INSERT INTO patrol_photo_consent SET year=%s, teamId=%s, refused=%d "+
+			"ON DUPLICATE KEY UPDATE refused=VALUES(refused)",
+		quote(year), quote(teamID), boolToInt(body.refused()),
 	))
 }
 

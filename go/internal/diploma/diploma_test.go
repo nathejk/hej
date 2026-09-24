@@ -131,9 +131,9 @@ func TestTheContentTypeGateAcceptsOnlyWhatFpdfCanPlace(t *testing.T) {
 //
 // What makes it acceptable now, and it is worth being precise: the picture is the patrol's **cover**, which an
 // organizer selects in hq when there is more than one. That selection is a human curation step, which is exactly
-// the consent gate §0b.2 asked for — and where nobody has chosen, `patrolphoto`'s fallback refuses photographs
-// the crew flagged for review. The gate is upstream, in the tool where somebody can see the picture, rather than
-// here where nothing can.
+// the consent gate §0b.2 asked for — and `patrolphoto` returns no photograph at all for a patrol whose
+// Fototilladelse records a refusal. The gate is upstream, in the tool where somebody can see the picture, rather
+// than here where nothing can.
 //
 // **What this test still guards is a person.** No name, no phone number, no email, no uploader, no photographer
 // — the fields that would make this document about an individual rather than about a patrol. That rule did not

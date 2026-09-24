@@ -29,9 +29,9 @@
 //
 // What answers the second point is *which* photograph this is. It is the patrol's **cover**, which an organizer
 // selects in hq when a patrol has more than one — a human curation step, in a tool where somebody can see the
-// picture. Where nobody has chosen, `nathejk/table/patrolphoto` picks the newest start photograph and skips
-// anything the crew flagged for review. So the consent gate is upstream, where it can be exercised, rather than
-// here where nothing can see what it is deciding about.
+// picture. Where nobody has chosen, `nathejk/table/patrolphoto` picks the newest start photograph — and it returns
+// nothing at all for a patrol whose Fototilladelse in hq records a refusal. So the consent gate is upstream, where
+// it can be exercised, rather than here where nothing can see what it is deciding about.
 //
 // The first and third points are accepted rather than solved, and that is the maintainer's call to make. What
 // this package still refuses is a **person**: no name, no phone, no email, no photographer credit. A test walks

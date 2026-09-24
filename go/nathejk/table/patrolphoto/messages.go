@@ -1,6 +1,10 @@
 package patrolphoto
 
-import "time"
+import (
+	"time"
+
+	"github.com/nathejk/shared-go/types"
+)
 
 // The events this projection folds, as a reader needs them.
 //
@@ -40,6 +44,43 @@ type rendition struct {
 	Bytes       int    `json:"bytes"`
 	Width       int    `json:"width"`
 	Height      int    `json:"height"`
+}
+
+// PhotoConsentSet is the event body for "Fototilladelse": who on the patrol has refused
+// public photographs of themselves after the race, in full.
+//
+// Accepting is the default, so a patrol that never had this set is one where everybody
+// accepts. Refusal is recorded at one of two resolutions, because HQ is often told "one of
+// them doesn't want to be in the pictures" without being told which:
+//
+//   - TeamRefused: somebody on the patrol refused, and we do not know who. The whole
+//     patrol must then be treated as refusing, so MemberIDs is meaningless and is sent empty.
+//   - MemberIDs: exactly these members refused; the rest of the patrol accepts.
+//
+// State, not a delta, for the same reason as RemarkSet.
+//
+// Published by hq-api as `NATHEJK.<year>.patrulje.<teamId>.photoconsented`; copied verbatim from hq's
+// `nathejk/table/patrulje/messages.go`. The body has no year: the subject's is the patrol's own.
+type PhotoConsentSet struct {
+	TeamID      types.TeamID     `json:"teamId"`
+	TeamRefused bool             `json:"teamRefused"`
+	MemberIDs   []types.MemberID `json:"memberIds"`
+}
+
+// refused reports whether the decision withholds the patrol's photographs.
+//
+// A named member's refusal withholds them all, the same as TeamRefused: the photographs are of the patrol, not
+// tagged per person, so there is no picture of the patrol that leaves out the member who said no.
+func (b PhotoConsentSet) refused() bool {
+	if b.TeamRefused {
+		return true
+	}
+	for _, id := range b.MemberIDs {
+		if id != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // photoPurged is `NATHEJK.<year>.patrulje.<teamId>.photopurged`.
