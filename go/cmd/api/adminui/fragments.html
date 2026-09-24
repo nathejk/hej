@@ -289,6 +289,7 @@ Everything that is not a cell arrives as an out-of-band swap, which is how one r
     {{if .AlbumCount}}<span class="mark">{{albums .AlbumCount}}</span>{{end}}
     {{if .TagCount}}<span class="mark">patrulje</span>{{end}}
     {{if .Deleted}}<span class="mark outside">slettet</span>{{end}}
+    {{if and $.CoverPhotoID (eq .ID $.CoverPhotoID)}}<span class="mark cover">forsidebillede</span>{{end}}
   </span>
 </button>
 {{end}}
@@ -387,8 +388,8 @@ the album, so the album view has the same selection and actions as the library.
 
   <h2>{{photos .ItemCount}} i albummet</h2>
   {{if .ItemCount}}
-  <p class="hint">Træk et billede for at flytte det. Vælger du flere først, flytter de med sammen. Det første billede
-  er forsidebilledet.</p>
+  <p class="hint">Træk et billede for at flytte det. Vælger du flere først, flytter de med sammen. Forsidebilledet
+  vælger du med <strong>Gør til forsidebillede</strong>; har du ikke valgt et, er det det første billede.</p>
   {{else}}
   <p class="hint">Der er ingen billeder i albummet endnu. Vælg dem under <a href="{{.Root}}/photos">Alle billeder</a>
   og brug <strong>Tilføj til album</strong>.</p>

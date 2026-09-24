@@ -67,6 +67,11 @@ type Updated struct {
 	SortOrder   *int    `json:"sortOrder,omitempty"`
 	Published   *bool   `json:"published,omitempty"`
 
+	// CoverPhotoID chooses the photograph the album opens with (task 396). "" clears the choice, which falls
+	// back to the first live item — the rule before there was a choice, and still the rule when the chosen one
+	// leaves the album or the library.
+	CoverPhotoID *string `json:"coverPhotoId,omitempty"`
+
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 

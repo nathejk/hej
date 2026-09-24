@@ -684,6 +684,9 @@ type adminContactSheetData struct {
 	// first time a clamped limit differed from the one it asked for.
 	HasMore    bool
 	NextOffset int
+
+	// CoverPhotoID is the album's cover on the album view (task 396), marked on its cell; "" elsewhere.
+	CoverPhotoID string
 }
 
 // showAdminContactSheetHandler renders one page of the library as thumbnails.
@@ -695,10 +698,11 @@ func (app *application) showAdminContactSheetHandler(w http.ResponseWriter, r *h
 
 	shown := page.Offset + len(page.Photos)
 	data := adminContactSheetData{
-		Photos:     page.Photos,
-		Counts:     page.Counts,
-		HasMore:    page.HasMore,
-		NextOffset: shown,
+		Photos:       page.Photos,
+		Counts:       page.Counts,
+		HasMore:      page.HasMore,
+		NextOffset:   shown,
+		CoverPhotoID: page.CoverPhotoID,
 	}
 
 	switch {

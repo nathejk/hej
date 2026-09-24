@@ -63,9 +63,9 @@ type Album struct {
 
 	// CoverOrdinal is the item shown as the cover, and HasCover says whether there is one.
 	//
-	// The lowest live ordinal rather than a `cover` column: a curator orders the album deliberately, so
-	// the first photograph is the one they chose to open with. A separate column would be a second
-	// thing to set and a second thing to get wrong for an album that has one.
+	// The curator's chosen cover while it is a live item, otherwise the lowest live ordinal — `coverOrder`
+	// (task 396). Until then it was only the lowest ordinal, on the reasoning that ordering the album *was*
+	// choosing its cover; the maintainer asked for a cover that need not be the first photograph.
 	CoverOrdinal int
 	HasCover     bool
 }
@@ -127,6 +127,27 @@ type PlottableItem struct {
 	Lng       float64
 }
 
+// coverOrder ranks an album's live items for the cover (task 396): the curator's chosen photograph first, then
+// the lowest ordinal. Used with `ORDER BY … LIMIT 1` inside a subquery over `album_item i` joined to album `a`.
+//
+// **The one statement of the cover rule in SQL**, shared by the frontpage, the curator's list and the album
+// view, so a chosen cover cannot show in one and not another. `pickCover` below is the same rule for a list
+// already read into Go.
+const coverOrder = `(i.photoId = a.coverPhotoId) DESC, i.ordinal ASC`
+
+// pickCover applies coverOrder to live items already in ordinal order.
+func pickCover(items []Item, chosen string) (Item, bool) {
+	if len(items) == 0 {
+		return Item{}, false
+	}
+	for _, it := range items {
+		if chosen != "" && it.PhotoID == chosen {
+			return it, true
+		}
+	}
+	return items[0], true
+}
+
 type querier struct {
 	db cqrs.Reader
 }
@@ -143,9 +164,10 @@ func (q querier) Published(year string) ([]Album, error) {
 		       (SELECT COUNT(*) FROM album_item i
 		         JOIN photo p ON p.photoId = i.photoId
 		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0) AS itemCount,
-		       (SELECT MIN(i.ordinal) FROM album_item i
+		       (SELECT i.ordinal FROM album_item i
 		         JOIN photo p ON p.photoId = i.photoId
-		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0) AS coverOrdinal
+		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0
+		         ORDER BY `+coverOrder+` LIMIT 1) AS coverOrdinal
 		FROM album a
 		WHERE a.year = ? AND a.deleted = 0 AND a.published = 1
 		ORDER BY a.sortOrder ASC, a.albumId ASC`, year)
@@ -179,7 +201,7 @@ func (q querier) Published(year string) ([]Album, error) {
 // slug costs one lookup rather than a scan of items belonging to nothing.
 func (q querier) BySlug(year, slug string) (Album, []Item, bool, error) {
 	rows, err := q.db.Query(`
-		SELECT albumId, slug, title, description, sortOrder
+		SELECT albumId, slug, title, description, sortOrder, coverPhotoId
 		FROM album
 		WHERE year = ? AND slug = ? AND deleted = 0 AND published = 1`, year, slug)
 	if err != nil {
@@ -188,10 +210,11 @@ func (q querier) BySlug(year, slug string) (Album, []Item, bool, error) {
 	defer rows.Close()
 
 	var a Album
+	var chosen string
 	if !rows.Next() {
 		return Album{}, nil, false, rows.Err()
 	}
-	if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Description, &a.SortOrder); err != nil {
+	if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Description, &a.SortOrder, &chosen); err != nil {
 		return Album{}, nil, false, err
 	}
 	if err := rows.Err(); err != nil {
@@ -203,8 +226,8 @@ func (q querier) BySlug(year, slug string) (Album, []Item, bool, error) {
 		return Album{}, nil, false, err
 	}
 	a.ItemCount = len(items)
-	if len(items) > 0 {
-		a.CoverOrdinal = items[0].Ordinal
+	if cover, ok := pickCover(items, chosen); ok {
+		a.CoverOrdinal = cover.Ordinal
 		a.HasCover = true
 	}
 	return a, items, true, nil

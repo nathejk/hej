@@ -465,3 +465,52 @@ func TestVerdictsAgreeWithThePhotoPackage(t *testing.T) {
 		}
 	}
 }
+
+// The chosen cover (task 396): set, cleared, and a malformed id refused because it is spliced into SQL.
+func TestUpdatedChoosesAndClearsTheCover(t *testing.T) {
+	cover := ref("a")
+	stmts := fold(t, "NATHEJK.2026.album.al-1.updated", Updated{
+		AlbumID: "al-1", Year: "2026", CoverPhotoID: str(cover), UpdatedAt: at,
+	})
+	if len(stmts) != 1 || !strings.Contains(stmts[0], `coverPhotoId="`+cover+`"`) {
+		t.Errorf("want the cover chosen\ngot: %v", stmts)
+	}
+	for _, forbidden := range []string{"title=", "published="} {
+		if strings.Contains(stmts[0], forbidden) {
+			t.Errorf("choosing a cover must not write %s\ngot: %s", forbidden, stmts[0])
+		}
+	}
+
+	stmts = fold(t, "NATHEJK.2026.album.al-1.updated", Updated{
+		AlbumID: "al-1", Year: "2026", CoverPhotoID: str(""), UpdatedAt: at,
+	})
+	if !strings.Contains(stmts[0], `coverPhotoId=""`) {
+		t.Errorf("an empty cover must clear the choice\ngot: %s", stmts[0])
+	}
+}
+
+func TestUpdatedRefusesAMalformedCover(t *testing.T) {
+	err := foldErr(t, "NATHEJK.2026.album.al-1.updated", Updated{
+		AlbumID: "al-1", Year: "2026", CoverPhotoID: str(`x" OR 1=1 --`), UpdatedAt: at,
+	})
+	if err == nil {
+		t.Error("a malformed coverPhotoId must be refused")
+	}
+}
+
+// pickCover is coverOrder for items already in Go: the choice while it is live, else the first.
+func TestPickCover(t *testing.T) {
+	items := []Item{{Ordinal: 0, PhotoID: "a"}, {Ordinal: 1, PhotoID: "b"}}
+	if got, _ := pickCover(items, "b"); got.PhotoID != "b" {
+		t.Errorf("the chosen cover should win, got %s", got.PhotoID)
+	}
+	if got, _ := pickCover(items, "gone"); got.PhotoID != "a" {
+		t.Errorf("a choice that left the album falls back to the first, got %s", got.PhotoID)
+	}
+	if got, _ := pickCover(items, ""); got.PhotoID != "a" {
+		t.Errorf("no choice means the first, got %s", got.PhotoID)
+	}
+	if _, ok := pickCover(nil, "b"); ok {
+		t.Error("an empty album has no cover")
+	}
+}

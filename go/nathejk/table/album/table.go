@@ -68,6 +68,16 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
 	if err := w.Consume(tableSchema); err != nil {
 		return nil, fmt.Errorf("album: create tables: %w", err)
 	}
+	// Additive drift, as in `photo` and `person`: every column here is also in table.sql, which builds a fresh
+	// database correctly, while this brings an existing one forward — `CREATE TABLE IF NOT EXISTS` will not.
+	for _, col := range []struct{ name, ddl string }{
+		// The chosen cover (task 396).
+		{"coverPhotoId", `coverPhotoId VARCHAR(64) NOT NULL DEFAULT ""`},
+	} {
+		if err := cqrs.EnsureColumn(r, w, "album", col.name, col.ddl); err != nil {
+			return nil, fmt.Errorf("album: ensure column %s: %w", col.name, err)
+		}
+	}
 	return &Table{
 		consumer:       consumer{w: w},
 		querier:        querier{db: r},

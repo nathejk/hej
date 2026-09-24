@@ -160,6 +160,14 @@ func (c consumer) handleUpdated(msg cqrs.Message, year string) error {
 	if body.Published != nil {
 		sets = append(sets, fmt.Sprintf("published=%d", boolToInt(*body.Published)))
 	}
+	if body.CoverPhotoID != nil {
+		// A photo id is a content hash and is spliced into SQL here, so a malformed one is refused like
+		// everywhere else in this fold. Empty is the one other legal value: "no choice".
+		if *body.CoverPhotoID != "" && !validRef(*body.CoverPhotoID) {
+			return fmt.Errorf("album updated with an invalid coverPhotoId")
+		}
+		sets = append(sets, "coverPhotoId="+quote(*body.CoverPhotoID))
+	}
 	if len(sets) == 0 {
 		return nil
 	}

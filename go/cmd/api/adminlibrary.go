@@ -34,6 +34,10 @@ type adminLibraryResponse struct {
 	Limit  int `json:"limit"`
 	Offset int `json:"offset"`
 
+	// CoverPhotoID is the album's cover when the read was narrowed to one album (task 396), so the album view
+	// can mark it. Not on the wire: it is the page's concern, and the JSON read's contract is the photographs.
+	CoverPhotoID string `json:"-"`
+
 	// HasMore is whether another page exists.
 	//
 	// Derived from asking for one row more than the page size rather than from a COUNT: the count would be a
@@ -125,6 +129,7 @@ func (app *application) readAdminLibraryPage(w http.ResponseWriter, r *http.Requ
 		app.BadRequestResponse(w, r, err)
 		return adminLibraryResponse{}, false
 	}
+	var cover string
 	// An album id must name an album of this year, for the reason every other filter value is refused rather than
 	// ignored: `album=all`, or a typo, reading as an empty album is a grid the curator misreads. Deleted albums
 	// count — their editor still opens.
@@ -133,7 +138,7 @@ func (app *application) readAdminLibraryPage(w http.ResponseWriter, r *http.Requ
 			app.ServiceUnavailableResponse(w, r, "albummerne er ikke tilgængelige lige nu")
 			return adminLibraryResponse{}, false
 		}
-		_, _, found, err := app.models.AlbumCurator.Album(app.config.eventYear, filter.AlbumID)
+		a, _, found, err := app.models.AlbumCurator.Album(app.config.eventYear, filter.AlbumID)
 		if err != nil {
 			app.ServerErrorResponse(w, r, err)
 			return adminLibraryResponse{}, false
@@ -142,6 +147,7 @@ func (app *application) readAdminLibraryPage(w http.ResponseWriter, r *http.Requ
 			app.BadRequestResponse(w, r, errors.New(`ukendt album i "album"`))
 			return adminLibraryResponse{}, false
 		}
+		cover = a.CoverPhotoID
 	}
 
 	limit := adminQueryInt(r, "limit", 120)
@@ -189,9 +195,10 @@ func (app *application) readAdminLibraryPage(w http.ResponseWriter, r *http.Requ
 			Tagged:       counts.Tagged,
 			Deleted:      counts.Deleted,
 		},
-		Limit:   limit,
-		Offset:  offset,
-		HasMore: hasMore,
+		Limit:        limit,
+		Offset:       offset,
+		HasMore:      hasMore,
+		CoverPhotoID: cover,
 	}
 	for _, p := range rows {
 		page.Photos = append(page.Photos, adminLibraryPhoto{

@@ -125,12 +125,16 @@ type updateAdminAlbumRequest struct {
 
 	// Published is how an album reaches the frontpage. Only expressible here, never on create.
 	Published *bool `json:"published,omitempty"`
+
+	// CoverPhotoID chooses the photograph the album opens with (task 396); "" clears the choice, so the first
+	// photograph is the cover again. Must be a live photograph in this album.
+	CoverPhotoID *string `json:"coverPhotoId,omitempty"`
 }
 
 // updateAdminAlbumHandler edits an album.
 //
 // @Summary      Edit an album
-// @Description  Changes an album's title, description, sort order, or whether it is published. Every field is optional and only the ones sent are written, so editing one cannot wipe another. **The slug cannot be changed**: it is the album's public address and a retitled album answering 404 is a dead link in somebody's chat history. Publishing is only expressible here, never on create, because an album is assembled over several sittings. Unpublishing removes the album from the public frontpage within that page's 60-second cache window. Requires the admin credential.
+// @Description  Changes an album's title, description, sort order, cover, or whether it is published. The cover is a photograph in the album chosen by `coverPhotoId`; an empty string clears the choice, and the first photograph is the cover whenever there is no live choice. Every field is optional and only the ones sent are written, so editing one cannot wipe another. **The slug cannot be changed**: it is the album's public address and a retitled album answering 404 is a dead link in somebody's chat history. Publishing is only expressible here, never on create, because an album is assembled over several sittings. Unpublishing removes the album from the public frontpage within that page's 60-second cache window. Requires the admin credential.
 // @Tags         admin
 // @Accept       json
 // @Produce      json
@@ -158,7 +162,7 @@ func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if in.Title == nil && in.Description == nil && in.SortOrder == nil && in.Published == nil {
+	if in.Title == nil && in.Description == nil && in.SortOrder == nil && in.Published == nil && in.CoverPhotoID == nil {
 		// Refused rather than treated as a no-op: a request that changes nothing is a broken client, and the fold
 		// would silently drop it.
 		app.BadRequestResponse(w, r, errors.New("der er ingen ændringer i forespørgslen"))
@@ -181,7 +185,7 @@ func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	a, _, found, err := app.models.AlbumCurator.Album(app.config.eventYear, albumID)
+	a, items, found, err := app.models.AlbumCurator.Album(app.config.eventYear, albumID)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -191,14 +195,31 @@ func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// A cover must be a photograph the album actually shows. Anything else would be stored and then silently
+	// ignored by the cover rule, which a curator would read as the button not working.
+	if in.CoverPhotoID != nil && *in.CoverPhotoID != "" {
+		live := false
+		for _, it := range items {
+			if it.PhotoID == *in.CoverPhotoID && !it.Removed && !it.PhotoDeleted {
+				live = true
+				break
+			}
+		}
+		if !live {
+			app.BadRequestResponse(w, r, errors.New("forsidebilledet skal være et billede i albummet"))
+			return
+		}
+	}
+
 	if perr := app.publishAlbum(album.VerbUpdated, albumID, album.Updated{
-		AlbumID:     albumID,
-		Year:        app.config.eventYear,
-		Title:       in.Title,
-		Description: in.Description,
-		SortOrder:   in.SortOrder,
-		Published:   in.Published,
-		UpdatedAt:   time.Now().UTC(),
+		AlbumID:      albumID,
+		Year:         app.config.eventYear,
+		Title:        in.Title,
+		Description:  in.Description,
+		SortOrder:    in.SortOrder,
+		Published:    in.Published,
+		CoverPhotoID: in.CoverPhotoID,
+		UpdatedAt:    time.Now().UTC(),
 	}); perr != nil {
 		app.writeAlbumPublishFailure(w, r, perr)
 		return
@@ -252,7 +273,7 @@ type reorderAdminAlbumItemsRequest struct {
 // reorderAdminAlbumItemsHandler rewrites an album's order.
 //
 // @Summary      Reorder an album's photographs
-// @Description  Rewrites the order of an album's photographs. The request carries the album's live items in their new sequence, and position in that list becomes the new ordinal — one event for the whole order rather than one per moved item, because `album_item` is keyed on both the position and the photograph, so moving one item into a position another holds cannot be expressed as independent writes. The **cover is the first live item**, so reordering changes the cover; there is no separate cover field to set. Requires the admin credential.
+// @Description  Rewrites the order of an album's photographs. The request carries the album's live items in their new sequence, and position in that list becomes the new ordinal — one event for the whole order rather than one per moved item, because `album_item` is keyed on both the position and the photograph, so moving one item into a position another holds cannot be expressed as independent writes. Reordering changes the cover only when the album has no chosen cover (see `coverPhotoId` on the album edit), since the first live item is the cover then. Requires the admin credential.
 // @Tags         admin
 // @Accept       json
 // @Produce      json

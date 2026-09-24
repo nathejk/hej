@@ -61,4 +61,26 @@ function initAlbumEditor(ctx) {
       }
     });
   }
+
+  // "Gør til forsidebillede" (task 396), on the action bar because it acts on a selection — of exactly one. A cover
+  // can be any photograph in the album, not only the first; the grid marks the current one.
+  //
+  // No sheet: there is nothing to choose once the photograph is picked, and a dialog asking "are you sure" about a
+  // choice that is one more click to change would be noise.
+  ctx.openers.cover = async () => {
+    if (ctx.selected.size !== 1) {
+      ctx.actionNote.textContent = 'Vælg ét billede for at gøre det til forsidebillede.';
+      return;
+    }
+    const photoId = Array.from(ctx.selected)[0];
+    ctx.actionNote.textContent = 'Gemmer forsidebillede…';
+    try {
+      await send({ coverPhotoId: photoId });
+      ctx.actionNote.textContent = 'Forsidebilledet er skiftet.';
+      // Reloaded so the mark moves to the cell the server now calls the cover.
+      ctx.reloadSheet();
+    } catch (err) {
+      ctx.actionNote.textContent = err.message;
+    }
+  };
 }

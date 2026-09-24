@@ -138,6 +138,7 @@
     <button type="button" data-act="album">Tilføj til album</button>
     <button type="button" data-act="position">Sæt position</button>
     <button type="button" data-act="patrol">Tag patrulje</button>
+    {{if eq .View "album"}}<button type="button" data-act="cover">Gør til forsidebillede</button>{{end}}
     <button type="button" data-act="caption">Billedtekst</button>
     <button type="button" data-act="credit">Fotokredit</button>
     <button type="button" data-act="delete">Fjern eller slet</button>

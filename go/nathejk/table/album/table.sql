@@ -66,6 +66,11 @@ CREATE TABLE IF NOT EXISTS album (
     -- assemble an album over several sittings without it appearing half-finished on the open web.
     published TINYINT(1) NOT NULL DEFAULT 0,
 
+    -- The curator's chosen cover (task 396), or "" for none. A **choice**, not the cover itself: the cover is
+    -- this photograph while it is a live item with a live photograph, and otherwise the first live item. See
+    -- `coverOrder` in querier.go, which is the one place that rule is written.
+    coverPhotoId VARCHAR(64) NOT NULL DEFAULT "",
+
     createdAt DATETIME NOT NULL,
 
     -- Soft delete, as in `checkgroup`, `checkpoint` and `person`: the last event wins, and a flag

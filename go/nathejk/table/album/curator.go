@@ -84,7 +84,8 @@ type CuratorAlbum struct {
 	// summary carries `CoverOrdinal` instead, since its media route is addressed by position within a published
 	// album; the two are the same photograph reached the two legitimate different ways.
 	//
-	// Chosen the same way the public cover is: the **lowest live ordinal**, because a curator orders an album
+	// Chosen the same way the public cover is — `coverOrder`: the curator's choice while it is live, otherwise the
+	// lowest live ordinal (task 396). Before task 396 it was only the lowest live ordinal, because a curator orders an album
 	// deliberately and the first photograph is the one they chose to open with. Matching definitions matters
 	// here — a list whose cover differed from the frontpage's would make a curator distrust the list.
 	CoverPhotoID string
@@ -130,7 +131,7 @@ func (q curatorQuerier) All(year string) ([]CuratorAlbum, error) {
 		       (SELECT i.photoId FROM album_item i
 		         JOIN photo p ON p.photoId = i.photoId
 		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0
-		         ORDER BY i.ordinal ASC LIMIT 1) AS coverPhotoId
+		         ORDER BY `+coverOrder+` LIMIT 1) AS coverPhotoId
 		FROM album a
 		WHERE a.year = ?
 		ORDER BY a.deleted ASC, a.sortOrder ASC, a.albumId ASC`, year)
@@ -169,7 +170,11 @@ func (q curatorQuerier) Album(year, albumID string) (CuratorAlbum, []CuratorItem
 		       a.published, a.deleted, a.createdAt,
 		       (SELECT COUNT(*) FROM album_item i
 		         JOIN photo p ON p.photoId = i.photoId
-		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0) AS itemCount
+		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0) AS itemCount,
+		       (SELECT i.photoId FROM album_item i
+		         JOIN photo p ON p.photoId = i.photoId
+		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0
+		         ORDER BY `+coverOrder+` LIMIT 1) AS coverPhotoId
 		FROM album a
 		WHERE a.year = ? AND a.albumId = ?`, year, albumID)
 	if err != nil {
@@ -182,10 +187,12 @@ func (q curatorQuerier) Album(year, albumID string) (CuratorAlbum, []CuratorItem
 	}
 	var a CuratorAlbum
 	var published, deleted int
+	var cover sql.NullString
 	if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Description, &a.SortOrder,
-		&published, &deleted, &a.CreatedAt, &a.ItemCount); err != nil {
+		&published, &deleted, &a.CreatedAt, &a.ItemCount, &cover); err != nil {
 		return CuratorAlbum{}, nil, false, err
 	}
+	a.CoverPhotoID = cover.String
 	a.Published = published != 0
 	a.Deleted = deleted != 0
 	if err := rows.Err(); err != nil {
