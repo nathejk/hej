@@ -161,12 +161,18 @@ func (app *application) adminIndexHandler(w http.ResponseWriter, r *http.Request
 // uploader — rather than being passed through a variable.
 
 //go:embed adminui/page.html adminui/page.css adminui/page.js adminui/album.html adminui/album.css adminui/album.js
+//go:embed adminui/fragments.html
 //go:embed adminui/vendor/htmx.min.js adminui/vendor/alpine.min.js adminui/vendor/pico.min.css adminui/vendor/vendor.txt
 var adminUIFS embed.FS
 
-var adminTemplates = template.Must(template.New("admin").Parse(
+// adminTemplates is the page plus the htmx fragments (task 395), parsed as one set.
+//
+// One set rather than two, because a fragment is a piece of this page: parsing them together means the page's
+// shell and the fragment it swaps in cannot drift onto different template syntax, and a broken fragment is a
+// panic at init rather than a 500 the first time a curator presses a button.
+var adminTemplates = template.Must(template.Must(template.New("admin").Parse(
 	mustInjectAdminAssets("adminui/page.html", "adminui/page.css", "adminui/page.js"),
-))
+)).Parse(mustReadAdminAsset("adminui/fragments.html")))
 
 // mustInjectAdminAssets splices a page's CSS and JS source into its HTML, ready to be parsed.
 //

@@ -563,193 +563,19 @@
     cells[i].focus();
   });
 
-  // --- the album list (task 391) -------------------------------------------
+  // --- the album list ------------------------------------------------------
   //
-  // # Why this exists at all
+  // Not here. It lives in `adminui/fragments.html` and `adminfragments.go` as an htmx fragment (task 395):
+  // around 190 lines of fetch-then-build-DOM replaced by a template the server renders and htmx swaps in.
   //
-  // The album editor — /admin/album/{slug}, where publishing, the title, the description, the order and the
-  // captions live — had **no link from anywhere**. It was reachable only by typing a slug into the address bar,
-  // so the whole publish half of PRD 022 §5 was built and unusable. Reported that way.
+  // The reason is testability. The list's rules — drafts and deleted albums shown rather than filtered (task
+  // 366), covers fetched through the **admin** media route because the public one correctly refuses an
+  // unpublished album's photographs (task 382), publication posted alone (task 378) — were only ever checkable
+  // by grepping this file's own source text, and that produced three false positives in one session. As Go
+  // handlers returning HTML they are checkable by asking for the page.
   //
-  // # Why publishing is here and not only in the editor
-  //
-  // "Publish this" is the common case and needs no editing. Making a curator open a page to press one button,
-  // when they are looking at a list that already says which albums are drafts, is the friction that makes a
-  // tool feel like a form.
-  //
-  // Drafts and **deleted** albums are shown, not filtered. This is the curator's read (task 366): the public
-  // one hides them, and the difference between the two is the whole reason there are two.
-
-  const albumsEl = document.getElementById('albums');
-  const albumsNote = document.getElementById('albumsnote');
-
-  async function loadAlbums() {
-    albumsNote.textContent = 'Henter album…';
-    try {
-      const res = await fetch('/api/admin/albums');
-      if (!res.ok) {
-        albumsNote.textContent = 'Kunne ikke hente album (fejl ' + res.status + ').';
-        return;
-      }
-      const data = await res.json();
-      renderAlbums(data.albums || []);
-    } catch (err) {
-      albumsNote.textContent = 'Kunne ikke hente album. Prøv igen.';
-    }
-  }
-
-  function renderAlbums(albums) {
-    albumsEl.textContent = '';
-    if (!albums.length) {
-      albumsNote.textContent = 'Der er ingen album endnu.';
-      return;
-    }
-    const drafts = albums.filter((a) => !a.published && !a.deleted).length;
-    // The count a curator actually wants: not "5 albums" but "2 of them are not published".
-    albumsNote.textContent = drafts === 0
-      ? 'Alle album er udgivet.'
-      : (drafts === 1 ? '1 album er ikke udgivet endnu.' : drafts + ' album er ikke udgivet endnu.');
-
-    for (const a of albums) albumsEl.append(albumCard(a));
-  }
-
-  function albumCard(a) {
-    const card = document.createElement('div');
-    card.className = 'card' + (a.deleted ? ' gone' : (a.published ? '' : ' draft'));
-    card.dataset.album = a.albumId;
-
-    // The cover, through the admin media route rather than the public one: this list shows unpublished albums,
-    // and the public route would — correctly — refuse their photographs.
-    if (a.coverPhotoId) {
-      const img = document.createElement('img');
-      img.className = 'cover';
-      img.src = '/api/admin/photos/' + encodeURIComponent(a.coverPhotoId) + '/media?variant=thumb';
-      img.alt = '';
-      img.loading = 'lazy';
-      card.append(img);
-    } else {
-      const ph = document.createElement('div');
-      ph.className = 'cover none';
-      card.append(ph);
-    }
-
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-
-    const t = document.createElement('span');
-    t.className = 't';
-    t.textContent = a.title;
-    meta.append(t);
-
-    const badges = document.createElement('span');
-    badges.className = 's';
-    badges.append(badge(a.deleted ? 'del' : (a.published ? 'pub' : 'drafty'),
-      a.deleted ? 'Slettet' : (a.published ? 'Udgivet' : 'Kladde')));
-    // The count is live items only, so an album whose photographs were all deleted reads 0 — rendered rather
-    // than hidden, because "why is this album empty" is a question with an answer the curator needs.
-    const n = document.createElement('span');
-    n.textContent = a.itemCount === 1 ? '1 billede' : a.itemCount + ' billeder';
-    badges.append(n);
-    meta.append(badges);
-
-    const acts = document.createElement('div');
-    acts.className = 'acts';
-
-    const edit = document.createElement('a');
-    edit.href = '/admin/album/' + encodeURIComponent(a.slug);
-    edit.textContent = 'Redigér';
-    acts.append(edit);
-
-    // A deleted album gets no publish button. Restoring one is not built (PRD 022 §11 Q6's neighbour), and a
-    // button that would publish something taken down is the wrong thing to offer.
-    if (!a.deleted) {
-      const pub = document.createElement('button');
-      pub.type = 'button';
-      pub.textContent = a.published ? 'Fjern fra forsiden' : 'Udgiv på forsiden';
-      pub.addEventListener('click', () => setPublished(a, pub));
-      acts.append(pub);
-    }
-
-    if (a.published && !a.deleted) {
-      const view = document.createElement('a');
-      view.href = '/' + albumsEl.dataset.year + '/album/' + encodeURIComponent(a.slug);
-      view.target = '_blank';
-      view.rel = 'noopener';
-      view.textContent = 'Se den';
-      acts.append(view);
-    }
-
-    meta.append(acts);
-    card.append(meta);
-    return card;
-  }
-
-  function badge(kind, text) {
-    const b = document.createElement('span');
-    b.className = 'badge ' + kind;
-    b.textContent = text;
-    return b;
-  }
-
-  async function setPublished(a, btn) {
-    btn.disabled = true;
-    const want = !a.published;
-    try {
-      // Publication is sent **alone** (task 378): a curator pressing this has said one thing, and bundling it
-      // with the album's other fields would let a half-typed title ride along with it.
-      const res = await fetch('/api/admin/albums/' + encodeURIComponent(a.albumId), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ published: want }),
-      });
-      if (!res.ok) {
-        const payload = await res.json().catch(() => null);
-        albumsNote.textContent = (payload && payload.error) || 'Kunne ikke ændre albummet.';
-        btn.disabled = false;
-        return;
-      }
-      // The fold is asynchronous, so a reload now would show the old state. Said rather than papered over — the
-      // editor page carries the same sentence, and without it a curator presses the button twice.
-      albumsNote.textContent = want
-        ? 'Albummet er udgivet. Det slår igennem på forsiden inden for et minut.'
-        : 'Albummet er taget af forsiden. Det slår igennem inden for et minut.';
-      a.published = want;
-      btn.textContent = want ? 'Fjern fra forsiden' : 'Udgiv på forsiden';
-      btn.disabled = false;
-      const card = albumsEl.querySelector('[data-album="' + a.albumId + '"]');
-      if (card) card.className = 'card' + (want ? '' : ' draft');
-    } catch (err) {
-      albumsNote.textContent = 'Kunne ikke ændre albummet. Prøv igen.';
-      btn.disabled = false;
-    }
-  }
-
-  // Creating an album from the list, rather than only from inside the add-to-album sheet. The sheet's version
-  // exists because a curator creates an album *in order to* file a selection into it; this one exists because
-  // sometimes you just want the album.
-  document.getElementById('newalbumbtn').addEventListener('click', async () => {
-    const title = (window.prompt('Titel på det nye album') || '').trim();
-    if (!title) return;
-    albumsNote.textContent = 'Opretter…';
-    try {
-      const res = await fetch('/api/admin/albums', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title }),
-      });
-      const payload = await res.json().catch(() => null);
-      if (!res.ok) {
-        albumsNote.textContent = (payload && payload.error) || 'Kunne ikke oprette albummet.';
-        return;
-      }
-      await loadAlbums();
-      albumsNote.textContent = 'Albummet “' + payload.title + '” er oprettet som kladde.';
-    } catch (err) {
-      albumsNote.textContent = 'Kunne ikke oprette albummet. Prøv igen.';
-    }
-  });
-
-  loadAlbums();
+  // What is left here is the one line of coupling: code in this file that changes the set of albums fires
+  // `albums-changed` on `<body>`, and the fragment listens for it.
 
   // --- the add-to-album action (task 375) ----------------------------------
   //
@@ -827,9 +653,9 @@
       }
       newTitle.value = '';
       await openAlbumPanel();
-      // The list above is now stale by one album. Refreshed rather than left — a curator who creates an album
-      // here and then looks for it in the list should find it.
-      loadAlbums();
+      // The list above is now stale by one album. It is an htmx fragment, so it is told rather than redrawn: it
+      // listens for this event on `body` and re-fetches itself (task 395).
+      document.body.dispatchEvent(new Event('albums-changed'));
       // Tick the album just created, since creating one inline is something a curator does *in order to* file
       // the current selection into it.
       for (const cb of albumList.querySelectorAll('input[type=checkbox]')) {

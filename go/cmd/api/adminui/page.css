@@ -226,7 +226,7 @@ body.sheetopen { overflow: hidden; }
    prose and wrong for the single-line notes and button wrappers this page uses them as. Tightened for the
    tool's own `<p>` elements; the delete sheet's genuine paragraphs keep their own spacing below. */
 main > p { margin: 0.375rem 0; }
-#albumsnote { margin: 0.25rem 0 0.5rem; }
+#albums .hint { margin: 0.25rem 0 0.5rem; }
 
 /* The album list (task 391). A grid of cards rather than a table: the cover is how a curator recognises an
    album, and a table would put it in a column.
@@ -235,8 +235,14 @@ main > p { margin: 0.375rem 0; }
    were still looser than they need to be: a curator wants to see every album in the year at a glance, and a
    year holds three to five — tens at most — so the grid should fit them all above the contact sheet rather than
    scroll. Narrower columns, smaller cover, tighter padding, and the line-height brought in from Pico's 1.5,
-   which is a reading measure and too airy for a two-line label. */
-#albums { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); }
+   which is a reading measure and too airy for a two-line label.
+
+   The grid is `#albums .grid` rather than `#albums` itself since the list became an htmx fragment (task 395):
+   the fragment owns `#albums` and puts its note and its create form in there beside the cards, so the grid has
+   to be the cards' own wrapper. PICO: `.grid` is also a Pico class — its own rule is `grid-template-columns:
+   repeat(auto-fit, minmax(0%, 1fr))`, which this overrides completely, so there is no conflict to reconcile. It
+   is scoped under `#albums` anyway. */
+#albums .grid { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); }
 #albums .card {
   display: flex; gap: 0.5rem; align-items: flex-start;
   padding: 0.4375rem; background: #fff;
@@ -274,8 +280,23 @@ main > p { margin: 0.375rem 0; }
   padding: 0.125rem 0.4375rem; border-radius: 0.25rem;
 }
 #albums .acts button:disabled { opacity: 0.5; cursor: not-allowed; }
-#newalbumbtn {
-  font: inherit; font-size: 0.875rem; cursor: pointer;
+
+/* Creating an album, as a real form rather than the `window.prompt` it replaced (task 395). Laid out as a row so
+   it reads as one control: a field and the button that submits it.
+
+   PICO: Pico stretches `input` and `button` to full width and gives each a 1rem bottom margin, which would put
+   the field and the button on two lines with a gap under them. Both undone here — `margin: 0` and an explicit
+   width — rather than by wrapping them in Pico's own grid, which would still stack on a narrow viewport. */
+#albums .newalbum { display: flex; gap: 0.375rem; margin: 0.625rem 0 0; flex-wrap: wrap; }
+#albums .newalbum input[type=text] {
+  font: inherit; font-size: 0.875rem;
+  width: auto; flex: 1 1 12rem; min-width: 0; margin: 0;
+  padding: 0.3125rem 0.5rem; height: auto;
+  border: 1px solid #d4d4d8; border-radius: 0.375rem; background: #fff;
+}
+#albums .newalbum button {
+  font: inherit; font-size: 0.875rem; line-height: 1.2; cursor: pointer;
+  width: auto; flex: none; margin: 0;
   background: #18181b; color: #fafafa; border: 1px solid #18181b;
   padding: 0.375rem 0.75rem; border-radius: 0.375rem;
 }

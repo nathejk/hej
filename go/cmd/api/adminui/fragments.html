@@ -1,0 +1,97 @@
+{{/*
+The admin tool's htmx fragments (task 395).
+
+# What a fragment is, and why these exist
+
+Each `define` below renders a piece of a page as HTML, for htmx to swap in. It replaces JavaScript that fetched
+JSON and built DOM nodes by hand — about 190 lines of it for the album list alone.
+
+The payoff is not the line count, it is the tests. A fragment endpoint returns HTML that an ordinary Go HTTP
+test can assert on, where the JavaScript it replaces could only ever be checked by grepping its source text.
+Task 395 records that as the main reason for adopting htmx here.
+
+# The one convention that matters
+
+**A fragment renders its own container, including the id htmx targets.** The swap is `outerHTML`, so the
+returned element replaces the old one entirely — which means state like `aria-live` and the htmx attributes
+have to be re-stated by the fragment. Rendering only the *contents* and swapping `innerHTML` would be less
+typing and would lose the container's attributes on the first action.
+
+**The page's shell carries `load`; the fragment does not.** That asymmetry is deliberate and is the one way
+this pattern bites: a returned fragment carrying `hx-trigger="load"` re-fetches itself forever. So the shell in
+page.html triggers on `load` and the fragment triggers only on the `albums-changed` event.
+*/}}
+
+{{define "albumlist"}}
+<section id="albums" data-year="{{.Year}}"
+         hx-get="/admin/fragments/albums" hx-swap="outerHTML"
+         hx-trigger="albums-changed from:body">
+  {{/* The note is inside the fragment so an action's outcome and the list it produced arrive together. When it
+       was a sibling element, JavaScript had to keep the two in step by hand. */}}
+  <p class="hint" aria-live="polite">{{.Note}}</p>
+
+  {{if .Albums}}
+  <div class="grid">
+    {{range .Albums}}
+    {{/* A draft is marked on the card itself, not only by a badge, so "what is not published" is answerable by
+         glancing rather than by reading every row. */}}
+    <div class="card{{if .Deleted}} gone{{else if not .Published}} draft{{end}}">
+      {{if .CoverPhotoID}}
+      {{/* Through the **admin** media route, not the public one: this list shows unpublished albums, and the
+           public route would correctly refuse their photographs (task 382). A list of broken images is a list a
+           curator stops trusting. */}}
+      <img class="cover" loading="lazy" alt=""
+           src="/api/admin/photos/{{.CoverPhotoID}}/media?variant=thumb">
+      {{else}}
+      {{/* No live items means no cover. A dashed placeholder rather than a blank gap, so the row reads as
+           "empty album" instead of "image failed to load". */}}
+      <div class="cover none"></div>
+      {{end}}
+
+      <div class="meta">
+        <span class="t">{{.Title}}</span>
+        <span class="s">
+          {{if .Deleted}}<span class="badge del">Slettet</span>
+          {{else if .Published}}<span class="badge pub">Udgivet</span>
+          {{else}}<span class="badge drafty">Kladde</span>{{end}}
+          {{/* Live items only, so an album whose photographs were all deleted reads 0 — rendered rather than
+               hidden, because "why is this album empty" is a question with an answer the curator needs. */}}
+          <span>{{if eq .ItemCount 1}}1 billede{{else}}{{.ItemCount}} billeder{{end}}</span>
+        </span>
+
+        <div class="acts">
+          <a href="/admin/album/{{.Slug}}">Redigér</a>
+          {{if not .Deleted}}
+          {{/* Publication is posted **alone** (task 378): a curator pressing this has said one thing, and
+               bundling it with the album's other fields would let a half-typed title ride along.
+
+               The button that comes back is already the right one, because the fragment re-renders from the
+               projection — so there is no state to flip in the client and nothing to get out of step. */}}
+          <button type="button"
+                  hx-post="/admin/fragments/albums/{{.AlbumID}}/published"
+                  hx-vals='{"published":"{{if .Published}}false{{else}}true{{end}}"}'
+                  hx-target="#albums" hx-swap="outerHTML">
+            {{if .Published}}Fjern fra forsiden{{else}}Udgiv på forsiden{{end}}
+          </button>
+          {{end}}
+          {{if and .Published (not .Deleted)}}
+          <a href="/{{$.Year}}/album/{{.Slug}}" target="_blank" rel="noopener">Se den</a>
+          {{end}}
+        </div>
+      </div>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+
+  {{/* Creating an album, as a real form rather than the `window.prompt` this replaced (task 391 flagged that as
+       debt). One field, so it needs no sheet of its own. */}}
+  <form class="newalbum"
+        hx-post="/admin/fragments/albums" hx-target="#albums" hx-swap="outerHTML"
+        hx-on::after-request="if(event.detail.successful) this.reset()">
+    <input type="text" name="title" maxlength="120" placeholder="Nyt albums titel" autocomplete="off"
+           aria-label="Titel på et nyt album">
+    <button type="submit">Opret album</button>
+  </form>
+</section>
+{{end}}

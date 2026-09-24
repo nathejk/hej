@@ -59,6 +59,14 @@ var adminOwnedFiles = map[string]bool{
 	// one, which the public read cannot. Reads `AlbumCurator.Album` to resolve a photograph to its position,
 	// including the removed memberships a public read does not return.
 	"admindelete.go": true,
+	// The htmx fragments (task 395). Reads `AlbumCurator.All` because the list it renders **is** the curator's
+	// read: drafts and deleted albums shown rather than filtered, which is the entire difference between this
+	// interface and the public one (task 366). It also reads `Album` to refuse a publication for an album that is
+	// not there, and `SlugTaken` through the shared create helper.
+	//
+	// These endpoints return HTML rather than JSON, which does not widen anything: the same `requireAdmin`
+	// applies, so the draft-visible data reaches the same person it would have as JSON.
+	"adminfragments.go": true,
 }
 
 // curatorReads are the model fields that return draft-visible data.

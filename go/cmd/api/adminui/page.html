@@ -79,11 +79,17 @@
        sheet, and the editor at /admin/album/{slug} was reachable only by typing a slug. So publishing was
        built and unusable. -->
   <h2>Album</h2>
-  <p id="albumsnote" class="hint" aria-live="polite"></p>
-  <div id="albums" data-year="{{.Year}}"></div>
-  <p>
-    <button type="button" id="newalbumbtn">Opret et album</button>
-  </p>
+  <!-- The list itself is an htmx fragment (task 395): this is only the shell it arrives into. See
+       adminui/fragments.html and adminfragments.go.
+
+       **The shell carries `load`; the fragment must not.** That asymmetry is the one way this pattern bites: a
+       returned fragment carrying `hx-trigger="load"` would re-fetch itself forever. The fragment triggers on
+       `albums-changed from:body` instead, which is the event the add-to-album sheet fires after it creates one.
+
+       `outerHTML`, so the fragment replaces this element entirely and owns the `id` everything targets. -->
+  <section id="albums" hx-get="/admin/fragments/albums" hx-trigger="load" hx-swap="outerHTML">
+    <p class="hint">Henter album…</p>
+  </section>
 
   <h2>Kontaktark</h2>
   <div id="filters" role="group" aria-label="Filtre">

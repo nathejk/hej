@@ -1,10 +1,10 @@
 # 395 — Migrate the admin tool to HTMX + Alpine + Pico, vendored
 
-**Status:** open
+**Status:** doing
 **Priority:** medium
 **Created:** 2026-09-23
-**Picked up by:**
-**Started:**
+**Picked up by:** agent
+**Started:** 2026-09-24
 **Completed:**
 
 ## Description
@@ -86,18 +86,57 @@ Every fragment endpoint turns those into ordinary Go HTTP tests against returned
 argument for this migration, stronger than the line count**, and it should be tracked: each migrated feature
 should delete source-text guards and add behavioural ones.
 
+## Progress
+
+**Steps 1–3 done.** Steps 4–7 remain, and the contact sheet's selection decision is still unmade.
+
+- **1. Vendored** — htmx 2.0.4, Alpine 3.14.9, Pico 2.0.6 under `cmd/api/adminui/vendor/`, embedded, served at
+  `/admin/vendor/:asset` behind `requireAdmin`. Nothing in `vue/`.
+- **2. Pico spiked** — it did not fight the sheet stack or Leaflet's controls, but it does scale the root font
+  size to 131.25% on wide viewports through a zero-specificity `:where(:root)` rule. Pinned to 100%, and three
+  `PICO:` reconciliations are marked in `page.css`. The album cards were condensed afterwards.
+- **3. The album list is the first fragment** — `adminui/fragments.html` + `adminfragments.go`, three routes under
+  `/admin/fragments/`. ~190 lines left `page.js`.
+
+### What step 3 settled, for the steps that follow
+
+- **The shell carries `hx-trigger="load"`; the fragment must not.** A returned fragment that re-states its own
+  `load` trigger re-fetches itself forever, and the only symptom is a busy network tab. Guarded by
+  `TestTheAlbumListFragmentDoesNotRetriggerItself` — which reads the trigger's *events* rather than searching for
+  the literal string, because `load, albums-changed` would sail past a literal needle and loop identically.
+- **A fragment may render differently and must never decide differently.** Creating an album from the list and
+  creating one from `/api/admin/albums` now go through one `createAdminAlbum`, so the event log cannot depend on
+  which button produced the write. An `adminAlbumCreateKind` carries *why* a create was refused out of the helper,
+  so the JSON endpoint can answer 400/500/503 and the fragment can render the curator's own sentence into the
+  list it returns.
+- **Fragments are `/admin/*`, not `/api/admin/*`.** That keeps `requireAdmin` and
+  `TestAdminRoutesUseOnlyTheAdminWrapper` over them while leaving them outside task 380's OpenAPI guard, which
+  scopes to `/api/`. Recorded in `routes.go` rather than as a guard exclusion, since there is nothing to exclude.
+- **The one coupling left to `page.js`** is an event: code that changes the set of albums fires `albums-changed`
+  on `body`, and the fragment listens. The add-to-album sheet's inline create uses it. Expect the same shape for
+  the remaining sheets rather than a second way of refreshing something.
+- **A create waits briefly for the fold.** The answer to a create *is* the list, so a list returned without the
+  album the note says was just created reads as a failure — observed live before `waitForAdminAlbum` was added.
+  Bounded and best-effort; the JSON endpoint never needed this because the script fetched the list as a second
+  request. Any future fragment that renders a list it just wrote into needs the same consideration.
+- **Four source-text guards became eleven behavioural tests.** The rules they held — the editor link (391), drafts
+  and deleted albums shown (366), covers through the admin media route (382), publication published alone (378) —
+  are now asserted against HTTP responses. Each was verified by sabotage.
+
 ## Acceptance Criteria
 
-- [ ] htmx, Alpine and Pico vendored into the repo with pinned versions, served from the Go binary, no build step
-- [ ] Nothing reaches into `vue/`; the admin tool's assets do not travel through the PWA's public folder
-- [ ] Pico verified against the sheet overlays and the Leaflet controls before any migration
-- [ ] The Nathejk headline font still applies where `.rules` requires it, over Pico's defaults
-- [ ] The uploader, the selection model and the Leaflet map remain custom, untouched
+- [x] htmx, Alpine and Pico vendored into the repo with pinned versions, served from the Go binary, no build step
+- [x] Nothing reaches into `vue/`; the admin tool's assets do not travel through the PWA's public folder
+- [x] Pico verified against the sheet overlays and the Leaflet controls before any migration
+- [x] The Nathejk headline font still applies where `.rules` requires it, over Pico's defaults
+- [x] The uploader, the selection model and the Leaflet map remain custom, untouched
 - [ ] The selection survives every migrated action — asserted, since it is PRD 022 §7's hard constraint
+      *(nothing migrated so far touches the selection; still open, and the reason the contact sheet goes last)*
 - [ ] Each migrated feature replaces its source-text guards with behavioural tests on the fragment
-- [ ] Fragment routes are excluded from task 380's OpenAPI guard deliberately, with the reason recorded
+      *(done for the album list)*
+- [x] Fragment routes are excluded from task 380's OpenAPI guard deliberately, with the reason recorded
 - [ ] `page.js` ends up split per feature, which task 394 deferred to this task
-- [ ] Verified live per feature, not only at the end
+- [ ] Verified live per feature, not only at the end *(steps 1–3 verified live)*
 
 ## Notes
 

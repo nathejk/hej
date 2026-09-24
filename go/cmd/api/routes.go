@@ -279,6 +279,21 @@ func (app *application) routes() http.Handler {
 		// otherwise get (`no-store`, task 371) and keeps that header's rule true without an exception. The
 		// asset name is matched against a fixed map, never joined to a path.
 		router.HandlerFunc(http.MethodGet, "/admin/vendor/:asset", app.requireAdmin(app.serveAdminVendorHandler))
+
+		// The htmx fragments (task 395). HTML, not JSON, and therefore deliberately **not** under `/api/admin/`:
+		// they exist for one client — this tool's own pages — and putting them in the API namespace would pull
+		// them into the OpenAPI guard's scope (task 380) and ask them to be documented as an API they are not.
+		// The maintainer confirmed the admin surface does not need OpenAPI specs, which is what makes this shape
+		// available. They are still `/admin/*`, so `requireAdmin` applies and
+		// `TestAdminRoutesUseOnlyTheAdminWrapper` enforces it.
+		//
+		// The write paths publish through the same helpers the JSON endpoints use, so the event log cannot depend
+		// on which surface produced the write. See adminfragments.go.
+		router.HandlerFunc(http.MethodGet, "/admin/fragments/albums", app.requireAdmin(app.showAdminAlbumsFragmentHandler))
+		router.HandlerFunc(http.MethodPost, "/admin/fragments/albums", app.requireAdmin(app.createAdminAlbumFragmentHandler))
+		// Publication posted **alone** (task 378), on its own route rather than as part of a general "patch the
+		// album" fragment: a curator pressing the button has said one thing.
+		router.HandlerFunc(http.MethodPost, "/admin/fragments/albums/:albumId/published", app.requireAdmin(app.setAdminAlbumPublishedFragmentHandler))
 		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId", app.requireAdmin(app.updateAdminAlbumHandler))
 		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId/items", app.requireAdmin(app.reorderAdminAlbumItemsHandler))
 		// The two removals (task 379), and they are deliberately different endpoints for different acts: taking a

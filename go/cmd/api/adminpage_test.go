@@ -239,117 +239,16 @@ func TestAdminUploaderKeepsGoingAfterAFailure(t *testing.T) {
 	}
 }
 
-// **The album list, so publishing is reachable** (task 391).
+// The album list moved to adminfragments_test.go (task 395).
 //
-// # The gap this closed
+// Four tests used to live here and read the page's **source text** for the list's rules: that each album links to
+// its editor (task 391's whole point), that drafts and deleted albums are shown rather than filtered (task 366),
+// that covers come through the admin media route (task 382), and that publication is sent alone (task 378).
 //
-// The only album markup on the page was the assignment checkboxes inside the add-to-album sheet. The editor at
-// `/admin/album/{slug}` — where publish, unpublish, the title, the order and the captions live — had **no link
-// from anywhere**, so it was reachable only by typing a slug into the address bar. The whole publish half of
-// PRD 022 §5 was built and unusable, which is how the maintainer reported it.
-//
-// A feature with no route to it is indistinguishable from a missing feature, and nothing in the suite noticed
-// because every endpoint it needs was tested directly.
-func TestTheAdminPageListsTheYearsAlbums(t *testing.T) {
-	src := adminPageSource(t)
-
-	if !strings.Contains(src, `<div id="albums" data-year="{{.Year}}"></div>`) {
-		t.Error("the page needs a container for the album list, carrying the year so a published album can be " +
-			"linked to its public page")
-	}
-	if !strings.Contains(src, "loadAlbums()") {
-		t.Error("the list must load on page open; a list that needs a click is a list nobody sees")
-	}
-
-	// **The link to the editor is the point of the task.** Without it the list is decoration.
-	if !strings.Contains(src, "'/admin/album/' + encodeURIComponent(a.slug)") {
-		t.Error("each album must link to its editor — that is the gap this task closed, and the reason the " +
-			"publish half of the feature was unreachable")
-	}
-}
-
-// Publish and unpublish work from the list, and publication is sent **alone**.
-//
-// Task 378's reasoning, which this must not undo: a curator pressing publish has said one thing, so bundling it
-// with the album's other fields would let a half-typed title ride along with the publication.
-func TestPublishingFromTheAlbumListSendsPublicationAlone(t *testing.T) {
-	src := adminPageSource(t)
-
-	fn := src[strings.Index(src, "async function setPublished"):]
-	fn = fn[:strings.Index(fn, "\n  }\n")]
-
-	if !strings.Contains(fn, "method: 'PATCH'") {
-		t.Error("publication is a PATCH on the album")
-	}
-	if !strings.Contains(fn, "JSON.stringify({ published: want })") {
-		t.Errorf("publication must be sent by itself, not alongside the album's other fields (task 378)\n%s", fn)
-	}
-	// The fold is asynchronous. Without saying so, a curator presses the button again.
-	if !strings.Contains(fn, "inden for et minut") {
-		t.Error("the delay before the frontpage updates must be stated, or the button gets pressed twice")
-	}
-}
-
-// The list is the **curator's** read: drafts and deleted albums are shown, not filtered.
-//
-// That is the whole difference between `album.CuratorQueries` and `album.Queries` (task 366) — the public read
-// hides them so drafts cannot be enumerated, and this one shows them because "what have I not published yet"
-// is the question a curator opens the page with.
-func TestTheAlbumListShowsDraftsAndDeletedAlbums(t *testing.T) {
-	src := adminPageSource(t)
-
-	// No client-side filter on either flag. The add-to-album sheet legitimately filters deleted ones out
-	// (you cannot file a photograph into a deleted album), so this is scoped to the list's own renderer.
-	render := src[strings.Index(src, "function renderAlbums"):]
-	render = render[:strings.Index(render, "function albumCard")]
-	if strings.Contains(render, "filter((a) => !a.deleted)") {
-		t.Error("the list must not hide deleted albums: this is the curator's read, and hiding them is what " +
-			"the public one does")
-	}
-
-	card := src[strings.Index(src, "function albumCard"):]
-	card = card[:strings.Index(card, "function badge")]
-	for _, want := range []struct{ needle, why string }{
-		{"Kladde", "a draft must say so"},
-		{"Udgivet", "a published album must say so"},
-		{"Slettet", "a deleted album must say so rather than looking like a draft"},
-		{"a.itemCount === 1 ? '1 billede'", "the count needs a singular; see task 387"},
-	} {
-		if !strings.Contains(card, want.needle) {
-			t.Errorf("the album card is missing %q: %s", want.needle, want.why)
-		}
-	}
-
-	// A deleted album offers no publish button — restoring one is not built, and a button that would publish
-	// something taken down is the wrong thing to offer.
-	if !strings.Contains(card, "if (!a.deleted) {") {
-		t.Error("a deleted album must not get a publish button")
-	}
-}
-
-// The cover comes through the **admin** media route, not the public one.
-//
-// The list shows unpublished albums, and the public media route would — correctly — refuse their photographs
-// (task 382). A list whose draft covers were all broken images would be a list a curator stops trusting.
-func TestTheAlbumListCoversUseTheAdminMediaRoute(t *testing.T) {
-	src := adminPageSource(t)
-
-	card := src[strings.Index(src, "function albumCard"):]
-	card = card[:strings.Index(card, "function badge")]
-
-	if !strings.Contains(card, "'/api/admin/photos/' + encodeURIComponent(a.coverPhotoId)") {
-		t.Error("covers must be fetched through the admin media route: the public one refuses an unpublished " +
-			"album's photographs, which is most of what this list shows")
-	}
-	if strings.Contains(card, "/api/public/albums/") {
-		t.Error("the curator's list must not address the public media route")
-	}
-	// An album with no live items has no cover, and gets a placeholder rather than a blank gap — so the row
-	// reads as "empty album" instead of "image failed to load".
-	if !strings.Contains(card, "'cover none'") {
-		t.Error("an album with no cover needs a placeholder, not an empty space")
-	}
-}
+// The list is now an htmx fragment the server renders, so those four rules are observable in an HTTP response and
+// are tested by asking for the list. They were not weakened in the move — they were the reason for it. A
+// source-text assertion cannot tell you the list renders, only that a string appears near some code, and three of
+// this repo's guards have matched the comment explaining a rule rather than the code implementing it.
 
 // **The actions open as overlays, and there is one shell** (task 390).
 //

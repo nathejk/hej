@@ -380,56 +380,9 @@ func (app *application) createAdminAlbumHandler(w http.ResponseWriter, r *http.R
 	}
 
 	title := strings.TrimSpace(in.Title)
-	if title == "" {
-		app.BadRequestResponse(w, r, errors.New("albummet skal have en titel"))
-		return
-	}
-	if len([]rune(title)) > maxAdminAlbumTitle {
-		app.BadRequestResponse(w, r, errors.New("titlen er for lang"))
-		return
-	}
-	if len([]rune(in.Description)) > maxAdminAlbumDesc {
-		app.BadRequestResponse(w, r, errors.New("beskrivelsen er for lang"))
-		return
-	}
-
-	slug := slugifyAlbumTitle(title)
-	if slug == "" {
-		// A title of only punctuation or emoji. Refused with a reason rather than given a generated slug,
-		// because the slug is the public address and "album-1" is not something a curator chose.
-		app.BadRequestResponse(w, r,
-			errors.New("titlen kan ikke bruges i en adresse — brug bogstaver eller tal"))
-		return
-	}
-
-	// Deleted albums count as taking a slug. The schema makes it unique per year, so reusing a deleted one
-	// would fail on the insert — and if the deletion were ever undone the two would collide. Refusing here
-	// lets the tool say which it is instead of surfacing a database error.
-	taken, err := app.models.AlbumCurator.SlugTaken(app.config.eventYear, slug)
+	albumID, slug, err := app.createAdminAlbum(title, in.Description, in.SortOrder)
 	if err != nil {
-		app.ServerErrorResponse(w, r, err)
-		return
-	}
-	if taken {
-		app.BadRequestResponse(w, r,
-			fmt.Errorf("adressen %q er brugt af et andet album — vælg en anden titel", slug))
-		return
-	}
-
-	albumID := newAlbumID()
-	// **Unpublished, unconditionally.** Not a default the caller may override: there is no field for it on the
-	// request and no branch here. `album.Created` carries no `published` either (task 363), so publishing is
-	// expressible only as a separate update — which is what keeps a half-assembled album off the open web.
-	if err := app.publishAlbum(album.VerbCreated, albumID, album.Created{
-		AlbumID:     albumID,
-		Year:        app.config.eventYear,
-		Slug:        slug,
-		Title:       title,
-		Description: in.Description,
-		SortOrder:   in.SortOrder,
-		CreatedAt:   time.Now().UTC(),
-	}); err != nil {
-		app.writeAlbumPublishFailure(w, r, err)
+		app.writeAdminAlbumCreateFailure(w, r, err)
 		return
 	}
 
@@ -443,6 +396,109 @@ func (app *application) createAdminAlbumHandler(w http.ResponseWriter, r *http.R
 		Published: false,
 	}, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
+	}
+}
+
+// adminAlbumCreateKind says why createAdminAlbum refused, so each caller can answer in its own idiom — a status
+// code for the JSON endpoint, a note above the list for the htmx fragment — without re-deriving the distinction.
+//
+// Classified rather than left as a bare error because the three outcomes are genuinely different: the curator
+// mistyped something, the database is unhappy, or the event could not be published. Flattening them would have
+// meant the fragment showing "prøv igen" for a title that will never be accepted.
+type adminAlbumCreateKind int
+
+const (
+	// adminAlbumCreateRefused is the curator's mistake: no title, too long, unusable as an address, or a slug
+	// another album already holds. Answered 400, and shown as-is to the curator.
+	adminAlbumCreateRefused adminAlbumCreateKind = iota
+	// adminAlbumCreateBroken is ours: a read failed.
+	adminAlbumCreateBroken
+	// adminAlbumCreatePublish is the event stream's. It has its own writer because the distinction between "the
+	// stream is down" and "the write was rejected" is one `writeAlbumPublishFailure` already draws.
+	adminAlbumCreatePublish
+)
+
+// adminAlbumCreateError carries a refusal out of createAdminAlbum with its kind intact.
+type adminAlbumCreateError struct {
+	Kind adminAlbumCreateKind
+	Err  error
+}
+
+func (e *adminAlbumCreateError) Error() string { return e.Err.Error() }
+func (e *adminAlbumCreateError) Unwrap() error { return e.Err }
+
+// createAdminAlbum validates a title, derives the slug and publishes `album.Created`.
+//
+// Shared by the JSON endpoint above and the list fragment's inline form (adminfragments.go). **Shared rather than
+// reimplemented**, because the two differ only in how they answer: an event log that disagreed with itself
+// depending on which button produced the write would be the worst possible outcome of adding a second surface.
+func (app *application) createAdminAlbum(title, description string, sortOrder int) (string, string, error) {
+	refuse := func(err error) (string, string, error) {
+		return "", "", &adminAlbumCreateError{Kind: adminAlbumCreateRefused, Err: err}
+	}
+
+	if title == "" {
+		return refuse(errors.New("albummet skal have en titel"))
+	}
+	if len([]rune(title)) > maxAdminAlbumTitle {
+		return refuse(errors.New("titlen er for lang"))
+	}
+	if len([]rune(description)) > maxAdminAlbumDesc {
+		return refuse(errors.New("beskrivelsen er for lang"))
+	}
+
+	slug := slugifyAlbumTitle(title)
+	if slug == "" {
+		// A title of only punctuation or emoji. Refused with a reason rather than given a generated slug,
+		// because the slug is the public address and "album-1" is not something a curator chose.
+		return refuse(errors.New("titlen kan ikke bruges i en adresse — brug bogstaver eller tal"))
+	}
+
+	// Deleted albums count as taking a slug. The schema makes it unique per year, so reusing a deleted one
+	// would fail on the insert — and if the deletion were ever undone the two would collide. Refusing here
+	// lets the tool say which it is instead of surfacing a database error.
+	taken, err := app.models.AlbumCurator.SlugTaken(app.config.eventYear, slug)
+	if err != nil {
+		return "", "", &adminAlbumCreateError{Kind: adminAlbumCreateBroken, Err: err}
+	}
+	if taken {
+		return refuse(fmt.Errorf("adressen “%s” er brugt af et andet album — vælg en anden titel", slug))
+	}
+
+	albumID := newAlbumID()
+	// **Unpublished, unconditionally.** Not a default the caller may override: there is no parameter for it and
+	// no branch here. `album.Created` carries no `published` either (task 363), so publishing is expressible
+	// only as a separate update — which is what keeps a half-assembled album off the open web.
+	if err := app.publishAlbum(album.VerbCreated, albumID, album.Created{
+		AlbumID:     albumID,
+		Year:        app.config.eventYear,
+		Slug:        slug,
+		Title:       title,
+		Description: description,
+		SortOrder:   sortOrder,
+		CreatedAt:   time.Now().UTC(),
+	}); err != nil {
+		return "", "", &adminAlbumCreateError{Kind: adminAlbumCreatePublish, Err: err}
+	}
+	return albumID, slug, nil
+}
+
+// writeAdminAlbumCreateFailure answers a createAdminAlbum error as JSON.
+func (app *application) writeAdminAlbumCreateFailure(w http.ResponseWriter, r *http.Request, err error) {
+	var cerr *adminAlbumCreateError
+	if !errors.As(err, &cerr) {
+		// Unreachable today. A 500 rather than a 400, because an unclassified error is ours and not the
+		// curator's, and guessing the friendlier status would hide a bug.
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+	switch cerr.Kind {
+	case adminAlbumCreateRefused:
+		app.BadRequestResponse(w, r, cerr.Err)
+	case adminAlbumCreatePublish:
+		app.writeAlbumPublishFailure(w, r, cerr.Err)
+	default:
+		app.ServerErrorResponse(w, r, cerr.Err)
 	}
 }
 
