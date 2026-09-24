@@ -337,7 +337,7 @@ func TestTheInAppRemovalEndpointsAreUnchanged(t *testing.T) {
 			if !r.authenticated {
 				t.Errorf("%s must stay behind requireAuth", r.path)
 			}
-			if wrapsRequireAdmin(t, r.path) {
+			if r.admin {
 				t.Errorf("%s must not move behind the admin credential; it is the in-app takedown", r.path)
 			}
 		}

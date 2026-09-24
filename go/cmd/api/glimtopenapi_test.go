@@ -67,6 +67,11 @@ type registeredRoute struct {
 	// deliberately **not** wrapped, and that is a security property rather than an omission — see
 	// TestPublicGlimtRoutesAreNotBehindAuth.
 	authenticated bool
+	// admin is whether the registration wraps the handler in `requireAdmin`.
+	//
+	// This, not the path, is what decides whether a route is on the curator's surface (task 396): the curator
+	// pages sit under the public year prefix, so a prefix test would count `/2026/photos` as public.
+	admin bool
 	// gates are the `app.` middlewares the registration wraps the handler in, e.g. `requireAuth` or
 	// `requireAdmin` (task 380).
 	//
@@ -154,6 +159,7 @@ func glimtRoutes(t *testing.T) []registeredRoute {
 			handler:       handlerName(call.Args[2]),
 			line:          fset.Position(call.Pos()).Line,
 			authenticated: wrapsRequireAuth(call.Args[2]),
+			admin:         wrapsRequireAdmin(call.Args[2]),
 			gates:         registrationGates(call.Args[2]),
 		})
 		return true
@@ -273,10 +279,16 @@ func handlerName(e ast.Expr) string {
 }
 
 // wrapsRequireAuth reports whether a registration puts the handler behind the auth middleware.
-func wrapsRequireAuth(e ast.Expr) bool {
+func wrapsRequireAuth(e ast.Expr) bool { return wrapsGate(e, "requireAuth") }
+
+// wrapsRequireAdmin reports whether the registration wraps the handler in `requireAdmin`.
+func wrapsRequireAdmin(e ast.Expr) bool { return wrapsGate(e, "requireAdmin") }
+
+// wrapsGate reports whether a registration's handler expression mentions the named middleware.
+func wrapsGate(e ast.Expr, gate string) bool {
 	found := false
 	ast.Inspect(e, func(n ast.Node) bool {
-		if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "requireAuth" {
+		if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == gate {
 			found = true
 		}
 		return true

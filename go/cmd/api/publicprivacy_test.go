@@ -90,7 +90,10 @@ func publicRoutePaths(t *testing.T) []registeredRoute {
 		if !ok || method == "" {
 			return true
 		}
-		if !isPublicSurface(path) {
+		// Behind the admin credential is not public, whatever the prefix: the curator pages live under the
+		// year beside the public ones (task 396). Decided by the wrapper, so a curator page that lost its
+		// `requireAdmin` would land in this walk and be tested as public — which is the safe way round.
+		if !isPublicSurface(path) || wrapsRequireAdmin(call.Args[2]) {
 			return true
 		}
 		// GET only. The public surface's writes are the anonymous report and the Team-section removals;

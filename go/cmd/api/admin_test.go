@@ -861,6 +861,7 @@ func allRegisteredRoutes(t *testing.T) []registeredRoute {
 			handler:       handlerName(call.Args[2]),
 			line:          fset.Position(call.Pos()).Line,
 			authenticated: wrapsRequireAuth(call.Args[2]),
+			admin:         wrapsRequireAdmin(call.Args[2]),
 		})
 		return true
 	})
@@ -871,43 +872,12 @@ func allRegisteredRoutes(t *testing.T) []registeredRoute {
 	return out
 }
 
-// wrapsRequireAdmin reports whether a registration puts the handler behind the admin credential.
-func wrapsRequireAdmin(t *testing.T, path string) bool {
-	t.Helper()
-
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "routes.go", nil, parser.ParseComments)
-	if err != nil {
-		t.Fatalf("parse routes.go: %v", err)
-	}
-
-	found := false
-	ast.Inspect(file, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "HandlerFunc" || len(call.Args) < 3 {
-			return true
-		}
-		p, ok := parseRegisteredPath(t, call.Args[1], fset)
-		if !ok || p != path {
-			return true
-		}
-		ast.Inspect(call.Args[2], func(m ast.Node) bool {
-			if s, ok := m.(*ast.SelectorExpr); ok && s.Sel.Name == "requireAdmin" {
-				found = true
-			}
-			return true
-		})
-		return true
-	})
-	return found
-}
-
-// isAdminPath reports whether a route belongs to the admin surface.
-func isAdminPath(path string) bool {
+// isAdminNamespace reports whether a path is in a namespace that belongs to the admin surface alone.
+//
+// Every route here must be behind `requireAdmin`. The converse no longer holds: since task 396 the curator's
+// pages sit under the public year prefix (`/2026/photos`), so being admin is decided by the wrapper and this
+// predicate only catches a route added to an admin namespace without it.
+func isAdminNamespace(path string) bool {
 	return path == "/admin" || strings.HasPrefix(path, "/admin/") ||
 		strings.HasPrefix(path, "/api/admin")
 }
@@ -922,7 +892,7 @@ func adminPathsFromRoutes(t *testing.T) []string {
 
 	var out []string
 	for _, r := range allRegisteredRoutes(t) {
-		if isAdminPath(r.path) {
+		if r.admin {
 			out = append(out, r.path)
 		}
 	}
@@ -937,25 +907,27 @@ func adminPathsFromRoutes(t *testing.T) []string {
 // `requireAuth(requireAdmin(h))` would let a participant's session reach the curator's surface;
 // `requireAdmin(requireAuth(h))` would let the shared password reach a participant's data. Either is a
 // privilege confusion that reads as harmless in a diff.
+//
+// And the credential must grant only the curator's tool: an admin route is either in an admin namespace or one
+// of the curator pages under the year prefix, never anywhere else.
 func TestAdminRoutesUseOnlyTheAdminWrapper(t *testing.T) {
 	for _, r := range allRegisteredRoutes(t) {
-		switch {
-		case isAdminPath(r.path):
-			if !wrapsRequireAdmin(t, r.path) {
-				t.Errorf("routes.go:%d %s %s is on the admin surface but is not behind requireAdmin",
-					r.line, r.method, r.path)
-			}
-			if r.authenticated {
-				t.Errorf("routes.go:%d %s %s is behind requireAuth as well as the admin credential; "+
-					"the two must not mix (a participant's session must not reach the curator's tool)",
-					r.line, r.method, r.path)
-			}
-		default:
-			if wrapsRequireAdmin(t, r.path) {
-				t.Errorf("routes.go:%d %s %s is not an admin path but is behind requireAdmin; "+
-					"the shared credential must grant exactly the admin tool and nothing else",
-					r.line, r.method, r.path)
-			}
+		if isAdminNamespace(r.path) && !r.admin {
+			t.Errorf("routes.go:%d %s %s is on the admin surface but is not behind requireAdmin",
+				r.line, r.method, r.path)
+		}
+		if !r.admin {
+			continue
+		}
+		if r.authenticated {
+			t.Errorf("routes.go:%d %s %s is behind requireAuth as well as the admin credential; "+
+				"the two must not mix (a participant's session must not reach the curator's tool)",
+				r.line, r.method, r.path)
+		}
+		if !isAdminNamespace(r.path) && !looksLikeYearPrefix(r.path) {
+			t.Errorf("routes.go:%d %s %s is behind requireAdmin outside the admin namespaces and the year's "+
+				"curator pages; the shared credential must grant exactly the admin tool and nothing else",
+				r.line, r.method, r.path)
 		}
 	}
 }
@@ -975,12 +947,15 @@ func TestEveryAdminRouteIsInsideTheConditionalBlock(t *testing.T) {
 	if end < 0 {
 		t.Fatal("could not find the end of the adminRoutesEnabled block")
 	}
-	block := src[start : start+end]
+	// By line rather than by searching the block for the path's literal: the curator pages are registered as
+	// `publicRoot + "/photos"`, which has no literal to find.
+	first := strings.Count(src[:start], "\n") + 1
+	last := strings.Count(src[:start+end], "\n") + 1
 
-	for _, path := range adminPathsFromRoutes(t) {
-		if !strings.Contains(block, `"`+path+`"`) {
-			t.Errorf("%s is registered outside the adminRoutesEnabled block, so it would be served with no "+
-				"password configured", path)
+	for _, r := range allRegisteredRoutes(t) {
+		if r.admin && (r.line < first || r.line > last) {
+			t.Errorf("routes.go:%d %s is registered outside the adminRoutesEnabled block, so it would be served "+
+				"with no password configured", r.line, r.path)
 		}
 	}
 }
