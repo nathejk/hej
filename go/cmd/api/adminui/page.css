@@ -26,6 +26,25 @@
    controls** — they are `<a class="leaflet-control-zoom-in">` elements, not buttons. Without this the map's +
    and − render underlined and in link blue. Scoped to the map container so it cannot touch a real link. */
 .leaflet-container a { text-decoration: none; color: inherit; }
+
+/* PICO: undo Pico's button styling inside the map. Leaflet 1.9 puts `role="button"` on the zoom links **and on
+   the marker's <img>**, and Pico styles every `[role=button]` as a button: padding, a border, a radius and a blue
+   background. That drew the + and − as two side-by-side boxes and the marker as a pin inside a blue rectangle.
+
+   The reset is higher-specificity than Leaflet's own `.leaflet-bar a`, so the zoom links' values from
+   leaflet.css are restated below rather than left to it. */
+.leaflet-container [role="button"] {
+  padding: 0; margin: 0; border: 0; border-radius: 0; box-shadow: none;
+  background-color: transparent; font-size: inherit; line-height: inherit; outline-offset: 0;
+}
+.leaflet-container .leaflet-bar a {
+  display: block; width: 30px; height: 30px; line-height: 30px; text-align: center;
+  background-color: #fff; color: #000; border-bottom: 1px solid #ccc;
+  font: bold 18px "Lucida Console", Monaco, monospace;
+}
+.leaflet-container .leaflet-bar a:hover, .leaflet-container .leaflet-bar a:focus { background-color: #f4f4f4; }
+.leaflet-container .leaflet-bar a:first-child { border-radius: 4px 4px 0 0; }
+.leaflet-container .leaflet-bar a:last-child { border-radius: 0 0 4px 4px; border-bottom: none; }
 body {
   margin: 0;
   font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
