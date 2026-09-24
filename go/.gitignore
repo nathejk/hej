@@ -12,3 +12,5 @@ cmd/api/docs/
 
 # Built SPA bundle copied in for prod (dev uses go/www placeholder).
 # (The prod Docker stage populates the web root; nothing to commit here.)
+# `go build .` inside cmd/api writes its binary here; `/api` above only covers the module root.
+/cmd/api/api
