@@ -58,6 +58,8 @@ func postAdminForm(t *testing.T, srv *httptest.Server, path string, form url.Val
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-Forwarded-Proto", "https")
+	// The year the page would stamp on the request (task 392).
+	req.Header.Set(adminYearHeader, "2026")
 	req.SetBasicAuth(testAdminUser, testAdminPass)
 
 	resp, err := srv.Client().Do(req)
@@ -150,7 +152,7 @@ func TestTheAlbumListFragmentCoversUseTheAdminMediaRoute(t *testing.T) {
 
 	body := albumListFragment(t, srv)
 
-	if !strings.Contains(body, `src="/api/admin/photos/`+cover+`/media?variant=thumb"`) {
+	if !strings.Contains(body, `src="/api/admin/photos/`+cover+`/media?variant=thumb&amp;year=2026"`) {
 		t.Errorf("covers must be fetched through the admin media route\n%s", body)
 	}
 	if strings.Contains(body, "/api/public/albums/") {
@@ -421,6 +423,8 @@ func TestTheAlbumListFragmentsRequireTheAdminCredential(t *testing.T) {
 		}
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("X-Forwarded-Proto", "https")
+		// The year the page would stamp on the request (task 392).
+		req.Header.Set(adminYearHeader, "2026")
 		resp, err := srv.Client().Do(req)
 		if err != nil {
 			t.Fatalf("POST %s: %v", path, err)
@@ -916,7 +920,7 @@ func TestTheContactSheetAddressesThumbnailsThroughTheProjection(t *testing.T) {
 
 	body := contactSheetFragment(t, srv, "")
 
-	if !strings.Contains(body, `src="/api/admin/photos/`+photoID("a")+`/media?variant=thumb"`) {
+	if !strings.Contains(body, `src="/api/admin/photos/`+photoID("a")+`/media?variant=thumb&amp;year=2026"`) {
 		t.Errorf("thumbnails must be addressed by id and variant\n%s", body)
 	}
 	// Lazy, because a contact sheet is 120 images and eager loading them is how this page becomes unusable on a

@@ -195,13 +195,13 @@ func (app *application) patchAdminPhotosHandler(w http.ResponseWriter, r *http.R
 
 	// **The bounds check, re-run.** Not carried from the client, not cached from the upload: the race area grows
 	// as organizers site checkpoints, so this is judged now, against what is known now.
-	verdict := app.albumBoundsVerdict(lat, lng)
+	verdict := app.albumBoundsVerdict(adminYear(r), lat, lng)
 	location := &photo.Location{Lat: lat, Lng: lng, BoundsVerdict: verdict}
 
 	now := time.Now().UTC()
 	updated := 0
 	for _, photoID := range photoIDs {
-		subject, serr := photo.Subject(app.config.eventYear, photoID, photo.VerbUpdated)
+		subject, serr := photo.Subject(adminYear(r), photoID, photo.VerbUpdated)
 		if serr != nil {
 			app.BadRequestResponse(w, r, serr)
 			return
@@ -210,7 +210,7 @@ func (app *application) patchAdminPhotosHandler(w http.ResponseWriter, r *http.R
 		// cannot blank forty captions somebody spent an evening writing (task 363).
 		if perr := app.commands.Publish(subject, photo.Updated{
 			PhotoID:   photoID,
-			Year:      app.config.eventYear,
+			Year:      adminYear(r),
 			Location:  location,
 			UpdatedAt: now,
 		}); perr != nil {
@@ -248,7 +248,7 @@ func (app *application) resolveAdminLocation(w http.ResponseWriter, r *http.Requ
 			app.ServiceUnavailableResponse(w, r, "posterne er ikke tilgængelige lige nu")
 			return 0, 0, false
 		}
-		points, err := app.models.CheckpointCurator.Positioned(app.config.eventYear)
+		points, err := app.models.CheckpointCurator.Positioned(adminYear(r))
 		if err != nil {
 			app.ServerErrorResponse(w, r, err)
 			return 0, 0, false
@@ -294,14 +294,14 @@ func (app *application) clearAdminPhotoLocations(w http.ResponseWriter, r *http.
 	cleared := 0
 
 	for _, photoID := range photoIDs {
-		subject, serr := photo.Subject(app.config.eventYear, photoID, photo.VerbLocationCleared)
+		subject, serr := photo.Subject(adminYear(r), photoID, photo.VerbLocationCleared)
 		if serr != nil {
 			app.BadRequestResponse(w, r, serr)
 			return
 		}
 		if perr := app.commands.Publish(subject, photo.LocationCleared{
 			PhotoID:   photoID,
-			Year:      app.config.eventYear,
+			Year:      adminYear(r),
 			Reason:    reason,
 			ClearedAt: now,
 		}); perr != nil {
@@ -344,14 +344,14 @@ func (app *application) setAdminPhotoCaptions(w http.ResponseWriter, r *http.Req
 	now := time.Now().UTC()
 	updated := 0
 	for _, photoID := range photoIDs {
-		subject, serr := photo.Subject(app.config.eventYear, photoID, photo.VerbUpdated)
+		subject, serr := photo.Subject(adminYear(r), photoID, photo.VerbUpdated)
 		if serr != nil {
 			app.BadRequestResponse(w, r, serr)
 			return
 		}
 		if perr := app.commands.Publish(subject, photo.Updated{
 			PhotoID:   photoID,
-			Year:      app.config.eventYear,
+			Year:      adminYear(r),
 			Caption:   &caption,
 			UpdatedAt: now,
 		}); perr != nil {
@@ -420,14 +420,14 @@ func (app *application) setAdminPhotoCredits(w http.ResponseWriter, r *http.Requ
 	now := time.Now().UTC()
 	updated := 0
 	for _, photoID := range photoIDs {
-		subject, serr := photo.Subject(app.config.eventYear, photoID, photo.VerbUpdated)
+		subject, serr := photo.Subject(adminYear(r), photoID, photo.VerbUpdated)
 		if serr != nil {
 			app.BadRequestResponse(w, r, serr)
 			return
 		}
 		if perr := app.commands.Publish(subject, photo.Updated{
 			PhotoID:   photoID,
-			Year:      app.config.eventYear,
+			Year:      adminYear(r),
 			Credit:    &credit,
 			UpdatedAt: now,
 		}); perr != nil {
@@ -513,6 +513,7 @@ type adminCheckpointView struct {
 // @Tags         admin
 // @Produce      json
 // @Success      200  {object}  listAdminCheckpointsResponse
+// @Failure      400  {object}  map[string]string  "no working year, or one the tool does not know (X-Admin-Year or ?year=)"
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      500  {object}  map[string]string
@@ -524,7 +525,7 @@ func (app *application) listAdminCheckpointsHandler(w http.ResponseWriter, r *ht
 		return
 	}
 
-	points, err := app.models.CheckpointCurator.Positioned(app.config.eventYear)
+	points, err := app.models.CheckpointCurator.Positioned(adminYear(r))
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return

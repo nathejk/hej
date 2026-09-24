@@ -67,7 +67,7 @@ type albumMediaPrepared struct {
 // is an organizer action on a known set of photographs, and a limit that stopped a curator halfway
 // through an album would cost more than it protects. The upload size cap stays, because a
 // hundred-megabyte file is a mistake whoever sent it.
-func (app *application) storeAlbumImage(ctx context.Context, raw []byte) (albumMediaPrepared, error) {
+func (app *application) storeAlbumImage(ctx context.Context, year string, raw []byte) (albumMediaPrepared, error) {
 	// Read first. After Prepare there is nothing left to read — which is the whole design.
 	lat, lng, hasCoordinate := imaging.ReadGPS(raw)
 
@@ -108,7 +108,7 @@ func (app *application) storeAlbumImage(ctx context.Context, raw []byte) (albumM
 		out.Location = &photo.Location{
 			Lat:           lat,
 			Lng:           lng,
-			BoundsVerdict: app.albumBoundsVerdict(lat, lng),
+			BoundsVerdict: app.albumBoundsVerdict(year, lat, lng),
 		}
 	}
 	return out, nil
@@ -138,11 +138,14 @@ func (app *application) storeAlbumImage(ctx context.Context, raw []byte) (albumM
 // generous is right: the cost of admitting a photograph from a car park just outside the hull is a pin
 // slightly off the edge, while the cost of rejecting one is a curator wondering why their photograph
 // will not appear.
-func (app *application) albumBoundsVerdict(lat, lng float64) string {
+//
+// Judged against **the photograph's** year's race area (task 392): a 2025 photograph placed against 2026's area
+// would be rejected or accepted by the wrong boundary, and the verdict decides whether it reaches the public map.
+func (app *application) albumBoundsVerdict(year string, lat, lng float64) string {
 	if app.models.RaceAreas == nil {
 		return photo.BoundsUnknown
 	}
-	area, ok, err := app.models.RaceAreas.RaceArea(app.config.eventYear)
+	area, ok, err := app.models.RaceAreas.RaceArea(year)
 	if err != nil {
 		// Cannot judge, so we say so rather than guessing in either direction. An error here becoming
 		// `outside` would silently unplot a whole batch because of a transient database problem.

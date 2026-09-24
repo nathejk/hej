@@ -67,6 +67,8 @@ func deleteAdmin(t *testing.T, srv *httptest.Server, path string) *http.Response
 		t.Fatalf("building the request: %v", err)
 	}
 	req.Header.Set("X-Forwarded-Proto", "https")
+	// The year the page would stamp on the request (task 392).
+	req.Header.Set(adminYearHeader, "2026")
 	req.SetBasicAuth(testAdminUser, testAdminPass)
 
 	resp, err := srv.Client().Do(req)

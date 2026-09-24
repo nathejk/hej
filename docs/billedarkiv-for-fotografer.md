@@ -31,12 +31,15 @@ værktøjet. Det tager en udvikler et par minutter.
 
 ## 2. Årstallet
 
-**Alt du gør, hører til ét bestemt år.** Årstallet står øverst på siden. Kig på det, første gang du
-åbner værktøjet.
+**Alt du gør, hører til ét bestemt år.** Årstallet står øverst på siden, og det står også i adressen
+(`/2026/photos`). Kig på det, første gang du åbner værktøjet.
 
-Du kan ikke flytte billeder eller albummer til et andet år bagefter, og du kan ikke skifte år i
-værktøjet. Hvis der står det forkerte årstal, så **stop og sig det** — alt andet på siden kan rettes,
-det her kan ikke.
+Værktøjet åbner i årets løb. Har du billeder fra et tidligere år, kan du skifte år med årstallene ved
+siden af det store årstal. Så længe du er i et andet år, står der en **gul bjælke** øverst på siden — alt
+du lægger op eller retter der, hører til det år.
+
+Du kan ikke flytte billeder eller albummer til et andet år bagefter. Så **læg dem op i det rigtige år**,
+og hvis du har lagt noget op i det forkerte, så sig det — det kan ikke rettes fra værktøjet.
 
 ---
 

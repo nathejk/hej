@@ -176,7 +176,7 @@ func (app *application) uploadAdminPhotoHandler(w http.ResponseWriter, r *http.R
 	// reads GPS from the original bytes *before* `imaging.Prepare` re-encodes them, which is the one ordering
 	// this whole feature depends on (PRD 022 §8.4). A second copy of that sequence would be a second place
 	// for somebody to "tidy up" the read out of existence.
-	stored, err := app.storeAlbumImage(r.Context(), raw)
+	stored, err := app.storeAlbumImage(r.Context(), adminYear(r), raw)
 	if err != nil {
 		if errors.Is(err, errGlimtNotMedia) {
 			// The decode is the validation. A `.mov`, a raw file or a `Thumbs.db` from the same card all land
@@ -194,7 +194,7 @@ func (app *application) uploadAdminPhotoHandler(w http.ResponseWriter, r *http.R
 
 	// Was it here already, and was it deleted? `Photo` finds a deleted row and reports it as deleted, which
 	// is precisely why the curator read exists (task 366): the public read would say "not found" for both.
-	existing, found, err := app.models.PhotoCurator.Photo(app.config.eventYear, photoID)
+	existing, found, err := app.models.PhotoCurator.Photo(adminYear(r), photoID)
 	if err != nil {
 		app.ServerErrorResponse(w, r, fmt.Errorf("checking whether the photograph is already in the library: %w", err))
 		return
@@ -232,14 +232,14 @@ func (app *application) uploadAdminPhotoHandler(w http.ResponseWriter, r *http.R
 		app.Logger.Info("admin upload was a duplicate", "photoId", photoID, "ip", clientIP(r))
 
 	default:
-		subject, serr := photo.Subject(app.config.eventYear, photoID, photo.VerbUploaded)
+		subject, serr := photo.Subject(adminYear(r), photoID, photo.VerbUploaded)
 		if serr != nil {
 			app.ServerErrorResponse(w, r, serr)
 			return
 		}
 		if perr := app.commands.Publish(subject, photo.Uploaded{
 			PhotoID:    photoID,
-			Year:       app.config.eventYear,
+			Year:       adminYear(r),
 			Ref:        stored.Ref,
 			ThumbRef:   stored.ThumbRef,
 			Width:      stored.Width,

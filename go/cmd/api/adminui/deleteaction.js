@@ -80,7 +80,7 @@ function initDeleteAction(ctx) {
 
     delNote.textContent = 'Fjerner…';
     const r = await runOverSelection((id) =>
-      fetch('/api/admin/albums/' + encodeURIComponent(albumId) + '/items/' + encodeURIComponent(id),
+      ctx.fetch('/api/admin/albums/' + encodeURIComponent(albumId) + '/items/' + encodeURIComponent(id),
         { method: 'DELETE' }));
 
     // Said plainly, including the ones that were not in the album: a curator who ctx.selected across albums needs to
@@ -113,7 +113,7 @@ function initDeleteAction(ctx) {
     delNote.textContent = 'Sletter…';
     const body = JSON.stringify({ reason: delReason.value });
     const r = await runOverSelection((id) =>
-      fetch('/api/admin/photos/' + encodeURIComponent(id),
+      ctx.fetch('/api/admin/photos/' + encodeURIComponent(id),
         { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body }));
 
     const bits = [ctx.photoCount(r.ok) + ' slettet'];

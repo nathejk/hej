@@ -90,6 +90,8 @@ func postPhoto(t *testing.T, srv *httptest.Server, field string, body []byte) *h
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.Header.Set("X-Forwarded-Proto", "https")
+	// The year the page would stamp on the request (task 392).
+	req.Header.Set(adminYearHeader, "2026")
 	req.SetBasicAuth(testAdminUser, testAdminPass)
 
 	resp, err := srv.Client().Do(req)
@@ -390,6 +392,8 @@ func TestAdminUploadRequiresTheCredential(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/admin/photos", &buf)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.Header.Set("X-Forwarded-Proto", "https")
+	// The year the page would stamp on the request (task 392).
+	req.Header.Set(adminYearHeader, "2026")
 	// No credential.
 
 	resp, err := srv.Client().Do(req)
@@ -415,6 +419,8 @@ func TestAdminUploadAcceptsARawBody(t *testing.T) {
 		bytes.NewReader(devFixtureImage(400, 300, 0, 0, "raw body")))
 	req.Header.Set("Content-Type", "image/jpeg")
 	req.Header.Set("X-Forwarded-Proto", "https")
+	// The year the page would stamp on the request (task 392).
+	req.Header.Set(adminYearHeader, "2026")
 	req.SetBasicAuth(testAdminUser, testAdminPass)
 
 	resp, err := srv.Client().Do(req)

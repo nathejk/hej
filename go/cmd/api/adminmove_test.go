@@ -23,6 +23,8 @@ func moveAdmin(t *testing.T, srv *httptest.Server, path, body string) *http.Resp
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Forwarded-Proto", "https")
+	// The year the page would stamp on the request (task 392).
+	req.Header.Set(adminYearHeader, "2026")
 	req.SetBasicAuth(testAdminUser, testAdminPass)
 	resp, err := srv.Client().Do(req)
 	if err != nil {

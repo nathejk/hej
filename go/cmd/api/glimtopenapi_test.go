@@ -230,10 +230,12 @@ func stringLit(e ast.Expr) (string, bool) {
 // shape, not the value.
 const guardYear = "/2026"
 
-// e2PublicRoot recognises the `publicRoot` identifier from routes.go.
+// e2PublicRoot recognises the year-prefix identifiers from routes.go: `publicRoot`, and `adminRoot`, the loop
+// variable the curator's pages are registered under once per workable year (task 392). Both resolve to the
+// representative year, so the per-year pages are seen by every guard rather than silently skipped.
 func e2PublicRoot(e ast.Expr) (string, bool) {
 	ident, ok := e.(*ast.Ident)
-	if !ok || ident.Name != "publicRoot" {
+	if !ok || (ident.Name != "publicRoot" && ident.Name != "adminRoot") {
 		return "", false
 	}
 	return guardYear, true

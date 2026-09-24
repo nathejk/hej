@@ -138,7 +138,7 @@ func (app *application) readAdminLibraryPage(w http.ResponseWriter, r *http.Requ
 			app.ServiceUnavailableResponse(w, r, "albummerne er ikke tilgængelige lige nu")
 			return adminLibraryResponse{}, false
 		}
-		a, _, found, err := app.models.AlbumCurator.Album(app.config.eventYear, filter.AlbumID)
+		a, _, found, err := app.models.AlbumCurator.Album(adminYear(r), filter.AlbumID)
 		if err != nil {
 			app.ServerErrorResponse(w, r, err)
 			return adminLibraryResponse{}, false
@@ -164,7 +164,7 @@ func (app *application) readAdminLibraryPage(w http.ResponseWriter, r *http.Requ
 
 	// One row more than the page, so "is there another page" costs nothing. A COUNT over the same filter would
 	// be a second aggregate for a question the grid answers with a button.
-	rows, err := app.models.PhotoCurator.Library(app.config.eventYear, filter, limit+1, offset)
+	rows, err := app.models.PhotoCurator.Library(adminYear(r), filter, limit+1, offset)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return adminLibraryResponse{}, false
@@ -175,7 +175,7 @@ func (app *application) readAdminLibraryPage(w http.ResponseWriter, r *http.Requ
 		rows = rows[:limit]
 	}
 
-	counts, err := app.models.PhotoCurator.Counts(app.config.eventYear)
+	counts, err := app.models.PhotoCurator.Counts(adminYear(r))
 	if err != nil {
 		// The grid is the point of the request and the counts are chrome, so a failing count degrades the
 		// header rather than the page. Logged, because a header stuck at zero while the grid fills is the kind
@@ -313,6 +313,7 @@ func adminQueryInt(r *http.Request, key string, fallback int) int {
 // @Param        variant  query     string  false  "thumb for the thumbnail; omit for the full rendition"
 // @Success      200  {file}  binary
 // @Failure      304  "not modified: the browser already holds these bytes. A rendition is immutable, so its id is its content hash and a revalidation can always be answered without reading the object."
+// @Failure      400  {object}  map[string]string  "no working year, or one the tool does not know (X-Admin-Year or ?year=)"
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "unknown or deleted photograph"
@@ -342,7 +343,7 @@ func (app *application) showAdminPhotoMediaHandler(w http.ResponseWriter, r *htt
 
 	photoID := httprouter.ParamsFromContext(r.Context()).ByName("photoId")
 
-	p, found, err := app.models.PhotoCurator.Photo(app.config.eventYear, photoID)
+	p, found, err := app.models.PhotoCurator.Photo(adminYear(r), photoID)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return

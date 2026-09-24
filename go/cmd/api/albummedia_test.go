@@ -163,10 +163,10 @@ func TestAlbumBoundsVerdict(t *testing.T) {
 	app := newTestApp(t)
 	app.models.RaceAreas = stubRaceAreas{area: testRaceArea(), ok: true}
 
-	if got := app.albumBoundsVerdict(55.73, 12.26); got != photo.BoundsInside {
+	if got := app.albumBoundsVerdict(app.config.eventYear, 55.73, 12.26); got != photo.BoundsInside {
 		t.Errorf("a coordinate at the event should be inside, got %q", got)
 	}
-	if got := app.albumBoundsVerdict(40.7128, -74.0060); got != photo.BoundsOutside {
+	if got := app.albumBoundsVerdict(app.config.eventYear, 40.7128, -74.0060); got != photo.BoundsOutside {
 		t.Errorf("a coordinate in Manhattan should be outside, got %q", got)
 	}
 }
@@ -183,7 +183,7 @@ func TestAlbumBoundsVerdictIsUnknownWhenWeCannotJudge(t *testing.T) {
 		app := newTestApp(t)
 		app.models.RaceAreas = areas
 
-		got := app.albumBoundsVerdict(55.73, 12.26)
+		got := app.albumBoundsVerdict(app.config.eventYear, 55.73, 12.26)
 		if got != photo.BoundsUnknown {
 			t.Errorf("%s: want unknown, got %q", name, got)
 		}
@@ -195,7 +195,7 @@ func TestAlbumBoundsVerdictIsUnknownWhenWeCannotJudge(t *testing.T) {
 	// And with no projection at all.
 	app := newTestApp(t)
 	app.models.RaceAreas = nil
-	if got := app.albumBoundsVerdict(55.73, 12.26); got != photo.BoundsUnknown {
+	if got := app.albumBoundsVerdict(app.config.eventYear, 55.73, 12.26); got != photo.BoundsUnknown {
 		t.Errorf("no race-area projection: want unknown, got %q", got)
 	}
 }
@@ -218,7 +218,7 @@ func TestStoreAlbumImageReadsTheCoordinateAndStripsIt(t *testing.T) {
 		t.Fatal("the fixture should carry a coordinate to begin with")
 	}
 
-	stored, err := app.storeAlbumImage(context.Background(), raw)
+	stored, err := app.storeAlbumImage(context.Background(), app.config.eventYear, raw)
 	if err != nil {
 		t.Fatalf("storeAlbumImage: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestStoreAlbumImageWithoutACoordinate(t *testing.T) {
 	app := newTestApp(t)
 	app.models.RaceAreas = stubRaceAreas{area: testRaceArea(), ok: true}
 
-	stored, err := app.storeAlbumImage(context.Background(), devFixtureImage(400, 300, 0, 0, "test"))
+	stored, err := app.storeAlbumImage(context.Background(), app.config.eventYear, devFixtureImage(400, 300, 0, 0, "test"))
 	if err != nil {
 		t.Fatalf("storeAlbumImage: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestStoreAlbumImageKeepsAnOutOfBoundsCoordinate(t *testing.T) {
 	app.models.RaceAreas = stubRaceAreas{area: testRaceArea(), ok: true}
 
 	raw := jpegWithTestGPS(t, 40, 42, 46.0, 'N', 74, 0, 21.6, 'W')
-	stored, err := app.storeAlbumImage(context.Background(), raw)
+	stored, err := app.storeAlbumImage(context.Background(), app.config.eventYear, raw)
 	if err != nil {
 		t.Fatalf("storeAlbumImage: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestStoreAlbumImageKeepsAnOutOfBoundsCoordinate(t *testing.T) {
 func TestStoreAlbumImageRejectsNonImages(t *testing.T) {
 	app := newTestApp(t)
 
-	if _, err := app.storeAlbumImage(context.Background(),
+	if _, err := app.storeAlbumImage(context.Background(), app.config.eventYear,
 		[]byte("this is not an image, it is a sentence")); err == nil {
 		t.Fatal("want a rejection")
 	}
@@ -305,7 +305,7 @@ func TestStoreAlbumImageTreatsNullIslandAsNoFix(t *testing.T) {
 	app.models.RaceAreas = stubRaceAreas{area: testRaceArea(), ok: true}
 
 	raw := jpegWithTestGPS(t, 0, 0, 0, 'N', 0, 0, 0, 'E')
-	stored, err := app.storeAlbumImage(context.Background(), raw)
+	stored, err := app.storeAlbumImage(context.Background(), app.config.eventYear, raw)
 	if err != nil {
 		t.Fatalf("storeAlbumImage: %v", err)
 	}

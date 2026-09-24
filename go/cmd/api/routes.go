@@ -254,12 +254,21 @@ func (app *application) routes() http.Handler {
 		// The curator's pages (task 396), under the year beside the public ones rather than under `/admin`. Being
 		// admin is decided by `requireAdmin`, not by the prefix — the guards in admin_test.go and
 		// publicprivacy_test.go read the wrapper for exactly this reason.
-		router.HandlerFunc(http.MethodGet, publicRoot+"/albums", app.requireAdmin(app.adminAlbumsPageHandler))
-		router.HandlerFunc(http.MethodGet, publicRoot+"/photos", app.requireAdmin(app.adminPhotosPageHandler))
-		router.HandlerFunc(http.MethodGet, publicRoot+"/album/:slug/edit", app.requireAdmin(app.adminAlbumPageHandler))
+		//
+		// Registered **once per workable year** (task 392): the year is the route, so a curator working in 2025
+		// is at `/2025/photos` and a reload cannot drift back to 2026. `adminRoot` is the loop's `/2025`; the
+		// route guards resolve it like `publicRoot`.
+		app.workableYears = app.adminYears()
+		for _, adminRoot := range app.adminRoots() {
+			router.HandlerFunc(http.MethodGet, adminRoot+"/albums", app.requireAdmin(app.atAdminYear(adminRoot, app.adminAlbumsPageHandler)))
+			router.HandlerFunc(http.MethodGet, adminRoot+"/photos", app.requireAdmin(app.atAdminYear(adminRoot, app.adminPhotosPageHandler)))
+			router.HandlerFunc(http.MethodGet, adminRoot+"/album/:slug/edit", app.requireAdmin(app.atAdminYear(adminRoot, app.adminAlbumPageHandler)))
+		}
+		// Every fragment and JSON route below takes its year from the request — `X-Admin-Year`, or `?year=` for
+		// an <img> — and refuses one that is missing or not workable. See adminyear.go.
 		// One file per request (task 372). The batching is the browser's, which is what keeps one bad file
 		// from failing a batch of three hundred — see adminupload.go's header.
-		router.HandlerFunc(http.MethodPost, "/api/admin/photos", app.requireAdmin(app.uploadAdminPhotoHandler))
+		router.HandlerFunc(http.MethodPost, "/api/admin/photos", app.requireAdmin(app.requireAdminYear(app.uploadAdminPhotoHandler)))
 		// The contact sheet's reads (task 374). Both go through the **curator** interface, so drafts and
 		// deleted rows are reachable here and structurally unreachable from anything public (PRD 022 §8.8).
 		//
@@ -267,13 +276,13 @@ func (app *application) routes() http.Handler {
 		// That is not defensive coding: a library photograph's id *is* a content ref, so the shortcut would
 		// turn this into a general file server for the whole store behind one shared password. See
 		// adminlibrary.go.
-		router.HandlerFunc(http.MethodGet, "/api/admin/photos", app.requireAdmin(app.listAdminPhotosHandler))
-		router.HandlerFunc(http.MethodGet, "/api/admin/photos/:photoId/media", app.requireAdmin(app.showAdminPhotoMediaHandler))
+		router.HandlerFunc(http.MethodGet, "/api/admin/photos", app.requireAdmin(app.requireAdminYear(app.listAdminPhotosHandler)))
+		router.HandlerFunc(http.MethodGet, "/api/admin/photos/:photoId/media", app.requireAdmin(app.requireAdminYear(app.showAdminPhotoMediaHandler)))
 		// The album writes (task 375). An album is always created unpublished — there is no field for it on the
 		// request and none on the event, so publishing can only be a separate edit (task 378).
-		router.HandlerFunc(http.MethodGet, "/api/admin/albums", app.requireAdmin(app.listAdminAlbumsHandler))
-		router.HandlerFunc(http.MethodPost, "/api/admin/albums", app.requireAdmin(app.createAdminAlbumHandler))
-		router.HandlerFunc(http.MethodPost, "/api/admin/albums/items", app.requireAdmin(app.addAdminAlbumItemsHandler))
+		router.HandlerFunc(http.MethodGet, "/api/admin/albums", app.requireAdmin(app.requireAdminYear(app.listAdminAlbumsHandler)))
+		router.HandlerFunc(http.MethodPost, "/api/admin/albums", app.requireAdmin(app.requireAdminYear(app.createAdminAlbumHandler)))
+		router.HandlerFunc(http.MethodPost, "/api/admin/albums/items", app.requireAdmin(app.requireAdminYear(app.addAdminAlbumItemsHandler)))
 		// The album editor (task 378). The slug is **not** editable: it is the album's public address, frozen at
 		// creation, and neither the request shape nor the event has a field for it.
 		// The pinned third-party libraries the pages load (task 395): htmx, Alpine and Pico, embedded in the
@@ -293,53 +302,53 @@ func (app *application) routes() http.Handler {
 		//
 		// The write paths publish through the same helpers the JSON endpoints use, so the event log cannot depend
 		// on which surface produced the write. See adminfragments.go.
-		router.HandlerFunc(http.MethodGet, "/admin/fragments/albums", app.requireAdmin(app.showAdminAlbumsFragmentHandler))
-		router.HandlerFunc(http.MethodPost, "/admin/fragments/albums", app.requireAdmin(app.createAdminAlbumFragmentHandler))
+		router.HandlerFunc(http.MethodGet, "/admin/fragments/albums", app.requireAdmin(app.requireAdminYear(app.showAdminAlbumsFragmentHandler)))
+		router.HandlerFunc(http.MethodPost, "/admin/fragments/albums", app.requireAdmin(app.requireAdminYear(app.createAdminAlbumFragmentHandler)))
 		// Publication posted **alone** (task 378), on its own route rather than as part of a general "patch the
 		// album" fragment: a curator pressing the button has said one thing.
-		router.HandlerFunc(http.MethodPost, "/admin/fragments/albums/:albumId/published", app.requireAdmin(app.setAdminAlbumPublishedFragmentHandler))
+		router.HandlerFunc(http.MethodPost, "/admin/fragments/albums/:albumId/published", app.requireAdmin(app.requireAdminYear(app.setAdminAlbumPublishedFragmentHandler)))
 		// Deleting a whole album (task 396). The same `album.Deleted` the Team section's in-app takedown publishes,
 		// so the projection has one way an album goes. The photographs stay in the library.
-		router.HandlerFunc(http.MethodPost, "/admin/fragments/albums/:albumId/deleted", app.requireAdmin(app.deleteAdminAlbumFragmentHandler))
+		router.HandlerFunc(http.MethodPost, "/admin/fragments/albums/:albumId/deleted", app.requireAdmin(app.requireAdminYear(app.deleteAdminAlbumFragmentHandler)))
 		// The action sheets' pickers (step 4). POST rather than GET for the two that read the boxes a curator has
 		// already ticked: those ids travel in a body, and a GET carrying a hundred repeated query parameters is a
 		// URL length limit waiting to be found.
-		router.HandlerFunc(http.MethodPost, "/admin/fragments/albumpicker", app.requireAdmin(app.showAdminAlbumPickerHandler))
-		router.HandlerFunc(http.MethodPost, "/admin/fragments/albumpicker/albums", app.requireAdmin(app.createAdminAlbumFromPickerHandler))
-		router.HandlerFunc(http.MethodGet, "/admin/fragments/delalbumpicker", app.requireAdmin(app.showAdminDelAlbumPickerHandler))
+		router.HandlerFunc(http.MethodPost, "/admin/fragments/albumpicker", app.requireAdmin(app.requireAdminYear(app.showAdminAlbumPickerHandler)))
+		router.HandlerFunc(http.MethodPost, "/admin/fragments/albumpicker/albums", app.requireAdmin(app.requireAdminYear(app.createAdminAlbumFromPickerHandler)))
+		router.HandlerFunc(http.MethodGet, "/admin/fragments/delalbumpicker", app.requireAdmin(app.requireAdminYear(app.showAdminDelAlbumPickerHandler)))
 		// The patrol confirmation. A GET, because it reads one number and a curator may well press Find twice.
-		router.HandlerFunc(http.MethodGet, "/admin/fragments/patrol", app.requireAdmin(app.showAdminPatrolConfirmHandler))
+		router.HandlerFunc(http.MethodGet, "/admin/fragments/patrol", app.requireAdmin(app.requireAdminYear(app.showAdminPatrolConfirmHandler)))
 		// The position sheet's post picker (step 5). The Leaflet map is untouched and stays custom.
-		router.HandlerFunc(http.MethodGet, "/admin/fragments/checkpointpicker", app.requireAdmin(app.showAdminCheckpointPickerHandler))
+		router.HandlerFunc(http.MethodGet, "/admin/fragments/checkpointpicker", app.requireAdmin(app.requireAdminYear(app.showAdminCheckpointPickerHandler)))
 		// The contact sheet's thumbnails (step 6). Reads the same filter and paging as `/api/admin/photos` through
 		// one shared helper, because "select all matching this filter" still pages that endpoint for ids and two
 		// interpretations of one filter is how a bulk action lands on the wrong photographs.
-		router.HandlerFunc(http.MethodGet, "/admin/fragments/photos", app.requireAdmin(app.showAdminContactSheetHandler))
-		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId", app.requireAdmin(app.updateAdminAlbumHandler))
-		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId/items", app.requireAdmin(app.reorderAdminAlbumItemsHandler))
+		router.HandlerFunc(http.MethodGet, "/admin/fragments/photos", app.requireAdmin(app.requireAdminYear(app.showAdminContactSheetHandler)))
+		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId", app.requireAdmin(app.requireAdminYear(app.updateAdminAlbumHandler)))
+		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId/items", app.requireAdmin(app.requireAdminYear(app.reorderAdminAlbumItemsHandler)))
 		// Drag-and-drop (task 396): "these, next to that", with the whole order built server-side, because the
 		// album view scrolls in pages and the browser may not hold all of it. PATCH, because POST already has the static
 		// `/api/admin/albums/items`, which httprouter will not put beside `:albumId`. Not under `/items/`, where the
 		// `:photoId` wildcard of the removal below would collide with a static segment.
-		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId/move", app.requireAdmin(app.moveAdminAlbumItemsHandler))
+		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId/move", app.requireAdmin(app.requireAdminYear(app.moveAdminAlbumItemsHandler)))
 		// The two removals (task 379), and they are deliberately different endpoints for different acts: taking a
 		// photograph out of one album leaves it everywhere else and frees nothing, while deleting it from the
 		// library removes it from everything and purges its bytes. One of the two is what somebody means by "take
 		// it down" — see admindelete.go for the copy that has to carry that distinction.
-		router.HandlerFunc(http.MethodDelete, "/api/admin/albums/:albumId/items/:photoId", app.requireAdmin(app.removeAdminAlbumItemHandler))
-		router.HandlerFunc(http.MethodDelete, "/api/admin/photos/:photoId", app.requireAdmin(app.deleteAdminPhotoHandler))
+		router.HandlerFunc(http.MethodDelete, "/api/admin/albums/:albumId/items/:photoId", app.requireAdmin(app.requireAdminYear(app.removeAdminAlbumItemHandler)))
+		router.HandlerFunc(http.MethodDelete, "/api/admin/photos/:photoId", app.requireAdmin(app.requireAdminYear(app.deleteAdminPhotoHandler)))
 		// The bulk position (task 376). The bounds check is re-run for every set — a curator-placed point is not
 		// exempt, because nothing reaches the public map unverified.
-		router.HandlerFunc(http.MethodPatch, "/api/admin/photos", app.requireAdmin(app.patchAdminPhotosHandler))
+		router.HandlerFunc(http.MethodPatch, "/api/admin/photos", app.requireAdmin(app.requireAdminYear(app.patchAdminPhotosHandler)))
 		// The picker's posts. Deliberately **not** on `checkpoint.Queries`, which has no way to ask for all
 		// checkpoints at all — see checkpoint/curator.go.
-		router.HandlerFunc(http.MethodGet, "/api/admin/checkpoints", app.requireAdmin(app.listAdminCheckpointsHandler))
+		router.HandlerFunc(http.MethodGet, "/api/admin/checkpoints", app.requireAdmin(app.requireAdminYear(app.listAdminCheckpointsHandler)))
 		// The patrol tags (task 377). Note there is **no** route listing patrols: the curator types the number
 		// from the sign and the tool resolves it, because a list read is what a scraper would ask for and
 		// `publicpatrol.Queries` deliberately has none — see adminpatrol.go.
-		router.HandlerFunc(http.MethodGet, "/api/admin/patrols/:number", app.requireAdmin(app.resolveAdminPatrolHandler))
-		router.HandlerFunc(http.MethodPost, "/api/admin/photos/tags", app.requireAdmin(app.tagAdminPhotosHandler))
-		router.HandlerFunc(http.MethodDelete, "/api/admin/photos/:photoId/tags/:teamId", app.requireAdmin(app.untagAdminPhotoHandler))
+		router.HandlerFunc(http.MethodGet, "/api/admin/patrols/:number", app.requireAdmin(app.requireAdminYear(app.resolveAdminPatrolHandler)))
+		router.HandlerFunc(http.MethodPost, "/api/admin/photos/tags", app.requireAdmin(app.requireAdminYear(app.tagAdminPhotosHandler)))
+		router.HandlerFunc(http.MethodDelete, "/api/admin/photos/:photoId/tags/:teamId", app.requireAdmin(app.requireAdminYear(app.untagAdminPhotoHandler)))
 	}
 
 	// Development-only routes (PRD 014 §8). Registered rather than guarded, so outside

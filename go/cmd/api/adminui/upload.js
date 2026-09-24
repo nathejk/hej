@@ -82,7 +82,7 @@ function initUpload(ctx) {
     body.append('photo', job.file);
 
     try {
-      const res = await fetch('/api/admin/photos', { method: 'POST', body });
+      const res = await ctx.fetch('/api/admin/photos', { method: 'POST', body });
       let payload = null;
       try { payload = await res.json(); } catch (_) { /* an error page rather than JSON */ }
 

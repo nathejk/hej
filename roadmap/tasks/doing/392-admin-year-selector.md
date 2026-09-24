@@ -1,10 +1,10 @@
 # 392 — Choose the year being worked on, defaulting to the current one
 
-**Status:** open
+**Status:** doing
 **Priority:** high
 **Created:** 2026-09-23
-**Picked up by:**
-**Started:**
+**Picked up by:** Claude
+**Started:** 2026-09-24
 **Completed:**
 
 ## Description
@@ -133,17 +133,36 @@ Kept so the reasoning is not re-derived.
   a new year's pages are covered by the privacy walk and the visibility walk from the first commit rather than
   retrofitted.
 
+## How the year travels, after task 396
+
+Task 396 put the curator's pages under the year (`/2026/albums`, `/2026/photos`, `/2026/album/:slug/edit`), so
+"the year belongs in the URL" is now the **path**, not `?year=`. Decided in implementation (2026-09-24):
+
+- **Pages** are registered once per workable year: `event_year`'s years (minus the `null` row) read at boot,
+  plus `EVENT_YEAR` always, so a database that is down at boot still leaves the current year working. A new
+  year needs a restart, which is also when `EVENT_YEAR` would change.
+- **Fragments and the JSON API** (`/admin/fragments/*`, `/api/admin/*`) have no year in their path. The page
+  stamps `X-Admin-Year` on every htmx and `fetch` request from one place; `<img>` thumbnails, which cannot carry
+  a header, use `?year=`, rendered by the server.
+- **A missing or unknown year is a 400, never a default.** Defaulting to `EVENT_YEAR` is precisely the silent
+  wrong-year write this task exists to prevent.
+- The year is put on the request context by one middleware; handlers read it from there. A guard fails if any
+  admin handler reads `app.config.eventYear`.
+- Working outside `EVENT_YEAR` shows a persistent bar under the header on every curator page.
+
 ## Acceptance Criteria
 
-- [ ] The year can be chosen from the years that exist, defaulting to `EVENT_YEAR`
-- [ ] The choice is in the URL and survives a reload; it is never inferred from a cookie
-- [ ] Every admin read and write uses the selected year, with a guard that no admin handler reads the
+- [x] The year can be chosen from the years that exist, defaulting to `EVENT_YEAR`
+- [x] The choice is in the URL and survives a reload; it is never inferred from a cookie
+- [x] Every admin read and write uses the selected year, with a guard that no admin handler reads the
       configured year directly
-- [ ] Working outside the current year is visibly and persistently marked
-- [ ] The `null` row in `event_year` is filtered out
-- [ ] Uploading into a past year is verified live, and the photograph lands in that year and nowhere else
-- [ ] PRD 022 §5 and §7 are updated: they currently state the year is immutable, and they will be wrong
-- [ ] Task 385's half-page is updated — it tells a photographer the year cannot be changed
+- [x] Working outside the current year is visibly and persistently marked
+- [x] The `null` row in `event_year` is filtered out
+- [x] Uploading into a past year is verified live, and the photograph lands in that year and nowhere else
+      *(2026-09-24, dev stack: uploaded with `X-Admin-Year: 2025`, filed in 2025, absent from 2026's library;
+      the same upload with no year was refused 400; the test photo was then deleted)*
+- [x] PRD 022 §5 and §7 are updated: they currently state the year is immutable, and they will be wrong
+- [x] Task 385's half-page is updated — it tells a photographer the year cannot be changed
 - [x] The publishing question above is answered in this file before implementation — *past years public too,
       and the **full site** per year (maintainer, 2026-09-23)*
 - [ ] Split: the curator's year selector and the multi-year **public** surface are separate pieces of work.

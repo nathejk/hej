@@ -55,9 +55,12 @@ import (
 // error responses, Serve) so handlers can call them via the `app` receiver.
 type application struct {
 	bff.JsonApi
-	config   config
-	models   data.Models
-	commands commands.Commands
+	config config
+	// workableYears are the years the admin tool can work in, read once when the routes are built (task 392).
+	// See adminyear.go.
+	workableYears []string
+	models        data.Models
+	commands      commands.Commands
 
 	// vehicles is the vehicle entity's command side (PRD 010), or nil when there is
 	// no database or no broker.

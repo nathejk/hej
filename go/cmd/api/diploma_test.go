@@ -274,6 +274,8 @@ type fixedRoute struct {
 }
 
 // Mirrors the real querier's contract: both cities or nothing (see year.Queries.Route).
+func (f fixedRoute) Years() ([]string, error) { return nil, nil }
+
 func (f fixedRoute) Route(string) (string, string, bool, error) {
 	if f.err != nil {
 		return "", "", false, f.err

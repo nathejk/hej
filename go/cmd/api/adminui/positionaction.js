@@ -85,8 +85,8 @@ function initPositionAction(ctx) {
     let cfg = null, token = '';
     try {
       const [layersRes, confRes] = await Promise.all([
-        fetch('/maplayers.json'),
-        fetch('/api/config'),
+        ctx.fetch('/maplayers.json'),
+        ctx.fetch('/api/config'),
       ]);
       if (layersRes.ok) cfg = await layersRes.json();
       if (confRes.ok) token = (await confRes.json()).dataforsyningen_token || '';
@@ -184,7 +184,7 @@ function initPositionAction(ctx) {
   async function sendPosition(payload) {
     posNote.textContent = 'Gemmer…';
     try {
-      const res = await fetch('/api/admin/photos', {
+      const res = await ctx.fetch('/api/admin/photos', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(Object.assign({ photoIds: Array.from(ctx.selected) }, payload)),

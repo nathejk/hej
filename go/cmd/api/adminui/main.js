@@ -43,6 +43,19 @@ function initAdminTool() {
   // and JavaScript gives no compiler to catch it.
   const ctx = {};
 
+  // fetch is `window.fetch` with the working year stamped on (task 392).
+  //
+  // Every JSON request the tool makes goes through this, because the API has no year in its path and refuses a
+  // request that does not say which year it means — a default would be a silent wrong-year write. The year is
+  // read from the header's badge, the one place the page states it. htmx requests get the same header from the
+  // `hx-headers` on <body>. `TestTheAdminScriptsFetchOnlyThroughTheYear` holds that nothing calls fetch directly.
+  const year = document.querySelector('.year').dataset.year;
+  ctx.fetch = (url, opts) => {
+    const o = Object.assign({}, opts);
+    o.headers = Object.assign({}, o.headers, { 'X-Admin-Year': year });
+    return window.fetch(url, o);
+  };
+
   // openers maps a button's `data-act` to the function that opens its sheet. Each action registers its own, so
   // adding a sixth is one file rather than two.
   ctx.openers = {};

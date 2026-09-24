@@ -18,7 +18,7 @@ function initAlbumEditor(ctx) {
   }
 
   async function send(body) {
-    const res = await fetch('/api/admin/albums/' + encodeURIComponent(albumId), {
+    const res = await ctx.fetch('/api/admin/albums/' + encodeURIComponent(albumId), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

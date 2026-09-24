@@ -53,6 +53,8 @@ func getAdmin(t *testing.T, srv *httptest.Server, path, user, pass string) *http
 		t.Fatalf("building the request: %v", err)
 	}
 	req.Header.Set("X-Forwarded-Proto", "https")
+	// The year the page would stamp on the request (task 392).
+	req.Header.Set(adminYearHeader, "2026")
 	if user != "" || pass != "" {
 		req.SetBasicAuth(user, pass)
 	}
@@ -702,6 +704,8 @@ func TestAdminSurfaceIsAbsentWithoutAPassword(t *testing.T) {
 		} {
 			req, _ := http.NewRequest(http.MethodGet, srv.URL+probe, nil)
 			req.Header.Set("X-Forwarded-Proto", "https")
+			// The year the page would stamp on the request (task 392).
+			req.Header.Set(adminYearHeader, "2026")
 			attempt.with(req)
 
 			resp, err := srv.Client().Do(req)

@@ -196,7 +196,7 @@ function initContactSheet(ctx) {
       let off = 0;
       for (;;) {
         const url = '/api/admin/photos?limit=500&offset=' + off + (query ? '&' + query : '');
-        const res = await fetch(url);
+        const res = await ctx.fetch(url);
         if (!res.ok) { actionNote.textContent = 'Kunne ikke hente alle billeder (fejl ' + res.status + ').'; return; }
         const data = await res.json();
         for (const p of data.photos) selected.add(p.id);

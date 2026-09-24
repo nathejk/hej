@@ -41,7 +41,7 @@ page.html triggers on `load` and the fragment triggers only on the `albums-chang
            public route would correctly refuse their photographs (task 382). A list of broken images is a list a
            curator stops trusting. */}}
       <img class="cover" loading="lazy" alt=""
-           src="/api/admin/photos/{{.CoverPhotoID}}/media?variant=thumb">
+           src="/api/admin/photos/{{.CoverPhotoID}}/media?variant=thumb&amp;year={{$.Year}}">
       {{else}}
       {{/* No live items means no cover. A dashed placeholder rather than a blank gap, so the row reads as
            "empty album" instead of "image failed to load". */}}
@@ -74,7 +74,7 @@ page.html triggers on `load` and the fragment triggers only on the `albums-chang
             {{if .Published}}Fjern fra forsiden{{else}}Udgiv på forsiden{{end}}
           </button>
           {{end}}
-          {{if and .Published (not .Deleted)}}
+          {{if and .Published (not .Deleted) $.PublicServed}}
           <a href="/{{$.Year}}/album/{{.Slug}}" target="_blank" rel="noopener">Se den</a>
           {{end}}
           {{if not .Deleted}}
@@ -280,7 +280,7 @@ Everything that is not a cell arrives as an out-of-band swap, which is how one r
 <button type="button" class="cell{{if .Deleted}} gone{{end}}" data-id="{{.ID}}"
         role="option" aria-selected="false">
   <img loading="lazy" decoding="async" alt="{{.Caption}}"
-       src="/api/admin/photos/{{.ID}}/media?variant=thumb">
+       src="/api/admin/photos/{{.ID}}/media?variant=thumb&amp;year={{$.Year}}">
   <span class="tick" aria-hidden="true">✓</span>
   <span class="marks">
     {{if eq .BoundsVerdict "inside"}}<span class="mark inside">position</span>
@@ -325,11 +325,25 @@ all-photos view or send a colleague a link to it — and because the selection d
 <header>
   <h1>Billedarkiv</h1>
   <span class="year" data-year="{{.Year}}">{{.Year}}</span>
+  {{/* The year switch (task 392). Links rather than a select, because the album list runs no script — and a link
+       is an address, which is the point: the year is in the URL, so a reload cannot drift into another one. The
+       album view has no counterpart in another year, so from there the switch goes to that year's album list. */}}
+  {{if gt (len .Years) 1}}
+  <nav class="years" aria-label="Skift år">
+    {{range .Years}}{{if ne . $.Year}}<a href="/{{.}}/{{if eq $.View "photos"}}photos{{else}}albums{{end}}">{{.}}</a>{{end}}{{end}}
+  </nav>
+  {{end}}
   <nav class="views" aria-label="Billedarkiv">
     <a href="{{.Root}}/albums"{{if eq .View "albums"}} aria-current="page"{{end}}>Album</a>
     <a href="{{.Root}}/photos"{{if eq .View "photos"}} aria-current="page"{{end}}>Alle billeder</a>
   </nav>
 </header>
+{{if ne .Year .EventYear}}
+{{/* Working outside the race being run is abnormal, so it says so on every page and does not scroll away. A
+     photograph uploaded here is filed in this year, and PRD 022 §5 is why that is the one thing to be sure of. */}}
+<p class="otheryear" role="status">Du arbejder i <strong>{{.Year}}</strong>, ikke i årets løb ({{.EventYear}}).
+Alt du lægger op eller retter her, hører til {{.Year}}. <a href="/{{.EventYear}}/albums">Tilbage til {{.EventYear}}</a></p>
+{{end}}
 {{end}}
 
 {{/*
@@ -368,7 +382,8 @@ the album, so the album view has the same selection and actions as the library.
     <input type="text" id="slug" value="{{.Slug}}" readonly>
     <p class="hint">Adressen kan ikke ændres. Den er <code>{{.PublicPath}}</code>, og et album der skifter
     adresse bliver et dødt link i de beskeder folk allerede har sendt.
-    {{if .Published}}<a href="{{.PublicPath}}">Se den offentlige side</a>.{{else}}Den er ikke udgivet endnu.{{end}}</p>
+    {{if not .PublicServed}}Hjemmesiden viser endnu ikke album fra tidligere år.
+    {{else if .Published}}<a href="{{.PublicPath}}">Se den offentlige side</a>.{{else}}Den er ikke udgivet endnu.{{end}}</p>
 
     <p>
       <button type="button" id="save">Gem ændringer</button>

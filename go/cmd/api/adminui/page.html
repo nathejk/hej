@@ -30,7 +30,9 @@
 /* @inject page.css */
 </style>
 </head>
-<body>
+<!-- The working year on every htmx request (task 392): the fragments have no year in their path and refuse a
+     request without one. Scripted requests get it from ctx.fetch in main.js. -->
+<body hx-headers='{"X-Admin-Year": "{{.Year}}"}'>
 {{template "adminheader" .}}
 <main>
 {{if eq .View "album"}}

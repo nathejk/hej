@@ -34,7 +34,7 @@ function initCaptionAction(ctx) {
     if (!ctx.selected.size) { note.textContent = 'Vælg mindst ét billede.'; return; }
     note.textContent = 'Gemmer…';
     try {
-      const res = await fetch('/api/admin/photos', {
+      const res = await ctx.fetch('/api/admin/photos', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ photoIds: Array.from(ctx.selected), caption: text.value.trim() }),

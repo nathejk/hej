@@ -51,6 +51,8 @@ type adminAlbumPageData struct {
 	// when unpublished, with the page saying it is not live yet: knowing the address a draft *will* have is
 	// useful, and it is not a secret from somebody holding the admin credential.
 	PublicPath string
+	// PublicServed is whether the year's public pages exist; see adminAlbumListData.
+	PublicServed bool
 }
 
 // adminAlbumPageHandler serves one album's view: the editor card, then its photographs as the contact sheet.
@@ -68,7 +70,7 @@ func (app *application) adminAlbumPageHandler(w http.ResponseWriter, r *http.Req
 	// address. So the slug is resolved through the year's albums rather than by a second read: a handful of rows,
 	// and it keeps `CuratorQueries` from growing a by-slug method that would duplicate the public one's shape
 	// without its filtering.
-	albums, err := app.models.AlbumCurator.All(app.config.eventYear)
+	albums, err := app.models.AlbumCurator.All(adminYear(r))
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -86,21 +88,22 @@ func (app *application) adminAlbumPageHandler(w http.ResponseWriter, r *http.Req
 	}
 	a := *found
 
-	app.renderAdminPage(w, adminPageData{
+	app.renderAdminPage(w, r, adminPageData{
 		View: "album",
 		// The grid's first request, and "select all matching", both narrow to this album.
 		Query: "album=" + url.QueryEscape(a.ID),
 		Album: &adminAlbumPageData{
-			Root:        app.publicRoot(),
-			AlbumID:     a.ID,
-			Slug:        a.Slug,
-			Title:       a.Title,
-			Description: a.Description,
-			SortOrder:   a.SortOrder,
-			Published:   a.Published,
-			Deleted:     a.Deleted,
-			ItemCount:   a.ItemCount,
-			PublicPath:  app.publicRoot() + "/album/" + a.Slug,
+			Root:         "/" + adminYear(r),
+			AlbumID:      a.ID,
+			Slug:         a.Slug,
+			Title:        a.Title,
+			Description:  a.Description,
+			SortOrder:    a.SortOrder,
+			Published:    a.Published,
+			Deleted:      a.Deleted,
+			ItemCount:    a.ItemCount,
+			PublicPath:   "/" + adminYear(r) + "/album/" + a.Slug,
+			PublicServed: adminYear(r) == app.currentEventYear(),
 		},
 	})
 }

@@ -113,6 +113,8 @@ func postAdmin(t *testing.T, srv *httptest.Server, path, body string) *http.Resp
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Forwarded-Proto", "https")
+	// The year the page would stamp on the request (task 392).
+	req.Header.Set(adminYearHeader, "2026")
 	req.SetBasicAuth(testAdminUser, testAdminPass)
 
 	resp, err := srv.Client().Do(req)
@@ -632,6 +634,8 @@ func TestAdminAlbumWritesRequireTheCredential(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodPost, srv.URL+path, strings.NewReader(`{}`))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Forwarded-Proto", "https")
+		// The year the page would stamp on the request (task 392).
+		req.Header.Set(adminYearHeader, "2026")
 		// No credential.
 		resp, err := srv.Client().Do(req)
 		if err != nil {

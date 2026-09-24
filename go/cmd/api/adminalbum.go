@@ -69,6 +69,7 @@ type adminAlbumSummary struct {
 // @Tags         admin
 // @Produce      json
 // @Success      200  {object}  listAdminAlbumsResponse
+// @Failure      400  {object}  map[string]string  "no working year, or one the tool does not know (X-Admin-Year or ?year=)"
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      500  {object}  map[string]string
@@ -80,7 +81,7 @@ func (app *application) listAdminAlbumsHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	rows, err := app.models.AlbumCurator.All(app.config.eventYear)
+	rows, err := app.models.AlbumCurator.All(adminYear(r))
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -185,7 +186,7 @@ func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	a, items, found, err := app.models.AlbumCurator.Album(app.config.eventYear, albumID)
+	a, items, found, err := app.models.AlbumCurator.Album(adminYear(r), albumID)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -211,9 +212,9 @@ func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.R
 		}
 	}
 
-	if perr := app.publishAlbum(album.VerbUpdated, albumID, album.Updated{
+	if perr := app.publishAlbum(adminYear(r), album.VerbUpdated, albumID, album.Updated{
 		AlbumID:      albumID,
-		Year:         app.config.eventYear,
+		Year:         adminYear(r),
 		Title:        in.Title,
 		Description:  in.Description,
 		SortOrder:    in.SortOrder,
@@ -313,7 +314,7 @@ func (app *application) reorderAdminAlbumItemsHandler(w http.ResponseWriter, r *
 		return
 	}
 
-	_, items, found, err := app.models.AlbumCurator.Album(app.config.eventYear, albumID)
+	_, items, found, err := app.models.AlbumCurator.Album(adminYear(r), albumID)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -340,9 +341,9 @@ func (app *application) reorderAdminAlbumItemsHandler(w http.ResponseWriter, r *
 		}
 	}
 
-	if perr := app.publishAlbum(album.VerbItemsReordered, albumID, album.ItemsReordered{
+	if perr := app.publishAlbum(adminYear(r), album.VerbItemsReordered, albumID, album.ItemsReordered{
 		AlbumID:     albumID,
-		Year:        app.config.eventYear,
+		Year:        adminYear(r),
 		PhotoIDs:    photoIDs,
 		ReorderedAt: time.Now().UTC(),
 	}); perr != nil {
@@ -416,7 +417,7 @@ func (app *application) moveAdminAlbumItemsHandler(w http.ResponseWriter, r *htt
 	}
 	target := before + after
 
-	_, items, found, err := app.models.AlbumCurator.Album(app.config.eventYear, albumID)
+	_, items, found, err := app.models.AlbumCurator.Album(adminYear(r), albumID)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -432,9 +433,9 @@ func (app *application) moveAdminAlbumItemsHandler(w http.ResponseWriter, r *htt
 		return
 	}
 
-	if perr := app.publishAlbum(album.VerbItemsReordered, albumID, album.ItemsReordered{
+	if perr := app.publishAlbum(adminYear(r), album.VerbItemsReordered, albumID, album.ItemsReordered{
 		AlbumID:     albumID,
-		Year:        app.config.eventYear,
+		Year:        adminYear(r),
 		PhotoIDs:    order,
 		ReorderedAt: time.Now().UTC(),
 	}); perr != nil {
@@ -543,7 +544,7 @@ func (app *application) createAdminAlbumHandler(w http.ResponseWriter, r *http.R
 	}
 
 	title := strings.TrimSpace(in.Title)
-	albumID, slug, err := app.createAdminAlbum(title, in.Description, in.SortOrder)
+	albumID, slug, err := app.createAdminAlbum(adminYear(r), title, in.Description, in.SortOrder)
 	if err != nil {
 		app.writeAdminAlbumCreateFailure(w, r, err)
 		return
@@ -595,7 +596,7 @@ func (e *adminAlbumCreateError) Unwrap() error { return e.Err }
 // Shared by the JSON endpoint above and the list fragment's inline form (adminfragments.go). **Shared rather than
 // reimplemented**, because the two differ only in how they answer: an event log that disagreed with itself
 // depending on which button produced the write would be the worst possible outcome of adding a second surface.
-func (app *application) createAdminAlbum(title, description string, sortOrder int) (string, string, error) {
+func (app *application) createAdminAlbum(year, title, description string, sortOrder int) (string, string, error) {
 	refuse := func(err error) (string, string, error) {
 		return "", "", &adminAlbumCreateError{Kind: adminAlbumCreateRefused, Err: err}
 	}
@@ -620,7 +621,7 @@ func (app *application) createAdminAlbum(title, description string, sortOrder in
 	// Deleted albums count as taking a slug. The schema makes it unique per year, so reusing a deleted one
 	// would fail on the insert — and if the deletion were ever undone the two would collide. Refusing here
 	// lets the tool say which it is instead of surfacing a database error.
-	taken, err := app.models.AlbumCurator.SlugTaken(app.config.eventYear, slug)
+	taken, err := app.models.AlbumCurator.SlugTaken(year, slug)
 	if err != nil {
 		return "", "", &adminAlbumCreateError{Kind: adminAlbumCreateBroken, Err: err}
 	}
@@ -632,9 +633,9 @@ func (app *application) createAdminAlbum(title, description string, sortOrder in
 	// **Unpublished, unconditionally.** Not a default the caller may override: there is no parameter for it and
 	// no branch here. `album.Created` carries no `published` either (task 363), so publishing is expressible
 	// only as a separate update — which is what keeps a half-assembled album off the open web.
-	if err := app.publishAlbum(album.VerbCreated, albumID, album.Created{
+	if err := app.publishAlbum(year, album.VerbCreated, albumID, album.Created{
 		AlbumID:     albumID,
-		Year:        app.config.eventYear,
+		Year:        year,
 		Slug:        slug,
 		Title:       title,
 		Description: description,
@@ -746,7 +747,7 @@ func (app *application) addAdminAlbumItemsHandler(w http.ResponseWriter, r *http
 	for _, albumID := range albumIDs {
 		// Read the album immediately before writing to it, once per album, for two things at once: to reject an
 		// unknown id, and to learn which of the selection it already holds.
-		a, items, found, rerr := app.models.AlbumCurator.Album(app.config.eventYear, albumID)
+		a, items, found, rerr := app.models.AlbumCurator.Album(adminYear(r), albumID)
 		if rerr != nil {
 			app.ServerErrorResponse(w, r, rerr)
 			return
@@ -772,7 +773,7 @@ func (app *application) addAdminAlbumItemsHandler(w http.ResponseWriter, r *http
 		// Ordinals are appended after the current maximum, **including positions previously removed** — see
 		// `NextOrdinal`. Reusing a removed position would resurrect that row's soft delete through the upsert,
 		// silently putting a taken-down photograph back on the page.
-		next, rerr := app.models.AlbumCurator.NextOrdinal(app.config.eventYear, albumID)
+		next, rerr := app.models.AlbumCurator.NextOrdinal(adminYear(r), albumID)
 		if rerr != nil {
 			app.ServerErrorResponse(w, r, rerr)
 			return
@@ -793,9 +794,9 @@ func (app *application) addAdminAlbumItemsHandler(w http.ResponseWriter, r *http
 				next++
 			}
 
-			if perr := app.publishAlbum(album.VerbItemAdded, albumID, album.ItemAdded{
+			if perr := app.publishAlbum(adminYear(r), album.VerbItemAdded, albumID, album.ItemAdded{
 				AlbumID: albumID,
-				Year:    app.config.eventYear,
+				Year:    adminYear(r),
 				Ordinal: ordinal,
 				PhotoID: photoID,
 				AddedAt: now,

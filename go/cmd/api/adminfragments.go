@@ -44,6 +44,9 @@ import (
 // adminAlbumListData is what the album list fragment renders.
 type adminAlbumListData struct {
 	Year string
+	// PublicServed is whether this year's public pages exist. Only `EVENT_YEAR`'s do until the multi-year public
+	// site has its PRD (task 392), so another year's list offers no "Se den" link that would 404.
+	PublicServed bool
 	// Note is the line above the list — a count of unpublished albums, or the outcome of the action that
 	// produced this render. Inside the fragment rather than beside it, so an outcome and the list it produced
 	// arrive together.
@@ -71,7 +74,7 @@ func (app *application) createAdminAlbumFragmentHandler(w http.ResponseWriter, r
 		return
 	}
 
-	albumID, slug, err := app.createAdminAlbum(title, "", 0)
+	albumID, slug, err := app.createAdminAlbum(adminYear(r), title, "", 0)
 	if err != nil {
 		// Rendered as a note in the fragment rather than as an error page: the curator is looking at a list and
 		// mistyped a title, so the answer belongs where they are looking. A 4xx body htmx swapped in would
@@ -100,7 +103,7 @@ func (app *application) createAdminAlbumFragmentHandler(w http.ResponseWriter, r
 	// Bounded and best-effort, never an error: the album *was* created, the event is published, and refusing or
 	// retrying would be a lie about what happened. Worst case the curator sees the note without the card, which
 	// is what they saw before this waited at all. Observed live at well under the first tick.
-	app.waitForAdminAlbum(albumID)
+	app.waitForAdminAlbum(adminYear(r), albumID)
 
 	app.renderAdminAlbumList(w, r,
 		fmt.Sprintf("Albummet “%s” er oprettet som kladde.", title))
@@ -110,13 +113,13 @@ func (app *application) createAdminAlbumFragmentHandler(w http.ResponseWriter, r
 //
 // The fold runs in-process, so this is normally one tick or none. The ceiling is what keeps a stalled consumer
 // from turning a create into a hung request.
-func (app *application) waitForAdminAlbum(albumID string) {
+func (app *application) waitForAdminAlbum(year, albumID string) {
 	const (
 		step = 20 * time.Millisecond
 		max  = 500 * time.Millisecond
 	)
 	for waited := time.Duration(0); waited < max; waited += step {
-		_, _, found, err := app.models.AlbumCurator.Album(app.config.eventYear, albumID)
+		_, _, found, err := app.models.AlbumCurator.Album(year, albumID)
 		if err != nil || found {
 			return
 		}
@@ -153,7 +156,7 @@ func (app *application) setAdminAlbumPublishedFragmentHandler(w http.ResponseWri
 		return
 	}
 
-	a, _, found, err := app.models.AlbumCurator.Album(app.config.eventYear, albumID)
+	a, _, found, err := app.models.AlbumCurator.Album(adminYear(r), albumID)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -163,9 +166,9 @@ func (app *application) setAdminAlbumPublishedFragmentHandler(w http.ResponseWri
 		return
 	}
 
-	if perr := app.publishAlbum(album.VerbUpdated, albumID, album.Updated{
+	if perr := app.publishAlbum(adminYear(r), album.VerbUpdated, albumID, album.Updated{
 		AlbumID:   albumID,
-		Year:      app.config.eventYear,
+		Year:      adminYear(r),
 		Published: &published,
 		UpdatedAt: time.Now().UTC(),
 	}); perr != nil {
@@ -211,7 +214,7 @@ func (app *application) deleteAdminAlbumFragmentHandler(w http.ResponseWriter, r
 		return
 	}
 
-	a, _, found, err := app.models.AlbumCurator.Album(app.config.eventYear, albumID)
+	a, _, found, err := app.models.AlbumCurator.Album(adminYear(r), albumID)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -227,9 +230,9 @@ func (app *application) deleteAdminAlbumFragmentHandler(w http.ResponseWriter, r
 		return
 	}
 
-	if perr := app.publishAlbum(album.VerbDeleted, albumID, album.Deleted{
+	if perr := app.publishAlbum(adminYear(r), album.VerbDeleted, albumID, album.Deleted{
 		AlbumID:   albumID,
-		Year:      app.config.eventYear,
+		Year:      adminYear(r),
 		DeletedAt: time.Now().UTC(),
 	}); perr != nil {
 		app.writeAlbumPublishFailure(w, r, perr)
@@ -252,13 +255,13 @@ func (app *application) renderAdminAlbumList(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	rows, err := app.models.AlbumCurator.All(app.config.eventYear)
+	rows, err := app.models.AlbumCurator.All(adminYear(r))
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
 	}
 
-	data := adminAlbumListData{Year: app.config.eventYear, Note: note}
+	data := adminAlbumListData{Year: adminYear(r), PublicServed: adminYear(r) == app.currentEventYear(), Note: note}
 	drafts := 0
 	for _, a := range rows {
 		if !a.Published && !a.Deleted {
@@ -388,7 +391,7 @@ func (app *application) createAdminAlbumFromPickerHandler(w http.ResponseWriter,
 		return
 	}
 
-	albumID, slug, err := app.createAdminAlbum(title, "", 0)
+	albumID, slug, err := app.createAdminAlbum(adminYear(r), title, "", 0)
 	if err != nil {
 		var cerr *adminAlbumCreateError
 		if errors.As(err, &cerr) && cerr.Kind == adminAlbumCreateRefused {
@@ -405,7 +408,7 @@ func (app *application) createAdminAlbumFromPickerHandler(w http.ResponseWriter,
 
 	// The page's own album list is now stale by one. Told rather than redrawn, through the same
 	// `albums-changed` event page.js fires — see the response header set in renderAdminAlbumPicker.
-	app.waitForAdminAlbum(albumID)
+	app.waitForAdminAlbum(adminYear(r), albumID)
 	app.renderAdminAlbumPicker(w, r, append(checked, albumID),
 		fmt.Sprintf("Albummet “%s” er oprettet som kladde og valgt.", title))
 }
@@ -499,7 +502,7 @@ func (app *application) liveAdminAlbums(w http.ResponseWriter, r *http.Request) 
 		app.ServiceUnavailableResponse(w, r, "albummerne er ikke tilgængelige lige nu")
 		return nil, false
 	}
-	rows, err := app.models.AlbumCurator.All(app.config.eventYear)
+	rows, err := app.models.AlbumCurator.All(adminYear(r))
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return nil, false
@@ -553,7 +556,7 @@ func (app *application) showAdminPatrolConfirmHandler(w http.ResponseWriter, r *
 		return
 	}
 
-	p, found, err := app.models.PublicPatrols.ByNumber(app.config.eventYear, number)
+	p, found, err := app.models.PublicPatrols.ByNumber(adminYear(r), number)
 	if err != nil {
 		app.Logger.Error("resolving a patrol for the tag sheet", "err", err)
 		render("", "Kunne ikke søge. Prøv igen.")
@@ -618,7 +621,7 @@ func (app *application) showAdminCheckpointPickerHandler(w http.ResponseWriter, 
 		return
 	}
 
-	points, err := app.models.CheckpointCurator.Positioned(app.config.eventYear)
+	points, err := app.models.CheckpointCurator.Positioned(adminYear(r))
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -687,6 +690,9 @@ type adminContactSheetData struct {
 
 	// CoverPhotoID is the album's cover on the album view (task 396), marked on its cell; "" elsewhere.
 	CoverPhotoID string
+
+	// Year is the working year, for the thumbnails' `?year=`: an <img> cannot send the header (task 392).
+	Year string
 }
 
 // showAdminContactSheetHandler renders one page of the library as thumbnails.
@@ -703,6 +709,7 @@ func (app *application) showAdminContactSheetHandler(w http.ResponseWriter, r *h
 		HasMore:      page.HasMore,
 		NextOffset:   shown,
 		CoverPhotoID: page.CoverPhotoID,
+		Year:         adminYear(r),
 	}
 
 	switch {

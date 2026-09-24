@@ -26,8 +26,11 @@ import (
 //
 // One helper so the subject is built in one place: `album.Subject` validates the tokens, and an id with
 // a dot in it would publish successfully while quietly never matching the per-album patterns again.
-func (app *application) publishAlbum(verb, albumID string, body any) error {
-	subject, err := album.Subject(app.config.eventYear, albumID, verb)
+//
+// The year is a parameter rather than the configured one since task 392: the curator may be working in another
+// year, and an event whose subject names one year while its body names another would fold into neither cleanly.
+func (app *application) publishAlbum(year, verb, albumID string, body any) error {
+	subject, err := album.Subject(year, albumID, verb)
 	if err != nil {
 		return err
 	}

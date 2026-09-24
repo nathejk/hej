@@ -73,7 +73,7 @@ func (app *application) removeAdminAlbumItemHandler(w http.ResponseWriter, r *ht
 	// The event is keyed on the **ordinal**, because that is what `album_item` is keyed on — but the curator
 	// selected a photograph, not a slot. Resolved here rather than asking the client to know the ordinal: a stale
 	// ordinal in a browser would remove whatever now occupies that position, which is the wrong photograph.
-	_, items, found, err := app.models.AlbumCurator.Album(app.config.eventYear, albumID)
+	_, items, found, err := app.models.AlbumCurator.Album(adminYear(r), albumID)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -103,9 +103,9 @@ func (app *application) removeAdminAlbumItemHandler(w http.ResponseWriter, r *ht
 	//
 	// The ordinal is still resolved here because `album_item`'s primary key is `(albumId, ordinal)` and the
 	// event is the log's record of what happened — but nothing reads it except the pre-386 fallback.
-	if perr := app.publishAlbum(album.VerbItemRemoved, albumID, album.ItemRemoved{
+	if perr := app.publishAlbum(adminYear(r), album.VerbItemRemoved, albumID, album.ItemRemoved{
 		AlbumID:   albumID,
-		Year:      app.config.eventYear,
+		Year:      adminYear(r),
 		PhotoID:   photoID,
 		Ordinal:   ordinal,
 		RemovedAt: time.Now().UTC(),
@@ -174,7 +174,7 @@ func (app *application) deleteAdminPhotoHandler(w http.ResponseWriter, r *http.R
 	// Looked up first, for two reasons: a delete of something that does not exist should answer 404 rather than
 	// appending a no-op to a log that is never rewritten, and the refs have to be captured **before** the fold
 	// runs — afterwards there is no way to learn which bytes the photograph held without replaying.
-	p, found, err := app.models.PhotoCurator.Photo(app.config.eventYear, photoID)
+	p, found, err := app.models.PhotoCurator.Photo(adminYear(r), photoID)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -199,14 +199,14 @@ func (app *application) deleteAdminPhotoHandler(w http.ResponseWriter, r *http.R
 		refs = append(refs, p.ThumbRef)
 	}
 
-	subject, serr := photo.Subject(app.config.eventYear, photoID, photo.VerbDeleted)
+	subject, serr := photo.Subject(adminYear(r), photoID, photo.VerbDeleted)
 	if serr != nil {
 		app.BadRequestResponse(w, r, serr)
 		return
 	}
 	if perr := app.commands.Publish(subject, photo.Deleted{
 		PhotoID:   photoID,
-		Year:      app.config.eventYear,
+		Year:      adminYear(r),
 		Reason:    in.Reason,
 		DeletedAt: time.Now().UTC(),
 	}); perr != nil {

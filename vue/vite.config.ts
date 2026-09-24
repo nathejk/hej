@@ -336,11 +336,11 @@ export default defineConfig({
       // vue/public/ are still served by Vite itself, same as in prod where the
       // Go binary serves both from ./www.
       //
-      // The year is hardcoded because a Vite proxy key cannot be a pattern.
-      // Bump it with the event — and note the app itself derives the year from
-      // the calendar (gates.ts), so a stale key here shows up immediately as a
-      // desktop visitor landing on the app instead of the public site.
-      '/2026': {
+      // Any four-digit year, not only this one: the curator's pages are served
+      // for every workable year (task 392), so /2025/photos must reach the BFF
+      // too. A key starting with `^` is a RegExp to Vite — the earlier comment
+      // here said a key could not be a pattern, which is why it was hardcoded.
+      '^/\\d{4}(/|$)': {
         target: 'http://api:4000',
         changeOrigin: true,
       },

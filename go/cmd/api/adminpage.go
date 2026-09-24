@@ -54,6 +54,11 @@ type adminPageData struct {
 	// the grid a curator lands on already matches the button that is lit.
 	Query string
 
+	// Years are the workable years, for the header's year switch; EventYear is `EVENT_YEAR`, so the page can
+	// mark working in any other year as the abnormal thing it is (task 392).
+	Years     []string
+	EventYear string
+
 	// Album is the album view's editor card; nil on the other two views.
 	Album *adminAlbumPageData
 
@@ -145,7 +150,7 @@ func adminFiltersFor(rawQuery string) ([]adminFilterView, string) {
 //
 // No OpenAPI annotations: an HTML page. See adminPhotosPageHandler.
 func (app *application) adminAlbumsPageHandler(w http.ResponseWriter, r *http.Request) {
-	app.renderAdminPage(w, adminPageData{View: "albums"})
+	app.renderAdminPage(w, r, adminPageData{View: "albums"})
 }
 
 // adminPhotosPageHandler serves upload and the contact sheet (task 396; before that, all of `/admin`).
@@ -154,13 +159,16 @@ func (app *application) adminAlbumsPageHandler(w http.ResponseWriter, r *http.Re
 // glimtopenapi_test.go's isInScope, which task 380 widens to `/api/admin`).
 func (app *application) adminPhotosPageHandler(w http.ResponseWriter, r *http.Request) {
 	filters, query := adminFiltersFor(r.URL.RawQuery)
-	app.renderAdminPage(w, adminPageData{View: "photos", Filters: filters, Query: query})
+	app.renderAdminPage(w, r, adminPageData{View: "photos", Filters: filters, Query: query})
 }
 
 // renderAdminPage fills in what every view shows — the year, the counts — and renders it.
-func (app *application) renderAdminPage(w http.ResponseWriter, data adminPageData) {
-	data.Year = app.config.eventYear
-	data.Root = app.publicRoot()
+func (app *application) renderAdminPage(w http.ResponseWriter, r *http.Request, data adminPageData) {
+	data.Year = adminYear(r)
+	// The working year's prefix, not the public site's: a curator in 2025 is at `/2025/…` (task 392).
+	data.Root = "/" + data.Year
+	data.Years = app.workableYears
+	data.EventYear = app.currentEventYear()
 	data.MaxUploadMB = maxAdminUpload >> 20
 
 	// Nil is the normal degraded state, not an error: no database means no library, and the curator should be
@@ -168,7 +176,7 @@ func (app *application) renderAdminPage(w http.ResponseWriter, data adminPageDat
 	if app.models.PhotoCurator == nil {
 		data.Unavailable = true
 	} else {
-		counts, err := app.models.PhotoCurator.Counts(app.config.eventYear)
+		counts, err := app.models.PhotoCurator.Counts(adminYear(r))
 		if err != nil {
 			app.Logger.Error("reading the library counts for the admin page", "err", err)
 			data.Unavailable = true

@@ -91,7 +91,7 @@ function initAlbumOrder(ctx) {
     body[d.after ? 'afterPhotoId' : 'beforePhotoId'] = d.target;
     ctx.actionNote.textContent = 'Flytter…';
     try {
-      const res = await fetch('/api/admin/albums/' + encodeURIComponent(albumId) + '/move', {
+      const res = await ctx.fetch('/api/admin/albums/' + encodeURIComponent(albumId) + '/move', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

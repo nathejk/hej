@@ -282,8 +282,25 @@ for that somebody to stand.
 
 - [ ] Every photograph, album, location and tag is written under the **configured event year**, and
       every read the tool performs is scoped to it.
-- [ ] The tool can only write to the configured year. Changing years is a deploy-time configuration
-      change, as everywhere else in this service.
+- [ ] ~~The tool can only write to the configured year. Changing years is a deploy-time configuration
+      change, as everywhere else in this service.~~
+
+> **Amended 2026-09-24 (task 392).** The maintainer asked for the year to be selectable, defaulting to the
+> current one, because photographs from previous years still need filing. The two criteria above now read
+> "the **selected** year" in place of "the configured event year". What the original rule protected is kept by
+> making the choice loud and impossible to drift into:
+>
+> - the year is the **path** of every curator page (`/2025/photos`) — never a cookie or a session, so a reload
+>   cannot carry a curator into a year they did not pick;
+> - fragments and the JSON API take it from an `X-Admin-Year` header (`?year=` for thumbnails) and **refuse a
+>   request without one** rather than default to `EVENT_YEAR`;
+> - the workable years are `event_year`'s four-digit years plus `EVENT_YEAR`, read at boot;
+> - working in any year but `EVENT_YEAR` puts a persistent bar under the header on every page;
+> - a guard fails if an admin handler reads the configured year.
+>
+> Bounds verdicts judge a coordinate against **the photograph's** year's race area. A past year's albums can
+> be published, but the public site still serves only `EVENT_YEAR`; the multi-year public site needs its own
+> PRD (task 392's analysis), so the tool shows no public link for another year.
 - [ ] A previous year's photographs and albums remain readable on their own year-prefixed public
       pages and are not visible in this year's library.
 

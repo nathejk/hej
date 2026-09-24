@@ -38,7 +38,7 @@ function initAlbumAction(ctx) {
 
     panelNote.textContent = 'Tilføjer…';
     try {
-      const res = await fetch('/api/admin/albums/items', {
+      const res = await ctx.fetch('/api/admin/albums/items', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ photoIds: Array.from(ctx.selected), albumIds }),

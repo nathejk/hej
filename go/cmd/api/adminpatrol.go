@@ -91,7 +91,7 @@ func (app *application) resolveAdminPatrolHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	p, found, err := app.models.PublicPatrols.ByNumber(app.config.eventYear, number)
+	p, found, err := app.models.PublicPatrols.ByNumber(adminYear(r), number)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -174,7 +174,7 @@ func (app *application) tagAdminPhotosHandler(w http.ResponseWriter, r *http.Req
 	// Re-resolved here rather than trusting a teamId from the client. The confirmation step showed the curator a
 	// name, but the request that follows must not be able to name a *different* patrol than the one confirmed —
 	// and the only way to guarantee that is for the server to do the lookup both times.
-	p, found, err := app.models.PublicPatrols.ByNumber(app.config.eventYear, number)
+	p, found, err := app.models.PublicPatrols.ByNumber(adminYear(r), number)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -193,14 +193,14 @@ func (app *application) tagAdminPhotosHandler(w http.ResponseWriter, r *http.Req
 	now := time.Now().UTC()
 	tagged := 0
 	for _, photoID := range photoIDs {
-		subject, serr := photo.Subject(app.config.eventYear, photoID, photo.VerbPatrolTagged)
+		subject, serr := photo.Subject(adminYear(r), photoID, photo.VerbPatrolTagged)
 		if serr != nil {
 			app.BadRequestResponse(w, r, serr)
 			return
 		}
 		if perr := app.commands.Publish(subject, photo.PatrolTagged{
 			PhotoID:  photoID,
-			Year:     app.config.eventYear,
+			Year:     adminYear(r),
 			TeamID:   p.TeamID,
 			Number:   p.Number,
 			TaggedAt: now,
@@ -258,14 +258,14 @@ func (app *application) untagAdminPhotoHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	subject, err := photo.Subject(app.config.eventYear, photoID, photo.VerbPatrolUntagged)
+	subject, err := photo.Subject(adminYear(r), photoID, photo.VerbPatrolUntagged)
 	if err != nil {
 		app.BadRequestResponse(w, r, err)
 		return
 	}
 	if perr := app.commands.Publish(subject, photo.PatrolUntagged{
 		PhotoID:    photoID,
-		Year:       app.config.eventYear,
+		Year:       adminYear(r),
 		TeamID:     teamID,
 		UntaggedAt: time.Now().UTC(),
 	}); perr != nil {

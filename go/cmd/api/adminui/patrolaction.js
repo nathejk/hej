@@ -63,7 +63,7 @@ function initPatrolAction(ctx) {
     try {
       // The **number** is sent, not a team id: the server re-resolves it, so a client cannot tag a patrol other
       // than the one the curator confirmed.
-      const res = await fetch('/api/admin/photos/tags', {
+      const res = await ctx.fetch('/api/admin/photos/tags', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ photoIds: Array.from(ctx.selected), number: number }),

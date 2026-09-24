@@ -390,3 +390,14 @@ body.draggingcells { cursor: grabbing; user-select: none; }
 
 /* The album's cover on the album view (task 396): the one mark in the grid that is about the album, not the photo. */
 .mark.cover { background: #fbbf24; color: #18181b; }
+
+/* The year switch and the other-year bar (task 392). The bar sticks under the sticky header, in the year's own
+   accent colour, so it is in view on every screen of every page for as long as the curator is in another year. */
+nav.years { display: flex; gap: 0.5rem; font-size: 0.875rem; }
+nav.years a { color: #a1a1aa; }
+nav.years a:hover { color: #fbbf24; }
+.otheryear {
+  position: sticky; top: 4rem; z-index: 9; margin: 0;
+  background: #fbbf24; color: #18181b; padding: 0.5rem 1.5rem; font-weight: 500;
+}
+.otheryear a { color: #18181b; margin-left: 0.5rem; }
