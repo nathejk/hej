@@ -473,6 +473,9 @@ func (app *application) showAdminDelAlbumPickerHandler(w http.ResponseWriter, r 
 		return
 	}
 
+	// `album` preselects one, for the album view (task 396). An id that is not among the live albums selects
+	// nothing, which leaves the placeholder chosen — the safe default for a removal.
+	chosen := r.URL.Query().Get("album")
 	var data adminDelAlbumPickerData
 	for _, a := range rows {
 		data.Albums = append(data.Albums, adminAlbumPickerItem{
@@ -480,6 +483,7 @@ func (app *application) showAdminDelAlbumPickerHandler(w http.ResponseWriter, r 
 			Title:     a.Title,
 			Published: a.Published,
 			ItemCount: a.ItemCount,
+			Checked:   a.ID == chosen,
 		})
 	}
 	app.renderAdminFragment(w, "delalbumpicker", data)

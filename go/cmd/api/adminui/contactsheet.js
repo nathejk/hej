@@ -30,10 +30,10 @@ function initContactSheet(ctx) {
   // DOM. Getting that distinction right is what made the grid safe to render server-side (task 395).
   let order = [];
   let lastClicked = null;
-  // The filter the page was served with (task 396): the server lights the button its URL names, and the first
-  // page of thumbnails was already requested with it.
-  const lit = filters.querySelector('.f.on');
-  let query = lit ? lit.dataset.q : '';
+  // The query the page was served with (task 396): the filter its URL names on the all-photos view, or
+  // `album={id}` on the album view. The first page of thumbnails was already requested with it, and "select all
+  // matching" pages with it, so on the album view that means the album's photographs and nothing else.
+  let query = sheet.dataset.query || '';
 
   // chosen renders "1 valgt" or "12 valgte" (task 387).
   //
@@ -127,7 +127,8 @@ function initContactSheet(ctx) {
     else { toggle(id); lastClicked = id; }
   });
 
-  filters.addEventListener('click', (e) => {
+  // The album view has no filters: its query is the album.
+  if (filters) filters.addEventListener('click', (e) => {
     const b = e.target.closest('.f');
     if (!b) return;
     for (const other of filters.querySelectorAll('.f')) other.classList.toggle('on', other === b);

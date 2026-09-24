@@ -143,7 +143,7 @@ func adminAsset(t *testing.T, name string) string {
 // The script list comes from `adminPageScripts` rather than being repeated, so a tenth file is covered the moment
 // it is served.
 func TestTheAdminAssetsCarryNoTemplateActions(t *testing.T) {
-	names := []string{"page.css", "album.css", "album.js"}
+	names := []string{"page.css"}
 	for _, p := range adminPageScripts {
 		names = append(names, strings.TrimPrefix(p, "adminui/"))
 	}
@@ -236,7 +236,7 @@ func TestAMissingAdminAssetPanics(t *testing.T) {
 				t.Error("want a panic when the marker does not match the asset's filename")
 			}
 		}()
-		_ = mustInjectAdminAssets("adminui/page.html", "adminui/album.css", "adminui/page.js")
+		_ = mustInjectAdminAssets("adminui/page.html", "adminui/fragments.html", "adminui/page.js")
 	})
 }
 

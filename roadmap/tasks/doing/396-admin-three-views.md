@@ -108,6 +108,13 @@ only has to hold until then. What it costs to put authenticated pages under the 
 - Keep the one-script-per-page injection (task 395): each page injects only the `init…` files it uses, and
   `TestEveryAdminContextMemberIsProvided` must hold per page, not just for the union.
 
+## Captions moved to the action bar
+
+The editor's one caption field per photograph did not survive the move to the shared grid, and would not have
+scaled to 200 items anyway. Captions are now a **"Billedtekst"** action on the selection, in both views; with one
+photograph selected the field is prefilled with its caption. The ↑/↓ reorder buttons went with that list, so the
+album view has **no reordering until drag-and-drop lands** — the next piece of this task.
+
 ## Deleting an album
 
 **Added (2026-09-24, maintainer):** *"it should be possible to delete an album (remember a confirm prompt)"*.
@@ -160,13 +167,13 @@ The original questions, for the record:
 
 - [x] Route guards classify admin vs public by the `requireAdmin` wrapper, not by path — landed first
 - [x] `/<year>/albums` shows the album list, the counts, and a link to photographs without an album
-- [ ] `/<year>/album/:slug/edit` shows the editor and the album's photographs with selection and all actions
+- [x] `/<year>/album/:slug/edit` shows the editor and the album's photographs with selection and all actions
 - [x] `/<year>/photos` shows upload, filters and the contact sheet; filters are in the URL
 - [x] An album can be deleted from the list, behind a confirm prompt that names it and says the photographs stay
 - [ ] No public page links to an admin page
 - [x] `album=<id>` filter on the library read and the photos fragment, ordered by ordinal, with tests
-- [ ] Action sheets and selection are shared code between views 2 and 3, not copies
-- [ ] A shared head/nav across the three pages
+- [x] Action sheets and selection are shared code between views 2 and 3, not copies
+- [x] A shared head/nav across the three pages
 - [ ] Verified with a year-sized fixture (~20 albums, ~3,000 photos): no view loads more than one page of
       thumbnails up front
 - [ ] PRD 022 §7 and task 385's half-page updated for the new URLs

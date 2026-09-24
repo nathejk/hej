@@ -2,8 +2,11 @@ package main
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"nathejk.dk/nathejk/table/album"
 )
 
 // Task 396: the tool is three pages under the year, beside the public ones, instead of one page at `/admin`.
@@ -96,5 +99,72 @@ func TestThePublicAlbumPageStaysPublicBesideItsEditor(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
 		t.Error("the public album page must not ask for the admin credential")
+	}
+}
+
+// albumViewApp has one album, "natten", with an id that needs no escaping, and a library to read counts from.
+func albumViewApp(t *testing.T) *httptest.Server {
+	t.Helper()
+	app, srv := adminApp(t)
+	app.models.PhotoCurator = &libraryCurator{}
+	app.models.AlbumCurator = newAlbumCurator(&curatedAlbum{a: album.CuratorAlbum{
+		ID: "al-1", Slug: "natten", Title: "Natten", ItemCount: 4,
+	}})
+	return srv
+}
+
+// The album view is the editor card over the shared contact sheet, narrowed to the album — the same grid, the
+// same action bar and the same sheets as the library, so sorting an album needs no trip back to it.
+func TestTheAlbumViewIsTheEditorOverTheSharedSheet(t *testing.T) {
+	srv := albumViewApp(t)
+
+	resp := getAdmin(t, srv, "/2026/album/natten/edit", testAdminUser, testAdminPass)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	body := adminBody(t, resp)
+
+	for _, want := range []string{
+		`id="albumeditor" data-album="al-1"`,
+		`data-query="album=al-1"`,
+		`hx-get="/admin/fragments/photos?limit=120&album=al-1"`,
+		`4 billeder i albummet`,
+		`data-act="caption"`, `data-act="album"`, `data-act="position"`, `data-act="patrol"`,
+		`data-act="credit"`, `data-act="delete"`,
+		`id="captionpanel"`, `id="delpanel"`,
+		`initAlbumEditor`,
+		`<title>Billedarkiv 2026 — Natten`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the album view should contain %s", want)
+		}
+	}
+	// Not the library's own parts: no upload and no filters, and no year-wide counts that would read as the album's.
+	for _, unwanted := range []string{`id="drop"`, `id="filters"`, `id="counts"`} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("the album view should not carry %s", unwanted)
+		}
+	}
+}
+
+func TestTheAlbumViewOfAnUnknownSlugIs404(t *testing.T) {
+	srv := albumViewApp(t)
+
+	if got := getAdmin(t, srv, "/2026/album/findes-ikke/edit", testAdminUser, testAdminPass).StatusCode; got != http.StatusNotFound {
+		t.Errorf("want 404, got %d", got)
+	}
+}
+
+// On the album view, "Fjern fra et album" defaults to that album. Asked for by the sheet with `?album=`.
+func TestTheRemovePickerCanPreselectAnAlbum(t *testing.T) {
+	srv := albumViewApp(t)
+
+	body := adminBody(t, getAdmin(t, srv, "/admin/fragments/delalbumpicker?album=al-1", testAdminUser, testAdminPass))
+	if !strings.Contains(body, `<option value="al-1" selected>`) {
+		t.Errorf("the album asked for should be selected\n%s", body)
+	}
+	body = adminBody(t, getAdmin(t, srv, "/admin/fragments/delalbumpicker", testAdminUser, testAdminPass))
+	if strings.Contains(body, "selected") {
+		t.Errorf("with no album asked for, nothing is preselected\n%s", body)
 	}
 }

@@ -41,8 +41,8 @@ import (
 
 // adminPageData is what the shell renders.
 type adminPageData struct {
-	// View is which of the tool's pages this is: "albums" (the landing page) or "photos" (upload and the contact
-	// sheet). One template renders both, so the header, the counts and the styling cannot drift apart (task 396).
+	// View is which of the tool's pages this is: "albums" (the landing page), "photos" (upload and the contact
+	// sheet) or "album" (one album's editor over its photographs). One template renders both, so the header, the counts and the styling cannot drift apart (task 396).
 	View string
 
 	// Root is the year's path prefix, `/2026`. The curator's pages hang off it beside the public ones (task 396).
@@ -53,6 +53,9 @@ type adminPageData struct {
 	// Query is the switched-on preset's query string, empty for "Alle". Passed to the first fragment request so
 	// the grid a curator lands on already matches the button that is lit.
 	Query string
+
+	// Album is the album view's editor card; nil on the other two views.
+	Album *adminAlbumPageData
 
 	// Year is the event year every write lands in, shown prominently because PRD 022 §5 makes it the one
 	// thing a curator cannot undo by editing: a photograph uploaded into the wrong year is not a typo, it is
@@ -226,7 +229,7 @@ func (app *application) renderAdminPage(w http.ResponseWriter, data adminPageDat
 // keeps it that way. That is also why the year appears in the markup twice — once for a human and once for the
 // uploader — rather than being passed through a variable.
 
-//go:embed adminui/page.html adminui/page.css adminui/album.html adminui/album.css adminui/album.js
+//go:embed adminui/page.html adminui/page.css adminui/albumeditor.js adminui/captionaction.js
 //go:embed adminui/main.js adminui/sheetshell.js adminui/contactsheet.js adminui/upload.js
 //go:embed adminui/albumaction.js adminui/positionaction.js adminui/patrolaction.js
 //go:embed adminui/creditaction.js adminui/deleteaction.js
@@ -257,9 +260,11 @@ var adminPageScripts = []string{
 	"adminui/albumaction.js",
 	"adminui/positionaction.js",
 	"adminui/patrolaction.js",
+	"adminui/captionaction.js",
 	"adminui/creditaction.js",
 	"adminui/deleteaction.js",
 	"adminui/upload.js",
+	"adminui/albumeditor.js",
 }
 
 // adminTemplates is the page plus the htmx fragments (task 395), parsed as one set.

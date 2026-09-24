@@ -26,8 +26,18 @@ function initDeleteAction(ctx) {
 
     // The album select is a fragment. Fetched on open rather than at page load, because albums are created while
     // this page is open.
-    ctx.fragment('GET', '/admin/fragments/delalbumpicker', '#delalbum');
+    //
+    // On the album view it is asked for with that album chosen (task 396), since that is the album a curator
+    // sorting it means — still a select they can change, not a fixed target.
+    const editor = document.getElementById('albumeditor');
+    const current = editor ? '?album=' + encodeURIComponent(editor.dataset.album) : '';
+    ctx.fragment('GET', '/admin/fragments/delalbumpicker' + current, '#delalbum');
   }
+  // A select that arrives with an album chosen enables its button; the `change` handler below never fires for it.
+  delPanel.addEventListener('htmx:afterSwap', () => {
+    const sel = document.getElementById('delalbum');
+    doRemove.disabled = !(sel && sel.value);
+  });
 
   // Delegated from the sheet rather than bound to the select, because the fragment swap replaces that element.
   delPanel.addEventListener('change', (e) => {

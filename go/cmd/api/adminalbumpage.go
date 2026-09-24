@@ -1,10 +1,12 @@
 package main
 
 import (
-	"html/template"
 	"net/http"
+	"net/url"
 
 	"github.com/julienschmidt/httprouter"
+
+	"nathejk.dk/nathejk/table/album"
 )
 
 // The album editor's page (PRD 022 §7, task 378).
@@ -21,13 +23,17 @@ import (
 //
 // # What is editable here, and what is not
 //
-// Title, description, sort order, publication, the item order, and each photograph's caption. **Not the slug** —
+// Title, description, sort order and publication on the card; captions, and everything else the library can do,
+// through the shared action bar over the album's photographs (task 396). **Not the slug** —
 // it is the album's public address and a retitled album answering 404 is a dead link in a family's chat history.
 // Neither the request shape nor `album.Updated` has a field for it.
 
-// adminAlbumPageData is what the editor renders.
+// adminAlbumPageData is the album view's editor card.
+//
+// The photographs are not here: since task 396 they are the shared contact sheet, narrowed with `album={id}`, so
+// the album view has the library's selection and actions rather than a list of its own.
 type adminAlbumPageData struct {
-	Year string
+	Root string
 
 	AlbumID     string
 	Slug        string
@@ -37,9 +43,9 @@ type adminAlbumPageData struct {
 	Published   bool
 	Deleted     bool
 
-	// Items are the album's positions in order, removed ones included — which is the difference from the public
-	// page, and the reason this reads through the curator interface.
-	Items []adminAlbumItemView
+	// ItemCount is the album's live items — neither removed nor deleted from the library — which is what the
+	// grid below shows.
+	ItemCount int
 
 	// PublicPath is where the album lives on the open web, shown so a curator can check their work. Rendered even
 	// when unpublished, with the page saying it is not live yet: knowing the address a draft *will* have is
@@ -47,28 +53,9 @@ type adminAlbumPageData struct {
 	PublicPath string
 }
 
-// adminAlbumItemView is one position in the editor.
-type adminAlbumItemView struct {
-	Ordinal int
-	PhotoID string
-	Caption string
-
-	// Removed is whether this position was taken out of the album.
-	Removed bool
-	// PhotoDeleted is whether the photograph itself was deleted from the library.
-	//
-	// Distinct from Removed, and the page says which: a removed item left *this album*, a deleted photograph left
-	// *everywhere*, and only one of the two is fixed by re-adding it here. PRD 022 §5 requires the copy to make
-	// that clear, and this is where it has to.
-	PhotoDeleted bool
-
-	// IsCover is whether this is the album's cover — the first live item, since there is no cover column.
-	IsCover bool
-}
-
-// adminAlbumPageHandler serves one album's editor.
+// adminAlbumPageHandler serves one album's view: the editor card, then its photographs as the contact sheet.
 //
-// No OpenAPI annotations: an HTML page, like `/admin` itself.
+// No OpenAPI annotations: an HTML page, like the tool's other two.
 func (app *application) adminAlbumPageHandler(w http.ResponseWriter, r *http.Request) {
 	if app.models.AlbumCurator == nil {
 		app.ServiceUnavailableResponse(w, r, "albummerne er ikke tilgængelige lige nu")
@@ -86,77 +73,34 @@ func (app *application) adminAlbumPageHandler(w http.ResponseWriter, r *http.Req
 		app.ServerErrorResponse(w, r, err)
 		return
 	}
-	var albumID string
-	for _, a := range albums {
-		if a.Slug == slug {
-			albumID = a.ID
+	var found *album.CuratorAlbum
+	for i := range albums {
+		if albums[i].Slug == slug {
+			found = &albums[i]
 			break
 		}
 	}
-	if albumID == "" {
+	if found == nil {
 		app.NotFoundResponse(w, r)
 		return
 	}
+	a := *found
 
-	a, items, found, err := app.models.AlbumCurator.Album(app.config.eventYear, albumID)
-	if err != nil {
-		app.ServerErrorResponse(w, r, err)
-		return
-	}
-	if !found {
-		app.NotFoundResponse(w, r)
-		return
-	}
-
-	data := adminAlbumPageData{
-		Year:        app.config.eventYear,
-		AlbumID:     a.ID,
-		Slug:        a.Slug,
-		Title:       a.Title,
-		Description: a.Description,
-		SortOrder:   a.SortOrder,
-		Published:   a.Published,
-		Deleted:     a.Deleted,
-		PublicPath:  "/" + app.config.eventYear + "/album/" + a.Slug,
-		Items:       make([]adminAlbumItemView, 0, len(items)),
-	}
-
-	// The cover is the first **live** item, which is the definition the public read uses — there is no cover
-	// column, so reordering is how a cover is chosen. Computed here rather than in the template, because a
-	// template deciding it would be a second definition.
-	coverSet := false
-	for _, it := range items {
-		view := adminAlbumItemView{
-			Ordinal:      it.Ordinal,
-			PhotoID:      it.PhotoID,
-			Caption:      it.Caption,
-			Removed:      it.Removed,
-			PhotoDeleted: it.PhotoDeleted,
-		}
-		if !coverSet && !it.Removed && !it.PhotoDeleted {
-			view.IsCover = true
-			coverSet = true
-		}
-		data.Items = append(data.Items, view)
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := adminAlbumTemplates.ExecuteTemplate(w, "adminalbum", data); err != nil {
-		app.Logger.Error("rendering the admin album page", "err", err)
-	}
+	app.renderAdminPage(w, adminPageData{
+		View: "album",
+		// The grid's first request, and "select all matching", both narrow to this album.
+		Query: "album=" + url.QueryEscape(a.ID),
+		Album: &adminAlbumPageData{
+			Root:        app.publicRoot(),
+			AlbumID:     a.ID,
+			Slug:        a.Slug,
+			Title:       a.Title,
+			Description: a.Description,
+			SortOrder:   a.SortOrder,
+			Published:   a.Published,
+			Deleted:     a.Deleted,
+			ItemCount:   a.ItemCount,
+			PublicPath:  app.publicRoot() + "/album/" + a.Slug,
+		},
+	})
 }
-
-// adminAlbumTemplates holds the editor's markup.
-//
-// Its own template rather than a second definition inside `adminTemplates`: the two pages share a look but not a
-// layout, and one template set holding both would make every change to either a change to a file nobody can read
-// in one screen. The styling is duplicated deliberately and is small; if a third admin page appears, that is the
-// moment to extract a shared head.
-// adminAlbumTemplates holds the editor's markup, assembled from adminui/album.{html,css,js} (task 394).
-//
-// Same arrangement as the index page's, and the same reason: a backtick anywhere in the CSS, JS or HTML used to
-// terminate the Go raw string this lived in. The @inject markers are replaced with the other two files' source
-// before parsing, so html/template still sees one document and still contextually escapes the markup's actions.
-var adminAlbumTemplates = template.Must(template.New("adminalbum").Parse(
-	mustInjectAdminAssets("adminui/album.html", "adminui/album.css", "adminui/album.js"),
-))

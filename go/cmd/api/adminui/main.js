@@ -75,10 +75,14 @@ function initAdminTool() {
   initAlbumAction(ctx);
   initPositionAction(ctx);
   initPatrolAction(ctx);
+  initCaptionAction(ctx);
   initCreditAction(ctx);
   initDeleteAction(ctx);
 
-  initUpload(ctx);
+  // The two features that belong to one view each (task 396): upload is the all-photos view's, the editor card is
+  // the album view's. The rest above is shared by both.
+  if (document.getElementById('drop')) initUpload(ctx);
+  initAlbumEditor(ctx);
 }
 
 initAdminTool();

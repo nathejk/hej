@@ -84,7 +84,7 @@ func TestNothingWritesTheDanishPluralByHand(t *testing.T) {
 		"adminalbum.go", "adminpatrol.go", "adminposition.go", "adminlibrary.go", "adminfragments.go",
 		"publicsite.go", "albumpage.go", "glimtpublic.go",
 	}
-	assets := []string{"adminui/fragments.html", "adminui/page.html", "adminui/album.html"}
+	assets := []string{"adminui/fragments.html", "adminui/page.html"}
 	assets = append(assets, adminPageScripts...)
 
 	// The two places a hand-written plural is correct, each with its reason. An allowlist rather than a looser

@@ -173,7 +173,7 @@ needs to know why the number came back smaller than their selection.
 <select id="delalbum">
   <option value="">— vælg album —</option>
   {{range .Albums}}
-  <option value="{{.AlbumID}}">{{.Title}}{{if not .Published}} (kladde){{end}}</option>
+  <option value="{{.AlbumID}}"{{if .Checked}} selected{{end}}>{{.Title}}{{if not .Published}} (kladde){{end}}</option>
   {{end}}
 </select>
 {{end}}
@@ -329,4 +329,66 @@ all-photos view or send a colleague a link to it — and because the selection d
     <a href="{{.Root}}/photos"{{if eq .View "photos"}} aria-current="page"{{end}}>Alle billeder</a>
   </nav>
 </header>
+{{end}}
+
+{{/*
+The album editor's own fields (task 378; part of the tool's page since task 396).
+
+What is editable here: title, description, sort order and publication. **Not the slug** — it is the album's
+public address, and a retitled album answering 404 is a dead link in a family's chat history. Neither the request
+shape nor `album.Updated` has a field for it.
+
+The photographs are not rendered here any more. They are the shared contact sheet below this card, narrowed to
+the album, so the album view has the same selection and actions as the library.
+*/}}
+{{define "albumeditor"}}
+<section id="albumeditor" data-album="{{.AlbumID}}">
+  <h2>{{.Title}}
+    {{if .Deleted}}<span class="badge del">Slettet</span>
+    {{else if .Published}}<span class="badge pub">Udgivet</span>
+    {{else}}<span class="badge drafty">Kladde</span>{{end}}
+  </h2>
+  <p id="editnote" aria-live="polite"></p>
+
+  <details class="card"{{if not .Title}} open{{end}}>
+    <summary>Albummets oplysninger</summary>
+    <label for="title">Titel</label>
+    <input type="text" id="title" value="{{.Title}}" maxlength="120">
+
+    <label for="desc">Beskrivelse</label>
+    <textarea id="desc" maxlength="2000">{{.Description}}</textarea>
+
+    <label for="sort">Rækkefølge på forsiden</label>
+    <input type="number" id="sort" value="{{.SortOrder}}" step="10">
+
+    {{/* The slug is shown but not editable, and the page says why. A field a curator cannot change is worth
+         explaining, or it reads as a bug. */}}
+    <label for="slug">Adresse</label>
+    <input type="text" id="slug" value="{{.Slug}}" readonly>
+    <p class="hint">Adressen kan ikke ændres. Den er <code>{{.PublicPath}}</code>, og et album der skifter
+    adresse bliver et dødt link i de beskeder folk allerede har sendt.
+    {{if .Published}}<a href="{{.PublicPath}}">Se den offentlige side</a>.{{else}}Den er ikke udgivet endnu.{{end}}</p>
+
+    <p>
+      <button type="button" id="save">Gem ændringer</button>
+    </p>
+  </details>
+
+  {{if not .Deleted}}
+  <p>
+    {{if .Published}}
+      <button type="button" class="ghost" id="unpublish">Fjern fra forsiden</button>
+    {{else}}
+      <button type="button" id="publish">Udgiv på forsiden</button>
+    {{end}}
+    <span class="hint">Udgivelse slår igennem på forsiden inden for et minut.</span>
+  </p>
+  {{end}}
+
+  <h2>{{photos .ItemCount}} i albummet</h2>
+  {{if not .ItemCount}}
+  <p class="hint">Der er ingen billeder i albummet endnu. Vælg dem under <a href="{{.Root}}/photos">Alle billeder</a>
+  og brug <strong>Tilføj til album</strong>.</p>
+  {{end}}
+</section>
 {{end}}

@@ -6,13 +6,13 @@
 <!-- Belt and braces with the X-Robots-Tag header requireAdmin sets: a password-protected page in a search
      index is an invitation, and the cost of saying it twice is one line. -->
 <meta name="robots" content="noindex, nofollow">
-<title>Billedarkiv {{.Year}} — {{if eq .View "albums"}}Album{{else}}Alle billeder{{end}} — Nathejk</title>
+<title>Billedarkiv {{.Year}} — {{if eq .View "albums"}}Album{{else if eq .View "album"}}{{.Album.Title}}{{else}}Alle billeder{{end}} — Nathejk</title>
 <!-- The map island's Leaflet, **vendored and self-hosted** like the public patrol page's (task 342). Not a CDN:
      see scripts/vendor-leaflet.sh for the reasoning, which applies here too — and the same files, so this page
      adds no new dependency and no second mapping library. This is the one exception to the page's
      no-build-step rule (PRD 022 §7), and it is an exception because reusing the island is cheaper than
      introducing a second way to draw a map. -->
-{{if eq .View "photos"}}
+{{if ne .View "albums"}}
 <link rel="stylesheet" href="/vendor/leaflet.css">
 <script src="/vendor/leaflet.js" defer></script>
 {{end}}
@@ -33,7 +33,9 @@
 <body>
 {{template "adminheader" .}}
 <main>
-{{if .Unavailable}}
+{{if eq .View "album"}}
+  <!-- No library counts here: they are about the whole year, and on one album's page they read as that album's. -->
+{{else if .Unavailable}}
   <p class="warn">Billedarkivet kan ikke læses lige nu. Du er logget ind, men databasen svarer ikke —
   prøv igen om et øjeblik.</p>
 {{else}}
@@ -68,6 +70,8 @@
     <p class="hint">Henter album…</p>
   </section>
 
+{{else if eq .View "album"}}
+  {{template "albumeditor" .Album}}
 {{else}}
   <h2>Læg billeder op</h2>
   <section id="drop" class="idle" data-max-mb="{{.MaxUploadMB}}" aria-describedby="drophint">
@@ -96,6 +100,12 @@
     {{end}}
   </div>
 
+{{end}}
+
+{{if ne .View "albums"}}
+  <!-- From here down is shared by the all-photos view and the album view (task 396): the same grid, selection,
+       action bar and sheets, so a curator sorting an album has every action there rather than a trip back to the
+       library. The album view's grid is the same fragment, narrowed with `album={id}`. -->
   <p id="sheetnote" class="todo" aria-live="polite">Henter billeder…</p>
   <!-- The action bar's outcome line, separate from the shown-count above.
 
@@ -113,6 +123,7 @@
        The cells' click handling is delegated from here rather than bound per cell, which is what makes a swap
        free. -->
   <div id="sheet" role="listbox" aria-multiselectable="true" aria-label="Billeder" tabindex="0"
+       data-query="{{.Query}}"
        hx-get="/admin/fragments/photos?limit=120{{if .Query}}&{{.Query}}{{end}}" hx-trigger="load" hx-swap="innerHTML"></div>
   <!-- The "more" button arrives as an out-of-band swap carrying the next page's offset, so the browser never adds
        up page sizes — its idea of how many it holds would drift the first time a clamped limit differed from the
@@ -127,6 +138,7 @@
     <button type="button" data-act="album">Tilføj til album</button>
     <button type="button" data-act="position">Sæt position</button>
     <button type="button" data-act="patrol">Tag patrulje</button>
+    <button type="button" data-act="caption">Billedtekst</button>
     <button type="button" data-act="credit">Fotokredit</button>
     <button type="button" data-act="delete">Fjern eller slet</button>
     <button type="button" id="clearsel">Ryd valg</button>
@@ -219,6 +231,21 @@
       <button type="button" class="ghost" id="closetag">Annuller</button>
     </p>
   </div>
+  <!-- The caption sheet (task 396). It replaced the album editor's one-field-per-photograph list, which does not
+       scale to 200 items. The caption belongs to the **photograph**, so the sheet says it changes in every album. -->
+  <div id="captionpanel" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Billedtekst">
+    <h3>Billedtekst</h3>
+    <p id="captionnote"></p>
+    <p>
+      <label for="captiontext">Billedtekst</label>
+      <input type="text" id="captiontext" maxlength="1000" autocomplete="off">
+    </p>
+    <p class="hint">Billedteksten hører til billedet, så den er den samme i alle album billedet ligger i.</p>
+    <p>
+      <button type="button" id="docaption">Gem billedtekst</button>
+      <button type="button" class="ghost" id="closecaption">Annuller</button>
+    </p>
+  </div>
   <!-- The credit sheet (task 393). The only place in this tool that records a person's name, and the copy says
        so plainly — a curator typing a colleague's name onto a public page should know that is what they are
        doing, rather than filling in a field that looks like a caption. -->
@@ -285,7 +312,7 @@
   </div>
 {{end}}
 </main>
-{{if eq .View "photos"}}
+{{if ne .View "albums"}}
 <script>
 // The tool's own JavaScript, spliced in as one script rather than served as nine (task 395).
 //
@@ -300,9 +327,11 @@
 // @inject albumaction.js
 // @inject positionaction.js
 // @inject patrolaction.js
+// @inject captionaction.js
 // @inject creditaction.js
 // @inject deleteaction.js
 // @inject upload.js
+// @inject albumeditor.js
 })();
 </script>
 {{end}}
