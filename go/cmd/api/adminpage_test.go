@@ -489,40 +489,63 @@ func TestAdminUploaderExplainsEveryFailureInDanish(t *testing.T) {
 	}
 }
 
-// **The boundary this task must not cross.** No npm dependency, no bundler, no framework, and nothing added
-// under `vue/` (PRD 022 §7, §8.10).
+// **The boundary this tool must not cross**, restated after task 395 widened it.
 //
-// Checked against git rather than by inspection, because the failure would be somebody reaching for a helper
-// library at the moment the JavaScript gets awkward — which is precisely when nobody re-reads the PRD.
+// PRD 022 §7 and §8.10 originally drew this line at *no framework at all*: the page was to have no npm
+// dependency, no bundler, no build step and nothing under `vue/`, with vendored Leaflet as the single
+// exception. This test is what held that.
+//
+// The maintainer widened it in task 395, after measuring that ~600 of the page's 1,400 lines of JavaScript were
+// fetch-then-render boilerplate: **htmx, Alpine and Pico are now permitted.** The parts of the line that did
+// *not* move are the parts that mattered, and they are what this now asserts:
+//
+//   - **Self-hosted, never a CDN.** A CDN would put a third party in a position to log who looked at the
+//     event's photographs. Every library is vendored, pinned and served from this binary.
+//   - **No npm, no bundler, no build step.** That is why Pico was chosen over Tailwind, whose mechanism
+//     requires scanning markup at build time — see adminui/vendor/README.md.
+//   - **Nothing under `vue/`.** The PWA and the website stay separate; that is the maintainer's hard rule.
+//
+// So this is an allowlist of four, not a licence. A fifth library still fails and still needs its own decision.
 func TestTheAdminToolAddsNothingToTheFrontend(t *testing.T) {
 	src := adminPageSource(t)
 
-	// The one permitted external script, and the reason it is permitted.
-	//
-	// PRD 022 §7 names the map island as the single exception to this page's no-build-step rule: the public
-	// patrol page already ships vendored, self-hosted Leaflet (task 342), and reusing those exact files is
-	// cheaper than introducing a second way to draw a map. It is **vendored**, not a CDN — which is the part that
-	// matters, since a CDN would put a third party in a position to log who looked at the event's photographs.
-	//
-	// An allowlist rather than dropping the check: everything else still fails, including a second copy of
-	// Leaflet, a clustering plugin, or the same library from a CDN.
-	const vendoredLeaflet = `<script src="/vendor/leaflet.js" defer></script>`
-	if !strings.Contains(src, vendoredLeaflet) {
-		t.Error("the map island must load the same vendored Leaflet the public patrol page uses")
+	// The permitted set, each with the reason it is permitted. Matched as whole tags so a switch to a CDN URL
+	// fails here rather than only in the CDN check below.
+	for _, allowed := range []struct{ tag, why string }{
+		{`<script src="/vendor/leaflet.js" defer></script>`,
+			"the map island reuses the exact vendored Leaflet the public patrol page ships (task 342), which is " +
+				"cheaper than a second way to draw a map"},
+		{`<script src="/admin/vendor/htmx.min.js" defer></script>`,
+			"htmx replaces the fetch-then-render layer with server-rendered fragments (task 395)"},
+		{`<script src="/admin/vendor/alpine.min.js" defer></script>`,
+			"Alpine holds the local state the sheets need without a build step"},
+		{`<link rel="stylesheet" href="/admin/vendor/pico.min.css">`,
+			"Pico is one static stylesheet, chosen over Tailwind precisely because it needs no pipeline"},
+	} {
+		if !strings.Contains(src, allowed.tag) {
+			t.Errorf("the page no longer loads %s — %s", allowed.tag, allowed.why)
+		}
 	}
-	scriptTags := strings.Count(src, "<script src=")
-	if scriptTags != 1 {
-		t.Errorf("want exactly one external script (the vendored Leaflet), found %d — a second one is a new "+
-			"dependency and needs its own decision", scriptTags)
+
+	// Nothing beyond the allowlist. Counted, so a fifth library is a failure rather than a thing somebody
+	// noticed later.
+	if got := strings.Count(src, "<script src="); got != 3 {
+		t.Errorf("want exactly 3 external scripts (Leaflet, htmx, Alpine), found %d — a fourth is a new "+
+			"dependency and needs its own decision", got)
 	}
-	for _, cdn := range []string{"unpkg", "jsdelivr", "cdn.", "googleapis", "//cdnjs"} {
+	if got := strings.Count(src, "<link rel=\"stylesheet\""); got != 2 {
+		t.Errorf("want exactly 2 stylesheets (Leaflet's and Pico), found %d", got)
+	}
+
+	// **Self-hosted only.** This is the half of the original boundary that did not move an inch.
+	for _, cdn := range []string{"unpkg", "jsdelivr", "cdn.", "googleapis", "//cdnjs", "esm.sh", "skypack"} {
 		if strings.Contains(src, cdn) {
-			t.Errorf("the admin page references %q: the map libraries are vendored precisely so no third party "+
+			t.Errorf("the admin page references %q: every library is vendored precisely so no third party "+
 				"learns who looked at the event's photographs", cdn)
 		}
 	}
 
-	// And the page's own script pulls nothing in.
+	// And the page's own script still pulls nothing in at runtime.
 	script := src[strings.Index(src, "<script>"):]
 	for _, smell := range []string{"import ", "require(", "importScripts", "eval("} {
 		if strings.Contains(script, smell) {

@@ -1,0 +1,8 @@
+# Pinned versions of the admin tool's vendored front-end libraries.
+# Machine-readable twin of README.md's table. Checked by
+# TestTheVendoredAssetsMatchTheirPinnedVersions, so this file and the bytes cannot drift apart.
+#
+# file<TAB>version<TAB>url
+htmx.min.js	2.0.4	https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js
+alpine.min.js	3.14.9	https://unpkg.com/alpinejs@3.14.9/dist/cdn.min.js
+pico.min.css	2.0.6	https://unpkg.com/@picocss/pico@2.0.6/css/pico.min.css

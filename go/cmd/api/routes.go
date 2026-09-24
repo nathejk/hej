@@ -272,6 +272,13 @@ func (app *application) routes() http.Handler {
 		// The album editor (task 378). The slug is **not** editable: it is the album's public address, frozen at
 		// creation, and neither the request shape nor the event has a field for it.
 		router.HandlerFunc(http.MethodGet, "/admin/album/:slug", app.requireAdmin(app.adminAlbumPageHandler))
+		// The pinned third-party libraries the pages load (task 395): htmx, Alpine and Pico, embedded in the
+		// binary rather than fetched from a CDN — see adminui/vendor/README.md.
+		//
+		// Behind `requireAdmin` like everything else on this surface, which costs them the caching they would
+		// otherwise get (`no-store`, task 371) and keeps that header's rule true without an exception. The
+		// asset name is matched against a fixed map, never joined to a path.
+		router.HandlerFunc(http.MethodGet, "/admin/vendor/:asset", app.requireAdmin(app.serveAdminVendorHandler))
 		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId", app.requireAdmin(app.updateAdminAlbumHandler))
 		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId/items", app.requireAdmin(app.reorderAdminAlbumItemsHandler))
 		// The two removals (task 379), and they are deliberately different endpoints for different acts: taking a

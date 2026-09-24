@@ -235,6 +235,133 @@ func TestTheAdminHandlersCarryNoMarkup(t *testing.T) {
 	}
 }
 
+// **The vendored libraries match the versions they claim** (task 395).
+//
+// # Why a test and not just a README
+//
+// Updating a vendored library is three curl commands and two files to edit, so the failure mode is obvious: the
+// bytes change and the table does not, or the reverse. Then `vendor/README.md` describes a version nobody is
+// running, and the next person to debug something reads a lie.
+//
+// Every one of the three announces its own version in its own bytes, so this is checkable without a network or
+// a lockfile. **The committed file is the lockfile** — that is the point of vendoring — and this is what keeps
+// its label attached.
+func TestTheVendoredAssetsMatchTheirPinnedVersions(t *testing.T) {
+	pinned := adminAsset(t, "vendor/vendor.txt")
+
+	// How each library states its own version. Not a shared pattern: they differ, and pretending otherwise
+	// would mean a loose regex that matches some other number in a minified bundle.
+	announces := map[string]func(version string) string{
+		"htmx.min.js":   func(v string) string { return `version:"` + v + `"` },
+		"alpine.min.js": func(v string) string { return `version:"` + v + `"` },
+		"pico.min.css":  func(v string) string { return "v" + v },
+	}
+
+	seen := 0
+	for _, line := range strings.Split(pinned, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) < 3 {
+			t.Errorf("vendor.txt line is not file<TAB>version<TAB>url: %q", line)
+			continue
+		}
+		name, version, url := fields[0], fields[1], fields[2]
+		seen++
+
+		needle, known := announces[name]
+		if !known {
+			t.Errorf("vendor.txt pins %s, but this test does not know how that library states its version. "+
+				"Add it to `announces` rather than dropping the check", name)
+			continue
+		}
+		if got := needle(version); !strings.Contains(adminAsset(t, "vendor/"+name), got) {
+			t.Errorf("%s does not announce %q. vendor.txt claims %s — either the file was re-downloaded at a "+
+				"different version, or the table was edited without re-downloading", name, got, version)
+		}
+		// The URL must name the same version, so a copy-paste that updated one number and not the other fails.
+		if !strings.Contains(url, version) {
+			t.Errorf("%s: the pinned URL %q does not contain version %s", name, url, version)
+		}
+		// And the README's table must agree, since that is the file a human reads. Read from disk rather than
+		// the embed set: it is a repo document, not a served asset, so there is no reason to ship it in the
+		// binary.
+		if readme := adminSource(t, "adminui/vendor/README.md"); !strings.Contains(readme, "**"+version+"**") {
+			t.Errorf("README.md does not list version %s for %s", version, name)
+		}
+	}
+
+	if seen != len(announces) {
+		t.Errorf("vendor.txt pins %d libraries, %d are embedded and served — a file served but unpinned is a "+
+			"dependency nobody is tracking", seen, len(announces))
+	}
+}
+
+// The vendor route serves each pinned library, and **nothing else**.
+//
+// The asset name comes from the URL. A handler that joined it to a directory would be one encoded `../` away
+// from serving this service's templates out of the embedded filesystem; matching against a fixed map cannot
+// express a path that is not in the map. Asserted because "we look it up in a map" is exactly the kind of
+// detail a later refactor tidies into a `filepath.Join`.
+func TestTheAdminVendorRouteServesOnlyThePinnedAssets(t *testing.T) {
+	_, srv := adminApp(t)
+
+	for name, wantType := range map[string]string{
+		"htmx.min.js":   "application/javascript",
+		"alpine.min.js": "application/javascript",
+		"pico.min.css":  "text/css",
+	} {
+		resp := getAdmin(t, srv, "/admin/vendor/"+name, testAdminUser, testAdminPass)
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("%s: want 200, got %d", name, resp.StatusCode)
+			continue
+		}
+		if got := resp.Header.Get("Content-Type"); !strings.Contains(got, wantType) {
+			t.Errorf("%s: want %s, got %q", name, wantType, got)
+		}
+		if len(body) < 10_000 {
+			t.Errorf("%s served %d bytes, which is too small to be the real library", name, len(body))
+		}
+		// Still `no-store`, like every other response on this surface. The libraries are public, but the rule
+		// is the rule — see the handler's doc for why no exception was made.
+		if got := resp.Header.Get("Cache-Control"); !strings.Contains(got, "no-store") {
+			t.Errorf("%s: admin responses carry no-store, got %q", name, got)
+		}
+	}
+
+	// Anything not pinned is a 404, including the traversal shapes.
+	for _, name := range []string{
+		"vendor.txt", "README.md", "page.js", "nope.js",
+		"..%2fpage.js", "..%2f..%2fadminpage.go",
+	} {
+		resp := getAdmin(t, srv, "/admin/vendor/"+name, testAdminUser, testAdminPass)
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			t.Errorf("/admin/vendor/%s answered 200; only the pinned libraries may be served", name)
+		}
+		if strings.Contains(string(body), "package main") || strings.Contains(string(body), "openSheet") {
+			t.Errorf("/admin/vendor/%s leaked embedded source", name)
+		}
+	}
+}
+
+// And the route is behind the credential, like the rest of the surface.
+func TestTheAdminVendorRouteNeedsTheCredential(t *testing.T) {
+	_, srv := adminApp(t)
+
+	resp := getAdmin(t, srv, "/admin/vendor/htmx.min.js", "", "")
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("want 401 with no credential, got %d", resp.StatusCode)
+	}
+}
+
 func TestAdminPageServesWithTheCredential(t *testing.T) {
 	_, srv := adminApp(t)
 

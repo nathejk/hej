@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+
+	"github.com/julienschmidt/httprouter"
 )
 
 // The admin tool's page (PRD 022 §7, tasks 369–373).
@@ -159,6 +161,7 @@ func (app *application) adminIndexHandler(w http.ResponseWriter, r *http.Request
 // uploader — rather than being passed through a variable.
 
 //go:embed adminui/page.html adminui/page.css adminui/page.js adminui/album.html adminui/album.css adminui/album.js
+//go:embed adminui/vendor/htmx.min.js adminui/vendor/alpine.min.js adminui/vendor/pico.min.css adminui/vendor/vendor.txt
 var adminUIFS embed.FS
 
 var adminTemplates = template.Must(template.New("admin").Parse(
@@ -192,4 +195,59 @@ func mustReadAdminAsset(path string) string {
 		panic(fmt.Sprintf("adminui: %v", err))
 	}
 	return string(b)
+}
+
+// adminVendorAssets are the pinned third-party files the tool's pages load (task 395).
+//
+// Vendored and embedded rather than fetched from a CDN, for the reasons `adminui/vendor/README.md` gives at
+// length — chiefly that the tool has to work on the Tuesday after the event, on a hotel connection, possibly
+// behind something that blocks a CDN. A curator with three hundred photographs to hand in is not the person to
+// discover that unpkg is unreachable.
+//
+// The content type is declared here rather than sniffed. `http.ServeContent` would guess from the extension,
+// but an explicit map means a mis-served stylesheet is a wrong line in this table rather than a subtle
+// behaviour of the standard library.
+var adminVendorAssets = map[string]string{
+	"htmx.min.js":   "application/javascript; charset=utf-8",
+	"alpine.min.js": "application/javascript; charset=utf-8",
+	"pico.min.css":  "text/css; charset=utf-8",
+}
+
+// serveAdminVendorHandler serves one pinned library by name.
+//
+// # Why these sit behind the admin credential
+//
+// They are public, unmodified libraries, so serving them openly would leak nothing — and they are behind
+// `requireAdmin` anyway. `/admin/*` is the admin surface, and every response from it carries
+// `Cache-Control: no-store` (task 371). Keeping that rule true without exceptions is worth more than saving a
+// download: an exception here would be cited as precedent by the next thing that wanted one.
+//
+// The cost is ~180 KB re-fetched per full page load. For two or three curators, that is nothing.
+//
+// # Why the name is matched against a map rather than joined to a path
+//
+// The parameter comes from the URL. Joining it to a directory and reading the result is how a path traversal
+// happens — `..%2f..%2fetc%2fpasswd` — and while `embed.FS` is not the host filesystem, it still holds this
+// service's templates. A lookup in a fixed map cannot express anything that is not in the map.
+func (app *application) serveAdminVendorHandler(w http.ResponseWriter, r *http.Request) {
+	name := httprouter.ParamsFromContext(r.Context()).ByName("asset")
+	contentType, known := adminVendorAssets[name]
+	if !known {
+		app.NotFoundResponse(w, r)
+		return
+	}
+
+	body, err := adminUIFS.ReadFile("adminui/vendor/" + name)
+	if err != nil {
+		// Unreachable: the map and the embed directive are both compile-time, so a name in one is in the other.
+		// Answered rather than asserted, because "unreachable" is a property of today's code.
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	if _, err := w.Write(body); err != nil {
+		// A curator closing the tab mid-download. Nothing to answer with; the status is already sent.
+		app.Logger.Debug("admin vendor asset write failed", "asset", name, "err", err)
+	}
 }

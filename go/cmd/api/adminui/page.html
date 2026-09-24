@@ -14,6 +14,16 @@
      introducing a second way to draw a map. -->
 <link rel="stylesheet" href="/vendor/leaflet.css">
 <script src="/vendor/leaflet.js" defer></script>
+<!-- Pico, htmx and Alpine, pinned and served from this binary (task 395) — see adminui/vendor/README.md for the
+     versions and why they are vendored rather than loaded from a CDN.
+
+     **Pico comes before page.css, and the order is the migration strategy.** Pico styles bare elements
+     (button, input, select, table, h1…) while page.css is almost entirely id- and class-scoped — only `h1` and
+     `h2` overlap. So Pico supplies the base and our rules win wherever they exist, which means page.css can
+     shrink one rule at a time instead of in one risky commit. -->
+<link rel="stylesheet" href="/admin/vendor/pico.min.css">
+<script src="/admin/vendor/htmx.min.js" defer></script>
+<script src="/admin/vendor/alpine.min.js" defer></script>
 <style>
 /* @inject page.css */
 </style>

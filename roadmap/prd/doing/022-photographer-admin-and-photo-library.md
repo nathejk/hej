@@ -352,6 +352,30 @@ amount of hand-written vanilla JavaScript for the uploader and the selection mod
 framework, no `npm` dependency, no shadcn-vue. §8.1 explains why it cannot be in the PWA, and the
 absence of a build step is the reason not to start a second frontend for it.
 
+> **Amended 2026-09-23 (tasks 394, 395).** Two of those sentences no longer describe the tool, and the
+> amendment is recorded here rather than left to be discovered in a diff.
+>
+> **"Inline CSS" and the hand-written JavaScript moved into real files.** The page was one Go raw-string
+> literal — 1,700 lines of HTML, CSS and JS inside backticks — and a backtick anywhere in any of the three
+> terminated it. Four incidents in one session, each presenting as a Go syntax error pointing at a line of
+> CSS. They are now `cmd/api/adminui/page.{html,css,js}`, embedded, spliced before parsing so
+> `html/template` still escapes the markup's actions contextually (task 394).
+>
+> **"No framework" is now "no framework that needs a build step".** After the JavaScript reached ~1,400
+> lines, roughly 600 of them were fetch-then-render boilerplate. **htmx, Alpine and Pico** are permitted,
+> all three vendored, pinned and served from the Go binary (task 395). What did *not* change is the part
+> that was load-bearing:
+>
+> - **no `npm`, no bundler, no build step** — which is exactly why Pico was chosen over Tailwind, whose
+>   mechanism requires scanning markup at build time;
+> - **self-hosted, never a CDN** — a CDN would put a third party in a position to log who looked at the
+>   event's photographs;
+> - **nothing under `vue/`** — the PWA and the website stay separate, which is a hard rule, not a preference.
+>
+> The uploader's queue, the selection model and the map island stay hand-written, because no framework
+> expresses a bounded concurrent upload with per-file progress. `TestTheAdminToolAddsNothingToTheFrontend`
+> holds the new line: an allowlist of four, so a fifth library still needs its own decision.
+
 The one exception: the location picker needs a map, and the public patrol page already ships a
 **map island** (task 342, ≈60 KB gzipped, MapLibre) using the app's own layers (task 353). The admin
 picker reuses that island rather than introducing a second mapping approach.

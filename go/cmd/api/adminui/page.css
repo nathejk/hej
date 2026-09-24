@@ -1,5 +1,17 @@
+/* The admin tool's own styles, loaded **after** Pico (task 395).
+
+   The order is deliberate and it is the migration strategy: Pico styles bare elements while almost everything
+   here is id- or class-scoped — only `h1` and `h2` overlap — so these rules win where they exist and Pico fills
+   in the rest. That lets this file shrink one rule at a time instead of in one risky commit.
+
+   Two reconciliations with Pico were needed, marked `PICO:`. Everything else layered cleanly. */
 :root { color-scheme: light dark; }
 * { box-sizing: border-box; }
+
+/* PICO: Pico styles bare `a` with an underline and its own link colour, and that lands on **Leaflet's zoom
+   controls** — they are `<a class="leaflet-control-zoom-in">` elements, not buttons. Without this the map's +
+   and − render underlined and in link blue. Scoped to the map container so it cannot touch a real link. */
+.leaflet-container a { text-decoration: none; color: inherit; }
 body {
   margin: 0;
   font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -149,15 +161,20 @@ h2 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
    selection, so none of these may become a route. An overlay satisfies that; a card underneath was never the
    requirement, only the first implementation of it.
 
-   One '.sheet' rule rather than four near-identical id blocks. The previous version repeated the same chrome
+   One `.sheet` rule rather than four near-identical id blocks. The previous version repeated the same chrome
    for #panel, #pospanel, #tagpanel and #delpanel, which is four places for a fifth action to be styled
-   slightly differently. */
+   slightly differently.
+
+   PICO: the z-indexes are 1040/1050 rather than 40/50. Pico puts native `<dialog>` at **999**, and while these
+   sheets are `div[role=dialog]` and so unaffected today, a future one built as a real `<dialog>` would have
+   rendered *above* the scrim and below nothing. Sitting above Pico's ceiling costs nothing and removes a trap
+   whose symptom would be a backdrop over the wrong thing. */
 #scrim {
   position: fixed; inset: 0; background: rgba(9, 9, 11, 0.55);
-  z-index: 40;
+  z-index: 1040;
 }
 .sheet {
-  position: fixed; z-index: 50;
+  position: fixed; z-index: 1050;
   top: 50%; left: 50%; transform: translate(-50%, -50%);
   width: calc(100vw - 2rem); max-width: 34rem;
   /* Tall sheets scroll inside themselves rather than growing past the viewport — the position sheet holds an
