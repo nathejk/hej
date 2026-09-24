@@ -400,19 +400,31 @@ func TestAnAbsentTrackIsExplainedRatherThanShownEmpty(t *testing.T) {
 	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := string(body)
 
-	if !strings.Contains(page, "ingen rute at vise") {
-		t.Errorf("want the absent-track explanation\n%s", page)
+	// **A map, even with no route** (task 363). This asserted the opposite — an explanation and no container —
+	// until the maintainer pointed out that the scans are worth a map on their own: "there should always be a
+	// map, no matter if there is a track or not, and at a minimum there would be some scans to show". With 2%
+	// track coverage measured in task 082, the no-route case is the common one.
+	if !strings.Contains(page, `id="patrolmap"`) {
+		t.Errorf("a patrol with no route must still get a map\n%s", page)
 	}
-	if !strings.Contains(page, "helt normalt") {
-		t.Errorf("the page must say an absent route is normal, not a fault\n%s", page)
+	// And the old paragraph is gone rather than sitting above it: with pins and the dotted chain on screen,
+	// "der er ingen rute at vise" contradicted what the reader could see.
+	if strings.Contains(page, "ingen rute at vise") {
+		t.Error("the absent-route paragraph should be gone now that the map is always drawn")
 	}
-	if strings.Contains(page, `id="patrolmap"`) {
-		t.Error("no map container should be rendered when there is no route")
+	// The scan list is still the no-JavaScript answer, and still there.
+	if !strings.Contains(page, `<ol class="scans">`) {
+		t.Errorf("want the scan list\n%s", page)
 	}
 }
 
 // The page is complete without JavaScript: the map is the only enhancement, and everything else is server
 // rendered.
+//
+// Since task 363 the map container and its three deferred scripts are on **every** patrol page, so this no longer
+// asserts the absence of `<script` — that moved to the test below, which pins that the only scripts are the
+// island's. What is asserted here is the part that matters to a visitor without JavaScript: no inline handlers,
+// and the substance present without any of it.
 //
 // A patrol with no track has nothing to enhance, so its page carries no script at all — which is the case
 // this test uses, since it is also the common one (task 082 measured 2% coverage).
@@ -422,9 +434,9 @@ func TestPatrolPageNeedsNoScript(t *testing.T) {
 	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
 	page := strings.ToLower(string(body))
 
-	for _, forbidden := range []string{"<script", "onclick=", "onload="} {
+	for _, forbidden := range []string{"onclick=", "onload=", "javascript:"} {
 		if strings.Contains(page, forbidden) {
-			t.Errorf("a patrol page with no route must carry no script, found %q", forbidden)
+			t.Errorf("a patrol page must carry no inline script, found %q", forbidden)
 		}
 	}
 	// And the substance must be there without it.

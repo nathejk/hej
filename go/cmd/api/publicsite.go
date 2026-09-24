@@ -704,15 +704,18 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 
 <section>
   <h2>Kortet</h2>
-  <!-- The map is a progressive enhancement (task 342). This paragraph is what a visitor without it sees,
-       and it is also what the page says *about* the track — see the handler comment: a gap in a recorded
-       route means the phone was in a pocket, not that the patrol stood still. -->
-  {{if .TrackAbsent}}
-  <p class="empty">
-    Der er ingen rute at vise. Appen optager kun, mens den er åben, så mange patruljer har ingen eller
-    kun lidt rute — det er helt normalt.
-  </p>
-  {{else if .TrackSegments}}
+  <!-- **The map is always here** (task 363), whether or not the patrol recorded a route.
+       It used to be rendered only when there were track segments, so a patrol with no recording got a
+       paragraph explaining the absence and no map at all — while the thing a family came for, the posts
+       their patrol was scanned at, was sitting in the same JSON the island already draws. Task 082 measured
+       2% track coverage, so that was the *common* case, not an edge one.
+
+       The paragraph that used to stand here went with the change rather than above the map: with pins and
+       the dotted chain on screen, "der er ingen rute at vise" contradicted what the reader could see, and
+       the caveat below already says what the map contains.
+
+       Still a progressive enhancement (PRD 011 §8, task 342): with no JavaScript the container stays hidden
+       (see .maparea) and the scan list below carries the same facts as a list. -->
   <div id="patrolmap" class="maparea" data-patrol="{{.Patrol.Number}}"></div>
   <p class="caveat mapcaveat">
     Her vises alle de registreringer vi har om patruljen.
@@ -739,7 +742,6 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   <script src="/vendor/leaflet.js" defer></script>
   <script src="/vendor/leaflet.markercluster.js" defer></script>
   <script src="/publicmap.js" defer></script>
-  {{end}}
 </section>
 
 <section>

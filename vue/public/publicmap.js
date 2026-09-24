@@ -251,8 +251,10 @@
     if (bounds.isValid()) {
       map.fitBounds(bounds, { padding: [24, 24] })
     } else {
-      // Nothing to fit: the route was empty and no scan had a position. The server does not render a
-      // container in that case, so this is belt and braces rather than an expected path.
+      // Nothing to fit: no track and no positioned scan. **This is now a reachable path** (task 363) — the
+      // server renders the container for every patrol, including one whose only registrations were written
+      // down by hand with no coordinates. A wide view of the region is the honest answer: the map shows where
+      // the event is, and the scan list below carries what we know.
       map.setView([55.6, 11.85], 8)
     }
   }
