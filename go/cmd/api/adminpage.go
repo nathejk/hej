@@ -160,10 +160,41 @@ func (app *application) adminIndexHandler(w http.ResponseWriter, r *http.Request
 // keeps it that way. That is also why the year appears in the markup twice — once for a human and once for the
 // uploader — rather than being passed through a variable.
 
-//go:embed adminui/page.html adminui/page.css adminui/page.js adminui/album.html adminui/album.css adminui/album.js
+//go:embed adminui/page.html adminui/page.css adminui/album.html adminui/album.css adminui/album.js
+//go:embed adminui/main.js adminui/sheetshell.js adminui/contactsheet.js adminui/upload.js
+//go:embed adminui/albumaction.js adminui/positionaction.js adminui/patrolaction.js
+//go:embed adminui/creditaction.js adminui/deleteaction.js
 //go:embed adminui/fragments.html
 //go:embed adminui/vendor/htmx.min.js adminui/vendor/alpine.min.js adminui/vendor/pico.min.css adminui/vendor/vendor.txt
 var adminUIFS embed.FS
+
+// adminPageScripts are the tool's own JavaScript files, spliced into page.html in this order (task 395).
+//
+// # Why there are nine files and one script tag
+//
+// This was 1,436 lines in one closure. Each file is now one `function init…(ctx)` declaration — a complete,
+// valid JavaScript program a formatter or linter can read on its own, which was task 394's whole reason for
+// making these real files rather than a Go string.
+//
+// They are still **spliced into one `<script>`**, not served as ES modules, for one reason: every asset on this
+// surface answers with `no-store` (task 371), because it sits behind the shared credential. Nine module files
+// would be nine uncacheable requests on every page load where this is zero, and the person waiting is a
+// photographer on a hotel connection the day after the event.
+//
+// The order here is the order they appear in the script. It does not decide anything — function declarations
+// hoist, and main.js decides what runs when — but main.js comes first so the file that explains the arrangement
+// is the first thing read.
+var adminPageScripts = []string{
+	"adminui/main.js",
+	"adminui/sheetshell.js",
+	"adminui/contactsheet.js",
+	"adminui/albumaction.js",
+	"adminui/positionaction.js",
+	"adminui/patrolaction.js",
+	"adminui/creditaction.js",
+	"adminui/deleteaction.js",
+	"adminui/upload.js",
+}
 
 // adminTemplates is the page plus the htmx fragments (task 395), parsed as one set.
 //
@@ -171,22 +202,27 @@ var adminUIFS embed.FS
 // shell and the fragment it swaps in cannot drift onto different template syntax, and a broken fragment is a
 // panic at init rather than a 500 the first time a curator presses a button.
 var adminTemplates = template.Must(template.Must(template.New("admin").Parse(
-	mustInjectAdminAssets("adminui/page.html", "adminui/page.css", "adminui/page.js"),
+	mustInjectAdminAssets("adminui/page.html", "adminui/page.css", adminPageScripts...),
 )).Parse(mustReadAdminAsset("adminui/fragments.html")))
 
-// mustInjectAdminAssets splices a page's CSS and JS source into its HTML, ready to be parsed.
+// mustInjectAdminAssets splices a page's CSS and its scripts into its HTML, ready to be parsed.
 //
-// The markers are `/* @inject page.css */` and `// @inject page.js`, each a comment in its own language so the
-// HTML file stays valid on its own. Both must be found: a typo in a marker would otherwise produce a page that
-// renders with no styling or no behaviour and no error anywhere, which is the failure mode this panics rather
-// than tolerate. It runs once, at init, so a panic here is a binary that refuses to start — the right direction
-// for an asset that cannot be assembled.
-func mustInjectAdminAssets(htmlPath, cssPath, jsPath string) string {
+// The markers are `/* @inject page.css */` and one `// @inject <name>.js` per script, each a comment in its own
+// language so the HTML file stays valid on its own. Every marker must be found: a typo in one would otherwise
+// produce a page that renders with no styling or a feature silently missing, with no error anywhere — which is the
+// failure mode this panics rather than tolerate. It runs once, at init, so a panic here is a binary that refuses to
+// start, the right direction for an asset that cannot be assembled.
+//
+// The scripts go in **in the order given**, which is the order they will appear inside the one `<script>`.
+func mustInjectAdminAssets(htmlPath, cssPath string, jsPaths ...string) string {
 	html := mustReadAdminAsset(htmlPath)
-	for _, inject := range []struct{ marker, path string }{
+	injects := []struct{ marker, path string }{
 		{"/* @inject " + filepath.Base(cssPath) + " */", cssPath},
-		{"// @inject " + filepath.Base(jsPath), jsPath},
-	} {
+	}
+	for _, js := range jsPaths {
+		injects = append(injects, struct{ marker, path string }{"// @inject " + filepath.Base(js), js})
+	}
+	for _, inject := range injects {
 		if !strings.Contains(html, inject.marker) {
 			panic(fmt.Sprintf("adminui: %s has no %q marker", htmlPath, inject.marker))
 		}

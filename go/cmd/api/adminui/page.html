@@ -286,7 +286,23 @@
   </div>
 </main>
 <script>
-// @inject page.js
+// The tool's own JavaScript, spliced in as one script rather than served as nine (task 395).
+//
+// One IIFE around the lot, so the `init…` function declarations are scoped to it and nothing reaches `window`.
+// Each file is one such declaration and is a valid program on its own; main.js explains the arrangement and
+// decides what runs when.
+(() => {
+'use strict';
+// @inject main.js
+// @inject sheetshell.js
+// @inject contactsheet.js
+// @inject albumaction.js
+// @inject positionaction.js
+// @inject patrolaction.js
+// @inject creditaction.js
+// @inject deleteaction.js
+// @inject upload.js
+})();
 </script>
 </body>
 </html>{{end}}

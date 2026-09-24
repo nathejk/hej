@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -89,7 +90,7 @@ func adminSource(t *testing.T, file string) string {
 	return string(b)
 }
 
-// adminPageSource returns the assembled admin page — markup, CSS and JavaScript — exactly as it is served.
+// adminPageSource returns the assembled admin page — markup, CSS and every script — exactly as it is served.
 //
 // # Why this exists, and why it is better than reading the Go file
 //
@@ -101,10 +102,14 @@ func adminSource(t *testing.T, file string) string {
 // This calls the same `mustInjectAdminAssets` the production template is built from, so what the assertions see
 // is what the browser gets — no Go, no reconstruction. A rule about the page is now tested against the page.
 //
-// Where a rule is genuinely about one language, `adminAsset` reads that file alone.
+// It takes `adminPageScripts` rather than a list of its own, which is the detail that kept ~30 guards working
+// unchanged when task 395 split page.js into nine files: if a script is added to the page it is added here, so no
+// assertion can quietly stop covering code that is being served.
+//
+// Where a rule is genuinely about one file, `adminAsset` reads that file alone.
 func adminPageSource(t *testing.T) string {
 	t.Helper()
-	return mustInjectAdminAssets("adminui/page.html", "adminui/page.css", "adminui/page.js")
+	return mustInjectAdminAssets("adminui/page.html", "adminui/page.css", adminPageScripts...)
 }
 
 // adminAsset reads one of the admin tool's real asset files, by name under adminui/.
@@ -121,20 +126,32 @@ func adminAsset(t *testing.T, name string) string {
 // the three terminated it — four incidents, each presenting as a Go syntax error pointing at a line of CSS — and
 // no editor could help with 1,400 lines of JavaScript inside a string.
 //
-// Now they are `adminui/page.{html,css,js}` and `adminui/album.{html,css,js}`, spliced into one document before
-// parsing. These tests hold the two properties that make that arrangement safe rather than merely tidier.
+// Now they are `adminui/page.{html,css}` with the JavaScript in nine per-feature files, plus
+// `adminui/album.{html,css,js}`, spliced into one document before parsing. These tests hold the two properties
+// that make that arrangement safe rather than merely tidier.
 
-// **The CSS and JS carry no template actions, so they are genuinely valid standalone files.**
+// **The CSS and every script carry no template actions, so they are genuinely valid standalone files.**
 //
-// This is what separates "real files" from "fragments in a different location". A `{{.Year}}` in page.js would
-// make it un-lintable, un-formattable and un-runnable outside the Go template — and it would land inside
+// This is what separates "real files" from "fragments in a different location". A `{{.Year}}` in one of these
+// would make it un-lintable, un-formattable and un-runnable outside the Go template — and it would land inside
 // `<script>`, where `html/template` applies **JavaScript** escaping and mangles values in ways nobody notices
 // until a curator's browser does something strange.
 //
 // The rule this preserves predates the extraction: every value the script needs is read from a `data-` attribute
 // on an element. That was already true, which is the only reason the extraction was safe.
+//
+// The script list comes from `adminPageScripts` rather than being repeated, so a tenth file is covered the moment
+// it is served.
 func TestTheAdminAssetsCarryNoTemplateActions(t *testing.T) {
-	for _, name := range []string{"page.css", "page.js", "album.css", "album.js"} {
+	names := []string{"page.css", "album.css", "album.js"}
+	for _, p := range adminPageScripts {
+		names = append(names, strings.TrimPrefix(p, "adminui/"))
+	}
+	if len(names) < 12 {
+		t.Fatalf("expected the page's scripts to be covered, got only %d files: %v", len(names), names)
+	}
+
+	for _, name := range names {
 		src := adminAsset(t, name)
 		if strings.Contains(src, "{{") {
 			t.Errorf("%s contains a template action. Pass the value through a data- attribute instead: an "+
@@ -165,7 +182,23 @@ func TestTheAdminAssetsAreActuallyInjected(t *testing.T) {
 		t.Error("page.css did not reach the assembled page")
 	}
 	if !strings.Contains(page, "function openSheet(") {
-		t.Error("page.js did not reach the assembled page")
+		t.Error("sheetshell.js did not reach the assembled page")
+	}
+	// One distinctive line from each of the other scripts, because nine markers is nine chances for one of them to
+	// be missing — and a missing feature is silent: the page renders, the button just does nothing.
+	for _, want := range []struct{ needle, file string }{
+		{"function initAdminTool(", "main.js"},
+		{"function initContactSheet(", "contactsheet.js"},
+		{"function initAlbumAction(", "albumaction.js"},
+		{"function initPositionAction(", "positionaction.js"},
+		{"function initPatrolAction(", "patrolaction.js"},
+		{"function initCreditAction(", "creditaction.js"},
+		{"function initDeleteAction(", "deleteaction.js"},
+		{"function initUpload(", "upload.js"},
+	} {
+		if !strings.Contains(page, want.needle) {
+			t.Errorf("%s did not reach the assembled page", want.file)
+		}
 	}
 	// The document still closes properly — splicing into the wrong place would produce a page that renders as
 	// text, which every other guard in this package would sail straight past.
@@ -948,6 +981,140 @@ func TestEveryAdminRouteIsInsideTheConditionalBlock(t *testing.T) {
 		if !strings.Contains(block, `"`+path+`"`) {
 			t.Errorf("%s is registered outside the adminRoutesEnabled block, so it would be served with no "+
 				"password configured", path)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The split into per-feature scripts (step 7 of task 395).
+// ---------------------------------------------------------------------------
+
+// **Every `ctx` member a feature uses is provided by some other feature.**
+//
+// # Why this test exists
+//
+// page.js was 1,436 lines in one closure, and the features inside it shared state by simply being in the same
+// scope. Splitting it means that sharing becomes an explicit object, and it introduces exactly one new class of
+// bug: a feature reading `ctx.somethingNobodyProvides`. JavaScript gives no compiler to catch it, and the symptom
+// is silent — the page renders, and one button does nothing.
+//
+// So this is the compiler. It reads the served scripts, collects every `ctx.x` used and every `ctx.x =` assigned,
+// and fails on the difference. It is the reason the split is safe to make at all.
+//
+// `main.js` builds the context by assignment rather than as an object literal precisely so this can be exact.
+func TestEveryAdminContextMemberIsProvided(t *testing.T) {
+	// `ctx.x` anywhere, and `ctx.x =` (but not `==`) as a provider.
+	used := regexp.MustCompile(`\bctx\.([A-Za-z_$][\w$]*)`)
+	provided := regexp.MustCompile(`\bctx\.([A-Za-z_$][\w$]*)\s*=[^=]`)
+
+	uses := map[string][]string{} // member -> files that read it
+	gives := map[string]string{}  // member -> file that provides it
+
+	for _, path := range adminPageScripts {
+		name := strings.TrimPrefix(path, "adminui/")
+		// Comments are stripped first. Prose about `ctx.openSheet` is not a use of it, and a needle matching the
+		// comment that explains a rule rather than the code implementing it is a mistake this package has made
+		// three times.
+		src := stripJSLineComments(mustReadAdminAsset(path))
+
+		for _, m := range provided.FindAllStringSubmatch(src, -1) {
+			gives[m[1]] = name
+		}
+		for _, m := range used.FindAllStringSubmatch(src, -1) {
+			uses[m[1]] = append(uses[m[1]], name)
+		}
+	}
+
+	if len(uses) == 0 {
+		t.Fatal("found no ctx members at all, so this test is checking nothing — has the wiring changed shape?")
+	}
+
+	for member, readers := range uses {
+		if _, ok := gives[member]; !ok {
+			t.Errorf("ctx.%s is read by %v and provided by nobody: that is a button that silently does nothing",
+				member, unique(readers))
+		}
+	}
+
+	// And the other direction, which is not a bug but is worth knowing: a member nobody reads is shared state
+	// with no sharer, and the point of writing the surface down was to keep it small.
+	for member, giver := range gives {
+		if _, ok := uses[member]; !ok {
+			t.Errorf("ctx.%s is provided by %s and read by nobody; the shared surface should only hold what is "+
+				"actually shared", member, giver)
+		}
+	}
+}
+
+// stripJSLineComments removes `//` comments, leaving the code.
+//
+// Deliberately naive about `//` inside a string literal: there is none in these files, and a real tokeniser would
+// be more machinery than the one property it protects is worth. If one ever appears, this over-strips that line
+// and the test can only become *stricter*, never quieter — which is the safe direction for a guard to fail in.
+func stripJSLineComments(src string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(src, "\n") {
+		if i := strings.Index(line, "//"); i >= 0 {
+			line = line[:i]
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func unique(in []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, s := range in {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// **Each script is a single function declaration, which is what makes it a real file.**
+//
+// The alternative arrangements were both worse and are worth naming so neither is drifted back into:
+//
+//   - **ES modules.** The same split with real imports and no build step, rejected because every asset on this
+//     surface answers `no-store` (task 371) — nine module files would be nine uncacheable requests per page load
+//     where the injection is zero, and the person waiting is a photographer on a hotel connection.
+//   - **Splitting mid-IIFE**, so one file opens a closure another closes. That is what "real files" was supposed
+//     to end (task 394): such a file is not a program, and no formatter or linter can read it.
+//
+// A single `function init…(ctx)` declaration is a complete valid program *and* costs one request. This asserts
+// each file really is one, because the temptation under time pressure is to drop a bare statement at the bottom.
+func TestEachAdminScriptIsOneFunctionDeclaration(t *testing.T) {
+	for _, path := range adminPageScripts {
+		name := strings.TrimPrefix(path, "adminui/")
+		src := stripJSLineComments(mustReadAdminAsset(path))
+
+		// The top-level statements are the lines with no leading whitespace.
+		var top []string
+		for _, line := range strings.Split(src, "\n") {
+			if line == "" || line[0] == ' ' || line[0] == '\t' {
+				continue
+			}
+			top = append(top, strings.TrimRight(line, " \t"))
+		}
+
+		// `function x(ctx) {` … `}`, and nothing else — except main.js, which must also *call* itself, since it is
+		// the entry point and something has to start the tool.
+		want := []string{"function ", "}"}
+		if name == "main.js" {
+			want = append(want, "initAdminTool();")
+		}
+		if len(top) != len(want) {
+			t.Errorf("%s has %d top-level statements, want %d: %q", name, len(top), len(want), top)
+			continue
+		}
+		if !strings.HasPrefix(top[0], "function init") || !strings.HasSuffix(top[0], "(ctx) {") {
+			if name != "main.js" {
+				t.Errorf("%s must be one `function init…(ctx) {` declaration, got %q", name, top[0])
+			}
 		}
 	}
 }

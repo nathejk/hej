@@ -378,8 +378,15 @@ func TestTheAlbumListFragmentListensForAlbumsChanged(t *testing.T) {
 	if trigger := albumListTrigger(t, albumListFragment(t, srv)); !strings.Contains(trigger, "albums-changed from:body") {
 		t.Errorf("the fragment must re-fetch when the page says the albums changed, got %q", trigger)
 	}
-	if js := adminAsset(t, "page.js"); !strings.Contains(js, "new Event('albums-changed')") {
-		t.Error("creating an album from the add-to-album sheet must tell the list, or it goes stale by one album")
+	// In main.js since the split (task 395): the script announces on `body` and the fragment decides whether to
+	// care, which is the one piece of coupling between the two and deliberately one-way.
+	if js := adminAsset(t, "main.js"); !strings.Contains(js, "new Event('albums-changed')") {
+		t.Error("something must tell the list when the albums change, or it goes stale by one album")
+	}
+	// And a feature that changes the albums must actually call it. The add-to-album sheet is the case that
+	// prompted this: a curator creating an album there then looks for it in the list above.
+	if js := adminAsset(t, "albumaction.js"); !strings.Contains(js, "ctx.albumsChanged()") {
+		t.Error("filing a selection into albums changes their item counts; the list must be told")
 	}
 }
 
@@ -938,7 +945,7 @@ func TestTheContactSheetRendersEveryCellUnselected(t *testing.T) {
 		t.Errorf("every cell needs the attribute for the browser to paint, got %d of 5", got)
 	}
 	// And the paint really is the browser's job.
-	if js := adminAsset(t, "page.js"); !strings.Contains(js, "htmx:afterSwap") ||
+	if js := adminAsset(t, "contactsheet.js"); !strings.Contains(js, "htmx:afterSwap") ||
 		!strings.Contains(js, "for (const cell of sheet.querySelectorAll('.cell')) paint(cell);") {
 		t.Error("page.js must re-paint the selection after every swap, or a filter change loses it visually " +
 			"while the action bar still counts it")
@@ -1075,11 +1082,10 @@ func TestTheContactSheetLoadsFromItsShell(t *testing.T) {
 		}
 	}
 
-	// And page.js must not try to fetch the first page itself, which is the mistake this arrangement prevents.
-	js := adminAsset(t, "page.js")
-	tail := js[strings.LastIndex(js, "// The first page of thumbnails"):]
-	if strings.Contains(tail, "load(true)") {
-		t.Error("the first load must be declared on the shell, not called from page.js: htmx does not exist yet " +
-			"when that block runs")
+	// And nothing must try to fetch the first page from the script, which is the mistake this arrangement
+	// prevents. main.js is where such a call would go, since it is what runs on load.
+	if strings.Contains(adminAsset(t, "main.js"), "reloadSheet()") {
+		t.Error("the first load must be declared on the shell, not called from main.js: window.htmx does not " +
+			"exist yet when that runs, so the call would silently do nothing and leave an empty grid")
 	}
 }
