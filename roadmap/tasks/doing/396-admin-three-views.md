@@ -180,7 +180,7 @@ The original questions, for the record:
       thumbnails up front
 - [ ] PRD 022 §7 and task 385's half-page updated for the new URLs
 - [x] The open questions above are answered in this file before implementation
-- [ ] Infinite scroll in the album and all-photos views; "select all matching" still selects unloaded ones
+- [x] Infinite scroll in the album and all-photos views; "select all matching" still selects unloaded ones
 - [ ] An explicit album cover settable on any item, falling back to the first live item, used by every read
 - [ ] Multi-select drag-and-drop reordering replaces ↑/↓, verified moving items from position ~180 to 1
       *(server side done and tested at 200 items; `PATCH /api/admin/albums/{id}/move`. The pointer-driven drag

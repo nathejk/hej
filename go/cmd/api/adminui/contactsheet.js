@@ -16,7 +16,6 @@ function initContactSheet(ctx) {
   const filters = document.getElementById('filters');
   const note = document.getElementById('sheetnote');
   const actionNote = document.getElementById('actionnote');
-  const morewrap = document.getElementById('morewrap');
   const actions = document.getElementById('actions');
   const selCount = document.getElementById('selcount');
   const clearSel = document.getElementById('clearsel');
@@ -88,7 +87,7 @@ function initContactSheet(ctx) {
   // keeps all four in step rather than four places computing them.
   function load(reset, offset) {
     if (!window.htmx) return;
-    if (reset) { order = []; lastClicked = null; }
+    if (reset) { order = []; lastClicked = null; pending = -1; }
     const url = '/admin/fragments/photos?limit=120&offset=' + (offset || 0) + (query ? '&' + query : '');
     window.htmx.ajax('GET', url, { target: '#sheet', swap: reset ? 'innerHTML' : 'beforeend' });
   }
@@ -142,9 +141,43 @@ function initContactSheet(ctx) {
   // Delegated from the wrapper, because the button arrives as an out-of-band swap and is replaced on every load.
   // Its `data-offset` is where the next page starts, computed by the server — the browser adding up page sizes
   // would drift the first time a clamped limit differed from the one it asked for.
-  morewrap.addEventListener('click', (e) => {
-    if (e.target.id === 'more') load(false, parseInt(e.target.dataset.offset, 10) || 0);
+  //
+  // From the document rather than from `#morewrap` itself, because `hx-swap-oob="true"` replaces the wrapper
+  // element outright: a listener bound to the first one would be gone after the first page.
+  //
+  // `pending` is the offset already asked for, so the button and the scroll observer below cannot both fetch the
+  // same page.
+  let pending = -1;
+  function more(button) {
+    const offset = parseInt(button.dataset.offset, 10) || 0;
+    if (offset === pending) return;
+    pending = offset;
+    load(false, offset);
+  }
+  document.addEventListener('click', (e) => {
+    if (e.target.id === 'more') more(e.target);
   });
+
+  // Infinite scroll (task 396). The button stays — it is the keyboard's way to the next page, and what shows if
+  // the observer never fires — and the observer presses it when it comes within reach. A generous margin, so the
+  // next page is usually in before the curator reaches the end of this one.
+  //
+  // Re-observed after every swap, because each page brings a new button (see above). The page the button points
+  // at is still the server's offset, not a count kept here.
+  const reach = 'IntersectionObserver' in window
+    ? new IntersectionObserver((entries) => {
+      for (const entry of entries) if (entry.isIntersecting) more(entry.target);
+    }, { rootMargin: '600px 0px' })
+    : null;
+  function observeMore() {
+    if (!reach) return;
+    reach.disconnect();
+    const button = document.getElementById('more');
+    if (button) reach.observe(button);
+  }
+  document.body.addEventListener('htmx:afterSettle', observeMore);
+  // A page that failed can be asked for again, by the button or by scrolling back to it.
+  for (const ev of ['htmx:responseError', 'htmx:sendError']) sheet.addEventListener(ev, () => { pending = -1; });
 
   // "Select everything matching this filter", beyond what is on screen.
   //
