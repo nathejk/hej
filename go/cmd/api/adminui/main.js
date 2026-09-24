@@ -83,6 +83,7 @@ function initAdminTool() {
   // the album view's. The rest above is shared by both.
   if (document.getElementById('drop')) initUpload(ctx);
   initAlbumEditor(ctx);
+  initAlbumOrder(ctx);
 }
 
 initAdminTool();

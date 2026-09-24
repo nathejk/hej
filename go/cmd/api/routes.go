@@ -317,6 +317,11 @@ func (app *application) routes() http.Handler {
 		router.HandlerFunc(http.MethodGet, "/admin/fragments/photos", app.requireAdmin(app.showAdminContactSheetHandler))
 		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId", app.requireAdmin(app.updateAdminAlbumHandler))
 		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId/items", app.requireAdmin(app.reorderAdminAlbumItemsHandler))
+		// Drag-and-drop (task 396): "these, next to that", with the whole order built server-side, because the
+		// album view scrolls in pages and the browser may not hold all of it. PATCH, because POST already has the static
+		// `/api/admin/albums/items`, which httprouter will not put beside `:albumId`. Not under `/items/`, where the
+		// `:photoId` wildcard of the removal below would collide with a static segment.
+		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId/move", app.requireAdmin(app.moveAdminAlbumItemsHandler))
 		// The two removals (task 379), and they are deliberately different endpoints for different acts: taking a
 		// photograph out of one album leaves it everywhere else and frees nothing, while deleting it from the
 		// library removes it from everything and purges its bytes. One of the two is what somebody means by "take

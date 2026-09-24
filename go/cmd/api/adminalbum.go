@@ -335,6 +335,148 @@ func (app *application) reorderAdminAlbumItemsHandler(w http.ResponseWriter, r *
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// moveAdminAlbumItemsRequest moves some of an album's photographs next to another (task 396).
+type moveAdminAlbumItemsRequest struct {
+	// PhotoIDs are the photographs to move. They land together, in the order they already had in the album —
+	// not the order they are listed here, which for a selection is the order they were clicked.
+	PhotoIDs []string `json:"photoIds"`
+	// BeforePhotoID or AfterPhotoID, exactly one: the photograph they land next to. Both exist because a drop
+	// after the last *loaded* cell has no loaded neighbour to be "before".
+	BeforePhotoID string `json:"beforePhotoId,omitempty"`
+	AfterPhotoID  string `json:"afterPhotoId,omitempty"`
+}
+
+// moveAdminAlbumItemsHandler moves photographs within an album — the server side of drag-and-drop.
+//
+// # Why the server computes the order
+//
+// `ItemsReordered` must carry the album's **whole** live order (see reorderAdminAlbumItemsHandler), and with the
+// album view scrolling in pages the browser may not hold it: dragging photograph 180 to the front of an album of
+// 200 happens with maybe 120 loaded. So the request says only what moved and where to, and the order is built
+// here from the projection. It publishes the same event as a full reorder, so the fold has one way to reorder.
+//
+// @Summary      Move photographs within an album
+// @Description  Moves the named photographs, together and keeping their current relative order, to just before or just after another photograph in the same album. The server builds the album's complete new order and publishes it as one reorder, so the client does not need to have loaded the whole album. Exactly one of `beforePhotoId` and `afterPhotoId` must be given, and it must not be one of the photographs being moved. Requires the admin credential.
+// @Tags         admin
+// @Accept       json
+// @Produce      json
+// @Param        albumId  path      string                      true  "album id"
+// @Param        request  body      moveAdminAlbumItemsRequest  true  "what moves, and where to"
+// @Success      204  "moved"
+// @Failure      400  {object}  map[string]string  "nothing to move, no target or two, a target that is itself moving, or a photograph not in this album"
+// @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
+// @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
+// @Failure      404  {object}  map[string]string  "unknown album"
+// @Failure      500  {object}  map[string]string
+// @Failure      503  {object}  map[string]string  "the albums or the event stream are unavailable"
+// @Router       /admin/albums/{albumId}/move [patch]
+func (app *application) moveAdminAlbumItemsHandler(w http.ResponseWriter, r *http.Request) {
+	if app.models.AlbumCurator == nil {
+		app.ServiceUnavailableResponse(w, r, "albummerne er ikke tilgængelige lige nu")
+		return
+	}
+
+	albumID := httprouter.ParamsFromContext(r.Context()).ByName("albumId")
+
+	var in moveAdminAlbumItemsRequest
+	if err := app.ReadJSON(w, r, &in); err != nil {
+		app.BadRequestResponse(w, r, err)
+		return
+	}
+	moving, err := dedupeAdminIDs(in.PhotoIDs, "billeder")
+	if err != nil {
+		app.BadRequestResponse(w, r, err)
+		return
+	}
+	before, after := strings.TrimSpace(in.BeforePhotoID), strings.TrimSpace(in.AfterPhotoID)
+	if (before == "") == (after == "") {
+		app.BadRequestResponse(w, r, errors.New("angiv enten beforePhotoId eller afterPhotoId"))
+		return
+	}
+	target := before + after
+
+	_, items, found, err := app.models.AlbumCurator.Album(app.config.eventYear, albumID)
+	if err != nil {
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+	if !found {
+		app.NotFoundResponse(w, r)
+		return
+	}
+
+	order, err := moveAlbumOrder(items, moving, target, after != "")
+	if err != nil {
+		app.BadRequestResponse(w, r, err)
+		return
+	}
+
+	if perr := app.publishAlbum(album.VerbItemsReordered, albumID, album.ItemsReordered{
+		AlbumID:     albumID,
+		Year:        app.config.eventYear,
+		PhotoIDs:    order,
+		ReorderedAt: time.Now().UTC(),
+	}); perr != nil {
+		app.writeAlbumPublishFailure(w, r, perr)
+		return
+	}
+
+	app.Logger.Info("admin moved photographs within an album",
+		"albumId", albumID, "moved", len(moving), "ip", clientIP(r))
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// moveAlbumOrder returns the album's live order with `moving` taken out and put back next to `target`.
+//
+// `items` is in ordinal order, as `CuratorQueries.Album` returns it. Live means not removed from the album —
+// the same membership the full reorder checks, so a photograph deleted from the library keeps its place.
+func moveAlbumOrder(items []album.CuratorItem, moving []string, target string, placeAfter bool) ([]string, error) {
+	isMoving := make(map[string]bool, len(moving))
+	for _, id := range moving {
+		isMoving[id] = true
+	}
+	if isMoving[target] {
+		return nil, errors.New("billedet der flyttes hen til, kan ikke selv flyttes")
+	}
+
+	var live, moved, rest []string
+	for _, it := range items {
+		if it.Removed {
+			continue
+		}
+		live = append(live, it.PhotoID)
+		if isMoving[it.PhotoID] {
+			moved = append(moved, it.PhotoID)
+		} else {
+			rest = append(rest, it.PhotoID)
+		}
+	}
+	if len(moved) != len(moving) {
+		return nil, errors.New("et af billederne ligger ikke i dette album")
+	}
+
+	at := -1
+	for i, id := range rest {
+		if id == target {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		return nil, errors.New("billedet der flyttes hen til, ligger ikke i dette album")
+	}
+	if placeAfter {
+		at++
+	}
+
+	out := make([]string, 0, len(live))
+	out = append(out, rest[:at]...)
+	out = append(out, moved...)
+	out = append(out, rest[at:]...)
+	return out, nil
+}
+
 // createAdminAlbumRequest creates an album.
 type createAdminAlbumRequest struct {
 	Title       string `json:"title"`

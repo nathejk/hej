@@ -386,7 +386,10 @@ the album, so the album view has the same selection and actions as the library.
   {{end}}
 
   <h2>{{photos .ItemCount}} i albummet</h2>
-  {{if not .ItemCount}}
+  {{if .ItemCount}}
+  <p class="hint">Træk et billede for at flytte det. Vælger du flere først, flytter de med sammen. Det første billede
+  er forsidebilledet.</p>
+  {{else}}
   <p class="hint">Der er ingen billeder i albummet endnu. Vælg dem under <a href="{{.Root}}/photos">Alle billeder</a>
   og brug <strong>Tilføj til album</strong>.</p>
   {{end}}

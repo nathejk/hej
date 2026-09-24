@@ -149,8 +149,10 @@ simpler. Either order works — just not both at once.
   `PATCH /api/admin/albums/:albumId/items` already takes the whole new order as one event, so the server side
   does not change: the page computes the new list and sends it. With infinite scroll, a drop target may be
   beyond what is loaded, so the order sent must be the album's **full** live order, not just the loaded cells
-  (fetch the ids first, or have the server take "move these ids before this id" instead). Decide which in
-  implementation, and test a move from the end of a 200-item album to the start.
+  (fetch the ids first, or have the server take "move these ids before this id" instead). **Decided: the server.**
+  `PATCH /api/admin/albums/{id}/move` takes the ids and a `beforePhotoId` or `afterPhotoId`, builds the whole
+  order and publishes the existing `ItemsReordered`. PATCH because POST already has the static
+  `/api/admin/albums/items`, which httprouter will not put beside `:albumId`.
 
 The original questions, for the record:
 
@@ -181,3 +183,5 @@ The original questions, for the record:
 - [ ] Infinite scroll in the album and all-photos views; "select all matching" still selects unloaded ones
 - [ ] An explicit album cover settable on any item, falling back to the first live item, used by every read
 - [ ] Multi-select drag-and-drop reordering replaces ↑/↓, verified moving items from position ~180 to 1
+      *(server side done and tested at 200 items; `PATCH /api/admin/albums/{id}/move`. The pointer-driven drag
+      in albumorder.js still needs a click-through in a real browser)*

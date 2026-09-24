@@ -373,3 +373,17 @@ nav.views a[aria-current="page"] { color: #fafafa; font-weight: 600; text-decora
 #albumeditor summary { cursor: pointer; font-weight: 600; }
 #albumeditor label { display: block; font-size: 0.875rem; color: #52525b; margin-top: 0.75rem; }
 #editnote { min-height: 1.5rem; color: #166534; }
+
+/* Drag-and-drop in the album view (task 396). The landing place is a bar on the side the photographs will land,
+   and what is being moved is dimmed in place, so the curator sees both ends of the move. */
+#albumeditor ~ #sheet .cell { touch-action: none; }
+#sheet .cell img { -webkit-user-drag: none; user-select: none; }
+#sheet .cell.dragging { opacity: 0.35; }
+#sheet .cell.drop-before { box-shadow: inset 4px 0 0 #2563eb; }
+#sheet .cell.drop-after { box-shadow: inset -4px 0 0 #2563eb; }
+body.draggingcells { cursor: grabbing; user-select: none; }
+.dragghost {
+  position: fixed; z-index: 50; pointer-events: none;
+  background: #18181b; color: #fafafa; font-size: 0.8125rem;
+  padding: 0.25rem 0.5rem; border-radius: 0.375rem;
+}

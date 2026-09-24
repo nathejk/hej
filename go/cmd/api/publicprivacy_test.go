@@ -447,6 +447,10 @@ func isPersonShaped(field string) bool {
 	// `photoid` case to a prefix match, because `PhotoIdentityOf` would then pass too.
 	case "coverphotoid":
 		return false
+	// A drag-and-drop's landing place (task 396): the album photograph the moved ones go before or after. The same
+	// content hash as `photoId`, naming a position in an album rather than anybody in it.
+	case "beforephotoid", "afterphotoid":
+		return false
 
 	// **The photographer's credit line** (task 393). The one field in this service that is *meant* to name a
 	// human being, and the only exception to the claim in this file's header.

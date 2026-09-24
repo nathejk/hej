@@ -229,7 +229,7 @@ func (app *application) renderAdminPage(w http.ResponseWriter, data adminPageDat
 // keeps it that way. That is also why the year appears in the markup twice — once for a human and once for the
 // uploader — rather than being passed through a variable.
 
-//go:embed adminui/page.html adminui/page.css adminui/albumeditor.js adminui/captionaction.js
+//go:embed adminui/page.html adminui/page.css adminui/albumeditor.js adminui/albumorder.js adminui/captionaction.js
 //go:embed adminui/main.js adminui/sheetshell.js adminui/contactsheet.js adminui/upload.js
 //go:embed adminui/albumaction.js adminui/positionaction.js adminui/patrolaction.js
 //go:embed adminui/creditaction.js adminui/deleteaction.js
@@ -265,6 +265,7 @@ var adminPageScripts = []string{
 	"adminui/deleteaction.js",
 	"adminui/upload.js",
 	"adminui/albumeditor.js",
+	"adminui/albumorder.js",
 }
 
 // adminTemplates is the page plus the htmx fragments (task 395), parsed as one set.
