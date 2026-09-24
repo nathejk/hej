@@ -183,6 +183,16 @@ This is event-sourced-ish: SQL tables are projections, JetStream is the log.
 
 ## Conventions
 
+### Does your handler return HTML rather than JSON?
+
+Then most of this skill still applies — routes, projections, `app.models`, the error helpers — but the page
+itself has its own conventions and its own stack. **In the `hej` repo, use the `go-server-rendered-pages`
+skill** for anything under `/{year}/…` (the public website) or `/admin` (the photographer tool).
+
+The short version, because the mistake is expensive: those surfaces have **no build step, no npm, no bundler,
+no Tailwind and no shadcn-vue**. They are `html/template` plus vendored libraries served from the Go binary.
+They are *not* the Vue PWA in `vue/`, and mixing the two is a hard rule against, not a preference.
+
 ### Adding an endpoint
 
 1. Add the route in `cmd/api/routes.go`, grouped with related routes.

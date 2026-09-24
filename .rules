@@ -18,6 +18,47 @@ Everything in that file applies here unless explicitly overridden below.
 | frontend | Vue 3 (TS) | `ui-dev` | `https://hej.local.nathejk.dk` |
 | bff | Go | `base` | internal only |
 
+### Three surfaces, two frontends — **do not mix them**
+
+The table above says "frontend: Vue 3", and that is only a third of the picture. This repo serves **three
+user-facing surfaces**, and the `bff` is not internal-only: it server-renders two of them as HTML.
+
+| Surface | Who it is for | Where it lives | Stack |
+|---|---|---|---|
+| **The PWA** | participants, on a phone | `vue/` | Vue 3 + TS, Vite, Tailwind v4, shadcn-vue, Lucide. Installable, service worker, push. |
+| **The public website** | families and the open web | `go/cmd/api/publicsite.go` | Go `html/template`, hand-written CSS inline in the template, vendored Leaflet. **No build step.** |
+| **The admin tool** | 2–3 photographers/curators, on a laptop | `go/cmd/api/adminui/` | Go `html/template` + **Pico + htmx + Alpine**, all vendored. Real `.html`/`.css`/`.js` files. **No build step.** |
+
+**This separation is a hard rule, not a preference** (maintainer, 2026-09-23):
+
+> *"It's essential that we do not mix the pwa and the website, it's two different things and should be kept as
+> such."*
+
+Why it holds, so it is not re-litigated:
+
+- **The PWA is install-only and phone-only.** `vue/src/router/gates.ts` runs a device-class gate **ahead of**
+  the auth gate and `window.location.replace`s a desktop visitor out to the public website. Bulk upload from an
+  SD card is desktop work by definition, so the admin tool *cannot* live in the PWA — see PRD 022 §8.1.
+- **The website surfaces have no build step, and that is the point.** They must render from the Go binary
+  alone. This is why **Tailwind is not available to them**: Tailwind's mechanism is scanning markup at build
+  time, the only Tailwind here lives inside the PWA's Vite build, and using it on the website would mean either
+  a second pipeline or coupling the two things that must stay apart. Pico was chosen for the admin tool for
+  exactly that reason (PRD 022 §7, task 395).
+- **They have different privacy postures.** The PWA is authenticated; the public website names no person
+  (PRD 011 §0b.1) with one narrow documented exception, a photographer's credit line (task 393).
+
+**Practical consequences when picking up work here:**
+
+- Working in `vue/`? Use the `vue3-pwa-layout` skill. shadcn-vue, Tailwind, Lucide components all apply.
+- Working on a page the Go service renders — anything under `/{year}/…` or `/admin` — use the
+  `go-server-rendered-pages` skill. **shadcn-vue and Tailwind do not apply and are not available.**
+- Do not add an `npm` dependency, a bundler or a build step to the website surfaces. Third-party libraries are
+  **vendored, pinned and served from the Go binary** (`go/cmd/api/adminui/vendor/`), never from a CDN — a CDN
+  would let a third party log who looked at the event's photographs.
+- Do not put website assets under `vue/`. (The website's map island and its Leaflet copy currently *are* served
+  from `vue/public/` — a pre-existing wrinkle worth untangling, not a precedent to follow. New website assets
+  are embedded in the Go binary; see `go/cmd/api/adminui/`.)
+
 ### Key files
 - `docker/Dockerfile` — multistage build (dev targets: `ui-dev`, `base`; prod target: `prod`)
 - `docker-compose.yml` — dev environment
@@ -26,9 +67,15 @@ Everything in that file applies here unless explicitly overridden below.
 - `roadmap/tasks/TASKS.md` — task board conventions
 - `roadmap/prd/` — Product Requirements Documents (see `roadmap/prd/README.md`)
 
-### Frontend skill
-Use **`vue3-pwa-layout`** for anything in `vue/`. The older
-`vue3-spa-layout-legacy` skill describes the PrimeVue-based sibling repos and
+### Frontend skills
+
+There are two, and which one applies is decided by **where the file lives**, not by what you are building:
+
+- **`vue3-pwa-layout`** — anything in `vue/`. The participants' installable PWA.
+- **`go-server-rendered-pages`** — anything the Go service renders as HTML: the public website
+  (`go/cmd/api/publicsite.go`) and the admin tool (`go/cmd/api/adminui/`).
+
+The older `vue3-spa-layout-legacy` skill describes the PrimeVue-based sibling repos and
 must **not** be applied here.
 
 ---
@@ -46,8 +93,8 @@ must **not** be applied here.
   to be in it. If an operational need for one appears, it belongs in an organizer tool
   behind its own decision — not in the participants' app. BFF responses must project
   the field out rather than relying on the client not to render it.
-- **Component library:** use [shadcn-vue](https://www.shadcn-vue.com/) for all UI
-  components (see the `vue3-pwa-layout` skill). **Prefer a standard shadcn-vue
+- **Component library (the PWA only):** use [shadcn-vue](https://www.shadcn-vue.com/) for all UI
+  components in `vue/` (see the `vue3-pwa-layout` skill). **Prefer a standard shadcn-vue
   component whenever one exists** — only hand-roll a component if nothing in the
   catalogue fits, and note why in a comment. Generated primitives live in
   `vue/src/components/ui/` and are owned source — edit them in place rather than
@@ -55,16 +102,25 @@ must **not** be applied here.
   **Do not use PrimeVue.** It is being removed (see PRD 004) and must not be
   reintroduced: no `primevue`, no `@primevue/*`, no Lara/theme presets, no
   PrimeIcons.
-- **Styling:** Tailwind **v4**, configured CSS-first in `vue/src/assets/main.css`
+  **This does not reach the website surfaces.** The public site and the admin tool are server-rendered Go
+  templates with no build step, so there is no shadcn-vue there and no way to add it — see "Three surfaces"
+  above and the `go-server-rendered-pages` skill.
+- **Styling (the PWA only):** Tailwind **v4**, configured CSS-first in `vue/src/assets/main.css`
   (`@import "tailwindcss"`, `@theme`). Do not reintroduce `tailwind.config.js`.
-- **Typography:** all **major headlines use the Nathejk font** — the
+  **Tailwind is not available to the website surfaces** and must not be introduced to them: it needs a build
+  step, and the only pipeline here belongs to the PWA. The admin tool uses vendored **Pico**; the public site
+  uses hand-written CSS in its template.
+- **Typography:** all **major headlines use the Nathejk font** — in the PWA via the
   `font-nathejk` utility, backed by `--font-nathejk` (Impact + narrow-bold
   fallbacks) in `vue/src/assets/main.css`. That covers page `<h1>`s, title-level
   section headings and the app bar wordmark; body text and controls stay on the
-  system sans stack. Never set a font family in a component.
-- **Icons:** use [Lucide](https://lucide.dev/) for all icons across the project
-  (frontend `@lucide/vue`), unless a specific instruction says otherwise.
-  Do not introduce other icon sets (e.g. PrimeIcons, Font Awesome) for UI icons.
+  system sans stack. Never set a font family in a Vue component.
+  On the **server-rendered** surfaces the same intent is met with a plain font stack in the page's own CSS,
+  because there is no utility layer to reach for — declared once per stylesheet, not per rule.
+- **Icons:** use [Lucide](https://lucide.dev/) for all icons across the project.
+  In the PWA that is the `@lucide/vue` components; on the **server-rendered** surfaces it is
+  **inline SVG copied from Lucide**, because there is no build step to import a component through — same icon
+  set, different delivery. Do not introduce other icon sets (e.g. PrimeIcons, Font Awesome) for UI icons.
 - **Browser baseline:** **iOS/iPadOS Safari 16.4+** and **Chrome 111+** (Android
   equivalent). This is not a constraint we chose for tooling's sake — it is what
   the product already requires: iOS only supports **Web Push for home-screen web

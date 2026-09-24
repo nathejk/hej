@@ -17,6 +17,17 @@ styled with **Tailwind v4**, using **shadcn-vue** for components and **Pinia**
 for state. It is always developed and run inside the `ui` container — never on
 the host.
 
+> **This skill covers `vue/` and nothing else.** The `hej` repo serves three user-facing surfaces, and this is
+> one of them. The **public website** (`/{year}/…`) and the **photographer admin tool** (`/admin`) are
+> server-rendered by the Go service with **no build step, no npm, no Tailwind and no shadcn-vue** — use the
+> `go-server-rendered-pages` skill for those.
+>
+> Keeping them apart is a hard rule (maintainer, 2026-09-23): *"It's essential that we do not mix the pwa and
+> the website, it's two different things and should be kept as such."* Concretely: this PWA is **install-only
+> and phone-only** — `src/router/gates.ts` runs a device-class gate *ahead of* the auth gate and redirects a
+> desktop visitor out to the public website. So desktop work (bulk photo upload from an SD card) cannot live
+> here, and website assets must not be added under `vue/`. See `.rules` → "Three surfaces, two frontends".
+
 > Replaces the legacy `vue3-spa-layout` skill (kept as
 > `vue3-spa-layout-legacy` for the sibling repos that still run it).
 > **PrimeVue is forbidden** in this repo (`.rules`, PRD 004): no `primevue`, no
