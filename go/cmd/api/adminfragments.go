@@ -186,6 +186,62 @@ func (app *application) setAdminAlbumPublishedFragmentHandler(w http.ResponseWri
 	app.renderAdminAlbumList(w, r, note)
 }
 
+// deleteAdminAlbumFragmentHandler deletes a whole album and re-renders the list (task 396).
+//
+// # The same event as the Team section's takedown, on purpose
+//
+// `album.Deleted` is what `deleteAlbumHandler` publishes for the in-app takedown, and the fold already takes the
+// album off the frontpage and marks every item removed (so the map drops them too). A second event meaning "the
+// curator deleted it" would be a second way for an album to go, and two ways is how one of them forgets the map.
+//
+// # What it does not do
+//
+// It deletes **no photograph**. They stay in the library and in every other album they are in — which is the
+// difference the confirm prompt in fragments.html has to make plain, for the same reason the photo delete sheet
+// spells out "fjern" against "slet" (PRD 022 §5).
+func (app *application) deleteAdminAlbumFragmentHandler(w http.ResponseWriter, r *http.Request) {
+	if app.models.AlbumCurator == nil {
+		app.ServiceUnavailableResponse(w, r, "albummerne er ikke tilgængelige lige nu")
+		return
+	}
+
+	albumID := httprouter.ParamsFromContext(r.Context()).ByName("albumId")
+	if albumID == "" {
+		app.BadRequestResponse(w, r, errors.New("der skal angives et album"))
+		return
+	}
+
+	a, _, found, err := app.models.AlbumCurator.Album(app.config.eventYear, albumID)
+	if err != nil {
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+	if !found {
+		app.NotFoundResponse(w, r)
+		return
+	}
+	// Already gone is answered with the list rather than a second event: a double click, or two curators, should
+	// not append a no-op to the log.
+	if a.Deleted {
+		app.renderAdminAlbumList(w, r, "Albummet «"+a.Title+"» var allerede slettet.")
+		return
+	}
+
+	if perr := app.publishAlbum(album.VerbDeleted, albumID, album.Deleted{
+		AlbumID:   albumID,
+		Year:      app.config.eventYear,
+		DeletedAt: time.Now().UTC(),
+	}); perr != nil {
+		app.writeAlbumPublishFailure(w, r, perr)
+		return
+	}
+
+	app.Logger.Info("admin deleted an album from the list fragment",
+		"albumId", albumID, "slug", a.Slug, "ip", clientIP(r))
+
+	app.renderAdminAlbumList(w, r, "Albummet «"+a.Title+"» er slettet. Billederne ligger stadig i arkivet.")
+}
+
 // renderAdminAlbumList reads the year's albums and renders the fragment.
 //
 // `note` is the line above the list. Empty means "say how many are unpublished", which is the question a curator

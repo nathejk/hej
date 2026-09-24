@@ -1089,3 +1089,86 @@ func TestTheContactSheetLoadsFromItsShell(t *testing.T) {
 			"exist yet when that runs, so the call would silently do nothing and leave an empty grid")
 	}
 }
+
+// Deleting an album from the list (task 396) publishes the same `album.Deleted` the in-app takedown does, and
+// says in the note that the photographs survive.
+func TestDeletingAnAlbumFromTheListPublishesDeleted(t *testing.T) {
+	_, srv, pub := albumWriteApp(t, newAlbumCurator(&curatedAlbum{a: album.CuratorAlbum{
+		ID: "al-1", Slug: "natten", Title: "Natten", Published: true, ItemCount: 4,
+	}}))
+
+	resp := postAdminForm(t, srv, "/admin/fragments/albums/al-1/deleted", url.Values{})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", resp.StatusCode, adminBody(t, resp))
+	}
+	body := adminBody(t, resp)
+
+	if got := len(pub.Messages); got != 1 {
+		t.Fatalf("want exactly 1 event, got %d", got)
+	}
+	if !strings.Contains(pub.Subjects()[0], ".album.al-1.deleted") {
+		t.Errorf("unexpected subject %q", pub.Subjects()[0])
+	}
+	var payload album.Deleted
+	if err := pub.Messages[0].Body(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.AlbumID != "al-1" || payload.Year != "2026" {
+		t.Errorf("the event must name the album and the year, got %+v", payload)
+	}
+	if !strings.Contains(body, "Billederne ligger stadig i arkivet") {
+		t.Errorf("the note must say the photographs survive\n%s", body)
+	}
+}
+
+// An album already deleted is answered with the list, not with a second event.
+func TestDeletingADeletedAlbumAppendsNothing(t *testing.T) {
+	_, srv, pub := albumWriteApp(t, newAlbumCurator(&curatedAlbum{a: album.CuratorAlbum{
+		ID: "al-1", Slug: "natten", Title: "Natten", Deleted: true,
+	}}))
+
+	resp := postAdminForm(t, srv, "/admin/fragments/albums/al-1/deleted", url.Values{})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	if got := len(pub.Messages); got != 0 {
+		t.Errorf("want no event for an album already deleted, got %d", got)
+	}
+}
+
+func TestDeletingAnUnknownAlbumIs404(t *testing.T) {
+	_, srv, pub := albumWriteApp(t, newAlbumCurator())
+
+	if got := postAdminForm(t, srv, "/admin/fragments/albums/al-nope/deleted", url.Values{}).StatusCode; got != http.StatusNotFound {
+		t.Errorf("want 404, got %d", got)
+	}
+	if len(pub.Messages) != 0 {
+		t.Error("an unknown album must not append to the log")
+	}
+}
+
+// **The delete is behind a confirm that names the album and says the photographs stay.** A deleted album's button
+// is gone, since there is nothing left to delete.
+func TestTheAlbumDeleteButtonAsksFirst(t *testing.T) {
+	_, srv, _ := albumWriteApp(t, newAlbumCurator(
+		&curatedAlbum{a: album.CuratorAlbum{ID: "al-1", Slug: "natten", Title: "Natten", Published: true}},
+		&curatedAlbum{a: album.CuratorAlbum{ID: "al-2", Slug: "vaek", Title: "Væk", Deleted: true}},
+	))
+
+	body := albumListFragment(t, srv)
+
+	if !strings.Contains(body, `hx-post="/admin/fragments/albums/al-1/deleted"`) {
+		t.Fatalf("a live album should have a delete button\n%s", body)
+	}
+	i := strings.Index(body, `hx-post="/admin/fragments/albums/al-1/deleted"`)
+	button := body[i:]
+	button = button[:strings.Index(button, ">")]
+	for _, want := range []string{"hx-confirm=", "Natten", "taget af forsiden", "Billederne bliver liggende i arkivet"} {
+		if !strings.Contains(button, want) {
+			t.Errorf("the confirm should contain %q; got %s", want, button)
+		}
+	}
+	if strings.Contains(body, "/admin/fragments/albums/al-2/deleted") {
+		t.Error("a deleted album must not offer delete again")
+	}
+}

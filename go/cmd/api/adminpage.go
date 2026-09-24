@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -153,18 +152,6 @@ func (app *application) adminAlbumsPageHandler(w http.ResponseWriter, r *http.Re
 func (app *application) adminPhotosPageHandler(w http.ResponseWriter, r *http.Request) {
 	filters, query := adminFiltersFor(r.URL.RawQuery)
 	app.renderAdminPage(w, adminPageData{View: "photos", Filters: filters, Query: query})
-}
-
-// adminIndexRedirectHandler sends the tool's old address to its landing page, so bookmarks and task 385's
-// half-page keep working after task 396 moved the pages under the year.
-func (app *application) adminIndexRedirectHandler(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, app.publicRoot()+"/albums", http.StatusFound)
-}
-
-// adminAlbumRedirectHandler does the same for an album editor's old address.
-func (app *application) adminAlbumRedirectHandler(w http.ResponseWriter, r *http.Request) {
-	slug := httprouter.ParamsFromContext(r.Context()).ByName("slug")
-	http.Redirect(w, r, app.publicRoot()+"/album/"+url.PathEscape(slug)+"/edit", http.StatusFound)
 }
 
 // renderAdminPage fills in what every view shows — the year, the counts — and renders it.

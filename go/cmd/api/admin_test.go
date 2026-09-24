@@ -398,7 +398,7 @@ func TestTheAdminVendorRouteNeedsTheCredential(t *testing.T) {
 func TestAdminPageServesWithTheCredential(t *testing.T) {
 	_, srv := adminApp(t)
 
-	resp := getAdmin(t, srv, "/admin", testAdminUser, testAdminPass)
+	resp := getAdmin(t, srv, "/2026/photos", testAdminUser, testAdminPass)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("want 200 with the credential, got %d", resp.StatusCode)
 	}
@@ -416,7 +416,7 @@ func TestAdminPageServesWithTheCredential(t *testing.T) {
 func TestAdminPageStatesTheYear(t *testing.T) {
 	_, srv := adminApp(t)
 
-	resp := getAdmin(t, srv, "/admin", testAdminUser, testAdminPass)
+	resp := getAdmin(t, srv, "/2026/photos", testAdminUser, testAdminPass)
 	body := adminBody(t, resp)
 	if !strings.Contains(body, "2026") {
 		t.Errorf("the admin page must state the event year it writes to\ngot: %s", body)
@@ -442,7 +442,7 @@ func TestAdminRefusesAndRevealsNothing(t *testing.T) {
 
 	var bodies []string
 	for name, c := range cases {
-		resp := getAdmin(t, srv, "/admin", c[0], c[1])
+		resp := getAdmin(t, srv, "/2026/photos", c[0], c[1])
 		if resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("%s: want 401, got %d", name, resp.StatusCode)
 		}
@@ -503,7 +503,7 @@ func TestAdminResponsesAreNeverStoredOrIndexed(t *testing.T) {
 		"authorised": {testAdminUser, testAdminPass},
 		"refused":    {"nobody", "guess"},
 	} {
-		resp := getAdmin(t, srv, "/admin", creds[0], creds[1])
+		resp := getAdmin(t, srv, "/2026/photos", creds[0], creds[1])
 		if got := resp.Header.Get("Cache-Control"); got != "no-store" {
 			t.Errorf("%s: want Cache-Control no-store, got %q", name, got)
 		}
@@ -525,11 +525,11 @@ func TestAdminRefusesPlainHTTP(t *testing.T) {
 	defer srv.Close()
 
 	// No X-Forwarded-Proto: this is what a request that reached us over cleartext looks like.
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/admin", nil)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+app.publicRoot()+"/photos", nil)
 	req.SetBasicAuth(testAdminUser, testAdminPass)
 	resp, err := srv.Client().Do(req)
 	if err != nil {
-		t.Fatalf("GET /admin: %v", err)
+		t.Fatalf("GET the photos page: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -554,11 +554,11 @@ func TestAdminAllowsPlainHTTPInDevelopment(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/admin", nil)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+app.publicRoot()+"/photos", nil)
 	req.SetBasicAuth(testAdminUser, testAdminPass)
 	resp, err := srv.Client().Do(req)
 	if err != nil {
-		t.Fatalf("GET /admin: %v", err)
+		t.Fatalf("GET the photos page: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -582,7 +582,7 @@ func TestTheAdminSurfaceDoesNotThrottleAuthenticatedRequests(t *testing.T) {
 	_, srv := adminApp(t)
 
 	for i := 0; i < 400; i++ {
-		resp := getAdmin(t, srv, "/admin", testAdminUser, testAdminPass)
+		resp := getAdmin(t, srv, "/2026/photos", testAdminUser, testAdminPass)
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("request %d with the correct credential answered %d. The curator's work must not be "+
@@ -608,7 +608,7 @@ func TestAWrongAdminCredentialIsAlwaysRefusedIdentically(t *testing.T) {
 		{testAdminUser, "wrong-password"},
 		{"wrong-user", testAdminPass},
 	} {
-		resp := getAdmin(t, srv, "/admin", c[0], c[1])
+		resp := getAdmin(t, srv, "/2026/photos", c[0], c[1])
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 
@@ -735,7 +735,7 @@ func TestAdminSurfaceIsAbsentWithoutAPassword(t *testing.T) {
 // client then follows. So the path *is* effectively case-insensitive.
 //
 // That is not a hole, and asserting case-sensitivity would have been asserting an accident of the router
-// rather than a property of the design: the redirect lands on `/admin`, which is behind `requireAdmin` like
+// rather than a property of the design: the redirect lands on the canonical path, which is behind `requireAdmin` like
 // any other request to it. The guard is on the handler, not on the spelling.
 //
 // So the test now pins the property that actually matters, and which *would* be a hole if it broke: no
@@ -743,7 +743,7 @@ func TestAdminSurfaceIsAbsentWithoutAPassword(t *testing.T) {
 func TestNoSpellingOfTheAdminPathSkipsTheCredential(t *testing.T) {
 	_, srv := adminApp(t)
 
-	for _, path := range []string{"/admin", "/Admin", "/ADMIN", "/aDmIn", "/admin/", "//admin"} {
+	for _, path := range []string{"/2026/photos", "/2026/Photos", "/2026/PHOTOS", "/2026/pHoToS", "/2026/photos/", "//2026/photos"} {
 		// No credential at all.
 		resp := getAdmin(t, srv, path, "", "")
 		body := adminBody(t, resp)
@@ -808,7 +808,7 @@ func TestPublicAlbumsFlagDoesNotDisableTheAdminTool(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	resp := getAdmin(t, srv, "/admin", testAdminUser, testAdminPass)
+	resp := getAdmin(t, srv, "/2026/photos", testAdminUser, testAdminPass)
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("the admin tool must work with PUBLIC_ALBUMS=false, got %d", resp.StatusCode)
 	}

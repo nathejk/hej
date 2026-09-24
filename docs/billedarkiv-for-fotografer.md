@@ -4,8 +4,7 @@ Til fotografer og den, der samler albummerne. Du skal ikke bruge en terminal til
 Hvis du på et tidspunkt tænker "det her må en udvikler gøre", så er det en fejl i værktøjet — sig det.
 
 **Billeder lægges op på <https://hej.nathejk.dk/2026/photos>.** Albummerne ligger på
-<https://hej.nathejk.dk/2026/albums>. Den gamle adresse, <https://hej.nathejk.dk/admin>, sender dig videre til
-albummerne.
+<https://hej.nathejk.dk/2026/albums>.
 
 ---
 

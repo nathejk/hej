@@ -77,6 +77,17 @@ page.html triggers on `load` and the fragment triggers only on the `albums-chang
           {{if and .Published (not .Deleted)}}
           <a href="/{{$.Year}}/album/{{.Slug}}" target="_blank" rel="noopener">Se den</a>
           {{end}}
+          {{if not .Deleted}}
+          {{/* Deleting the album (task 396), behind the browser's own confirm. The prompt names the album and says
+               what survives, because "slet" next to a photograph means the bytes go, and here it does not — the
+               two must not read alike (PRD 022 §5). */}}
+          <button type="button" class="ghost danger"
+                  hx-post="/admin/fragments/albums/{{.AlbumID}}/deleted"
+                  hx-target="#albums" hx-swap="outerHTML"
+                  hx-confirm="Slet albummet «{{.Title}}»?{{if .Published}} Det bliver taget af forsiden med det samme.{{end}} Billederne bliver liggende i arkivet og i andre album. Det kan ikke fortrydes herfra.">
+            Slet album
+          </button>
+          {{end}}
         </div>
       </div>
     </div>

@@ -8,39 +8,6 @@ import (
 
 // Task 396: the tool is three pages under the year, beside the public ones, instead of one page at `/admin`.
 
-// noRedirect is a client that reports a redirect instead of following it, so the Location can be asserted.
-func noRedirect(t *testing.T, srvURL, path string) *http.Response {
-	t.Helper()
-	req, _ := http.NewRequest(http.MethodGet, srvURL+path, nil)
-	req.Header.Set("X-Forwarded-Proto", "https")
-	req.SetBasicAuth(testAdminUser, testAdminPass)
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("GET %s: %v", path, err)
-	}
-	t.Cleanup(func() { _ = resp.Body.Close() })
-	return resp
-}
-
-// The old addresses keep working: a bookmark, or task 385's half-page, lands on the page it used to show.
-func TestTheOldAdminAddressesRedirect(t *testing.T) {
-	_, srv := adminApp(t)
-
-	for path, want := range map[string]string{
-		"/admin":              "/2026/albums",
-		"/admin/album/natten": "/2026/album/natten/edit",
-	} {
-		resp := noRedirect(t, srv.URL, path)
-		if resp.StatusCode != http.StatusFound {
-			t.Errorf("%s: want 302, got %d", path, resp.StatusCode)
-		}
-		if got := resp.Header.Get("Location"); got != want {
-			t.Errorf("%s: want a redirect to %s, got %q", path, want, got)
-		}
-	}
-}
-
 // **Under the public prefix is not public.** The pages beside `/2026/album/:slug` must still refuse anyone without
 // the credential — the whole risk of moving them there, and the one thing the path no longer says.
 func TestTheCuratorPagesUnderTheYearNeedTheCredential(t *testing.T) {

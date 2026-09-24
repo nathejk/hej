@@ -253,11 +253,10 @@ func (app *application) routes() http.Handler {
 	if adminRoutesEnabled(app.config) {
 		// The curator's pages (task 396), under the year beside the public ones rather than under `/admin`. Being
 		// admin is decided by `requireAdmin`, not by the prefix — the guards in admin_test.go and
-		// publicprivacy_test.go read the wrapper for exactly this reason. The old addresses redirect.
+		// publicprivacy_test.go read the wrapper for exactly this reason.
 		router.HandlerFunc(http.MethodGet, publicRoot+"/albums", app.requireAdmin(app.adminAlbumsPageHandler))
 		router.HandlerFunc(http.MethodGet, publicRoot+"/photos", app.requireAdmin(app.adminPhotosPageHandler))
 		router.HandlerFunc(http.MethodGet, publicRoot+"/album/:slug/edit", app.requireAdmin(app.adminAlbumPageHandler))
-		router.HandlerFunc(http.MethodGet, "/admin", app.requireAdmin(app.adminIndexRedirectHandler))
 		// One file per request (task 372). The batching is the browser's, which is what keeps one bad file
 		// from failing a batch of three hundred — see adminupload.go's header.
 		router.HandlerFunc(http.MethodPost, "/api/admin/photos", app.requireAdmin(app.uploadAdminPhotoHandler))
@@ -277,7 +276,6 @@ func (app *application) routes() http.Handler {
 		router.HandlerFunc(http.MethodPost, "/api/admin/albums/items", app.requireAdmin(app.addAdminAlbumItemsHandler))
 		// The album editor (task 378). The slug is **not** editable: it is the album's public address, frozen at
 		// creation, and neither the request shape nor the event has a field for it.
-		router.HandlerFunc(http.MethodGet, "/admin/album/:slug", app.requireAdmin(app.adminAlbumRedirectHandler))
 		// The pinned third-party libraries the pages load (task 395): htmx, Alpine and Pico, embedded in the
 		// binary rather than fetched from a CDN — see adminui/vendor/README.md.
 		//
@@ -300,6 +298,9 @@ func (app *application) routes() http.Handler {
 		// Publication posted **alone** (task 378), on its own route rather than as part of a general "patch the
 		// album" fragment: a curator pressing the button has said one thing.
 		router.HandlerFunc(http.MethodPost, "/admin/fragments/albums/:albumId/published", app.requireAdmin(app.setAdminAlbumPublishedFragmentHandler))
+		// Deleting a whole album (task 396). The same `album.Deleted` the Team section's in-app takedown publishes,
+		// so the projection has one way an album goes. The photographs stay in the library.
+		router.HandlerFunc(http.MethodPost, "/admin/fragments/albums/:albumId/deleted", app.requireAdmin(app.deleteAdminAlbumFragmentHandler))
 		// The action sheets' pickers (step 4). POST rather than GET for the two that read the boxes a curator has
 		// already ticked: those ids travel in a body, and a GET carrying a hundred repeated query parameters is a
 		// URL length limit waiting to be found.

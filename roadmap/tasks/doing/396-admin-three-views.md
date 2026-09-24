@@ -66,7 +66,6 @@ under the year.**
 | `GET /<year>/albums` | admin | album list: counts, the album list fragment, "Opret nyt album", "N billeder uden album" linking to `photos?album=none` |
 | `GET /<year>/album/:slug/edit` | admin | today's editor fields, then the album's photographs as a contact sheet with selection and actions; reorder and captions stay |
 | `GET /<year>/photos` | admin | upload, filters, contact sheet, action bar — today's page minus the album list |
-| `GET /admin`, `/admin/album/:slug` | admin | 302 to the new addresses, so bookmarks and task 385's half-page keep working |
 
 `/<year>` is the existing literal `publicRoot` prefix, so only `EVENT_YEAR` is served until task 392 and its
 PRD land. httprouter accepts all of these: `/album/:slug/edit` shares the public route's wildcard name, and
@@ -109,6 +108,14 @@ only has to hold until then. What it costs to put authenticated pages under the 
 - Keep the one-script-per-page injection (task 395): each page injects only the `init…` files it uses, and
   `TestEveryAdminContextMemberIsProvided` must hold per page, not just for the union.
 
+## Deleting an album
+
+**Added (2026-09-24, maintainer):** *"it should be possible to delete an album (remember a confirm prompt)"*.
+
+From the album list, behind `hx-confirm`. It publishes the existing `album.Deleted` (the Team section's in-app
+takedown uses the same one), which takes the album off the frontpage and marks its items removed so the map
+drops them. No photograph is deleted, and the prompt says so.
+
 ## Interaction with task 392 (year selector)
 
 392 puts the year in the URL (`?year=`). All three views and every link between them must carry it. Whichever
@@ -145,7 +152,8 @@ The original questions, for the record:
    inputs and move buttons in one DOM is where it starts to feel heavy, and reuse is free.
 2. **Reordering at 200 items** — the ↑/↓ buttons do not scale to moving a photo from position 180 to 1. Is a
    "gør til forsidebillede" (move to first) action enough for now, with drag-and-drop later?
-3. ~~Does `/admin` land on the album list?~~ **Resolved:** the pages move to `/<year>/…` and `/admin` redirects.
+3. ~~Does `/admin` land on the album list?~~ **Resolved:** the pages move to `/<year>/…`. No redirects from `/admin`:
+   the tool has never been live, so there are no bookmarks to keep (maintainer, 2026-09-24).
    Task 385's half-page should still be updated to say `/<year>/photos` for uploading.
 
 ## Acceptance Criteria
@@ -154,7 +162,7 @@ The original questions, for the record:
 - [x] `/<year>/albums` shows the album list, the counts, and a link to photographs without an album
 - [ ] `/<year>/album/:slug/edit` shows the editor and the album's photographs with selection and all actions
 - [x] `/<year>/photos` shows upload, filters and the contact sheet; filters are in the URL
-- [x] `/admin` and `/admin/album/:slug` redirect to the new addresses
+- [x] An album can be deleted from the list, behind a confirm prompt that names it and says the photographs stay
 - [ ] No public page links to an admin page
 - [ ] `album=<id>` filter on the library read and the photos fragment, ordered by ordinal, with tests
 - [ ] Action sheets and selection are shared code between views 2 and 3, not copies
