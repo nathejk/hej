@@ -8,6 +8,20 @@
 :root { color-scheme: light dark; }
 * { box-sizing: border-box; }
 
+/* PICO: pin the root font size.
+
+   Pico scales `:where(:root)` from 100% up to **131.25%** as the viewport widens (576px → 1536px). That is a
+   sensible default for a reading-oriented page and wrong for this one: the tool is a dense data surface — a
+   contact sheet of 120 thumbnails, a card grid, filter chips — and every dimension in this file is in `rem`
+   against an assumed 16px root. On the 1536px+ laptop a curator actually does bulk upload on, the whole page
+   rendered a third larger than designed. That is what "blown up after the pico switch" was.
+
+   `:where()` has zero specificity, so a plain `:root` rule wins without `!important`.
+
+   Pinning here rather than sizing the components up: the alternative is re-tuning every rem in the file against
+   a root that changes at five breakpoints, which is a lot of arithmetic to arrive back where we started. */
+:root { font-size: 100%; }
+
 /* PICO: Pico styles bare `a` with an underline and its own link colour, and that lands on **Leaflet's zoom
    controls** — they are `<a class="leaflet-control-zoom-in">` elements, not buttons. Without this the map's +
    and − render underlined and in link blue. Scoped to the map container so it cannot touch a real link. */
@@ -208,40 +222,56 @@ body.sheetopen { overflow: hidden; }
 #albumlist .draft { color: #92400e; font-size: 0.8125rem; }
 #albumlist .count { color: #52525b; font-size: 0.8125rem; }
 
+/* PICO: Pico gives every `p` a 1rem vertical margin (`--pico-typography-spacing-vertical`), which is right for
+   prose and wrong for the single-line notes and button wrappers this page uses them as. Tightened for the
+   tool's own `<p>` elements; the delete sheet's genuine paragraphs keep their own spacing below. */
+main > p { margin: 0.375rem 0; }
+#albumsnote { margin: 0.25rem 0 0.5rem; }
+
 /* The album list (task 391). A grid of cards rather than a table: the cover is how a curator recognises an
-   album, and a table would put it in a column. */
-#albums { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
+   album, and a table would put it in a column.
+
+   Condensed after the Pico switch (task 395). Pinning the root font size fixed the 31% inflation, and the cards
+   were still looser than they need to be: a curator wants to see every album in the year at a glance, and a
+   year holds three to five — tens at most — so the grid should fit them all above the contact sheet rather than
+   scroll. Narrower columns, smaller cover, tighter padding, and the line-height brought in from Pico's 1.5,
+   which is a reading measure and too airy for a two-line label. */
+#albums { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); }
 #albums .card {
-  display: flex; gap: 0.625rem; align-items: flex-start;
-  padding: 0.625rem; background: #fff;
-  border: 1px solid #e4e4e7; border-radius: 0.5rem;
+  display: flex; gap: 0.5rem; align-items: flex-start;
+  padding: 0.4375rem; background: #fff;
+  border: 1px solid #e4e4e7; border-radius: 0.375rem;
+  line-height: 1.3;
 }
 /* A draft is marked on the card itself, not only by a badge, so "what is not published" is answerable by
    glancing rather than by reading every row. */
 #albums .card.draft { border-color: #fcd34d; background: #fffbeb; }
 #albums .card.gone { border-color: #e4e4e7; background: #fafafa; opacity: 0.65; }
 #albums .cover {
-  width: 4rem; height: 4rem; flex: none; object-fit: cover;
-  border-radius: 0.375rem; background: #f4f4f5;
+  width: 2.75rem; height: 2.75rem; flex: none; object-fit: cover;
+  border-radius: 0.25rem; background: #f4f4f5;
 }
 /* An album with no live items has no cover. A dashed placeholder rather than a blank gap, so the row reads as
    "empty album" instead of "image failed to load". */
 #albums .cover.none { border: 1px dashed #d4d4d8; }
 #albums .meta { min-width: 0; flex: 1; }
-#albums .t { font-weight: 600; display: block; overflow-wrap: anywhere; }
-#albums .s { color: #52525b; font-size: 0.8125rem; display: block; }
+#albums .t { font-weight: 600; display: block; overflow-wrap: anywhere; font-size: 0.9375rem; }
+#albums .s { color: #52525b; font-size: 0.75rem; display: block; }
 #albums .badge {
-  display: inline-block; font-size: 0.75rem; padding: 0.0625rem 0.375rem;
-  border-radius: 0.25rem; margin-right: 0.25rem;
+  display: inline-block; font-size: 0.6875rem; padding: 0 0.3125rem;
+  border-radius: 0.1875rem; margin-right: 0.1875rem;
 }
 #albums .badge.pub { background: #dcfce7; color: #166534; }
 #albums .badge.drafty { background: #fef3c7; color: #92400e; }
 #albums .badge.del { background: #f4f4f5; color: #52525b; }
-#albums .acts { display: flex; gap: 0.375rem; margin-top: 0.375rem; flex-wrap: wrap; }
+#albums .acts { display: flex; gap: 0.25rem; margin-top: 0.3125rem; flex-wrap: wrap; }
 #albums .acts a, #albums .acts button {
-  font: inherit; font-size: 0.8125rem; cursor: pointer; text-decoration: none;
+  /* PICO: `line-height` as well as padding and font-size. Pico's button rule sets it to 1.5, which on a
+     0.75rem label adds ~6px of dead height per button — invisible on one button and the difference between one
+     row of actions and two on a narrow card. */
+  font: inherit; font-size: 0.75rem; line-height: 1.4; cursor: pointer; text-decoration: none;
   background: #fff; color: #18181b; border: 1px solid #d4d4d8;
-  padding: 0.1875rem 0.5rem; border-radius: 0.375rem;
+  padding: 0.125rem 0.4375rem; border-radius: 0.25rem;
 }
 #albums .acts button:disabled { opacity: 0.5; cursor: not-allowed; }
 #newalbumbtn {
