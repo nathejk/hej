@@ -221,6 +221,16 @@ body.sheetopen { overflow: hidden; }
 #albumlist label { display: flex; gap: 0.5rem; align-items: baseline; }
 #albumlist .draft { color: #92400e; font-size: 0.8125rem; }
 #albumlist .count { color: #52525b; font-size: 0.8125rem; }
+/* The picker's own sentences — "der er ingen album endnu", and the outcome of an inline create. Rendered inside
+   the fragment (task 395), because only the server knows them; the sheet's note above still counts the selection,
+   because only the browser knows that. */
+#albumlist .hint { margin: 0.25rem 0 0; }
+/* PICO: Pico stretches an `input` to full width and gives it a bottom margin, which inside the sheet's inline
+   create form would put the field and its button on two lines with a gap under them. */
+#newalbum form input[type=text] {
+  width: auto; margin: 0; padding: 0.3125rem 0.5rem; height: auto;
+  font: inherit; font-size: 0.875rem;
+}
 
 /* PICO: Pico gives every `p` a 1rem vertical margin (`--pico-typography-spacing-vertical`), which is right for
    prose and wrong for the single-line notes and button wrappers this page uses them as. Tightened for the

@@ -132,14 +132,25 @@
   <div id="panel" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Tilføj til album">
     <h3>Tilføj til album</h3>
     <p id="panelnote"></p>
+    <!-- The album checkboxes are an htmx fragment (task 395); this is the shell they arrive into. The fragment
+         re-states `id="albumlist"`, so the handlers for these boxes are delegated from the sheet rather than
+         bound to them. -->
     <div id="albumlist"></div>
     <details id="newalbum">
       <summary>Opret et nyt album</summary>
-      <p>
-        <label for="newtitle">Titel</label>
-        <input type="text" id="newtitle" maxlength="120" placeholder="Lørdag morgen">
-        <button type="button" class="ghost" id="createalbum">Opret</button>
-      </p>
+      <!-- A real form, posting to the picker fragment: it creates the album, ticks it, and keeps the boxes that
+           were already ticked. `hx-include` is what carries those — without it a create would silently cost the
+           curator the albums they had chosen, which is what the old version did. -->
+      <form hx-post="/admin/fragments/albumpicker/albums"
+            hx-target="#albumlist" hx-swap="outerHTML" hx-include="#albumlist"
+            hx-on::after-request="if(event.detail.successful) this.reset()">
+        <p>
+          <label for="newtitle">Titel</label>
+          <input type="text" id="newtitle" name="title" maxlength="120" placeholder="Lørdag morgen"
+                 autocomplete="off">
+          <button type="submit" class="ghost">Opret</button>
+        </p>
+      </form>
       <p class="hint">Nye album er <strong>ikke</strong> udgivet. Du udgiver dem, når de er færdige.</p>
     </details>
     <p>
@@ -155,9 +166,14 @@
     <p id="posnote"></p>
     <p>
       <label for="cppick">Vælg en post</label>
-      <select id="cppick">
-        <option value="">— eller klik på kortet —</option>
-      </select>
+      <!-- The post picker is an htmx fragment (task 395), fetched when the sheet opens; the wrapper is the swap
+           target so a re-render cannot orphan the empty-state sentence. Its `change` handler is delegated from
+           the sheet, because the swap replaces the select. -->
+      <span id="cppickwrap">
+        <select id="cppick">
+          <option value="">— eller klik på kortet —</option>
+        </select>
+      </span>
     </p>
     <!-- The map island's container, hidden until Leaflet actually draws — the same treatment the public patrol
          page gives it. Where the island cannot run, the post picker above is still a complete way to do the
@@ -177,10 +193,17 @@
     <p id="tagnote"></p>
     <p>
       <label for="tagnum">Patruljens nummer</label>
-      <input type="text" id="tagnum" inputmode="numeric" maxlength="8" placeholder="42" autocomplete="off">
-      <button type="button" class="ghost" id="lookuppatrol">Find</button>
+      <!-- The lookup is an htmx GET returning the confirmation line. `hx-trigger` covers both ways a curator asks
+           for it — the button, and Enter in the field — without either being a special case in JavaScript. -->
+      <input type="text" id="tagnum" name="number" inputmode="numeric" maxlength="8" placeholder="42"
+             autocomplete="off"
+             hx-get="/admin/fragments/patrol" hx-target="#tagfound" hx-swap="outerHTML"
+             hx-trigger="keyup[key=='Enter']">
+      <button type="button" class="ghost" id="lookuppatrol"
+              hx-get="/admin/fragments/patrol" hx-target="#tagfound" hx-swap="outerHTML"
+              hx-include="#tagnum">Find</button>
     </p>
-    <p id="tagfound" class="hint"></p>
+    <p id="tagfound" class="hint" aria-live="polite"></p>
     <p>
       <button type="button" id="dotag" disabled>Tag billederne</button>
       <button type="button" class="ghost" id="closetag">Annuller</button>
@@ -226,6 +249,8 @@
       andre album de ligger i, og du kan lægge dem tilbage når som helst.</p>
       <p>
         <label for="delalbum">Album</label>
+        <!-- The select is an htmx fragment (task 395), fetched when the sheet opens. Its `change` handler is
+             delegated from the sheet, because the swap replaces this element. -->
         <select id="delalbum"><option value="">— vælg album —</option></select>
         <button type="button" id="doremove" disabled>Fjern fra albummet</button>
       </p>

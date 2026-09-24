@@ -95,3 +95,109 @@ page.html triggers on `load` and the fragment triggers only on the `albums-chang
   </form>
 </section>
 {{end}}
+
+{{/*
+The add-to-album sheet's picker (task 375, migrated in 395).
+
+The fragment renders the **albums**; the sheet's note keeps saying how many photographs are selected. That split
+is the rule for every sheet fragment here: the server writes the sentences only it can, and the selection stays
+in the browser, which is the only place that knows it. Neither side has to be told anything by the other.
+
+Deleted albums are filtered out — unlike the list on the page, which shows them. That is not an inconsistency:
+the list answers "what have I got", and you cannot file a photograph into an album that is gone.
+*/}}
+{{define "albumpicker"}}
+<div id="albumlist">
+  {{if .Albums}}
+  {{range .Albums}}
+  <label>
+    {{/* `checked` survives a re-render because the create below posts the ticked ids back and they are echoed
+         here. Before this the sheet rebuilt the list from scratch and silently dropped them. */}}
+    <input type="checkbox" name="albumIds" value="{{.AlbumID}}"{{if .Checked}} checked{{end}}>
+    <span>{{.Title}}</span>
+    {{/* A draft is marked, because "why is it not on the frontpage" is the question a curator asks after filing
+         forty photographs into an album they never published. */}}
+    {{if not .Published}}<span class="draft">kladde</span>{{end}}
+    <span class="count">{{if eq .ItemCount 1}}1 billede{{else}}{{.ItemCount}} billeder{{end}}</span>
+  </label>
+  {{end}}
+  {{else}}
+  <p class="hint">Der er ingen album endnu. Opret et nedenfor.</p>
+  {{end}}
+  {{if .Note}}<p class="hint" aria-live="polite">{{.Note}}</p>{{end}}
+</div>
+{{end}}
+
+{{/*
+The patrol confirmation (task 377, migrated in 395).
+
+# Why a human confirms this at all
+
+Patrol numbers are **not unique per year** and the resolve does `ORDER BY teamId LIMIT 1`. A curator seeing
+*which* patrol they got is what makes that defensible, so this line is the mechanism rather than a courtesy.
+
+# What it may name, and what it may not
+
+The patrol, its group and its korps. **Never a person.** `publicpatrol.Queries` has no field for one and no read
+that lists patrols — its doc says that absence is deliberate, because a list read is what a scraper would ask
+for. It is also why the curator types the number off the sign instead of picking from a roster.
+
+The number rides in `data-number` for the tag button to send. The **number**, not the resolved team id: the
+server re-resolves it, so a client cannot tag a patrol other than the one the curator was shown.
+*/}}
+{{define "patrolconfirm"}}
+<p id="tagfound" class="hint{{if .Number}} ok{{end}}" aria-live="polite"
+   {{if .Number}}data-number="{{.Number}}"{{end}}>{{.Message}}</p>
+{{end}}
+
+{{/*
+The delete sheet's album picker (task 379, migrated in 395).
+
+Every live album is offered rather than only the ones the selection is actually in: narrowing that would need a
+read per photograph. The server answers 404 for a photograph that is not in the album chosen, and the loop
+reports it as "lå ikke i albummet" — which is the honest way round, because a curator who selected across albums
+needs to know why the number came back smaller than their selection.
+*/}}
+{{define "delalbumpicker"}}
+<select id="delalbum">
+  <option value="">— vælg album —</option>
+  {{range .Albums}}
+  <option value="{{.AlbumID}}">{{.Title}}{{if not .Published}} (kladde){{end}}</option>
+  {{end}}
+</select>
+{{end}}
+
+{{/*
+The position sheet's post picker (task 376, migrated in 395).
+
+# Why a curator uses this and not the map
+
+They know "Post 3", not a coordinate. So the picker is the primary control and the map is the fallback, which is
+the opposite of how it looks.
+
+The **id** is what the select carries, never the coordinate — the coordinates in `data-lat`/`data-lng` are only
+there to move the map's pin. A stale coordinate in this browser must not be able to become a pin on a public map,
+so the server resolves the id when the position is saved.
+
+# Why the empty case gets a sentence
+
+No sited posts is the ordinary early-season state, and it is *the same condition* that makes a curator-placed
+point unjudgeable — the bounds check has no race area to judge against. The two are explained together rather
+than leaving the curator to connect them from two screens.
+*/}}
+{{define "checkpointpicker"}}
+{{/* Wrapped, and the wrapper is the swap target. The select alone would not do: an `outerHTML` swap over the
+     select would leave the previous render's empty-state sentence orphaned beside the new one. */}}
+<span id="cppickwrap">
+  <select id="cppick">
+    <option value="">— eller klik på kortet —</option>
+    {{range .Checkpoints}}
+    <option value="{{.ID}}" data-lat="{{.Lat}}" data-lng="{{.Lng}}">{{.Name}}</option>
+    {{end}}
+  </select>
+  {{if not .Checkpoints}}
+  <span class="hint">Ingen poster har en placering endnu, så positionen kan ikke vurderes — billederne kommer
+  ikke på kortet før posterne er sat.</span>
+  {{end}}
+</span>
+{{end}}

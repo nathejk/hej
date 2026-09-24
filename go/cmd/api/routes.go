@@ -294,6 +294,16 @@ func (app *application) routes() http.Handler {
 		// Publication posted **alone** (task 378), on its own route rather than as part of a general "patch the
 		// album" fragment: a curator pressing the button has said one thing.
 		router.HandlerFunc(http.MethodPost, "/admin/fragments/albums/:albumId/published", app.requireAdmin(app.setAdminAlbumPublishedFragmentHandler))
+		// The action sheets' pickers (step 4). POST rather than GET for the two that read the boxes a curator has
+		// already ticked: those ids travel in a body, and a GET carrying a hundred repeated query parameters is a
+		// URL length limit waiting to be found.
+		router.HandlerFunc(http.MethodPost, "/admin/fragments/albumpicker", app.requireAdmin(app.showAdminAlbumPickerHandler))
+		router.HandlerFunc(http.MethodPost, "/admin/fragments/albumpicker/albums", app.requireAdmin(app.createAdminAlbumFromPickerHandler))
+		router.HandlerFunc(http.MethodGet, "/admin/fragments/delalbumpicker", app.requireAdmin(app.showAdminDelAlbumPickerHandler))
+		// The patrol confirmation. A GET, because it reads one number and a curator may well press Find twice.
+		router.HandlerFunc(http.MethodGet, "/admin/fragments/patrol", app.requireAdmin(app.showAdminPatrolConfirmHandler))
+		// The position sheet's post picker (step 5). The Leaflet map is untouched and stays custom.
+		router.HandlerFunc(http.MethodGet, "/admin/fragments/checkpointpicker", app.requireAdmin(app.showAdminCheckpointPickerHandler))
 		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId", app.requireAdmin(app.updateAdminAlbumHandler))
 		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId/items", app.requireAdmin(app.reorderAdminAlbumItemsHandler))
 		// The two removals (task 379), and they are deliberately different endpoints for different acts: taking a

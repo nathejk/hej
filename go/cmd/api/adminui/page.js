@@ -341,6 +341,25 @@
     closeSheet();
   });
 
+  // fragment asks the server to render a piece of a sheet into it (task 395).
+  //
+  // # Why a sheet's fragment is fetched from here rather than declared in the markup
+  //
+  // The album list on the page can declare `hx-trigger="load"` because it is always wanted. A sheet's is wanted
+  // *when the sheet opens*, and nothing htmx can put on a hidden element expresses that — `load` would fetch five
+  // sheets' contents on every page load, and `revealed` does not fire for something unhidden by script.
+  //
+  // # Why htmx is read lazily
+  //
+  // htmx is a deferred script and this file is inline, so htmx does **not** exist while this block runs — only by
+  // the time a curator can click. Reading `window.htmx` here rather than capturing it at the top is what makes
+  // that ordering irrelevant. If it is missing entirely the sheet still opens, with an empty control: degraded,
+  // which is the same choice the Leaflet island makes.
+  function fragment(method, url, target) {
+    if (!window.htmx) return;
+    window.htmx.ajax(method, url, { target: target, swap: 'outerHTML' });
+  }
+
   function syncActions() {
     const n = selected.size;
     actions.hidden = n === 0;
@@ -581,94 +600,36 @@
   //
   // The sheet opens over the page and the selection survives it, which is the constraint PRD 022 §7 puts on
   // this layout: navigating away would lose the selection, and the selection is the input to every action.
+  //
+  // The album checkboxes and the inline create are htmx fragments (task 395). What is left here is the part that
+  // needs the selection: the note that counts it, and the add that sends it.
 
   const panel = document.getElementById('panel');
   const panelNote = document.getElementById('panelnote');
-  const albumList = document.getElementById('albumlist');
-  const newTitle = document.getElementById('newtitle');
 
-  async function openAlbumPanel() {
+  function openAlbumPanel() {
     openSheet(panel);
-    panelNote.textContent = 'Henter album…';
-    albumList.textContent = '';
-
-    try {
-      const res = await fetch('/api/admin/albums');
-      if (!res.ok) { panelNote.textContent = 'Kunne ikke hente album (fejl ' + res.status + ').'; return; }
-      const data = await res.json();
-
-      const live = data.albums.filter((a) => !a.deleted);
-      if (!live.length) {
-        panelNote.textContent = 'Der er ingen album endnu. Opret et nedenfor.';
-      } else {
-        panelNote.textContent = 'Vælg et eller flere album. ' + selected.size +
-          (selected.size === 1 ? ' billede bliver lagt i dem.' : ' billeder bliver lagt i dem.');
-      }
-
-      for (const a of live) {
-        const label = document.createElement('label');
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.value = a.albumId;
-        const name = document.createElement('span');
-        name.textContent = a.title;
-        label.append(cb, name);
-        // A draft is marked, because "why is it not on the frontpage" is the question a curator asks after
-        // filing forty photographs into an album they never published.
-        if (!a.published) {
-          const d = document.createElement('span');
-          d.className = 'draft';
-          d.textContent = 'kladde';
-          label.append(d);
-        }
-        const c = document.createElement('span');
-        c.className = 'count';
-        c.textContent = a.itemCount + ' billeder';
-        label.append(c);
-        albumList.append(label);
-      }
-    } catch (err) {
-      panelNote.textContent = 'Kunne ikke hente album. Prøv igen.';
-    }
+    // The count is the browser's sentence to write — no fragment knows the selection. The fragment writes the
+    // one only it can: "der er ingen album endnu".
+    panelNote.textContent = selected.size === 1
+      ? 'Vælg et eller flere album. 1 billede bliver lagt i dem.'
+      : 'Vælg et eller flere album. ' + selected.size + ' billeder bliver lagt i dem.';
+    // Fetched on open rather than once at page load, because albums get created while this page is open — by the
+    // list above, or by the form inside this very sheet.
+    //
+    // No ticks are carried over from a previous open: the selection has changed, so the albums the curator chose
+    // for the last one are not a statement about this one.
+    fragment('POST', '/admin/fragments/albumpicker', '#albumlist');
   }
 
   document.getElementById('closepanel').addEventListener('click', () => {
     closeSheet();
   });
 
-  document.getElementById('createalbum').addEventListener('click', async () => {
-    const title = newTitle.value.trim();
-    if (!title) { panelNote.textContent = 'Albummet skal have en titel.'; return; }
-
-    try {
-      const res = await fetch('/api/admin/albums', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title }),
-      });
-      const payload = await res.json().catch(() => null);
-      if (!res.ok) {
-        panelNote.textContent = (payload && payload.error) || 'Kunne ikke oprette albummet.';
-        return;
-      }
-      newTitle.value = '';
-      await openAlbumPanel();
-      // The list above is now stale by one album. It is an htmx fragment, so it is told rather than redrawn: it
-      // listens for this event on `body` and re-fetches itself (task 395).
-      document.body.dispatchEvent(new Event('albums-changed'));
-      // Tick the album just created, since creating one inline is something a curator does *in order to* file
-      // the current selection into it.
-      for (const cb of albumList.querySelectorAll('input[type=checkbox]')) {
-        if (cb.value === payload.albumId) cb.checked = true;
-      }
-      panelNote.textContent = 'Albummet “' + payload.title + '” er oprettet som kladde.';
-    } catch (err) {
-      panelNote.textContent = 'Kunne ikke oprette albummet. Prøv igen.';
-    }
-  });
-
   document.getElementById('doadd').addEventListener('click', async () => {
-    const albumIds = Array.from(albumList.querySelectorAll('input:checked')).map((cb) => cb.value);
+    // Re-queried rather than held in a const: the fragment swap replaces this element, so a reference taken at
+    // load would go stale the first time the picker rendered. Same reason its handlers are delegated.
+    const albumIds = Array.from(document.querySelectorAll('#albumlist input:checked')).map((cb) => cb.value);
     if (!albumIds.length) { panelNote.textContent = 'Vælg mindst ét album.'; return; }
     if (!selected.size) { panelNote.textContent = 'Vælg mindst ét billede.'; return; }
 
@@ -692,8 +653,10 @@
       closeSheet();
       selected.clear();
       // Reloaded so the album marks on the thumbnails are right, which is how the curator sees what is left
-      // to sort.
+      // to sort. The counts in the page header follow from the same read.
       load(true);
+      // The album list's item counts just changed, so it is told to re-fetch.
+      document.body.dispatchEvent(new Event('albums-changed'));
     } catch (err) {
       panelNote.textContent = 'Kunne ikke tilføje billederne. Prøv igen.';
     }
@@ -793,10 +756,12 @@
 
   const posPanel = document.getElementById('pospanel');
   const posNote = document.getElementById('posnote');
-  const cpPick = document.getElementById('cppick');
   const posMapEl = document.getElementById('posmap');
   const posPicked = document.getElementById('pospicked');
   const doPosition = document.getElementById('doposition');
+
+  // Re-queried rather than held, because the picker is a fragment and the swap replaces this element.
+  function cpPick() { return document.getElementById('cppick'); }
 
   // The point chosen by clicking the map, if any. A post chosen in the select wins, because it is the more
   // precise statement of intent — and the server is told which of the two, never both.
@@ -805,10 +770,9 @@
   let posMarker = null;
 
   function describeChoice() {
-    const cp = cpPick.value;
-    if (cp) {
-      const name = cpPick.options[cpPick.selectedIndex].textContent;
-      posPicked.textContent = 'Valgt: ' + name;
+    const sel = cpPick();
+    if (sel && sel.value) {
+      posPicked.textContent = 'Valgt: ' + sel.options[sel.selectedIndex].textContent;
       doPosition.disabled = false;
       return;
     }
@@ -828,47 +792,20 @@
   // map that loads one tile in the corner and ignores every drag. So 'drawPositionMap' runs after 'openSheet'
   // has made the sheet visible, and 'invalidateSize' is called on the frame after that, once layout has
   // settled. It was safe while the panel was an inline card that was already in flow; it is not safe now.
+  //
+  // The post picker's fragment (task 395) deliberately targets its own wrapper and never '#posmap', so no swap
+  // can discard a live map instance — which would strand Leaflet's listeners and leak the tile layer.
   async function openPositionPanel() {
     openSheet(posPanel);
     clicked = null;
-    cpPick.value = '';
-    describeChoice();
     posNote.textContent = selected.size === 1
       ? '1 billede får positionen.'
       : selected.size + ' billeder får positionen.';
 
-    await loadCheckpoints();
+    fragment('GET', '/admin/fragments/checkpointpicker', '#cppickwrap');
+    describeChoice();
     await drawPositionMap();
     if (posMap) requestAnimationFrame(() => posMap.invalidateSize());
-  }
-
-  async function loadCheckpoints() {
-    try {
-      const res = await fetch('/api/admin/checkpoints');
-      if (!res.ok) return;
-      const data = await res.json();
-
-      // Rebuilt each time the panel opens, because posts get sited during the season and a stale list would
-      // offer a post that no longer resolves.
-      while (cpPick.options.length > 1) cpPick.remove(1);
-      for (const c of data.checkpoints) {
-        const o = document.createElement('option');
-        o.value = c.id;
-        o.textContent = c.name;
-        o.dataset.lat = c.lat;
-        o.dataset.lng = c.lng;
-        cpPick.append(o);
-      }
-      // An empty list is the ordinary early-season state, and it is the same condition that makes a
-      // curator-placed point unjudgeable — so the two are explained together rather than leaving the curator to
-      // connect them.
-      if (!data.checkpoints.length) {
-        posNote.textContent += ' Ingen poster har en placering endnu, så positionen kan ikke vurderes' +
-          ' — billederne kommer ikke på kortet før posterne er sat.';
-      }
-    } catch (err) {
-      // The picker is an aid, not the mechanism: clicking the map still works.
-    }
   }
 
   // The map island, reusing the vendored Leaflet and the shared layer config the app and the public map use
@@ -938,7 +875,8 @@
       clicked = { lat: e.latlng.lat, lng: e.latlng.lng };
       // Choosing on the map clears the post, so the two cannot both be sent — the server refuses that, and it
       // should never have to.
-      cpPick.value = '';
+      const sel = cpPick();
+      if (sel) sel.value = '';
       if (posMarker) posMarker.remove();
       posMarker = L.marker(e.latlng).addTo(posMap);
       describeChoice();
@@ -975,11 +913,13 @@
     });
   }
 
-  cpPick.addEventListener('change', () => {
-    if (cpPick.value) {
+  // Delegated from the sheet rather than bound to the select, because the fragment swap replaces that element.
+  posPanel.addEventListener('change', (e) => {
+    if (e.target.id !== 'cppick') return;
+    if (e.target.value) {
       clicked = null;
       if (posMarker) { posMarker.remove(); posMarker = null; }
-      const o = cpPick.options[cpPick.selectedIndex];
+      const o = e.target.options[e.target.selectedIndex];
       if (posMap && o.dataset.lat) {
         const ll = [parseFloat(o.dataset.lat), parseFloat(o.dataset.lng)];
         posMarker = L.marker(ll).addTo(posMap);
@@ -1017,7 +957,8 @@
   }
 
   doPosition.addEventListener('click', () => {
-    if (cpPick.value) { sendPosition({ checkpointId: cpPick.value }); return; }
+    const sel = cpPick();
+    if (sel && sel.value) { sendPosition({ checkpointId: sel.value }); return; }
     if (clicked) { sendPosition({ location: { lat: clicked.lat, lng: clicked.lng } }); return; }
     posNote.textContent = 'Vælg en post eller klik på kortet.';
   });
@@ -1038,85 +979,63 @@
   const tagPanel = document.getElementById('tagpanel');
   const tagNote = document.getElementById('tagnote');
   const tagNum = document.getElementById('tagnum');
-  const tagFound = document.getElementById('tagfound');
   const doTag = document.getElementById('dotag');
 
-  // The patrol the curator has confirmed, if any. Cleared whenever the number changes, so the confirmed patrol
-  // and the number in the box can never disagree — which is the one way this could tag the wrong patrol.
-  let confirmedPatrol = null;
+  // The number of the patrol the curator has confirmed, or ''.
+  //
+  // Read back out of the rendered confirmation rather than kept as a parallel copy of it, so the patrol this will
+  // tag and the patrol on screen cannot disagree — which is the one way this could tag the wrong one.
+  function confirmedNumber() {
+    const found = document.getElementById('tagfound');
+    return (found && found.dataset.number) || '';
+  }
 
   function openTagPanel() {
     openSheet(tagPanel);
-    confirmedPatrol = null;
-    tagFound.textContent = '';
-    tagFound.classList.remove('ok');
-    doTag.disabled = true;
+    clearPatrolConfirmation();
     tagNote.textContent = selected.size === 1
       ? '1 billede bliver tagget.'
       : selected.size + ' billeder bliver tagget.';
     tagNum.focus();
   }
 
-  async function lookupPatrol() {
-    const number = tagNum.value.trim();
-    confirmedPatrol = null;
+  // Cleared in the browser rather than by asking the server for an empty line: there is nothing to render, and a
+  // request to say "nothing yet" would be a round trip the curator waits for.
+  function clearPatrolConfirmation() {
+    const found = document.getElementById('tagfound');
+    if (!found) return;
+    found.textContent = '';
+    found.classList.remove('ok');
+    delete found.dataset.number;
     doTag.disabled = true;
-    tagFound.classList.remove('ok');
-
-    if (!number) { tagFound.textContent = 'Skriv patruljens nummer.'; return; }
-
-    tagFound.textContent = 'Søger…';
-    try {
-      const res = await fetch('/api/admin/patrols/' + encodeURIComponent(number));
-      if (res.status === 404) {
-        tagFound.textContent = 'Der er ingen patrulje med nummer ' + number + ' i år.';
-        return;
-      }
-      if (!res.ok) {
-        const payload = await res.json().catch(() => null);
-        tagFound.textContent = (payload && payload.error) || 'Kunne ikke søge (fejl ' + res.status + ').';
-        return;
-      }
-      const p = await res.json();
-      confirmedPatrol = p;
-
-      // What the curator confirms against: the patrol's own name, its group and its korps. Never a person — the
-      // endpoint has no field for one.
-      const bits = [p.name, p.group, p.korps].filter(Boolean);
-      tagFound.textContent = 'Patrulje ' + p.number + (bits.length ? ': ' + bits.join(' · ') : '');
-      tagFound.classList.add('ok');
-      doTag.disabled = false;
-    } catch (err) {
-      tagFound.textContent = 'Kunne ikke søge. Prøv igen.';
-    }
   }
 
-  document.getElementById('lookuppatrol').addEventListener('click', lookupPatrol);
-  tagNum.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); lookupPatrol(); }
+  // The confirmation itself is an htmx fragment: the lookup, the "no such patrol" line and the found patrol's
+  // name, group and korps are all rendered server-side (see fragments.html). What stays here is the one thing the
+  // fragment cannot reach — the tag button, which lives outside the swapped region because its click acts on the
+  // selection.
+  tagPanel.addEventListener('htmx:afterSwap', () => {
+    doTag.disabled = confirmedNumber() === '';
   });
+
   // Any edit invalidates the confirmation, so the button cannot act on a patrol the curator is no longer looking
   // at.
-  tagNum.addEventListener('input', () => {
-    confirmedPatrol = null;
-    doTag.disabled = true;
-    tagFound.textContent = '';
-    tagFound.classList.remove('ok');
-  });
+  tagNum.addEventListener('input', clearPatrolConfirmation);
 
   document.getElementById('closetag').addEventListener('click', () => { closeSheet(); });
 
   doTag.addEventListener('click', async () => {
-    if (!confirmedPatrol) { tagFound.textContent = 'Find patruljen først.'; return; }
+    const number = confirmedNumber();
+    if (!number) { tagNote.textContent = 'Find patruljen først.'; return; }
 
     tagNote.textContent = 'Tagger…';
     try {
-      // The **number** is sent, not the team id: the server re-resolves it, so a client cannot tag a patrol other
+      // The **number** is sent, not a team id: the server re-resolves it, so a client cannot tag a patrol other
       // than the one the curator confirmed.
       const res = await fetch('/api/admin/photos/tags', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ photoIds: Array.from(selected), number: confirmedPatrol.number }),
+        body: JSON.stringify({ photoIds: Array.from(selected), number: number }),
       });
       const out = await res.json().catch(() => null);
       if (!res.ok) {
@@ -1143,39 +1062,28 @@
 
   const delPanel = document.getElementById('delpanel');
   const delNote = document.getElementById('delnote');
-  const delAlbum = document.getElementById('delalbum');
   const delReason = document.getElementById('delreason');
   const delCount = document.getElementById('delcount');
   const doRemove = document.getElementById('doremove');
 
-  async function openDeletePanel() {
+  function openDeletePanel() {
     openSheet(delPanel);
     delReason.value = '';
-    delAlbum.value = '';
     doRemove.disabled = true;
 
     const n = selected.size;
     delNote.textContent = n === 1 ? '1 billede er valgt.' : n + ' billeder er valgt.';
     delCount.textContent = n === 1 ? '1 billede' : n + ' billeder';
 
-    // Only albums the selection could plausibly be in are worth offering, but filtering that would need a read per
-    // photograph — so every live album is listed and the server answers 404 for a photograph that is not in the
-    // one chosen, which the loop below reports as "lå ikke i albummet".
-    try {
-      const res = await fetch('/api/admin/albums');
-      if (!res.ok) return;
-      const data = await res.json();
-      while (delAlbum.options.length > 1) delAlbum.remove(1);
-      for (const a of data.albums.filter((x) => !x.deleted)) {
-        const o = document.createElement('option');
-        o.value = a.albumId;
-        o.textContent = a.title + (a.published ? '' : ' (kladde)');
-        delAlbum.append(o);
-      }
-    } catch (err) { /* the album list is an aid; deleting does not need it */ }
+    // The album select is a fragment. Fetched on open rather than at page load, because albums are created while
+    // this page is open.
+    fragment('GET', '/admin/fragments/delalbumpicker', '#delalbum');
   }
 
-  delAlbum.addEventListener('change', () => { doRemove.disabled = !delAlbum.value; });
+  // Delegated from the sheet rather than bound to the select, because the fragment swap replaces that element.
+  delPanel.addEventListener('change', (e) => {
+    if (e.target.id === 'delalbum') doRemove.disabled = !e.target.value;
+  });
   document.getElementById('closedel').addEventListener('click', () => { closeSheet(); });
 
   // runOverSelection issues one request per selected photograph, three at a time.
@@ -1207,7 +1115,8 @@
   }
 
   doRemove.addEventListener('click', async () => {
-    const albumId = delAlbum.value;
+    const sel = document.getElementById('delalbum');
+    const albumId = sel ? sel.value : '';
     if (!albumId) return;
 
     delNote.textContent = 'Fjerner…';
@@ -1225,6 +1134,8 @@
     closeSheet();
     selected.clear();
     load(true);
+    // An album's item count just changed, so the list is told to re-fetch.
+    document.body.dispatchEvent(new Event('albums-changed'));
   });
 
   document.getElementById('dodelete').addEventListener('click', async () => {
@@ -1250,6 +1161,8 @@
     closeSheet();
     selected.clear();
     load(true);
+    // A deleted photograph leaves every album it was in, so their counts and covers changed.
+    document.body.dispatchEvent(new Event('albums-changed'));
   });
 
   // The initial load runs last, after every declaration it can reach.

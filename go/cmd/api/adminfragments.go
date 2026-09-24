@@ -234,12 +234,7 @@ func (app *application) renderAdminAlbumList(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := adminTemplates.ExecuteTemplate(w, "albumlist", data); err != nil {
-		// Logged rather than answered: ExecuteTemplate may already have written a partial body, so there is no
-		// status left to set. The same reasoning renderPublicPage gives.
-		app.Logger.Error("rendering the album list fragment", "err", err)
-	}
+	app.renderAdminFragment(w, "albumlist", data)
 }
 
 // adminAlbumTitleFromForm validates a title posted from the list's form.
@@ -270,4 +265,313 @@ func upperFirst(s string) string {
 		return string(unicode.ToUpper(r)) + s[len(string(r)):]
 	}
 	return s
+}
+
+// ---------------------------------------------------------------------------
+// The action sheets' pickers (step 4 of task 395).
+//
+// Each of these replaces a "fetch JSON, build option/label elements" block in page.js. They share a shape worth
+// naming, because the remaining sheets should follow it:
+//
+//   - **The fragment renders what the server knows; the browser keeps what only it knows.** The selection is the
+//     obvious case — it lives in a Set in page.js and no fragment goes looking for it. So the sheet's note
+//     ("42 billeder bliver tagget") stays client-side and the fragment renders the albums, the patrol, the posts.
+//   - **The fragment renders its own container, id and all.** The swap is `outerHTML`, so a listener bound
+//     directly to a swapped element would be lost. The handlers in page.js are delegated from the sheet instead,
+//     which is both what makes the swap safe and one fewer `getElementById` per control.
+//   - **A fragment does not decide anything a JSON endpoint decides differently.** The create below goes through
+//     the same `createAdminAlbum` as `/api/admin/albums`.
+// ---------------------------------------------------------------------------
+
+// adminAlbumPickerData is the add-to-album sheet's checkbox list.
+type adminAlbumPickerData struct {
+	Albums []adminAlbumPickerItem
+	// Note is an outcome line, shown under the list. Empty for a plain open, because a sheet that greets the
+	// curator with a sentence they did not ask for trains them to stop reading it.
+	Note string
+}
+
+type adminAlbumPickerItem struct {
+	AlbumID   string
+	Title     string
+	Published bool
+	ItemCount int
+	// Checked is whether the box is ticked when this render arrives.
+	//
+	// Carried in the render rather than reapplied by the browser afterwards, because the swap replaces the
+	// elements: anything the client ticked and then re-derived would be a second source of truth for which
+	// albums a selection is about to be filed into.
+	Checked bool
+}
+
+// showAdminAlbumPickerHandler renders the add-to-album sheet's album checkboxes.
+func (app *application) showAdminAlbumPickerHandler(w http.ResponseWriter, r *http.Request) {
+	app.renderAdminAlbumPicker(w, r, checkedAlbumIDs(r), "")
+}
+
+// createAdminAlbumFromPickerHandler creates an album from inside the sheet and re-renders the picker with it
+// ticked.
+//
+// **Ticked, because creating an album here is something a curator does *in order to* file the current selection
+// into it.** The previous version had to create, re-fetch, then hunt the new checkbox and tick it — three steps
+// that could disagree. One render cannot.
+func (app *application) createAdminAlbumFromPickerHandler(w http.ResponseWriter, r *http.Request) {
+	if app.models.AlbumCurator == nil {
+		app.ServiceUnavailableResponse(w, r, "albummerne er ikke tilgængelige lige nu")
+		return
+	}
+
+	// The boxes already ticked, so a create does not cost the curator the albums they had chosen. The old
+	// version rebuilt the list from scratch and lost them, which is the sort of thing nobody reports and
+	// everybody works around.
+	checked := checkedAlbumIDs(r)
+
+	title := strings.TrimSpace(r.FormValue("title"))
+	if title == "" {
+		app.renderAdminAlbumPicker(w, r, checked, "Albummet skal have en titel.")
+		return
+	}
+
+	albumID, slug, err := app.createAdminAlbum(title, "", 0)
+	if err != nil {
+		var cerr *adminAlbumCreateError
+		if errors.As(err, &cerr) && cerr.Kind == adminAlbumCreateRefused {
+			app.renderAdminAlbumPicker(w, r, checked, upperFirst(cerr.Err.Error())+".")
+			return
+		}
+		app.Logger.Error("creating an album from the add-to-album sheet", "err", err)
+		app.renderAdminAlbumPicker(w, r, checked, "Kunne ikke oprette albummet. Prøv igen.")
+		return
+	}
+
+	app.Logger.Info("admin created an album from the add-to-album sheet",
+		"albumId", albumID, "slug", slug, "ip", clientIP(r))
+
+	// The page's own album list is now stale by one. Told rather than redrawn, through the same
+	// `albums-changed` event page.js fires — see the response header set in renderAdminAlbumPicker.
+	app.waitForAdminAlbum(albumID)
+	app.renderAdminAlbumPicker(w, r, append(checked, albumID),
+		fmt.Sprintf("Albummet “%s” er oprettet som kladde og valgt.", title))
+}
+
+// renderAdminAlbumPicker renders the live albums, with the given ids ticked.
+func (app *application) renderAdminAlbumPicker(w http.ResponseWriter, r *http.Request, checked []string, note string) {
+	rows, ok := app.liveAdminAlbums(w, r)
+	if !ok {
+		return
+	}
+
+	tick := map[string]bool{}
+	for _, id := range checked {
+		tick[id] = true
+	}
+
+	data := adminAlbumPickerData{Note: note}
+	for _, a := range rows {
+		data.Albums = append(data.Albums, adminAlbumPickerItem{
+			AlbumID:   a.ID,
+			Title:     a.Title,
+			Published: a.Published,
+			ItemCount: a.ItemCount,
+			Checked:   tick[a.ID],
+		})
+	}
+
+	// Tells the page's album list to re-fetch, when this render created one. An htmx response header rather than
+	// JavaScript dispatching the event, so the side that knows whether an album appeared is the side that says
+	// so — the alternative was page.js guessing from a status code.
+	if note != "" && strings.Contains(note, "oprettet") {
+		w.Header().Set("HX-Trigger", "albums-changed")
+	}
+	app.renderAdminFragment(w, "albumpicker", data)
+}
+
+// checkedAlbumIDs reads the ticked boxes out of a request.
+//
+// Bounded, because this comes back from the browser and a picker cannot plausibly hold more albums than a year
+// has. Unknown ids are harmless here: they only decide which boxes render ticked, and the add itself validates
+// every album id again server-side.
+func checkedAlbumIDs(r *http.Request) []string {
+	if err := r.ParseForm(); err != nil {
+		return nil
+	}
+	ids := r.Form["albumIds"]
+	if len(ids) > maxAdminAlbumsPerPicker {
+		ids = ids[:maxAdminAlbumsPerPicker]
+	}
+	return ids
+}
+
+// maxAdminAlbumsPerPicker bounds the ticked ids a picker render will echo back.
+const maxAdminAlbumsPerPicker = 200
+
+// adminDelAlbumPickerData is the delete sheet's album select.
+type adminDelAlbumPickerData struct {
+	Albums []adminAlbumPickerItem
+}
+
+// showAdminDelAlbumPickerHandler renders the delete sheet's album select.
+func (app *application) showAdminDelAlbumPickerHandler(w http.ResponseWriter, r *http.Request) {
+	rows, ok := app.liveAdminAlbums(w, r)
+	if !ok {
+		return
+	}
+
+	var data adminDelAlbumPickerData
+	for _, a := range rows {
+		data.Albums = append(data.Albums, adminAlbumPickerItem{
+			AlbumID:   a.ID,
+			Title:     a.Title,
+			Published: a.Published,
+			ItemCount: a.ItemCount,
+		})
+	}
+	app.renderAdminFragment(w, "delalbumpicker", data)
+}
+
+// liveAdminAlbums reads the year's albums minus the deleted ones.
+//
+// Deleted albums are excluded here and **included** by the album list on the page. Both are right: the list
+// answers "what have I got", and these two pickers answer "where can this go" — a deleted album is not somewhere
+// a photograph can be filed, nor somewhere one can be removed from.
+func (app *application) liveAdminAlbums(w http.ResponseWriter, r *http.Request) ([]album.CuratorAlbum, bool) {
+	if app.models.AlbumCurator == nil {
+		app.ServiceUnavailableResponse(w, r, "albummerne er ikke tilgængelige lige nu")
+		return nil, false
+	}
+	rows, err := app.models.AlbumCurator.All(app.config.eventYear)
+	if err != nil {
+		app.ServerErrorResponse(w, r, err)
+		return nil, false
+	}
+	live := make([]album.CuratorAlbum, 0, len(rows))
+	for _, a := range rows {
+		if !a.Deleted {
+			live = append(live, a)
+		}
+	}
+	return live, true
+}
+
+// adminPatrolConfirmData is the line a curator confirms a patrol against.
+type adminPatrolConfirmData struct {
+	// Number is set only when a patrol was found, and is what enables the tag button. Empty for every other
+	// outcome, so a failed lookup cannot leave a stale confirmation behind — which is the one way this could tag
+	// the wrong patrol.
+	Number string
+	// Message is the whole of what the curator reads.
+	Message string
+}
+
+// showAdminPatrolConfirmHandler resolves a typed patrol number and renders the confirmation.
+//
+// Every outcome is a **200 with a rendered line**, including "no such patrol". htmx does not swap a 4xx body by
+// default, so answering 404 here would leave the previous confirmation on screen while the number in the box had
+// changed — precisely the disagreement the confirmation exists to prevent. The JSON endpoint keeps its 404,
+// because a status code is what a JSON client reads.
+func (app *application) showAdminPatrolConfirmHandler(w http.ResponseWriter, r *http.Request) {
+	render := func(number, message string) {
+		app.renderAdminFragment(w, "patrolconfirm",
+			adminPatrolConfirmData{Number: number, Message: message})
+	}
+
+	if app.models.PublicPatrols == nil {
+		render("", "Patruljerne er ikke tilgængelige lige nu.")
+		return
+	}
+
+	raw := strings.TrimSpace(r.FormValue("number"))
+	if raw == "" {
+		render("", "Skriv patruljens nummer.")
+		return
+	}
+	// The same normalisation the public patrol page applies, so "042" and "42" are one patrol — which is what the
+	// number on the sign means.
+	number, ok := normalizePatrolNumber(raw)
+	if !ok {
+		render("", "Patruljenummeret skal være et tal.")
+		return
+	}
+
+	p, found, err := app.models.PublicPatrols.ByNumber(app.config.eventYear, number)
+	if err != nil {
+		app.Logger.Error("resolving a patrol for the tag sheet", "err", err)
+		render("", "Kunne ikke søge. Prøv igen.")
+		return
+	}
+	if !found {
+		// Named plainly. Unlike the *public* patrol page, this need not be indistinguishable from a closed gate:
+		// the caller is already behind the credential, and a curator who typed 42 for 24 deserves to be told.
+		render("", "Der er ingen patrulje med nummer "+number+" i år.")
+		return
+	}
+
+	// The patrol, its group and its korps — never a person. The read has no field for one.
+	bits := []string{}
+	for _, s := range []string{p.Name, p.GroupName, p.KorpsLabel()} {
+		if s != "" {
+			bits = append(bits, s)
+		}
+	}
+	message := "Patrulje " + p.Number
+	if len(bits) > 0 {
+		message += ": " + strings.Join(bits, " · ")
+	}
+	render(p.Number, message)
+}
+
+// renderAdminFragment executes one of the fragment templates.
+func (app *application) renderAdminFragment(w http.ResponseWriter, name string, data any) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := adminTemplates.ExecuteTemplate(w, name, data); err != nil {
+		// Logged rather than answered: ExecuteTemplate may already have written a partial body, so there is no
+		// status left to set. The same reasoning renderPublicPage gives.
+		app.Logger.Error("rendering an admin fragment", "fragment", name, "err", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The position sheet's post picker (step 5 of task 395).
+//
+// **The Leaflet map is not touched.** It stays custom, per the maintainer's rule that JavaScript solving a problem
+// no framework solves simply stays — and a WMS layer with token auth, a tile-retry policy read from a shared JSON
+// file, and a marker that has to agree with a <select> is squarely that.
+//
+// The one hazard the migration had to respect is task 390's: Leaflet caches its pixel size at creation, so a map
+// created in a hidden container gets a size of zero and the symptom is one tile in the corner. The order in
+// page.js is therefore still open the sheet, then draw, then `invalidateSize` on the next frame — and the picker's
+// swap deliberately does **not** touch `#posmap`, so no fragment can discard a live map instance.
+// ---------------------------------------------------------------------------
+
+// adminCheckpointPickerData is the position sheet's post select.
+type adminCheckpointPickerData struct {
+	Checkpoints []adminCheckpointView
+}
+
+// showAdminCheckpointPickerHandler renders the year's sited posts as a select.
+//
+// Rebuilt on every open rather than cached, because posts get sited during the season: a stale list would offer a
+// post whose position the save then resolves differently, or not at all.
+func (app *application) showAdminCheckpointPickerHandler(w http.ResponseWriter, r *http.Request) {
+	if app.models.CheckpointCurator == nil {
+		app.ServiceUnavailableResponse(w, r, "posterne er ikke tilgængelige lige nu")
+		return
+	}
+
+	points, err := app.models.CheckpointCurator.Positioned(app.config.eventYear)
+	if err != nil {
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+
+	data := adminCheckpointPickerData{Checkpoints: make([]adminCheckpointView, 0, len(points))}
+	for _, c := range points {
+		data.Checkpoints = append(data.Checkpoints, adminCheckpointView{
+			ID:   string(c.ID),
+			Name: c.Name,
+			Lat:  c.Lat,
+			Lng:  c.Lng,
+		})
+	}
+	app.renderAdminFragment(w, "checkpointpicker", data)
 }

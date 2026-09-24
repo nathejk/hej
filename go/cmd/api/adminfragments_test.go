@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"nathejk.dk/nathejk/table/album"
+	"nathejk.dk/nathejk/table/publicpatrol"
 )
 
 // The album list, as an htmx fragment (task 395).
@@ -435,4 +436,353 @@ func albumListTrigger(t *testing.T, body string) string {
 	}
 	rest := body[i+len(attr):]
 	return rest[:strings.Index(rest, `"`)]
+}
+
+// ---------------------------------------------------------------------------
+// The action sheets' pickers (steps 4 and 5 of task 395).
+//
+// Four more fetch-then-render blocks left page.js. Each carried a rule that only a grep could hold; each is now a
+// response an ordinary HTTP test reads.
+//
+// The division of labour these assert is the one the remaining sheets should follow: **the fragment renders what
+// the server knows, the browser keeps what only it knows.** The selection is the clearest case — it is a Set in
+// page.js, no fragment goes looking for it, and so the sentence counting it stays client-side while the sentence
+// about what albums exist does not.
+// ---------------------------------------------------------------------------
+
+// The add-to-album picker offers live albums, marks drafts, and does not offer a deleted one.
+//
+// Deleted albums are filtered here and **shown** by the list on the page. Both are right, and the difference is
+// the point: the list answers "what have I got", this answers "where can this go", and a deleted album is not
+// somewhere a photograph can be filed.
+func TestTheAlbumPickerOffersLiveAlbumsOnly(t *testing.T) {
+	_, srv, _ := albumWriteApp(t, newAlbumCurator(
+		&curatedAlbum{a: album.CuratorAlbum{ID: "al-1", Slug: "udgivet", Title: "Udgivet album", Published: true, ItemCount: 4}},
+		&curatedAlbum{a: album.CuratorAlbum{ID: "al-2", Slug: "kladde", Title: "Kladde album", ItemCount: 1}},
+		&curatedAlbum{a: album.CuratorAlbum{ID: "al-3", Slug: "slettet", Title: "Slettet album", Deleted: true}},
+	))
+
+	body := adminBody(t, postAdminForm(t, srv, "/admin/fragments/albumpicker", nil))
+
+	if !strings.Contains(body, `value="al-1"`) || !strings.Contains(body, `value="al-2"`) {
+		t.Errorf("both live albums must be offered\n%s", body)
+	}
+	if strings.Contains(body, `value="al-3"`) {
+		t.Error("a deleted album must not be offered: a photograph cannot be filed into one")
+	}
+	// A draft is marked, because "why is it not on the frontpage" is the question a curator asks after filing
+	// forty photographs into an album they never published.
+	if !strings.Contains(body, `<span class="draft">kladde</span>`) {
+		t.Errorf("a draft must be marked in the picker\n%s", body)
+	}
+	if !strings.Contains(body, "1 billede<") || !strings.Contains(body, "4 billeder") {
+		t.Errorf("the item counts need their singular and plural; see task 387\n%s", body)
+	}
+	// Nothing is ticked on a plain open: the boxes are about this selection, and a previous one's choices are not
+	// a statement about it.
+	if strings.Contains(body, "checked") {
+		t.Errorf("a plain open must tick nothing\n%s", body)
+	}
+}
+
+// The picker is empty-stated by the server, because only the server knows the albums.
+//
+// The sheet's other sentence — how many photographs are selected — stays in the browser, because only the browser
+// knows that. That split is the convention, and this is the half of it that is testable.
+func TestTheAlbumPickerSaysWhenThereAreNoAlbums(t *testing.T) {
+	_, srv, _ := albumWriteApp(t, newAlbumCurator())
+
+	body := adminBody(t, postAdminForm(t, srv, "/admin/fragments/albumpicker", nil))
+	if !strings.Contains(body, "Der er ingen album endnu. Opret et nedenfor.") {
+		t.Errorf("an empty picker must say so and point at the form below it\n%s", body)
+	}
+}
+
+// **Creating an album from the sheet keeps the boxes that were already ticked, and ticks the new one.**
+//
+// Ticking the new one is the behaviour that was there before: creating an album here is something a curator does
+// *in order to* file the current selection into it. Keeping the others is new — the old version rebuilt the list
+// from scratch and silently dropped them, which is the sort of thing nobody reports and everybody works around.
+func TestCreatingAnAlbumFromThePickerKeepsTheTicksAndAddsTheNewOne(t *testing.T) {
+	_, srv, pub := albumWriteApp(t, newAlbumCurator(
+		&curatedAlbum{a: album.CuratorAlbum{ID: "al-1", Slug: "en", Title: "Et album", Published: true}},
+		&curatedAlbum{a: album.CuratorAlbum{ID: "al-2", Slug: "to", Title: "To album", Published: true}},
+	))
+
+	resp := postAdminForm(t, srv, "/admin/fragments/albumpicker/albums", url.Values{
+		"title":    {"Lørdag morgen"},
+		"albumIds": {"al-2"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", resp.StatusCode, adminBody(t, resp))
+	}
+	// Read before the body: the header says whether the page's album list needs re-fetching.
+	if got := resp.Header.Get("HX-Trigger"); got != "albums-changed" {
+		t.Errorf("a create must tell the page's album list to re-fetch, got HX-Trigger %q", got)
+	}
+	body := adminBody(t, resp)
+
+	if got := len(pub.Messages); got != 1 {
+		t.Fatalf("want 1 event, got %d", got)
+	}
+	var created album.Created
+	if err := pub.Messages[0].Body(&created); err != nil {
+		t.Fatalf("decoding the event: %v", err)
+	}
+	// The same shared helper the JSON endpoint uses, so the slug folds the same way.
+	if created.Slug != "loerdag-morgen" {
+		t.Errorf("want the shared slugify, got %q", created.Slug)
+	}
+
+	// al-2 was ticked and stays ticked; al-1 was not and does not become so.
+	if !strings.Contains(body, `value="al-2" checked`) {
+		t.Errorf("a box that was ticked must survive the create\n%s", body)
+	}
+	if strings.Contains(body, `value="al-1" checked`) {
+		t.Error("a box that was not ticked must not become ticked")
+	}
+	if !strings.Contains(body, "er oprettet som kladde og valgt") {
+		t.Errorf("the outcome must say the album is a draft and that it was chosen\n%s", body)
+	}
+}
+
+// A refused title leaves the ticks alone and says why, rather than costing the curator their choices.
+func TestARefusedCreateInThePickerKeepsTheTicks(t *testing.T) {
+	_, srv, pub := albumWriteApp(t, newAlbumCurator(
+		&curatedAlbum{a: album.CuratorAlbum{ID: "al-1", Slug: "natten", Title: "Natten", Published: true}},
+	))
+
+	for _, tc := range []struct{ title, want string }{
+		{"", "skal have en titel"},
+		{"Natten", "“natten”"},
+	} {
+		resp := postAdminForm(t, srv, "/admin/fragments/albumpicker/albums", url.Values{
+			"title":    {tc.title},
+			"albumIds": {"al-1"},
+		})
+		body := adminBody(t, resp)
+		if !strings.Contains(body, tc.want) {
+			t.Errorf("refusing %q should say %q\n%s", tc.title, tc.want, body)
+		}
+		if !strings.Contains(body, `value="al-1" checked`) {
+			t.Errorf("a refusal must not cost the curator their ticks\n%s", body)
+		}
+		// And nothing tells the page's list to re-fetch, because nothing was created.
+		if got := resp.Header.Get("HX-Trigger"); got != "" {
+			t.Errorf("a refusal must not claim the albums changed, got HX-Trigger %q", got)
+		}
+	}
+	if got := len(pub.Messages); got != 0 {
+		t.Errorf("a refused title must publish nothing, got %d events", got)
+	}
+}
+
+// The delete sheet's picker offers live albums with drafts marked, and no deleted one.
+//
+// You cannot remove a photograph from an album that is gone, so offering one would be a row that can only 404.
+func TestTheDeleteSheetsAlbumPickerOffersLiveAlbumsOnly(t *testing.T) {
+	_, srv, _ := albumWriteApp(t, newAlbumCurator(
+		&curatedAlbum{a: album.CuratorAlbum{ID: "al-1", Slug: "udgivet", Title: "Udgivet album", Published: true}},
+		&curatedAlbum{a: album.CuratorAlbum{ID: "al-2", Slug: "kladde", Title: "Kladde album"}},
+		&curatedAlbum{a: album.CuratorAlbum{ID: "al-3", Slug: "slettet", Title: "Slettet album", Deleted: true}},
+	))
+
+	resp := getAdmin(t, srv, "/admin/fragments/delalbumpicker", testAdminUser, testAdminPass)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	body := adminBody(t, resp)
+
+	if strings.Contains(body, `value="al-3"`) {
+		t.Error("a deleted album must not be offered as somewhere to remove from")
+	}
+	if !strings.Contains(body, "Kladde album (kladde)") {
+		t.Errorf("a draft must be marked in the select, where there is no room for a badge\n%s", body)
+	}
+	// The empty option stays, so opening the sheet never pre-selects an album — the remove button is enabled by
+	// choosing one, and a pre-selected album would be one click from removing from the wrong one.
+	if !strings.Contains(body, `<option value="">`) {
+		t.Errorf("the select must start on no album\n%s", body)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The patrol confirmation.
+// ---------------------------------------------------------------------------
+
+// patrolFragment asks for the confirmation line for a number.
+func patrolFragment(t *testing.T, srv *httptest.Server, number string) string {
+	t.Helper()
+
+	resp := getAdmin(t, srv, "/admin/fragments/patrol?number="+url.QueryEscape(number),
+		testAdminUser, testAdminPass)
+	// **Always 200, including "no such patrol".** htmx does not swap a 4xx body by default, so a 404 here would
+	// leave the previous confirmation on screen beside a changed number — precisely the disagreement the
+	// confirmation exists to prevent. The JSON endpoint keeps its 404, because a status code is what a JSON
+	// client reads.
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("every lookup outcome must be a rendered line, got %d for %q", resp.StatusCode, number)
+	}
+	return adminBody(t, resp)
+}
+
+// The confirmation names the patrol, its group and its korps — and **never a person**.
+//
+// The whole design of the tag follows from `publicpatrol.Queries` having no read that lists patrols and no field
+// for a person: that absence is deliberate, because a list read is what a scraper would ask for. It is also why
+// the curator types the number off the sign rather than picking from a roster.
+func TestThePatrolConfirmationNamesThePatrolAndNeverAPerson(t *testing.T) {
+	_, srv, _ := tagApp(t, &stubPublicPatrols{
+		byNumber: map[string]publicpatrol.Patrol{"42": oernene()},
+	})
+
+	body := patrolFragment(t, srv, "42")
+
+	for _, want := range []string{"Patrulje 42", "Ørnene", "1. Søllerød Gruppe"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the confirmation must contain %q, or there is nothing to confirm against\n%s", want, body)
+		}
+	}
+	// The number is what the tag button sends — not the resolved team id, which the server re-resolves so a
+	// client cannot tag a patrol other than the one the curator was shown.
+	if !strings.Contains(body, `data-number="42"`) {
+		t.Errorf("the confirmed number must be carried for the tag button\n%s", body)
+	}
+	if strings.Contains(body, "team-9") {
+		t.Error("the team id must not reach the page: the server re-resolves the number when tagging")
+	}
+	// `ok` is what styles the line as a confirmation rather than a message.
+	if !strings.Contains(body, "ok") {
+		t.Errorf("a found patrol must read as a confirmation\n%s", body)
+	}
+}
+
+// A lookup that finds nothing carries **no number**, so the tag button cannot act on it.
+//
+// This is the one way this feature could tag the wrong patrol: a stale confirmation left beside a changed number.
+// The absence of `data-number` is what makes that unexpressible rather than merely unlikely.
+func TestAFailedPatrolLookupLeavesNoConfirmation(t *testing.T) {
+	_, srv, _ := tagApp(t, &stubPublicPatrols{
+		byNumber: map[string]publicpatrol.Patrol{"42": oernene()},
+	})
+
+	for _, tc := range []struct{ number, want string }{
+		{"", "Skriv patruljens nummer."},
+		{"abc", "skal være et tal"},
+		{"99", "Der er ingen patrulje med nummer 99 i år."},
+	} {
+		body := patrolFragment(t, srv, tc.number)
+		if !strings.Contains(body, tc.want) {
+			t.Errorf("looking up %q should say %q\n%s", tc.number, tc.want, body)
+		}
+		if strings.Contains(body, "data-number") {
+			t.Errorf("looking up %q must leave no confirmation for the tag button\n%s", tc.number, body)
+		}
+	}
+}
+
+// "042" and "42" are one patrol, because that is what the number on the sign means.
+//
+// The same normalisation the public patrol page applies, reused rather than reimplemented — and worth a test here
+// because a fragment that normalised differently from the tag endpoint would show one patrol and tag another.
+func TestThePatrolConfirmationNormalisesTheNumberTheSameWayTheTagDoes(t *testing.T) {
+	patrols := &stubPublicPatrols{byNumber: map[string]publicpatrol.Patrol{"42": oernene()}}
+	_, srv, _ := tagApp(t, patrols)
+
+	body := patrolFragment(t, srv, "042")
+	if !strings.Contains(body, `data-number="42"`) {
+		t.Errorf("a leading zero must not make a different patrol\n%s", body)
+	}
+	if len(patrols.asked) == 0 || patrols.asked[0] != "42" {
+		t.Errorf("the read must be asked for the normalised number, got %v", patrols.asked)
+	}
+}
+
+// A broken read is a sentence, not a stack trace — and still carries no confirmation.
+func TestAPatrolLookupFailureSaysSoWithoutConfirmingAnything(t *testing.T) {
+	_, srv, _ := tagApp(t, &stubPublicPatrols{err: errPatrolReadFailed})
+
+	body := patrolFragment(t, srv, "42")
+	if !strings.Contains(body, "Kunne ikke søge") {
+		t.Errorf("a failed read needs a Danish sentence\n%s", body)
+	}
+	if strings.Contains(body, "data-number") {
+		t.Error("a failed read must not leave a confirmation behind")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The position sheet's post picker (step 5).
+// ---------------------------------------------------------------------------
+
+// The picker offers the sited posts in route order, carrying the id and the coordinates.
+//
+// The **id** is the option's value; the coordinates are `data-` attributes and exist only to move the map's pin. A
+// stale coordinate in this browser must not be able to become a pin on a public map, so the save sends the id and
+// the server resolves it.
+func TestTheCheckpointPickerFragmentOffersTheSitedPosts(t *testing.T) {
+	_, srv, _ := positionApp(t)
+
+	resp := getAdmin(t, srv, "/admin/fragments/checkpointpicker", testAdminUser, testAdminPass)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	body := adminBody(t, resp)
+
+	if !strings.Contains(body, "Post 3") {
+		t.Errorf("the sited posts must be offered\n%s", body)
+	}
+	if !strings.Contains(body, "data-lat=") || !strings.Contains(body, "data-lng=") {
+		t.Errorf("each post needs its coordinates, for the map's pin\n%s", body)
+	}
+	// The wrapper is the swap target, and it has to be in the response or a re-render orphans the empty-state
+	// sentence beside the new select.
+	if !strings.Contains(body, `id="cppickwrap"`) {
+		t.Errorf("the fragment must render its own swap target\n%s", body)
+	}
+	// Nothing is pre-selected: the sheet opens with neither a post nor a map click chosen, which is what keeps
+	// the save button disabled until the curator says something.
+	if !strings.Contains(body, `<option value="">`) {
+		t.Errorf("the picker must start on no post\n%s", body)
+	}
+}
+
+// **No sited posts gets a sentence, and it is the one that connects the two symptoms.**
+//
+// An empty course is the ordinary early-season state. It is also exactly the condition that makes a
+// curator-placed point unjudgeable — the bounds check has no race area to judge against, so the verdict is
+// `unknown` and the photograph does not reach the public map. Explaining those together is the difference between
+// a curator understanding the tool and filing a bug.
+func TestTheCheckpointPickerFragmentExplainsAnUnsitedCourse(t *testing.T) {
+	app, srv, _ := positionApp(t)
+	app.models.CheckpointCurator = stubCheckpointCurator{}
+
+	body := adminBody(t, getAdmin(t, srv, "/admin/fragments/checkpointpicker", testAdminUser, testAdminPass))
+
+	if !strings.Contains(body, "Ingen poster har en placering endnu") {
+		t.Errorf("an unsited course must say so\n%s", body)
+	}
+	// And it must say what follows from it, not merely that the list is empty.
+	if !strings.Contains(body, "kan ikke vurderes") {
+		t.Errorf("the consequence for the position's verdict must be stated too\n%s", body)
+	}
+	// The picker still renders, because clicking the map is still a way to do the job.
+	if !strings.Contains(body, `<select id="cppick">`) {
+		t.Errorf("the select must render even with nothing in it\n%s", body)
+	}
+}
+
+// Every sheet fragment sits behind the admin credential.
+func TestTheSheetFragmentsRequireTheAdminCredential(t *testing.T) {
+	_, srv, _ := albumWriteApp(t, newAlbumCurator())
+
+	for _, path := range []string{
+		"/admin/fragments/delalbumpicker",
+		"/admin/fragments/patrol?number=42",
+		"/admin/fragments/checkpointpicker",
+	} {
+		if resp := getAdmin(t, srv, path, "", ""); resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("want 401 for an anonymous GET %s, got %d", path, resp.StatusCode)
+		}
+	}
 }
