@@ -304,6 +304,10 @@ func (app *application) routes() http.Handler {
 		router.HandlerFunc(http.MethodGet, "/admin/fragments/patrol", app.requireAdmin(app.showAdminPatrolConfirmHandler))
 		// The position sheet's post picker (step 5). The Leaflet map is untouched and stays custom.
 		router.HandlerFunc(http.MethodGet, "/admin/fragments/checkpointpicker", app.requireAdmin(app.showAdminCheckpointPickerHandler))
+		// The contact sheet's thumbnails (step 6). Reads the same filter and paging as `/api/admin/photos` through
+		// one shared helper, because "select all matching this filter" still pages that endpoint for ids and two
+		// interpretations of one filter is how a bulk action lands on the wrong photographs.
+		router.HandlerFunc(http.MethodGet, "/admin/fragments/photos", app.requireAdmin(app.showAdminContactSheetHandler))
 		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId", app.requireAdmin(app.updateAdminAlbumHandler))
 		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId/items", app.requireAdmin(app.reorderAdminAlbumItemsHandler))
 		// The two removals (task 379), and they are deliberately different endpoints for different acts: taking a

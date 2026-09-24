@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"nathejk.dk/nathejk/table/album"
+	"nathejk.dk/nathejk/table/photo"
 	"nathejk.dk/nathejk/table/publicpatrol"
 )
 
@@ -784,5 +786,300 @@ func TestTheSheetFragmentsRequireTheAdminCredential(t *testing.T) {
 		if resp := getAdmin(t, srv, path, "", ""); resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("want 401 for an anonymous GET %s, got %d", path, resp.StatusCode)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The contact sheet (step 6 of task 395).
+//
+// # The risk the task flagged, and what these assert instead
+//
+// Task 395 called this the one real risk: PRD 022 §7 requires the selection to survive every action, and "a naive
+// hx-swap over the grid destroys the selection set".
+//
+// It does not, and the reason is worth keeping written down. **The selection was never in the grid.** It is a Set
+// of ids in page.js, held outside the DOM deliberately — the file's own comment says a DOM-derived selection
+// "would be lost by any re-render, and it would silently shrink to what is currently loaded". A swap replaces
+// cells; the Set does not notice.
+//
+// What that leaves for these tests is the half the server now owns: the cells and their marks. The half it does
+// not own is asserted from the other side — the cells arrive `aria-selected="false"` because the server cannot
+// know the selection, and page.js re-paints them after every swap.
+// ---------------------------------------------------------------------------
+
+// contactSheetFragment asks for a page of thumbnails.
+func contactSheetFragment(t *testing.T, srv *httptest.Server, query string) string {
+	t.Helper()
+
+	path := "/admin/fragments/photos"
+	if query != "" {
+		path += "?" + query
+	}
+	resp := getAdmin(t, srv, path, testAdminUser, testAdminPass)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200 from the contact sheet fragment, got %d", resp.StatusCode)
+	}
+	return adminBody(t, resp)
+}
+
+// libraryWithMarks is one photograph of each state the cells have to distinguish.
+func libraryWithMarks() *libraryCurator {
+	return &libraryCurator{
+		counts: photo.Counts{Total: 5},
+		rows: []photo.LibraryPhoto{
+			{ID: photoID("a"), BoundsVerdict: "inside", AlbumCount: 1},
+			{ID: photoID("b"), BoundsVerdict: "outside", AlbumCount: 3, TagCount: 2},
+			{ID: photoID("c"), BoundsVerdict: "unknown"},
+			{ID: photoID("d"), BoundsVerdict: "none"},
+			{ID: photoID("e"), BoundsVerdict: "inside", Deleted: true},
+		},
+	}
+}
+
+// **The four position states read differently, and `unknown` must not read as a rejection.**
+//
+// PRD 011 §6 requires an out-of-bounds coordinate to be visible *as rejected*. `unknown` is a statement about us —
+// there was no race area to judge against — so blaming the photograph for it would be wrong. And `none` gets no
+// mark at all, because having no coordinate is the ordinary case and a badge for it would be noise on most of the
+// sheet.
+func TestTheContactSheetDistinguishesTheFourPositionStates(t *testing.T) {
+	_, srv := libraryApp(t, libraryWithMarks())
+
+	body := contactSheetFragment(t, srv, "")
+
+	for _, want := range []struct{ needle, why string }{
+		{`<span class="mark inside">position</span>`, "a photograph inside the area says so"},
+		{`<span class="mark outside">uden for området</span>`, "an out-of-bounds coordinate must read as rejected"},
+		{`<span class="mark unknown">ikke vurderet</span>`, "unknown is about us, and must not read as a rejection"},
+	} {
+		if !strings.Contains(body, want.needle) {
+			t.Errorf("the cells are missing %q: %s\n%s", want.needle, want.why, body)
+		}
+	}
+
+	// The three classes are distinct, which is how this distinction usually dies — one of them quietly sharing
+	// another's styling.
+	for _, class := range []string{"mark inside", "mark outside", "mark unknown"} {
+		if strings.Count(body, class) == 0 {
+			t.Errorf("no cell carries %q", class)
+		}
+	}
+
+	// `none` gets nothing. Checked by counting marks on that one cell rather than by the absence of a string,
+	// because there is no string for "no mark" to look for.
+	cell := body[strings.Index(body, photoID("d")):]
+	cell = cell[:strings.Index(cell, "</button>")]
+	// `class="mark` alone would match the `marks` container every cell has, which is how the first version of
+	// this test failed against correct output.
+	if strings.Contains(cell, `class="mark "`) || strings.Contains(cell, `class="mark"`) ||
+		strings.Contains(cell, `class="mark inside"`) || strings.Contains(cell, `class="mark outside"`) ||
+		strings.Contains(cell, `class="mark unknown"`) {
+		t.Errorf("a photograph with no coordinate must get no position mark\n%s", cell)
+	}
+}
+
+// The other three marks: how many albums, whether it is tagged, and whether it is deleted.
+func TestTheContactSheetMarksAlbumsTagsAndDeletion(t *testing.T) {
+	_, srv := libraryApp(t, libraryWithMarks())
+
+	body := contactSheetFragment(t, srv, "")
+
+	if !strings.Contains(body, ">1 album<") {
+		t.Errorf("one album needs the singular; see task 387\n%s", body)
+	}
+	if !strings.Contains(body, ">3 album<") {
+		t.Error("the album count must be rendered, so the curator can see what is already sorted")
+	}
+	if !strings.Contains(body, ">patrulje<") {
+		t.Error("a tagged photograph must be marked")
+	}
+	// A deleted photograph is marked *and* dimmed by a class on the cell, because a badge alone is easy to miss
+	// in a grid of 120.
+	if !strings.Contains(body, ">slettet<") || !strings.Contains(body, `class="cell gone"`) {
+		t.Errorf("a deleted photograph must be marked and dimmed\n%s", body)
+	}
+}
+
+// The thumbnail is addressed by **id and variant, never by a blob ref**.
+//
+// The server resolves it through the projection, which is what stops the media route being a file server for the
+// whole blob store — if a ref reached the page, the client would have no reason to go through the check.
+func TestTheContactSheetAddressesThumbnailsThroughTheProjection(t *testing.T) {
+	_, srv := libraryApp(t, libraryWithMarks())
+
+	body := contactSheetFragment(t, srv, "")
+
+	if !strings.Contains(body, `src="/api/admin/photos/`+photoID("a")+`/media?variant=thumb"`) {
+		t.Errorf("thumbnails must be addressed by id and variant\n%s", body)
+	}
+	// Lazy, because a contact sheet is 120 images and eager loading them is how this page becomes unusable on a
+	// hotel connection.
+	if !strings.Contains(body, `loading="lazy"`) {
+		t.Error("thumbnails must load lazily")
+	}
+}
+
+// **Every cell arrives unselected, because the server does not know the selection.**
+//
+// This is the half of the contract the fragment cannot fulfil, asserted from the side that can. The selection is a
+// Set in page.js and no fragment goes looking for it; the browser re-paints `aria-selected` after every swap, which
+// is what lets the selection survive a filter change — a curator narrows to "uden position", picks forty, widens
+// to check something, and must still have the forty.
+func TestTheContactSheetRendersEveryCellUnselected(t *testing.T) {
+	_, srv := libraryApp(t, libraryWithMarks())
+
+	body := contactSheetFragment(t, srv, "")
+
+	if strings.Contains(body, `aria-selected="true"`) {
+		t.Error("the server must not claim anything is selected: it cannot know, and guessing would make the " +
+			"grid and the action bar disagree about what an action applies to")
+	}
+	if got := strings.Count(body, `aria-selected="false"`); got != 5 {
+		t.Errorf("every cell needs the attribute for the browser to paint, got %d of 5", got)
+	}
+	// And the paint really is the browser's job.
+	if js := adminAsset(t, "page.js"); !strings.Contains(js, "htmx:afterSwap") ||
+		!strings.Contains(js, "for (const cell of sheet.querySelectorAll('.cell')) paint(cell);") {
+		t.Error("page.js must re-paint the selection after every swap, or a filter change loses it visually " +
+			"while the action bar still counts it")
+	}
+}
+
+// The shown-count, the "more" button and the header's counts arrive with the cells, out of band.
+//
+// One request rather than four, because they are answers to the same question: a second request for the counts
+// could return a different read.
+func TestTheContactSheetCarriesItsSurroundingsOutOfBand(t *testing.T) {
+	rows := make([]photo.LibraryPhoto, 7)
+	for i := range rows {
+		rows[i] = photo.LibraryPhoto{ID: photoID(string(rune('a' + i))), BoundsVerdict: "none"}
+	}
+	_, srv := libraryApp(t, &libraryCurator{rows: rows, counts: photo.Counts{Total: 7}})
+
+	// A page of 3 out of 7: there is more.
+	body := contactSheetFragment(t, srv, "limit=3")
+	if !strings.Contains(body, `<p id="sheetnote" class="todo" aria-live="polite" hx-swap-oob="true">3 vist — der er flere</p>`) {
+		t.Errorf("the shown-count must say how many and that there are more\n%s", body)
+	}
+	// **The next offset comes from the server.** The browser adding up page sizes would drift the first time a
+	// clamped limit differed from the one it asked for.
+	if !strings.Contains(body, `id="more" data-offset="3"`) {
+		t.Errorf("the more button must carry where the next page starts\n%s", body)
+	}
+
+	// The last page: the button is gone rather than left promising a page that does not exist.
+	last := contactSheetFragment(t, srv, "limit=3&offset=6")
+	if strings.Contains(last, `id="more"`) {
+		t.Errorf("the last page must not offer more\n%s", last)
+	}
+	// The count is the running total, not this page's size \u2014 it is read as "how far through am I".
+	if !strings.Contains(last, ">7 vist<") {
+		t.Errorf("the shown-count must be the running total, got\n%s", last)
+	}
+	// The wrapper is still rendered, so the button's absence is a swap rather than a stale element left behind —
+	// and it comes back **exactly empty**, with no whitespace, because `#morewrap:empty` is what collapses the
+	// line of space it would otherwise hold open under the grid.
+	if !strings.Contains(last, `<p id="morewrap" hx-swap-oob="true"></p>`) {
+		t.Errorf("the more button's wrapper must always be swapped, and be empty on the last page\n%s", last)
+	}
+}
+
+// An empty result is a sentence, not a blank grid.
+//
+// An empty grid under a filter is an ordinary answer; without saying so it is indistinguishable from one that is
+// still loading.
+func TestTheContactSheetSaysWhenNothingMatches(t *testing.T) {
+	_, srv := libraryApp(t, &libraryCurator{})
+
+	body := contactSheetFragment(t, srv, "album=none")
+	if !strings.Contains(body, "Ingen billeder matcher.") {
+		t.Errorf("an empty result must say so\n%s", body)
+	}
+	if strings.Contains(body, `class="cell`) {
+		t.Error("an empty result must render no cells")
+	}
+}
+
+// **The fragment and the JSON list read one filter through one function.**
+//
+// The grid renders a page of a filter and "select all matching this filter" pages the ids out of the JSON endpoint.
+// PRD 022 §3 says "these forty are from Post 3" is the true shape of the work, and §6 requires selecting beyond
+// the loaded page — so two interpretations of one filter is exactly how a bulk action lands on photographs the
+// curator never saw.
+//
+// Asserted by asking both for the same filter and comparing what the read was *asked*, which is the only place the
+// two could diverge.
+func TestTheContactSheetAndTheJSONListInterpretAFilterIdentically(t *testing.T) {
+	curator := libraryWithMarks()
+	_, srv := libraryApp(t, curator)
+
+	const q = "album=none&location=no&verdict=unknown&tagged=no&deleted=1"
+	contactSheetFragment(t, srv, q)
+	if resp := getAdmin(t, srv, "/api/admin/photos?"+q, testAdminUser, testAdminPass); resp.StatusCode != http.StatusOK {
+		t.Fatalf("the JSON list refused the same filter: %d", resp.StatusCode)
+	}
+
+	if len(curator.filters) != 2 {
+		t.Fatalf("want both reads recorded, got %d", len(curator.filters))
+	}
+	// Compared as rendered text, not with `!=`: `photo.Filter` holds `*bool` for the tri-state filters, so
+	// comparing the structs compares pointer addresses and passes for any two reads whatsoever. The first version
+	// of this test did exactly that and failed against identical filters.
+	if a, b := describeFilter(curator.filters[0]), describeFilter(curator.filters[1]); a != b {
+		t.Errorf("the two surfaces translated one filter differently:\n  fragment: %s\n  json:     %s", a, b)
+	}
+}
+
+// describeFilter renders a filter by value, including through its pointers.
+func describeFilter(f photo.Filter) string {
+	tri := func(p *bool) string {
+		if p == nil {
+			return "unset"
+		}
+		return fmt.Sprintf("%t", *p)
+	}
+	return fmt.Sprintf("inNoAlbum=%t hasLocation=%s verdict=%q tagged=%s includeDeleted=%t",
+		f.InNoAlbum, tri(f.HasLocation), f.Verdict, tri(f.Tagged), f.IncludeDeleted)
+}
+
+// An unrecognised filter value is refused by the fragment too, rather than quietly widening the page.
+//
+// A 400 does not swap in htmx, so the grid keeps the page it had and page.js writes the sentence — which is the
+// right outcome: the alternative is a grid silently showing everything while the filter button looks pressed.
+func TestTheContactSheetRefusesAnUnrecognisedFilter(t *testing.T) {
+	_, srv := libraryApp(t, libraryWithMarks())
+
+	resp := getAdmin(t, srv, "/admin/fragments/photos?verdict=sideways", testAdminUser, testAdminPass)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("want 400 for an unrecognised filter value, got %d", resp.StatusCode)
+	}
+}
+
+// The grid's own shell stays in the page, with `load` on it and not on the fragment.
+//
+// The first page cannot be fetched from page.js: htmx is a deferred script and page.js is inline, so `window.htmx`
+// does not exist yet while that block runs. A call there would silently do nothing and leave an empty grid.
+func TestTheContactSheetLoadsFromItsShell(t *testing.T) {
+	page := adminAsset(t, "page.html")
+
+	shell := page[strings.Index(page, `<div id="sheet"`):]
+	shell = shell[:strings.Index(shell, ">")+1]
+	for _, want := range []string{
+		`hx-get="/admin/fragments/photos`, `hx-trigger="load"`, `hx-swap="innerHTML"`,
+		// The listbox's own ARIA stays on the shell, because the fragment returns bare cells and never this
+		// element — a filter change swaps its contents and "Hent flere" appends to them.
+		`role="listbox"`, `aria-multiselectable="true"`,
+	} {
+		if !strings.Contains(shell, want) {
+			t.Errorf("the contact sheet's shell needs %s\n%s", want, shell)
+		}
+	}
+
+	// And page.js must not try to fetch the first page itself, which is the mistake this arrangement prevents.
+	js := adminAsset(t, "page.js")
+	tail := js[strings.LastIndex(js, "// The first page of thumbnails"):]
+	if strings.Contains(tail, "load(true)") {
+		t.Error("the first load must be declared on the shell, not called from page.js: htmx does not exist yet " +
+			"when that block runs")
 	}
 }

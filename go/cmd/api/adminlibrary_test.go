@@ -322,17 +322,53 @@ func TestAdminCountsUseWireNamesTheScriptCanRead(t *testing.T) {
 	}
 }
 
-// And the page reads every one of them, keyed by the same names. Together with the test above this closes the
-// loop the wire sits in the middle of: the server emits these names and the page consumes them.
-func TestTheAdminHeaderReadsEveryCount(t *testing.T) {
-	body := renderAdminPage(t)
+// And **the page and the fragment render every one of them from one definition** (task 395).
+//
+// This used to assert that the page bound each count by its JSON field name, because the browser refreshed the
+// header by reading those names out of the list payload. It no longer does: the counts are a template definition
+// rendered by the page on first load and again by the contact sheet's fragment as an out-of-band swap, so there is
+// no wire name in the middle to keep in step.
+//
+// What still has to hold is the reason the old test existed — that **all eight refresh together**. A header
+// showing "312 billeder / 47 uden album" with a stale second figure is worse than no figure, because the curator
+// uses it to decide what to sort next. One shared definition and one swap is what makes half-stale impossible;
+// this asserts both sides really do use it.
+func TestTheHeaderCountsComeFromOneDefinition(t *testing.T) {
+	_, srv := libraryApp(t, &libraryCurator{counts: photo.Counts{
+		Total: 7, InNoAlbum: 6, WithLocation: 5, Plottable: 4,
+		OutOfBounds: 3, Unknown: 2, Tagged: 1, Deleted: 8,
+	}})
 
-	for _, key := range []string{
-		"total", "inNoAlbum", "withLocation", "plottable", "outOfBounds", "unknown", "tagged", "deleted",
+	page := adminBody(t, getAdmin(t, srv, "/admin", testAdminUser, testAdminPass))
+	fragment := adminBody(t, getAdmin(t, srv, "/admin/fragments/photos", testAdminUser, testAdminPass))
+
+	// The eight labels, each beside its number. Matched as the rendered pair rather than as a bare integer, so a
+	// count that lost its label — or a label that lost its count — fails here.
+	for _, want := range []string{
+		"<span class=\"n\">7</span><span class=\"k\">billeder",
+		"<span class=\"n\">6</span><span class=\"k\">uden album",
+		"<span class=\"n\">5</span><span class=\"k\">med position",
+		"<span class=\"n\">4</span><span class=\"k\">på kortet",
+		"<span class=\"n\">3</span><span class=\"k\">uden for området",
+		"<span class=\"n\">2</span><span class=\"k\">ikke vurderet",
+		"<span class=\"n\">1</span><span class=\"k\">med patrulje",
+		"<span class=\"n\">8</span><span class=\"k\">slettede",
 	} {
-		if !strings.Contains(body, `data-count="`+key+`"`) {
-			t.Errorf("the header does not bind the %q count; it would not refresh after a batch", key)
+		if !strings.Contains(page, want) {
+			t.Errorf("the page's header is missing %q", want)
 		}
+		if !strings.Contains(fragment, want) {
+			t.Errorf("the fragment's header swap is missing %q; it would leave that number stale", want)
+		}
+	}
+
+	// **One element, swapped out of band.** Eight separate swaps would be eight chances for half the header to be
+	// from the previous read.
+	if got := strings.Count(fragment, `hx-swap-oob="true"`); got != 3 {
+		t.Errorf("want 3 out-of-band swaps (the counts, the shown-count and the more button), got %d", got)
+	}
+	if !strings.Contains(fragment, `<ul id="counts" class="counts" hx-swap-oob="true">`) {
+		t.Errorf("the counts must arrive as one out-of-band element\n%s", fragment)
 	}
 }
 

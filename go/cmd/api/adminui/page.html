@@ -38,16 +38,9 @@
   <p class="warn">Billedarkivet kan ikke læses lige nu. Du er logget ind, men databasen svarer ikke —
   prøv igen om et øjeblik.</p>
 {{else}}
-  <ul class="counts" id="counts">
-    <li><span class="n" data-count="total">{{.Counts.Total}}</span><span class="k">billeder</span></li>
-    <li><span class="n" data-count="inNoAlbum">{{.Counts.InNoAlbum}}</span><span class="k">uden album</span></li>
-    <li><span class="n" data-count="withLocation">{{.Counts.WithLocation}}</span><span class="k">med position</span></li>
-    <li><span class="n" data-count="plottable">{{.Counts.Plottable}}</span><span class="k">på kortet</span></li>
-    <li><span class="n" data-count="outOfBounds">{{.Counts.OutOfBounds}}</span><span class="k">uden for området</span></li>
-    <li><span class="n" data-count="unknown">{{.Counts.Unknown}}</span><span class="k">ikke vurderet</span></li>
-    <li><span class="n" data-count="tagged">{{.Counts.Tagged}}</span><span class="k">med patrulje</span></li>
-    <li><span class="n" data-count="deleted">{{.Counts.Deleted}}</span><span class="k">slettede</span></li>
-  </ul>
+  <!-- The counts come from one template definition, rendered here on first load and again by the contact sheet's
+       fragment as an out-of-band swap (task 395) — so the header and the grid can never be from different reads. -->
+  {{template "counts" .Counts}}
 {{end}}
 
   <h2>Læg billeder op</h2>
@@ -104,10 +97,28 @@
     <button type="button" class="f" data-q="deleted=1">Inkl. slettede</button>
   </div>
 
-  <p id="sheetnote" class="todo" aria-live="polite"></p>
+  <p id="sheetnote" class="todo" aria-live="polite">Henter billeder…</p>
+  <!-- The action bar's outcome line, separate from the shown-count above.
+
+       They used to share `#sheetnote`, and the sharing was a bug: every action ends by reloading the sheet, so the
+       server's sentence — "42 billeder lagt i 2 album", written by the side that knew how many were already
+       there — was overwritten by "42 vist" a moment later and could not be read. -->
+  <p id="actionnote" class="todo" aria-live="polite"></p>
   <p><button type="button" id="selall">Vælg alle der matcher filteret</button></p>
-  <div id="sheet" role="listbox" aria-multiselectable="true" aria-label="Billeder" tabindex="0"></div>
-  <p><button type="button" id="more" hidden>Hent flere</button></p>
+  <!-- The thumbnails are an htmx fragment (task 395); this is the listbox they arrive into.
+
+       The grid keeps its own ARIA attributes because the fragment returns a bare list of cells and never this
+       element: a filter change swaps its contents, "Hent flere" appends to them, and a fragment that owned the
+       wrapper would have to be swapped two different ways.
+
+       The cells' click handling is delegated from here rather than bound per cell, which is what makes a swap
+       free. -->
+  <div id="sheet" role="listbox" aria-multiselectable="true" aria-label="Billeder" tabindex="0"
+       hx-get="/admin/fragments/photos?limit=120" hx-trigger="load" hx-swap="innerHTML"></div>
+  <!-- The "more" button arrives as an out-of-band swap carrying the next page's offset, so the browser never adds
+       up page sizes — its idea of how many it holds would drift the first time a clamped limit differed from the
+       one it asked for. Empty when there is no next page. -->
+  <p id="morewrap"></p>
 
   <!-- The action bar is pinned rather than a page of its own, because navigating away loses the selection
        (PRD 022 §7). Its four actions arrive with tasks 375–379; the bar and the selection they act on are

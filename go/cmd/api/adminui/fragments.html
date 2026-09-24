@@ -201,3 +201,102 @@ than leaving the curator to connect them from two screens.
   {{end}}
 </span>
 {{end}}
+
+{{/*
+The library counts (task 374, migrated in 395).
+
+Rendered by the page on first load and again by the contact sheet's fragment as an out-of-band swap, from one
+definition so the two cannot drift.
+
+**Every number, never just the total**, because they are read together: "312 billeder / 47 uden album" with a
+stale second figure is worse than no figure, since the curator uses it to decide what to sort next. That is also
+why this is one element rather than eight — one swap cannot leave half of them from the previous read.
+
+`hx-swap-oob` is inert on the first render: htmx only honours it in a response it fetched. Carrying it
+unconditionally is cheaper than a flag whose only job would be to be got wrong once.
+*/}}
+{{define "counts"}}
+<ul id="counts" class="counts" hx-swap-oob="true">
+  <li><span class="n">{{.Total}}</span><span class="k">billeder</span></li>
+  <li><span class="n">{{.InNoAlbum}}</span><span class="k">uden album</span></li>
+  <li><span class="n">{{.WithLocation}}</span><span class="k">med position</span></li>
+  <li><span class="n">{{.Plottable}}</span><span class="k">på kortet</span></li>
+  <li><span class="n">{{.OutOfBounds}}</span><span class="k">uden for området</span></li>
+  <li><span class="n">{{.Unknown}}</span><span class="k">ikke vurderet</span></li>
+  <li><span class="n">{{.Tagged}}</span><span class="k">med patrulje</span></li>
+  <li><span class="n">{{.Deleted}}</span><span class="k">slettede</span></li>
+</ul>
+{{end}}
+
+{{/*
+The contact sheet's thumbnails (task 374, migrated in 395).
+
+# What this fragment does and does not own
+
+It owns the **cells**, and nothing else about the grid. The selection is a Set in page.js and no fragment goes
+looking for it: that is what made this migration safe, and the reasoning is worth stating because task 395 flagged
+it as the one real risk.
+
+The worry was that an `hx-swap` over the grid destroys the selection. It does not, because the selection was never
+in the grid — PRD 022 §7 requires it to survive every action, and the existing code already held it outside the
+DOM for exactly that reason. What *is* derived from the DOM afterwards is `order`, the display order used to
+resolve a shift-click range, and that is not state at all: it is the definition of "the cells currently shown".
+Deriving it from the cells currently shown cannot be wrong.
+
+So the client's whole job after a swap is three lines: rebuild `order`, repaint `aria-selected` from the Set,
+refresh the action bar.
+
+# Why the cells come back as a bare list
+
+Two swaps use this one fragment, and neither wants a wrapper: a filter change replaces the grid's contents, and
+"Hent flere" appends to them. A fragment that rendered `<div id="sheet">` would have to be swapped two different
+ways and would take the listbox's ARIA attributes with it each time.
+
+Everything that is not a cell arrives as an out-of-band swap, which is how one request keeps the note, the
+"more" button and the header's counts in step with the grid without either side computing them.
+
+# The three things the marks must keep doing
+
+  - **The bounds verdicts read differently, and `unknown` must not read as a rejection.** It is a statement about
+    us — there was no race area to judge against — so blaming the photograph would be wrong.
+  - **`none` gets no mark at all.** Having no coordinate is the ordinary case, and a badge for it would be noise
+    on most of the sheet.
+  - **The thumbnail is addressed by id and variant, never by a blob ref.** The server resolves it through the
+    projection, which is what stops this route being a file server for the whole blob store (see adminlibrary.go).
+*/}}
+{{define "contactsheet"}}
+{{range .Photos}}
+<button type="button" class="cell{{if .Deleted}} gone{{end}}" data-id="{{.ID}}"
+        role="option" aria-selected="false">
+  <img loading="lazy" decoding="async" alt="{{.Caption}}"
+       src="/api/admin/photos/{{.ID}}/media?variant=thumb">
+  <span class="tick" aria-hidden="true">✓</span>
+  <span class="marks">
+    {{if eq .BoundsVerdict "inside"}}<span class="mark inside">position</span>
+    {{else if eq .BoundsVerdict "outside"}}<span class="mark outside">uden for området</span>
+    {{else if eq .BoundsVerdict "unknown"}}<span class="mark unknown">ikke vurderet</span>{{end}}
+    {{if .AlbumCount}}<span class="mark">{{if eq .AlbumCount 1}}1 album{{else}}{{.AlbumCount}} album{{end}}</span>{{end}}
+    {{if .TagCount}}<span class="mark">patrulje</span>{{end}}
+    {{if .Deleted}}<span class="mark outside">slettet</span>{{end}}
+  </span>
+</button>
+{{end}}
+
+{{/* The shown-count, out of band because it sits above the grid.
+
+     Its own element, separate from the action bar's outcome line (`#actionnote`). They used to share one, and the
+     sharing was a bug: every action ended by reloading the sheet, so the server's sentence — "42 billeder lagt i
+     2 album", written by the side that knew how many were already there — was overwritten by "42 vist" a moment
+     later. Nobody could have read it. */}}
+<p id="sheetnote" class="todo" aria-live="polite" hx-swap-oob="true">{{.ShownNote}}</p>
+
+{{/* The "more" button, out of band, carrying the offset the next page starts at. Rendered by the server because
+     the server is what knows whether there is another page; empty when there is not, so the button cannot be
+     left behind promising a page that does not exist.
+
+     On one line deliberately: any whitespace inside would defeat the `#morewrap:empty` rule that collapses the
+     space this would otherwise hold open under the grid on the last page. */}}
+<p id="morewrap" hx-swap-oob="true">{{if .HasMore}}<button type="button" id="more" data-offset="{{.NextOffset}}">Hent flere</button>{{end}}</p>
+
+{{template "counts" .Counts}}
+{{end}}

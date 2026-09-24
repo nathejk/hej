@@ -109,6 +109,13 @@ h2 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
 .pos.outside { background: #fee2e2; color: #991b1b; }
 .pos.unknown { background: #fef3c7; color: #92400e; }
 .todo { color: #52525b; }
+/* The action bar's outcome line, separate from the shown-count above it (task 395). Given weight, because it is
+   the only place a curator reads what an action actually did — "42 billeder lagt i 2 album", or how many were
+   already there. It was previously overwritten by the shown-count a moment after being written. */
+#actionnote { color: #18181b; font-weight: 500; min-height: 1.25rem; }
+/* PICO: the "more" button's wrapper is a `<p>`, and an empty one would otherwise hold a line of space open under
+   the grid on the last page. */
+#morewrap:empty { margin: 0; }
 
 /* --- the contact sheet ---------------------------------------------------- */
 #filters { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-bottom: 0.75rem; }

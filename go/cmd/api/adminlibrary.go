@@ -93,15 +93,36 @@ type adminLibraryPhoto struct {
 // @Failure      503  {object}  map[string]string  "the library is unavailable"
 // @Router       /admin/photos [get]
 func (app *application) listAdminPhotosHandler(w http.ResponseWriter, r *http.Request) {
+	page, ok := app.readAdminLibraryPage(w, r)
+	if !ok {
+		return
+	}
+
+	if err := app.WriteJSON(w, http.StatusOK, page, nil); err != nil {
+		app.ServerErrorResponse(w, r, err)
+	}
+}
+
+// readAdminLibraryPage validates the filter and paging, reads one page, and answers on failure.
+//
+// Shared by the JSON endpoint above and the contact sheet's htmx fragment (task 395). **Shared rather than
+// reimplemented**, because both interpret the same filter: the grid renders one page of it and "select all
+// matching this filter" pages the ids out of the other, and the two disagreeing is precisely how a bulk action
+// lands on photographs the curator never saw.
+//
+// It returns `adminLibraryResponse` although one caller renders HTML. A second, tag-free struct with identical
+// fields was the first attempt and staticcheck was right to reject it: two shapes that must stay equal are worse
+// than one name that reads slightly oddly at one of its two call sites.
+func (app *application) readAdminLibraryPage(w http.ResponseWriter, r *http.Request) (adminLibraryResponse, bool) {
 	if app.models.PhotoCurator == nil {
 		app.ServiceUnavailableResponse(w, r, "billedarkivet er ikke tilgængeligt lige nu")
-		return
+		return adminLibraryResponse{}, false
 	}
 
 	filter, err := adminLibraryFilter(r)
 	if err != nil {
 		app.BadRequestResponse(w, r, err)
-		return
+		return adminLibraryResponse{}, false
 	}
 
 	limit := adminQueryInt(r, "limit", 120)
@@ -121,7 +142,7 @@ func (app *application) listAdminPhotosHandler(w http.ResponseWriter, r *http.Re
 	rows, err := app.models.PhotoCurator.Library(app.config.eventYear, filter, limit+1, offset)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
-		return
+		return adminLibraryResponse{}, false
 	}
 
 	hasMore := len(rows) > limit
@@ -137,7 +158,7 @@ func (app *application) listAdminPhotosHandler(w http.ResponseWriter, r *http.Re
 		app.Logger.Error("reading the library counts", "err", err)
 	}
 
-	out := adminLibraryResponse{
+	page := adminLibraryResponse{
 		Photos: make([]adminLibraryPhoto, 0, len(rows)),
 		Counts: adminCountsView{
 			Total:        counts.Total,
@@ -154,7 +175,7 @@ func (app *application) listAdminPhotosHandler(w http.ResponseWriter, r *http.Re
 		HasMore: hasMore,
 	}
 	for _, p := range rows {
-		out.Photos = append(out.Photos, adminLibraryPhoto{
+		page.Photos = append(page.Photos, adminLibraryPhoto{
 			ID:            p.ID,
 			Caption:       p.Caption,
 			Credit:        p.Credit,
@@ -169,10 +190,7 @@ func (app *application) listAdminPhotosHandler(w http.ResponseWriter, r *http.Re
 			UploadedAt:    p.UploadedAt,
 		})
 	}
-
-	if err := app.WriteJSON(w, http.StatusOK, out, nil); err != nil {
-		app.ServerErrorResponse(w, r, err)
-	}
+	return page, true
 }
 
 // adminLibraryFilter reads the filter from the query string.

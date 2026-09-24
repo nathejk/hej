@@ -259,19 +259,22 @@
   const sheet = document.getElementById('sheet');
   const filters = document.getElementById('filters');
   const note = document.getElementById('sheetnote');
-  const more = document.getElementById('more');
+  const actionNote = document.getElementById('actionnote');
+  const morewrap = document.getElementById('morewrap');
   const actions = document.getElementById('actions');
   const selCount = document.getElementById('selcount');
   const clearSel = document.getElementById('clearsel');
 
   const selected = new Set();
-  // The order cells are shown in, so shift-click can resolve a range. Kept separately from the DOM for the
-  // reason above.
+  // The order cells are shown in, so shift-click can resolve a range.
+  //
+  // **Derived from the DOM, unlike the selection.** That is not a contradiction of the paragraph above: `order` is
+  // not state, it is the definition of "the cells currently shown", so reading it off the cells currently shown
+  // cannot be wrong. The selection is the thing that must outlive a re-render, and it is the thing kept out of the
+  // DOM. Getting that distinction right is what made the grid safe to render server-side (task 395).
   let order = [];
   let lastClicked = null;
   let query = '';
-  let offset = 0;
-  let loading = false;
 
   // --- the sheet shell (task 390) ---------------------------------------------
   //
@@ -395,109 +398,54 @@
     syncActions();
   }
 
-  function cellFor(p) {
-    const cell = document.createElement('button');
-    cell.type = 'button';
-    cell.className = 'cell' + (p.deleted ? ' gone' : '');
-    cell.dataset.id = p.id;
-    cell.setAttribute('role', 'option');
-    cell.setAttribute('aria-selected', 'false');
+  // The cells themselves are an htmx fragment (task 395) — see adminui/fragments.html. What is left here is
+  // everything that needs the selection, which no fragment can see.
 
-    const img = document.createElement('img');
-    img.loading = 'lazy';
-    img.decoding = 'async';
-    // Addressed by id and variant, never by ref. The server resolves it through the projection, which is what
-    // stops this route being a file server for the whole blob store (see adminlibrary.go).
-    img.src = '/api/admin/photos/' + encodeURIComponent(p.id) + '/media?variant=thumb';
-    img.alt = p.caption || '';
-
-    const tick = document.createElement('span');
-    tick.className = 'tick';
-    tick.setAttribute('aria-hidden', 'true');
-    tick.textContent = '✓';
-
-    const marks = document.createElement('span');
-    marks.className = 'marks';
-    // The position marks. Three states that must read differently, and 'unknown' must not read as a rejection:
-    // it is a statement about us — there was no race area to judge against — so blaming the photograph would
-    // be wrong. 'none' gets no mark at all, because having no coordinate is the ordinary case and a badge for
-    // it would be noise on most of the card.
-    if (p.boundsVerdict === 'inside') marks.append(mark('inside', 'position'));
-    else if (p.boundsVerdict === 'outside') marks.append(mark('outside', 'uden for området'));
-    else if (p.boundsVerdict === 'unknown') marks.append(mark('unknown', 'ikke vurderet'));
-
-    if (p.albumCount > 0) marks.append(mark('', p.albumCount === 1 ? '1 album' : p.albumCount + ' album'));
-    if (p.tagCount > 0) marks.append(mark('', 'patrulje'));
-    if (p.deleted) marks.append(mark('outside', 'slettet'));
-
-    cell.append(img, tick, marks);
-
-    cell.addEventListener('click', (e) => {
-      if (e.shiftKey && lastClicked) selectRange(p.id);
-      else { toggle(p.id); lastClicked = p.id; }
-    });
-    return cell;
-  }
-
-  function mark(kind, text) {
-    const s = document.createElement('span');
-    s.className = 'mark' + (kind ? ' ' + kind : '');
-    s.textContent = text;
-    return s;
-  }
-
-  async function load(reset) {
-    if (loading) return;
-    loading = true;
-    if (reset) { offset = 0; order = []; sheet.textContent = ''; lastClicked = null; }
-
-    const url = '/api/admin/photos?limit=120&offset=' + offset + (query ? '&' + query : '');
-    try {
-      const res = await fetch(url);
-      if (!res.ok) {
-        note.textContent = res.status === 401
-          ? 'Du er blevet logget ud. Genindlæs siden.'
-          : 'Kunne ikke hente billederne (fejl ' + res.status + ').';
-        return;
-      }
-      const data = await res.json();
-
-      for (const p of data.photos) {
-        order.push(p.id);
-        sheet.append(cellFor(p));
-      }
-      offset += data.photos.length;
-      more.hidden = !data.hasMore;
-      updateCounts(data.counts);
-
-      note.textContent = order.length === 0
-        ? 'Ingen billeder matcher.'
-        : order.length + ' vist' + (data.hasMore ? ' — der er flere' : '');
-
-      // Re-paint, because a filter change may bring back a photograph that is still selected. The selection
-      // deliberately survives filtering: a curator narrows to "uden position", picks forty, then widens to
-      // check something — losing the forty would make the filters unusable as a working tool.
-      for (const cell of sheet.querySelectorAll('.cell')) paint(cell);
-      syncActions();
-    } catch (err) {
-      note.textContent = 'Kunne ikke hente billederne. Prøv igen.';
-    } finally {
-      loading = false;
-    }
-  }
-
-  // The header is refreshed wholesale from the payload, keyed by the JSON field name in a data attribute.
+  // load asks for a page of thumbnails.
   //
-  // Every number rather than just the total, because they are read together: "312 billeder / 47 uden album"
-  // with a stale second figure is worse than no figure, since the curator uses it to decide what to sort next.
-  // Keyed by attribute rather than by id so adding a count is a template change and nothing else.
-  function updateCounts(c) {
-    if (!c) return;
-    for (const el of document.querySelectorAll('[data-count]')) {
-      const v = c[el.dataset.count];
-      if (typeof v === 'number') el.textContent = String(v);
-    }
+  // `reset` replaces the grid's contents; otherwise the page is appended. One fragment serves both, and the
+  // response also carries the shown-count, the "more" button and the header's counts out of band — so one request
+  // keeps all four in step rather than four places computing them.
+  function load(reset, offset) {
+    if (!window.htmx) return;
+    if (reset) { order = []; lastClicked = null; }
+    const url = '/admin/fragments/photos?limit=120&offset=' + (offset || 0) + (query ? '&' + query : '');
+    window.htmx.ajax('GET', url, { target: '#sheet', swap: reset ? 'innerHTML' : 'beforeend' });
   }
+
+  // After every swap: re-derive the display order, and re-paint from the selection.
+  //
+  // **The re-paint is the load-bearing line.** The selection deliberately survives filtering — a curator narrows
+  // to "uden position", picks forty, then widens to check something, and losing the forty would make the filters
+  // unusable as a working tool. The cells that come back carry `aria-selected="false"`, because the server does
+  // not know the selection; this is where they learn.
+  sheet.addEventListener('htmx:afterSwap', () => {
+    order = Array.from(sheet.querySelectorAll('.cell')).map((c) => c.dataset.id);
+    for (const cell of sheet.querySelectorAll('.cell')) paint(cell);
+    syncActions();
+  });
+
+  // A failed load is a sentence rather than an empty grid. htmx does not swap an error response, so without this
+  // the previous page's thumbnails would sit there looking current.
+  sheet.addEventListener('htmx:responseError', (e) => {
+    const status = e.detail.xhr.status;
+    note.textContent = status === 401
+      ? 'Du er blevet logget ud. Genindlæs siden.'
+      : 'Kunne ikke hente billederne (fejl ' + status + ').';
+  });
+  sheet.addEventListener('htmx:sendError', () => {
+    note.textContent = 'Kunne ikke hente billederne. Prøv igen.';
+  });
+
+  // Delegated, rather than bound per cell as it was before the cells became server-rendered. This is what makes a
+  // swap free: there is nothing to re-bind.
+  sheet.addEventListener('click', (e) => {
+    const cell = e.target.closest('.cell');
+    if (!cell || !sheet.contains(cell)) return;
+    const id = cell.dataset.id;
+    if (e.shiftKey && lastClicked) selectRange(id);
+    else { toggle(id); lastClicked = id; }
+  });
 
   filters.addEventListener('click', (e) => {
     const b = e.target.closest('.f');
@@ -507,7 +455,12 @@
     load(true);
   });
 
-  more.addEventListener('click', () => load(false));
+  // Delegated from the wrapper, because the button arrives as an out-of-band swap and is replaced on every load.
+  // Its `data-offset` is where the next page starts, computed by the server — the browser adding up page sizes
+  // would drift the first time a clamped limit differed from the one it asked for.
+  morewrap.addEventListener('click', (e) => {
+    if (e.target.id === 'more') load(false, parseInt(e.target.dataset.offset, 10) || 0);
+  });
 
   // "Select everything matching this filter", beyond what is on screen.
   //
@@ -527,7 +480,7 @@
       for (;;) {
         const url = '/api/admin/photos?limit=500&offset=' + off + (query ? '&' + query : '');
         const res = await fetch(url);
-        if (!res.ok) { note.textContent = 'Kunne ikke hente alle billeder (fejl ' + res.status + ').'; return; }
+        if (!res.ok) { actionNote.textContent = 'Kunne ikke hente alle billeder (fejl ' + res.status + ').'; return; }
         const data = await res.json();
         for (const p of data.photos) selected.add(p.id);
         off += data.photos.length;
@@ -537,9 +490,9 @@
       }
       for (const cell of sheet.querySelectorAll('.cell')) paint(cell);
       syncActions();
-      note.textContent = (selected.size - before) + ' billeder lagt til valget — ' + selected.size + ' valgte i alt';
+      actionNote.textContent = (selected.size - before) + ' billeder lagt til valget — ' + selected.size + ' valgte i alt';
     } catch (err) {
-      note.textContent = 'Kunne ikke hente alle billeder. Prøv igen.';
+      actionNote.textContent = 'Kunne ikke hente alle billeder. Prøv igen.';
     } finally {
       selAll.disabled = false;
     }
@@ -649,7 +602,7 @@
       }
 
       // The server writes the sentence, because it is the side that knows how many were already there.
-      note.textContent = payload.message || 'Tilføjet.';
+      actionNote.textContent = payload.message || 'Tilføjet.';
       closeSheet();
       selected.clear();
       // Reloaded so the album marks on the thumbnails are right, which is how the curator sees what is left
@@ -947,7 +900,7 @@
       // The server writes the sentence, because it is the side that ran the bounds check and knows which of the
       // three verdicts happened — and two of them are refusals the curator must not mistake for a fault at
       // their end.
-      note.textContent = out.message || 'Gemt.';
+      actionNote.textContent = out.message || 'Gemt.';
       closeSheet();
       selected.clear();
       load(true);
@@ -1042,7 +995,7 @@
         tagNote.textContent = (out && out.error) || 'Kunne ikke tagge billederne.';
         return;
       }
-      note.textContent = out.message || 'Tagget.';
+      actionNote.textContent = out.message || 'Tagget.';
       closeSheet();
       selected.clear();
       load(true);
@@ -1129,7 +1082,7 @@
     const bits = [r.ok + (r.ok === 1 ? ' billede fjernet' : ' billeder fjernet')];
     if (r.missing) bits.push(r.missing + ' lå ikke i albummet');
     if (r.failed) bits.push(r.failed + ' fejlede');
-    note.textContent = bits.join(' · ') + '.';
+    actionNote.textContent = bits.join(' · ') + '.';
 
     closeSheet();
     selected.clear();
@@ -1156,7 +1109,7 @@
 
     const bits = [r.ok + (r.ok === 1 ? ' billede slettet' : ' billeder slettet')];
     if (r.failed) bits.push(r.failed + ' fejlede');
-    note.textContent = bits.join(' · ') + '.';
+    actionNote.textContent = bits.join(' · ') + '.';
 
     closeSheet();
     selected.clear();
@@ -1165,11 +1118,12 @@
     document.body.dispatchEvent(new Event('albums-changed'));
   });
 
-  // The initial load runs last, after every declaration it can reach.
+  // The first page of thumbnails is **not** fetched from here.
   //
-  // 'syncActions' touches 'panel', which is a 'const' declared further up this block — and a 'const' read before
-  // its initialiser throws a ReferenceError rather than giving undefined. The first load is asynchronous, so in
-  // practice it would resolve after the block finished either way; putting it here means that does not have to
-  // be reasoned about every time somebody adds a declaration.
-  load(true);
+  // It is declared on `#sheet` in page.html as `hx-trigger="load"`, because htmx is a deferred script and this
+  // file is inline: `window.htmx` does not exist yet while this block runs, so a call here would silently do
+  // nothing and leave an empty grid. Declaring it in the markup puts the fetch on htmx's own initialisation
+  // instead, which is the one moment it is certain to be ready.
+  //
+  // Every *later* load goes through `load()`, which reads `window.htmx` lazily and by then finds it.
 })();

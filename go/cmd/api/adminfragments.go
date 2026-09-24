@@ -575,3 +575,82 @@ func (app *application) showAdminCheckpointPickerHandler(w http.ResponseWriter, 
 	}
 	app.renderAdminFragment(w, "checkpointpicker", data)
 }
+
+// ---------------------------------------------------------------------------
+// The contact sheet (step 6 of task 395).
+//
+// # The risk the task flagged, and why it turned out not to be one
+//
+// Task 395 named this the one real risk: PRD 022 §7 requires the selection to survive every action, and "a naive
+// hx-swap over the grid destroys the selection set". The mitigations it offered were `hx-preserve` or Alpine owning
+// the selection outside the swapped region.
+//
+// Neither was needed, because **the selection was never in the grid.** It is a Set of ids in page.js, held outside
+// the DOM deliberately and for this exact reason — the file's own comment says a DOM-derived selection "would be
+// lost by any re-render, and it would silently shrink to what is currently loaded". A swap replaces cells; the Set
+// does not notice.
+//
+// What *is* read back from the DOM afterwards is `order`, the display order a shift-click range is resolved
+// against. That is not state: it is the definition of "the cells currently shown", so deriving it from the cells
+// currently shown cannot be wrong. The distinction between those two — selection outside the DOM, display order
+// from it — is the whole answer to the question the task left open.
+//
+// # What did not migrate, and why
+//
+// The selection model, the shift-click ranges, the keyboard navigation and "select all matching this filter" stay
+// custom. They are the ~250 lines the maintainer's rule covers: a bounded concurrent id-pager and a listbox with
+// range selection are not things htmx expresses, and expressing them badly would cost the feature PRD 022 §3 calls
+// the true shape of the work.
+//
+// "Select all matching this filter" still pages the **JSON** endpoint for ids, which is why both readers now go
+// through one `readAdminLibraryPage`: the grid renders one page of a filter and select-all pages the ids of the
+// same filter, and two interpretations of it disagreeing is exactly how a bulk action lands on photographs the
+// curator never saw.
+// ---------------------------------------------------------------------------
+
+// adminContactSheetData is one page of thumbnails, plus everything around the grid that has to stay in step
+// with it.
+//
+// The three out-of-band pieces are here rather than fetched separately because they are answers to the same
+// question. A second request for the counts could return a different read.
+type adminContactSheetData struct {
+	Photos []adminLibraryPhoto
+	Counts adminCountsView
+
+	// ShownNote is the line above the grid: how many are on screen, and whether there are more.
+	ShownNote string
+	// HasMore and NextOffset drive the "more" button. NextOffset is where the next page starts, computed here
+	// rather than by the browser adding up page sizes — the browser's idea of how many it has would drift the
+	// first time a clamped limit differed from the one it asked for.
+	HasMore    bool
+	NextOffset int
+}
+
+// showAdminContactSheetHandler renders one page of the library as thumbnails.
+func (app *application) showAdminContactSheetHandler(w http.ResponseWriter, r *http.Request) {
+	page, ok := app.readAdminLibraryPage(w, r)
+	if !ok {
+		return
+	}
+
+	shown := page.Offset + len(page.Photos)
+	data := adminContactSheetData{
+		Photos:     page.Photos,
+		Counts:     page.Counts,
+		HasMore:    page.HasMore,
+		NextOffset: shown,
+	}
+
+	switch {
+	case shown == 0:
+		// Said plainly. An empty grid under a filter is an ordinary answer, and the alternative is a curator
+		// wondering whether the page is still loading.
+		data.ShownNote = "Ingen billeder matcher."
+	case page.HasMore:
+		data.ShownNote = fmt.Sprintf("%d vist — der er flere", shown)
+	default:
+		data.ShownNote = fmt.Sprintf("%d vist", shown)
+	}
+
+	app.renderAdminFragment(w, "contactsheet", data)
+}
