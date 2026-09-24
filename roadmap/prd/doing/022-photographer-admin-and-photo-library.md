@@ -114,7 +114,8 @@ for that somebody to stand.
   filesystem and a keyboard. No install prompt, no service worker, no offline support.
 - **Video.** PRD 020 is a separate draft.
 - **Reordering as a first-class gesture in v1.** Ordinals are editable numbers; drag-to-reorder is
-  listed in §10 as a follow-up, not a launch requirement.
+  listed in §10 as a follow-up, not a launch requirement. *Built after all in task 396: at 200 items per album, ↑/↓
+  buttons were not a way to reorder.*
 
 ## 5. User Stories & Scenarios
 
@@ -394,6 +395,25 @@ Layout, one page with three regions:
 An album's own view is a second page, `/admin/album/<slug>`: its fields, its publish toggle, and its
 items in order with caption fields and an ordinal.
 
+> **Amended 2026-09-24 (task 396).** One page stopped scaling — a year carries 10–20 albums of 100–200
+> photographs, plus the ones in no album — so the tool is **three pages under the year**, beside the public
+> ones rather than under `/admin`:
+>
+> | Page | What it is |
+> |---|---|
+> | `/<year>/albums` | the landing page: the counts, the album list (publish, delete behind a confirm), and a link to the photographs in no album |
+> | `/<year>/photos` | upload, the filters (in the URL) and the contact sheet |
+> | `/<year>/album/<slug>/edit` | the album's fields in a folded card, then its photographs as **the same contact sheet**, narrowed to the album |
+>
+> The album view has the library's whole selection and action bar, plus **"Gør til forsidebillede"** and
+> **drag-and-drop** of a selection to reorder. Captions moved from a field per item to a "Billedtekst"
+> action on the selection. Both grids load the next page as the end comes into view. The selection still
+> does not survive moving between pages, and nothing pretends it does.
+>
+> Being admin is decided by `requireAdmin`, not by the path: the route guards read the wrapper, and a test
+> holds that no public page links to a curator page. Basic auth under the public prefix is accepted as
+> interim — role-based authentication replaces it before next year's race.
+
 Copy is **Danish**, matching the public site. Two sentences carry real weight and should be written
 carefully rather than generated:
 
@@ -529,7 +549,10 @@ Consequences to handle deliberately:
   the existing rule stands: **any error means nothing is deleted**.
 - **Caption lives on the photo**, one place to edit, shared by every album. A per-album caption
   override is imaginable and is deliberately deferred to §11 Q3 rather than built speculatively.
-- **The cover** stays "the first live item", as it is today. No cover column.
+- ~~**The cover** stays "the first live item", as it is today. No cover column.~~ **Amended (task 396):** the
+  curator chooses the cover from any photograph in the album (`album.Updated.coverPhotoId`, an
+  `album.coverPhotoId` column). The cover is the choice while it is live in the album, otherwise the first live
+  item — one rule, `coverOrder`, used by every read.
 
 ### 8.4 What does *not* change, and must not
 
@@ -636,8 +659,9 @@ All under `/api/admin/`, all wrapped in `app.requireAdmin`, all returning JSON.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/admin` | the tool (HTML) |
-| `GET` | `/admin/album/:slug` | one album's editor (HTML) |
+| `GET` | `/<year>/albums` | the album list (HTML, task 396; was `/admin`) |
+| `GET` | `/<year>/photos` | upload and the contact sheet (HTML, task 396) |
+| `GET` | `/<year>/album/:slug/edit` | one album's view (HTML, task 396; was `/admin/album/:slug`) |
 | `POST` | `/api/admin/photos` | upload **one** file; `413` over limit, `400` if it does not decode |
 | `GET` | `/api/admin/photos` | the library, paged and filtered |
 | `GET` | `/api/admin/photos/:photoId/media` | thumbnail/full bytes for the contact sheet |
@@ -648,7 +672,8 @@ All under `/api/admin/`, all wrapped in `app.requireAdmin`, all returning JSON.
 | `GET` | `/api/admin/patrols/:number` | resolve a number to a patrol, for confirmation |
 | `GET` | `/api/admin/albums` | every album, including unpublished |
 | `POST` | `/api/admin/albums` | create (always unpublished) |
-| `PATCH` | `/api/admin/albums/:albumId` | title, description, sort order, published |
+| `PATCH` | `/api/admin/albums/:albumId` | title, description, sort order, published, cover |
+| `PATCH` | `/api/admin/albums/:albumId/move` | move a selection before or after one photograph (task 396) |
 | `POST` | `/api/admin/albums/items` | bulk: add a selection of photos to one or more albums |
 | `PATCH` | `/api/admin/albums/:albumId/items` | reorder, set per-item fields |
 

@@ -172,16 +172,16 @@ The original questions, for the record:
 - [x] `/<year>/album/:slug/edit` shows the editor and the album's photographs with selection and all actions
 - [x] `/<year>/photos` shows upload, filters and the contact sheet; filters are in the URL
 - [x] An album can be deleted from the list, behind a confirm prompt that names it and says the photographs stay
-- [ ] No public page links to an admin page
+- [x] No public page links to an admin page
 - [x] `album=<id>` filter on the library read and the photos fragment, ordered by ordinal, with tests
 - [x] Action sheets and selection are shared code between views 2 and 3, not copies
 - [x] A shared head/nav across the three pages
 - [ ] Verified with a year-sized fixture (~20 albums, ~3,000 photos): no view loads more than one page of
       thumbnails up front
-- [ ] PRD 022 §7 and task 385's half-page updated for the new URLs
+- [x] PRD 022 §7 and task 385's half-page updated for the new URLs
 - [x] The open questions above are answered in this file before implementation
 - [x] Infinite scroll in the album and all-photos views; "select all matching" still selects unloaded ones
 - [x] An explicit album cover settable on any item, falling back to the first live item, used by every read
-- [ ] Multi-select drag-and-drop reordering replaces ↑/↓, verified moving items from position ~180 to 1
+- [x] Multi-select drag-and-drop reordering replaces ↑/↓, verified moving items from position ~180 to 1
       *(server side done and tested at 200 items; `PATCH /api/admin/albums/{id}/move`. The pointer-driven drag
-      in albumorder.js still needs a click-through in a real browser)*
+      in albumorder.js confirmed working in the browser by the maintainer, 2026-09-24)*

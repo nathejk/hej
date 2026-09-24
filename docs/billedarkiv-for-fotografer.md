@@ -66,11 +66,16 @@ kun på hjemmesiden, fordi nogen har valgt det.
 
 1. Vælg billederne på kontaktarket. Filteret **Uden album** viser dig hvad der mangler at blive sorteret.
 2. **Tilføj til album** — vælg et album, eller opret et nyt med en titel.
-3. Klik på albummet for at rette titel, beskrivelse og billedtekster, og for at trække billederne i
-   den rækkefølge de skal stå i.
+3. Klik **Redigér** på albummet. Her retter du titel og beskrivelse, og du **trækker billederne** i den
+   rækkefølge de skal stå i — vælg flere først, så flytter de med sammen. Vælg ét billede og tryk
+   **Gør til forsidebillede** for at bestemme hvilket billede albummet vises med. **Billedtekst** sætter
+   teksten under de billeder du har valgt.
 4. Når det er klar: **Udgiv på forsiden**. Der går op til et minut, før det slår igennem.
 
 Et album du ikke har udgivet, er der ingen udefra der kan se — heller ikke hvis de kender adressen.
+
+Et album kan slettes fra listen med **Slet album**. Billederne bliver liggende i arkivet og i de andre
+albummer — det er kun albummet der forsvinder.
 
 **Sæt position** kan du bruge på flere billeder ad gangen, hvis de er taget ved samme post. Kun
 positioner **inde i løbsområdet** kommer på kortet; de andre bliver vist for dig med en advarsel, og

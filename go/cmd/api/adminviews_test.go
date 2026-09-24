@@ -168,3 +168,33 @@ func TestTheRemovePickerCanPreselectAnAlbum(t *testing.T) {
 		t.Errorf("with no album asked for, nothing is preselected\n%s", body)
 	}
 }
+
+// **No public page links to the curator's tool** (task 396). The curator pages sit under the same year prefix
+// as the public ones, so a link is one careless template edit away — and it would be an invitation: a visitor who
+// finds `/2026/photos` gets a credential prompt for the whole archive.
+//
+// Walked with the privacy walk's own fixture and enumeration, so every public page is covered, including ones
+// added later. The needles come from the route table: every admin page under the year, with its parameters
+// filled, plus the `/admin` namespace.
+func TestNoPublicPageLinksToTheCuratorsTool(t *testing.T) {
+	_, srv := leakTestApp(t)
+
+	needles := []string{`href="/admin`, `hx-get="/admin`, `action="/admin`}
+	for _, r := range allRegisteredRoutes(t) {
+		if r.admin && looksLikeYearPrefix(r.path) {
+			needles = append(needles, concreteURL(r.path))
+		}
+	}
+	if len(needles) < 6 {
+		t.Fatalf("expected the curator's pages among the needles, got %v", needles)
+	}
+
+	for _, route := range publicRoutePaths(t) {
+		_, body := getPublic(t, srv.URL+concreteURL(route.path), nil)
+		for _, needle := range needles {
+			if strings.Contains(string(body), needle) {
+				t.Errorf("%s (routes.go:%d) links to the curator's tool: %q", route.path, route.line, needle)
+			}
+		}
+	}
+}
