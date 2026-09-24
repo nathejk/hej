@@ -51,6 +51,9 @@ func (s *stubPhotoCurator) Photo(_, photoID string) (photo.LibraryPhoto, bool, e
 }
 
 func (s *stubPhotoCurator) Tags(string, string) ([]photo.Tag, error) { return nil, s.err }
+func (s *stubPhotoCurator) TeamAlbumItems(string, string) ([]photo.AlbumItem, error) {
+	return nil, s.err
+}
 
 // uploadApp returns an admin app whose library is the given stub, with a working event stream.
 //

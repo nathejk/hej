@@ -20,10 +20,11 @@ import (
 // takes **that** photograph — `patrolphoto.Cover`, the one read the diploma uses, so the two cannot disagree —
 // puts it in the library, tags it with the patrol's number, and files it in one draft album, "Diplombilleder".
 //
-// # Consent is inherited, not re-checked
+// # Consent
 //
 // A patrol whose Fototilladelse records a refusal has no cover, so it is never listed and its photograph never
-// reaches the library. That is the only gate here, and it is the same one the diploma has.
+// reaches the library — the same gate the diploma has. Each press also first takes every refusing patrol's
+// photographs out of all albums, catching refusals that arrived while the app was down (see photoconsent.go).
 //
 // # Safe to press twice
 //
@@ -52,6 +53,8 @@ type diplomaAlbumResult struct {
 	Uploaded int
 	Tagged   int
 	Added    int
+	// Removed are album memberships taken down because the patrol refused photographs.
+	Removed int
 	// Skipped are patrols whose photograph could not be fetched, or was deleted from the library.
 	Skipped int
 }
@@ -87,13 +90,27 @@ func (app *application) createDiplomaAlbumFragmentHandler(w http.ResponseWriter,
 
 	app.Logger.Info("admin filed the diploma photographs",
 		"year", adminYear(r), "patrols", res.Patrols, "uploaded", res.Uploaded, "tagged", res.Tagged,
-		"added", res.Added, "skipped", res.Skipped, "ip", clientIP(r))
+		"added", res.Added, "removed", res.Removed, "skipped", res.Skipped, "ip", clientIP(r))
 	app.renderAdminAlbumList(w, r, diplomaAlbumMessage(res))
 }
 
 // fileDiplomaPhotos does the work for one year. The result counts what was done even when it returns an error.
 func (app *application) fileDiplomaPhotos(ctx context.Context, year string) (diplomaAlbumResult, error) {
 	var res diplomaAlbumResult
+
+	// Refusals first: one that arrived while the app was down was never reacted to (see photoconsent.go), and
+	// this is the moment a curator is looking at the albums.
+	refused, err := app.models.PatrolPhotos.Refused(year)
+	if err != nil {
+		return res, err
+	}
+	for _, teamID := range refused {
+		n, err := app.removeRefusedFromAlbums(year, teamID)
+		res.Removed += n
+		if err != nil {
+			return res, err
+		}
+	}
 
 	teams, err := app.models.PatrolPhotos.Teams(year)
 	if err != nil {
@@ -274,12 +291,15 @@ func (app *application) publishPhoto(year, photoID, verb string, body any) error
 
 // diplomaAlbumMessage is the one sentence the album list shows after a press.
 func diplomaAlbumMessage(res diplomaAlbumResult) string {
-	if res.Patrols == 0 {
+	if res.Patrols == 0 && res.Removed == 0 {
 		return "Ingen patruljer har et diplombillede endnu."
 	}
 	msg := fmt.Sprintf("Diplombilleder: %s lagt i albummet «%s»", photoCount(res.Added), diplomaAlbumTitle)
 	if res.Added == 0 {
 		msg = fmt.Sprintf("Diplombillederne lå allerede i albummet «%s»", diplomaAlbumTitle)
+	}
+	if res.Removed > 0 {
+		msg += fmt.Sprintf(", %s fjernet fra album fordi patruljen har frabedt sig billeder", photoCount(res.Removed))
 	}
 	if res.Skipped > 0 {
 		msg += fmt.Sprintf(", %d sprunget over (slettet eller ikke til at hente)", res.Skipped)

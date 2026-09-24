@@ -67,11 +67,11 @@ type PhotoConsentSet struct {
 	MemberIDs   []types.MemberID `json:"memberIds"`
 }
 
-// refused reports whether the decision withholds the patrol's photographs.
+// Refused reports whether the decision withholds the patrol's photographs.
 //
 // A named member's refusal withholds them all, the same as TeamRefused: the photographs are of the patrol, not
 // tagged per person, so there is no picture of the patrol that leaves out the member who said no.
-func (b PhotoConsentSet) refused() bool {
+func (b PhotoConsentSet) Refused() bool {
 	if b.TeamRefused {
 		return true
 	}

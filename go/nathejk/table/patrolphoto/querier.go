@@ -19,6 +19,9 @@ type Queries interface {
 	// The admin tool's "diploma photographs into an album" action walks this (task 397); a patrol whose
 	// Fototilladelse records a refusal is not listed, for the reason Cover returns nothing for it.
 	Teams(year string) ([]Team, error)
+
+	// Refused lists the year's patrols whose Fototilladelse records a refusal.
+	Refused(year string) ([]string, error)
 }
 
 // Team is one patrol with a usable photograph.
@@ -148,6 +151,30 @@ func (q querier) Teams(year string) ([]Team, error) {
 			return nil, err
 		}
 		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// Refused lists the team ids whose newest photo consent decision is a refusal.
+func (q querier) Refused(year string) ([]string, error) {
+	if year == "" {
+		return nil, nil
+	}
+	rows, err := q.db.Query(`
+		SELECT teamId FROM patrol_photo_consent
+		WHERE year = ? AND refused = 1
+		ORDER BY teamId ASC`, year)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
 	}
 	return out, rows.Err()
 }

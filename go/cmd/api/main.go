@@ -484,6 +484,8 @@ func run(logger *slog.Logger) error {
 	// this app's point of view — there is no in-app moderation surface, so the projection exists to make
 	// the footer's "skriv til os" promise land somewhere an organizer can read out of band.
 	var pageReports *pagereport.Table
+	// consent is the photo-refusal reaction (task 397) — see photoconsent.go. Nil without a broker.
+	var consent *consentReactor
 	if ev != nil && (err == nil || noBroker) {
 		if t, cerr := kort.New(ev.publisherOrNil(), ev.writer, ev.reader,
 			// A body we cannot decode is the one signal that our mirrored copy of hq's event shapes
@@ -619,6 +621,10 @@ func run(logger *slog.Logger) error {
 		// delay the API. Projections are registered and the dead-letter writer armed
 		// from the callback, i.e. only once there is something to consume from.
 
+		// Takes a refusing patrol's photographs out of albums as hq records the refusal (task 397). Created here so
+		// the callback can register it; it is handed the application once that exists, below.
+		consent = newConsentReactor(logger)
+
 		ev.connectInBackground(ctx, cfg, logger, func() {
 			// Step 2 of the three-way registration described in eventing.go.
 			var projections []cqrs.Consumer
@@ -666,6 +672,9 @@ func run(logger *slog.Logger) error {
 			}
 			if pageReports != nil {
 				projections = append(projections, pageReports)
+			}
+			if patrolPhotos != nil && photos != nil && albums != nil {
+				projections = append(projections, consent)
 			}
 
 			ev.registerProjections(logger, projections...)
@@ -923,6 +932,9 @@ func run(logger *slog.Logger) error {
 		contactChecks: newContactCheck(6 * time.Hour),
 
 		pushStore: push.NewMemoryStore(),
+	}
+	if consent != nil {
+		consent.app.Store(app)
 	}
 
 	logger.Info("configuration loaded", "env", cfg.env, "port", cfg.port, "web_root", cfg.webRoot, "version", vcs.Version())

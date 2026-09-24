@@ -71,6 +71,10 @@ var adminOwnedFiles = map[string]bool{
 	// deleted stays deleted, `Tags` to avoid re-tagging, and `AlbumCurator.All`/`Album` to find its draft album and
 	// the memberships already in it — removed ones included, so a photograph taken out stays out.
 	"admindiplomaalbum.go": true,
+	// The photo-refusal reaction (task 397). Reads `PhotoCurator.TeamAlbumItems` to find every album — drafts
+	// included — that shows a refusing patrol's photographs, so it can take them down. Publishes removals only;
+	// nothing it reads reaches a response.
+	"photoconsent.go": true,
 }
 
 // curatorReads are the model fields that return draft-visible data.

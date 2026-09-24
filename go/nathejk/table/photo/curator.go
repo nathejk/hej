@@ -63,6 +63,18 @@ type CuratorQueries interface {
 	// resolution from a number to a name already exists in `publicpatrol.ByNumber`, and duplicating that
 	// join would mean two places decide what a patrol is called. The handler resolves names for display.
 	Tags(year, photoID string) ([]Tag, error)
+
+	// TeamAlbumItems lists the live album memberships of every photograph tagged with a patrol (task 397).
+	//
+	// What a photo refusal in hq has to take down: the patrol's photographs, wherever a curator has filed them.
+	TeamAlbumItems(year, teamID string) ([]AlbumItem, error)
+}
+
+// AlbumItem is one live membership of a photograph in an album.
+type AlbumItem struct {
+	AlbumID string
+	PhotoID string
+	Ordinal int
 }
 
 // Filter narrows the library read.
@@ -398,6 +410,37 @@ func (q curatorQuerier) Tags(year, photoID string) ([]Tag, error) {
 			return nil, err
 		}
 		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// TeamAlbumItems returns the live album memberships of the photographs tagged with a patrol.
+//
+// Crosses into `album_item`, as the library filters above already do, because "which albums show this patrol"
+// is one question and answering it as two reads would leave a window where a new filing is missed.
+func (q curatorQuerier) TeamAlbumItems(year, teamID string) ([]AlbumItem, error) {
+	if year == "" || teamID == "" {
+		return nil, nil
+	}
+	rows, err := q.db.Query(`
+		SELECT i.albumId, i.photoId, i.ordinal
+		FROM album_item i
+		JOIN photo_patrol t
+		  ON t.photoId = i.photoId AND t.year = i.year AND t.deleted = 0
+		WHERE i.year = ? AND t.teamId = ? AND i.deleted = 0
+		ORDER BY i.albumId ASC, i.ordinal ASC`, year, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []AlbumItem
+	for rows.Next() {
+		var it AlbumItem
+		if err := rows.Scan(&it.AlbumID, &it.PhotoID, &it.Ordinal); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
 	}
 	return out, rows.Err()
 }

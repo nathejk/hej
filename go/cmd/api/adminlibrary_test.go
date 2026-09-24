@@ -64,7 +64,8 @@ func (c *libraryCurator) Photo(_, photoID string) (photo.LibraryPhoto, bool, err
 	return photo.LibraryPhoto{}, false, nil
 }
 
-func (c *libraryCurator) Tags(string, string) ([]photo.Tag, error) { return nil, c.err }
+func (c *libraryCurator) Tags(string, string) ([]photo.Tag, error)                 { return nil, c.err }
+func (c *libraryCurator) TeamAlbumItems(string, string) ([]photo.AlbumItem, error) { return nil, c.err }
 
 // libraryApp returns an admin app whose library is the given stub.
 func libraryApp(t *testing.T, curator *libraryCurator) (*application, *httptest.Server) {

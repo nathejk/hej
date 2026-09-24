@@ -174,7 +174,7 @@ func (c consumer) handleConsented(msg cqrs.Message, subject cqrs.Subject) error 
 	return c.w.Consume(fmt.Sprintf(
 		"INSERT INTO patrol_photo_consent SET year=%s, teamId=%s, refused=%d "+
 			"ON DUPLICATE KEY UPDATE refused=VALUES(refused)",
-		quote(year), quote(teamID), boolToInt(body.refused()),
+		quote(year), quote(teamID), boolToInt(body.Refused()),
 	))
 }
 
