@@ -696,7 +696,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
     <a href="/api/public/patrol/{{.Patrol.Number}}/diploma" target="_blank" rel="noopener">
       <img src="/api/public/patrol/{{.Patrol.Number}}/diploma/thumb"
            alt="Patruljens diplom" loading="lazy" decoding="async">
-      <span class="label">Diplom</span>
+      <span class="label">Hent diplom</span>
     </a>
   </div>
   {{end}}
