@@ -151,10 +151,10 @@ The original questions, for the record:
 ## Acceptance Criteria
 
 - [x] Route guards classify admin vs public by the `requireAdmin` wrapper, not by path — landed first
-- [ ] `/<year>/albums` shows the album list, the counts, and a link to photographs without an album
+- [x] `/<year>/albums` shows the album list, the counts, and a link to photographs without an album
 - [ ] `/<year>/album/:slug/edit` shows the editor and the album's photographs with selection and all actions
-- [ ] `/<year>/photos` shows upload, filters and the contact sheet; filters are in the URL
-- [ ] `/admin` and `/admin/album/:slug` redirect to the new addresses
+- [x] `/<year>/photos` shows upload, filters and the contact sheet; filters are in the URL
+- [x] `/admin` and `/admin/album/:slug` redirect to the new addresses
 - [ ] No public page links to an admin page
 - [ ] `album=<id>` filter on the library read and the photos fragment, ordered by ordinal, with tests
 - [ ] Action sheets and selection are shared code between views 2 and 3, not copies

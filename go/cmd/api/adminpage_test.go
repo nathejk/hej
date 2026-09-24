@@ -32,7 +32,7 @@ func renderAdminPage(t *testing.T) string {
 	app, srv := adminApp(t)
 	app.models.PhotoCurator = &libraryCurator{}
 
-	resp := getAdmin(t, srv, "/admin", testAdminUser, testAdminPass)
+	resp := getAdmin(t, srv, "/2026/photos", testAdminUser, testAdminPass)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("want 200, got %d", resp.StatusCode)
 	}
@@ -44,7 +44,7 @@ func renderAdminPage(t *testing.T) string {
 func TestAdminPageSaysSoWhenTheLibraryIsUnavailable(t *testing.T) {
 	_, srv := adminApp(t) // no PhotoCurator
 
-	resp := getAdmin(t, srv, "/admin", testAdminUser, testAdminPass)
+	resp := getAdmin(t, srv, "/2026/photos", testAdminUser, testAdminPass)
 	body := adminBody(t, resp)
 
 	if !strings.Contains(body, "kan ikke læses lige nu") {

@@ -251,7 +251,13 @@ func (app *application) routes() http.Handler {
 	// surface or let the shared password reach a participant's data. `TestAdminRoutesUseOnlyTheAdminWrapper`
 	// walks this block and the rest of the table to keep the two apart.
 	if adminRoutesEnabled(app.config) {
-		router.HandlerFunc(http.MethodGet, "/admin", app.requireAdmin(app.adminIndexHandler))
+		// The curator's pages (task 396), under the year beside the public ones rather than under `/admin`. Being
+		// admin is decided by `requireAdmin`, not by the prefix — the guards in admin_test.go and
+		// publicprivacy_test.go read the wrapper for exactly this reason. The old addresses redirect.
+		router.HandlerFunc(http.MethodGet, publicRoot+"/albums", app.requireAdmin(app.adminAlbumsPageHandler))
+		router.HandlerFunc(http.MethodGet, publicRoot+"/photos", app.requireAdmin(app.adminPhotosPageHandler))
+		router.HandlerFunc(http.MethodGet, publicRoot+"/album/:slug/edit", app.requireAdmin(app.adminAlbumPageHandler))
+		router.HandlerFunc(http.MethodGet, "/admin", app.requireAdmin(app.adminIndexRedirectHandler))
 		// One file per request (task 372). The batching is the browser's, which is what keeps one bad file
 		// from failing a batch of three hundred — see adminupload.go's header.
 		router.HandlerFunc(http.MethodPost, "/api/admin/photos", app.requireAdmin(app.uploadAdminPhotoHandler))
@@ -271,7 +277,7 @@ func (app *application) routes() http.Handler {
 		router.HandlerFunc(http.MethodPost, "/api/admin/albums/items", app.requireAdmin(app.addAdminAlbumItemsHandler))
 		// The album editor (task 378). The slug is **not** editable: it is the album's public address, frozen at
 		// creation, and neither the request shape nor the event has a field for it.
-		router.HandlerFunc(http.MethodGet, "/admin/album/:slug", app.requireAdmin(app.adminAlbumPageHandler))
+		router.HandlerFunc(http.MethodGet, "/admin/album/:slug", app.requireAdmin(app.adminAlbumRedirectHandler))
 		// The pinned third-party libraries the pages load (task 395): htmx, Alpine and Pico, embedded in the
 		// binary rather than fetched from a CDN — see adminui/vendor/README.md.
 		//

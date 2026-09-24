@@ -152,6 +152,12 @@ func glimtRoutes(t *testing.T) []registeredRoute {
 		if !ok || method == "" || !isInScope(path) {
 			return true
 		}
+		// The curator's HTML pages sit under the year prefix since task 396, but they are pages of the admin
+		// tool, not API endpoints — the maintainer confirmed the admin surface needs no OpenAPI spec beyond
+		// `/api/admin/`. Recognised by the wrapper, like every other admin decision in these guards.
+		if looksLikeYearPrefix(path) && wrapsRequireAdmin(call.Args[2]) {
+			return true
+		}
 
 		out = append(out, registeredRoute{
 			method:        method,

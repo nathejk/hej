@@ -60,7 +60,7 @@ page.html triggers on `load` and the fragment triggers only on the `albums-chang
         </span>
 
         <div class="acts">
-          <a href="/admin/album/{{.Slug}}">Redigér</a>
+          <a href="/{{$.Year}}/album/{{.Slug}}/edit">Redigér</a>
           {{if not .Deleted}}
           {{/* Publication is posted **alone** (task 378): a curator pressing this has said one thing, and
                bundling it with the album's other fields would let a half-typed title ride along.
@@ -299,4 +299,23 @@ Everything that is not a cell arrives as an out-of-band swap, which is how one r
 <p id="morewrap" hx-swap-oob="true">{{if .HasMore}}<button type="button" id="more" data-offset="{{.NextOffset}}">Hent flere</button>{{end}}</p>
 
 {{template "counts" .Counts}}
+{{end}}
+
+{{/*
+The tool's header (task 396), shared by its pages.
+
+The year stays large and in its accent colour (PRD 022 §5): it is the one thing a curator cannot fix by editing.
+The nav is two links rather than tabs, because the two pages are real addresses — a curator can bookmark the
+all-photos view or send a colleague a link to it — and because the selection does not survive the move anyway
+(PRD 022 §7), so pretending they are one page would promise something the tool does not do.
+*/}}
+{{define "adminheader"}}
+<header>
+  <h1>Billedarkiv</h1>
+  <span class="year" data-year="{{.Year}}">{{.Year}}</span>
+  <nav class="views" aria-label="Billedarkiv">
+    <a href="{{.Root}}/albums"{{if eq .View "albums"}} aria-current="page"{{end}}>Album</a>
+    <a href="{{.Root}}/photos"{{if eq .View "photos"}} aria-current="page"{{end}}>Alle billeder</a>
+  </nav>
+</header>
 {{end}}

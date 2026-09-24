@@ -69,7 +69,7 @@ func postAdminForm(t *testing.T, srv *httptest.Server, path string, form url.Val
 }
 
 // **Each album links to its editor.** This was task 391's whole point and is worth keeping in the first test:
-// `/admin/album/{slug}` — where publish, the title, the order and the captions live — had no link from anywhere
+// `/{year}/album/{slug}/edit` — where publish, the title, the order and the captions live — had no link from anywhere
 // and was reachable only by typing a slug into the address bar. The publish half of PRD 022 §5 was built and
 // unusable. A feature with no route to it is indistinguishable from a missing one.
 func TestTheAlbumListFragmentLinksEachAlbumToItsEditor(t *testing.T) {
@@ -79,7 +79,7 @@ func TestTheAlbumListFragmentLinksEachAlbumToItsEditor(t *testing.T) {
 
 	body := albumListFragment(t, srv)
 
-	if !strings.Contains(body, `href="/admin/album/natten"`) {
+	if !strings.Contains(body, `href="/2026/album/natten/edit"`) {
 		t.Errorf("each album must link to its editor\n%s", body)
 	}
 	// A published album also links to its public page, in the configured year — which is why the fragment needs

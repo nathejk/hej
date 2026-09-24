@@ -11,7 +11,7 @@ import (
 //
 // # Addressed by slug, like the public page
 //
-// Deliberately, so a curator looking at `/2026/album/natten` can reach `/admin/album/natten` by editing the URL,
+// Deliberately, so a curator looking at `/2026/album/natten` can reach `/2026/album/natten/edit` by editing the URL,
 // which is how somebody actually navigates between the two while checking their work.
 //
 // The task notes the thing to be careful about: a draft's slug is guessable from the public side **only if the

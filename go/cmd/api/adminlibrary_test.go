@@ -339,7 +339,7 @@ func TestTheHeaderCountsComeFromOneDefinition(t *testing.T) {
 		OutOfBounds: 3, Unknown: 2, Tagged: 1, Deleted: 8,
 	}})
 
-	page := adminBody(t, getAdmin(t, srv, "/admin", testAdminUser, testAdminPass))
+	page := adminBody(t, getAdmin(t, srv, "/2026/photos", testAdminUser, testAdminPass))
 	fragment := adminBody(t, getAdmin(t, srv, "/admin/fragments/photos", testAdminUser, testAdminPass))
 
 	// The eight labels, each beside its number. Matched as the rendered pair rather than as a bare integer, so a

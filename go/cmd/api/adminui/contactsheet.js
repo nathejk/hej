@@ -30,7 +30,10 @@ function initContactSheet(ctx) {
   // DOM. Getting that distinction right is what made the grid safe to render server-side (task 395).
   let order = [];
   let lastClicked = null;
-  let query = '';
+  // The filter the page was served with (task 396): the server lights the button its URL names, and the first
+  // page of thumbnails was already requested with it.
+  const lit = filters.querySelector('.f.on');
+  let query = lit ? lit.dataset.q : '';
 
   // chosen renders "1 valgt" or "12 valgte" (task 387).
   //
@@ -129,6 +132,9 @@ function initContactSheet(ctx) {
     if (!b) return;
     for (const other of filters.querySelectorAll('.f')) other.classList.toggle('on', other === b);
     query = b.dataset.q;
+    // Into the address bar, so a reload keeps the filter and the URL can be sent to a colleague. `replaceState`
+    // rather than `pushState`: Back leaving the page is what a curator expects, not stepping through filters.
+    history.replaceState(null, '', filters.dataset.root + '/photos' + (query ? '?' + query : ''));
     load(true);
   });
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -41,6 +42,19 @@ import (
 
 // adminPageData is what the shell renders.
 type adminPageData struct {
+	// View is which of the tool's pages this is: "albums" (the landing page) or "photos" (upload and the contact
+	// sheet). One template renders both, so the header, the counts and the styling cannot drift apart (task 396).
+	View string
+
+	// Root is the year's path prefix, `/2026`. The curator's pages hang off it beside the public ones (task 396).
+	Root string
+
+	// Filters are the contact sheet's presets, with the one this page's URL names switched on.
+	Filters []adminFilterView
+	// Query is the switched-on preset's query string, empty for "Alle". Passed to the first fragment request so
+	// the grid a curator lands on already matches the button that is lit.
+	Query string
+
 	// Year is the event year every write lands in, shown prominently because PRD 022 §5 makes it the one
 	// thing a curator cannot undo by editing: a photograph uploaded into the wrong year is not a typo, it is
 	// in the wrong event.
@@ -84,15 +98,80 @@ type adminCountsView struct {
 	Deleted      int `json:"deleted"`
 }
 
-// adminIndexHandler serves the tool.
+// adminFilterView is one preset button over the contact sheet.
+type adminFilterView struct {
+	Label string
+	Q     string
+	On    bool
+}
+
+// adminFilters are the contact sheet's presets, in the order they are shown.
+//
+// In Go rather than written out in the markup since task 396, because the page now has to know which one its URL
+// names: the album list links to `photos?album=none`, and a reload must keep what was chosen.
+var adminFilters = []adminFilterView{
+	{Label: "Alle", Q: ""},
+	{Label: "Uden album", Q: "album=none"},
+	{Label: "Uden position", Q: "location=no"},
+	{Label: "Med position", Q: "location=yes"},
+	{Label: "Uden for området", Q: "verdict=outside"},
+	{Label: "Ikke vurderet", Q: "verdict=unknown"},
+	{Label: "Med patrulje", Q: "tagged=yes"},
+	{Label: "Uden patrulje", Q: "tagged=no"},
+	{Label: "Inkl. slettede", Q: "deleted=1"},
+}
+
+// adminFiltersFor switches on the preset a query string names, and returns it.
+//
+// **Only an exact preset is honoured**; anything else lands on "Alle". The page never shows a grid narrowed by a
+// query no button represents — the curator would be looking at a subset with nothing on screen saying so, and the
+// action bar acts on what they see.
+func adminFiltersFor(rawQuery string) ([]adminFilterView, string) {
+	out := make([]adminFilterView, len(adminFilters))
+	copy(out, adminFilters)
+	on := 0
+	for i, f := range out {
+		if f.Q != "" && f.Q == rawQuery {
+			on = i
+		}
+	}
+	out[on].On = true
+	return out, out[on].Q
+}
+
+// adminAlbumsPageHandler serves the tool's landing page: the counts and the album list (task 396).
+//
+// No OpenAPI annotations: an HTML page. See adminPhotosPageHandler.
+func (app *application) adminAlbumsPageHandler(w http.ResponseWriter, r *http.Request) {
+	app.renderAdminPage(w, adminPageData{View: "albums"})
+}
+
+// adminPhotosPageHandler serves upload and the contact sheet (task 396; before that, all of `/admin`).
 //
 // No OpenAPI annotations: this is an HTML page, and the annotation guard's scope is the JSON API (see
 // glimtopenapi_test.go's isInScope, which task 380 widens to `/api/admin`).
-func (app *application) adminIndexHandler(w http.ResponseWriter, r *http.Request) {
-	data := adminPageData{
-		Year:        app.config.eventYear,
-		MaxUploadMB: maxAdminUpload >> 20,
-	}
+func (app *application) adminPhotosPageHandler(w http.ResponseWriter, r *http.Request) {
+	filters, query := adminFiltersFor(r.URL.RawQuery)
+	app.renderAdminPage(w, adminPageData{View: "photos", Filters: filters, Query: query})
+}
+
+// adminIndexRedirectHandler sends the tool's old address to its landing page, so bookmarks and task 385's
+// half-page keep working after task 396 moved the pages under the year.
+func (app *application) adminIndexRedirectHandler(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, app.publicRoot()+"/albums", http.StatusFound)
+}
+
+// adminAlbumRedirectHandler does the same for an album editor's old address.
+func (app *application) adminAlbumRedirectHandler(w http.ResponseWriter, r *http.Request) {
+	slug := httprouter.ParamsFromContext(r.Context()).ByName("slug")
+	http.Redirect(w, r, app.publicRoot()+"/album/"+url.PathEscape(slug)+"/edit", http.StatusFound)
+}
+
+// renderAdminPage fills in what every view shows — the year, the counts — and renders it.
+func (app *application) renderAdminPage(w http.ResponseWriter, data adminPageData) {
+	data.Year = app.config.eventYear
+	data.Root = app.publicRoot()
+	data.MaxUploadMB = maxAdminUpload >> 20
 
 	// Nil is the normal degraded state, not an error: no database means no library, and the curator should be
 	// told that rather than shown a zero that looks like "nobody has uploaded anything".

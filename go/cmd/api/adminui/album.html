@@ -12,7 +12,7 @@
 <body>
 <header>
   <h1>{{.Title}}</h1>
-  <a href="/admin">← Alle billeder</a>
+  <a href="/{{.Year}}/albums">← Alle album</a>
   {{if .Deleted}}<span class="state gone">slettet</span>
   {{else if .Published}}<span class="state live">udgivet</span>
   {{else}}<span class="state draft">kladde</span>{{end}}
@@ -53,7 +53,7 @@
   <h2>Billeder i albummet</h2>
   {{if not .Items}}
     <p class="hint">Der er ingen billeder i albummet endnu. V&aelig;lg dem p&aring;
-    <a href="/admin">kontaktarket</a>.</p>
+    <a href="/{{.Year}}/photos">kontaktarket</a>.</p>
   {{else}}
   <p class="hint">Det f&oslash;rste billede er forsidebilledet. Billedteksten h&oslash;rer til billedet, s&aring;
   den er den samme i alle album billedet ligger i.</p>
