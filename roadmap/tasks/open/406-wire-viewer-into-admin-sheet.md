@@ -1,7 +1,7 @@
 # 406 — Wire the viewer into the admin contact sheet and album editor, without making a click ambiguous
 
 **Status:** open
-**Priority:** medium
+**Priority:** medium (blocked: needs a decision, see the Description)
 **Created:** 2026-09-25
 **Picked up by:**
 **Started:**
@@ -23,6 +23,37 @@ worth publishing is currently doing it from a 150 px tile.
 tool is built around, and PRD 023 §3 restates it: nothing here may make a click ambiguous. So the viewer opens
 from a **small expand control in the cell's corner**, whose handler stops propagation, and the selection after
 `Esc` is exactly what it was before. Shift-click ranges and keyboard navigation must be untouched.
+
+> **BLOCKED on a decision, 2026-09-25.** The expand-control-in-the-corner design above cannot be built as
+> written, and the alternatives all cost something a maintainer should choose between rather than an
+> implementer.
+>
+> The cell **is** the button: `fragments.html` renders
+> `<button type="button" class="cell…" role="option" aria-selected="false">`, inside a
+> `<div id="sheet" role="listbox" aria-multiselectable="true">`. A control in its corner therefore means a
+> `<button>` inside a `<button>`, which is invalid HTML and behaves differently in every browser — the inner
+> one is not reliably clickable, and a screen reader is given a control it cannot describe. `stopPropagation`
+> does not help, because the problem is the markup rather than the event.
+>
+> The four ways out, with what each costs:
+>
+> 1. **Wrap each cell in a container** carrying the control beside it. Breaks the listbox: an `option` must be
+>    a child of its `listbox` (or owned via `aria-owns`), so this trades a keyboard-navigable, announced grid
+>    for a visual one. The sheet's accessibility is not obviously less important than this feature.
+> 2. **Make the wrapper the `option` and the cell a `div`.** Selection stops being a button, so
+>    `contactsheet.js`'s click, shift-click-range and keyboard handling all move — the riskiest change in the
+>    tool, for a viewer.
+> 3. **Open from the action bar** — "Vis stort", enabled with exactly one photograph selected. Costs a second
+>    click, gains discoverability, and needs no markup change at all: it is precisely how every other action in
+>    this tool works, and the selection model is untouched by construction.
+> 4. **Double-click the cell.** One gesture, familiar from Finder and Photos, no markup change; but invisible,
+>    and it toggles the selection twice on the way (harmless, but it is a real thing to reason about).
+>
+> 3 and 4 are not exclusive, and 3 + 4 together is my recommendation: the action bar for discoverability and
+> the double-click for the curator who has learned it. Both leave a click meaning exactly what it means today.
+>
+> This also affects tasks 407 and 408, which open editors *in* the viewer — they need the viewer to open at
+> all, but nothing about them depends on which of these four is chosen.
 
 Scope, per §8: `adminui/fragments.html`, `page.css` and `contactsheet.js` for the control and the two lines
 that open the viewer; `page.html` gains the viewer's two asset tags and
@@ -61,3 +92,4 @@ marked `gone` stays visibly deleted in the viewer rather than being presented as
 ## Progress Log
 
 - 2026-09-25 — Task created from PRD 023.
+- 2026-09-25 — **Blocked before starting.** The expand-control-in-the-corner design needs a `<button>` inside a `<button>`, because the cell *is* the button and its parent is a `listbox`. Four ways out are written up in the Description with what each costs; 3 + 4 (an action-bar entry plus double-click) is the recommendation, and both leave a click meaning exactly what it means today. Not chosen unilaterally: options 1 and 2 trade away either the sheet's accessibility or its selection code, which is the tool's riskiest surface, and PRD 022 §7 treats the selection model as sacred.
