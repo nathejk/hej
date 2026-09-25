@@ -82,6 +82,16 @@
     var dialog = document.createElement('dialog');
     dialog.className = 'hv';
 
+    // The frame holds everything, and exists for one reason: **it is the element that goes fullscreen**
+    // (task 419).
+    //
+    // The dialog itself cannot be — Chromium refuses a fullscreen request for an element already in the top
+    // layer, which `showModal` puts it in. The stage alone was tried and left the filmstrip out of the fullscreen
+    // view, because the strip is its sibling. So the fullscreen element has to be an ordinary div that contains
+    // the whole viewer, which is this.
+    var frame = document.createElement('div');
+    frame.className = 'hv-frame';
+
     var stage = document.createElement('div');
     stage.className = 'hv-stage';
 
@@ -118,12 +128,14 @@
     // arrows moved between one photograph and the next depending on whether it had a caption. Inside the stage and
     // positioned over it, the geometry is the same for every photograph.
     stage.appendChild(info);
-    dialog.appendChild(stage);
-    dialog.appendChild(strip);
+    frame.appendChild(stage);
+    frame.appendChild(strip);
+    dialog.appendChild(frame);
     document.body.appendChild(dialog);
 
     ui = {
       dialog: dialog,
+      frame: frame,
       stage: stage,
       img: img,
       bar: bar,
@@ -155,10 +167,10 @@
 
     dialog.addEventListener('keydown', onKeydown);
     dialog.addEventListener('close', onClose);
-    // The backdrop is part of the dialog's box, so a click that lands on the dialog itself rather than on any
-    // of its children is a click outside the photograph.
+    // The backdrop is part of the dialog's box, so a click that lands on the dialog or on the frame rather than
+    // on any of their children is a click outside the photograph.
     dialog.addEventListener('click', function (event) {
-      if (event.target === dialog) dialog.close();
+      if (event.target === dialog || event.target === frame) dialog.close();
     });
 
     bindSwipe(stage);
@@ -436,9 +448,9 @@
       item: ui.items[ui.index],
       button: el,
       dialog: ui.dialog,
-      // The stage rather than the whole overlay, for the one control that needs an element to hand to a platform
-      // API. See the fullscreen action: the dialog itself cannot be the one (task 418).
-      stage: ui.stage,
+      // The frame rather than the whole overlay, for the one control that needs an element to hand to a platform
+      // API. See the fullscreen action: the dialog itself cannot be the one (tasks 418, 419).
+      frame: ui.frame,
       config: ui.config,
       refresh: function () { show(ui.index); },
     };
@@ -712,23 +724,19 @@
           exitFullscreen();
           return;
         }
-        // **The stage — neither the dialog nor the page** (task 418).
+        // **The frame — not the dialog, not the page, and not the stage alone** (task 419).
         //
-        // Both of the obvious targets are wrong, each in its own way, and both were tried on a real browser
-        // before this. Recorded together because the next person will reach for one of them:
+        // Four targets have been tried on a real browser and three of them are wrong. All four are recorded
+        // because each is the obvious next guess for somebody who has just met one of the others:
         //
         //   - **The dialog is refused.** It is in the top layer, put there by `showModal`, and Chromium will not
         //     fullscreen an element that is already there — the promise rejects (Brave, macOS, task 417).
-        //   - **The document element renders wrong.** It is accepted, and it joins the top layer *after* the
-        //     dialog, so the album page paints over the photograph and the info panel falls behind it
-        //     (task 416/417).
-        //
-        // The stage is an ordinary div inside the dialog: not in the top layer itself, so the request is
-        // accepted, and it is what a visitor actually wants filled — it holds the photograph, the arrows, the
-        // action row and the caption. The filmstrip and the editor are outside it and so are not part of a
-        // fullscreen view, which is the right trade rather than a regrettable one: fullscreen is for looking at
-        // one photograph as large as the screen allows, and the strip is how you leave it.
-        enterFullscreen(ctx.stage);
+        //   - **The document element renders wrong.** It is accepted, and joins the top layer *after* the dialog,
+        //     so the album page paints over the photograph and the info panel falls behind it (task 416).
+        //   - **The stage loses the filmstrip**, which is its sibling rather than its child, so a fullscreen view
+        //     had no way to see where you were in the album (task 418).
+        //   - **The frame works**: an ordinary div, not in the top layer itself, containing the whole viewer.
+        enterFullscreen(ctx.frame);
       },
     });
   }

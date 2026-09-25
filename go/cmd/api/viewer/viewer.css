@@ -25,8 +25,7 @@
   position: fixed;
   inset: 0;
   z-index: 1100;
-  display: grid;
-  grid-template-rows: 1fr auto;
+  display: block;
   width: 100%;
   max-width: 100%;
   height: 100%;
@@ -60,6 +59,34 @@
   display: none;
 }
 
+/* The frame is the whole viewer, and **the element that goes fullscreen** (task 419).
+ *
+ * It exists because none of the simpler candidates works: the dialog is refused for being in the top layer
+ * already, the document element joins the top layer above the dialog and paints the album page over the
+ * photograph, and the stage alone leaves the filmstrip out because the strip is its sibling.
+ *
+ * It carries the layout — photograph above, filmstrip below — so that the same two rows apply whether it is
+ * filling the dialog or filling the screen. That is the point of putting the grid here rather than on the dialog:
+ * one layout, two containers.
+ *
+ * A background and a backdrop of its own, because in fullscreen the dialog that supplies the colour is no longer
+ * behind it, and the browser's default backdrop is a different black from the viewer's. */
+.hv-frame {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.hv-frame:fullscreen {
+  background: #111;
+}
+
+.hv-frame::backdrop {
+  background: #111;
+}
+
 /* The photograph, and the two arrows that sit over it. */
 .hv-stage {
   position: relative;
@@ -68,21 +95,6 @@
   justify-content: center;
   min-height: 0;
   padding: 0.5rem;
-}
-
-/* **The stage is the fullscreen element** (task 418), because neither of the obvious candidates works: the
-   dialog is refused for being in the top layer already, and the document element joins the top layer above the
-   dialog and paints the album page over the photograph.
-
-   Two things it needs when it gets there. A background, because it is transparent in windowed mode — the dialog
-   behind it supplies the colour, and in fullscreen the dialog is no longer behind it. And a backdrop, because the
-   browser paints its own black one otherwise, which is a different black from the rest of the viewer. */
-.hv-stage:fullscreen {
-  background: #111;
-}
-
-.hv-stage::backdrop {
-  background: #111;
 }
 
 .hv-img {

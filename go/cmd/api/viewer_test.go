@@ -451,9 +451,10 @@ func TestTheCaptionOverlaysThePhotographRatherThanMovingIt(t *testing.T) {
 		t.Error("nothing in the info panel is interactive and it sits over the middle of the picture, where a " +
 			"swipe starts — a caption that swallowed a swipe would be a caption that broke the album")
 	}
-	// Two rows, not three: the panel is no longer one of them.
-	if root := ruleFor(t, css, ".hv {"); !strings.Contains(root, "grid-template-rows: 1fr auto") {
-		t.Errorf("want the stage and the filmstrip as the only rows:\n%s", root)
+	// Two rows, and they are the frame's rather than the dialog's (task 419): the frame is what goes fullscreen, so
+	// the layout has to live on it to be the same in both containers.
+	if frame := ruleFor(t, css, ".hv-frame {"); !strings.Contains(frame, "grid-template-rows: 1fr auto") {
+		t.Errorf("want the stage and the filmstrip as the frame's only rows:\n%s", frame)
 	}
 }
 
@@ -497,33 +498,32 @@ func ruleFor(t *testing.T, css, selector string) string {
 	return rule
 }
 
-// Fullscreen asks the stage, and reports a refusal (tasks 416, 417, 418).
+// Fullscreen asks the frame, and reports a refusal (tasks 416–419).
 //
-// # All three targets were tried on a real browser, and only one of them works
+// # Four targets were tried on a real browser and three are wrong
 //
-// This took three rounds, so the conclusions are asserted rather than described:
+// This took four rounds, so the conclusions are asserted rather than described — and **each wrong answer is named**,
+// because a guard that only asserts the current target is satisfied by whatever happens to be there. One that only
+// did that was green through two of these rounds while describing a bug.
 //
 //   - **The dialog is refused.** It is in the top layer because `showModal` put it there, and Chromium will not
-//     fullscreen an element that is already in it — the promise rejects (Brave, macOS).
+//     fullscreen an element already in it — the promise rejects (Brave, macOS).
 //   - **The document element is accepted and renders wrong.** It joins the top layer *after* the dialog, so the
 //     album page paints over the photograph and the info panel falls behind it.
-//   - **The stage works**: an ordinary div inside the dialog, so not in the top layer itself, and it holds
-//     everything a fullscreen view needs — the photograph, the arrows, the action row and the caption.
-//
-// Both wrong answers are named, because a guard that only asserts the current target is satisfied by whatever is
-// there. This one fails if either mistake comes back.
+//   - **The stage loses the filmstrip**, which is its sibling rather than its child.
+//   - **The frame works**: an ordinary div, not in the top layer itself, containing the whole viewer.
 //
 // # The reporting is what ended the guessing
 //
 // The original complaint was "fullscreen is not working", and the first version caught the rejected promise and
-// said nothing, so there was no way to tell a refusal from a rendering fault. Two of the three rounds above were
-// spent on that. A refusal now says so on screen.
-func TestFullscreenAsksTheStageAndReportsRefusal(t *testing.T) {
+// said nothing, so a refusal and a rendering fault were indistinguishable from outside. Two of the four rounds went
+// on that. A refusal now says so on screen.
+func TestFullscreenAsksTheFrameAndReportsRefusal(t *testing.T) {
 	code := withoutComments(viewerAsset(t, "viewer.js"))
 
-	if !strings.Contains(code, "enterFullscreen(ctx.stage)") {
-		t.Error("fullscreen must be requested on the stage: it is not in the top layer, so the request is accepted, " +
-			"and it holds the photograph, the arrows, the action row and the caption")
+	if !strings.Contains(code, "enterFullscreen(ctx.frame)") {
+		t.Error("fullscreen must be requested on the frame: it is not in the top layer, so the request is accepted, " +
+			"and it contains the whole viewer including the filmstrip")
 	}
 	for _, wrong := range []struct{ needle, why string }{
 		{"enterFullscreen(ctx.dialog)",
@@ -532,6 +532,9 @@ func TestFullscreenAsksTheStageAndReportsRefusal(t *testing.T) {
 		{"enterFullscreen(document.documentElement)",
 			"the document element joins the top layer above the dialog, so the album page paints over the " +
 				"photograph and the caption falls behind it (task 416)"},
+		{"enterFullscreen(ctx.stage)",
+			"the stage does not contain the filmstrip, so a fullscreen view had no way to see where you were in " +
+				"the album (task 418)"},
 	} {
 		if strings.Contains(code, wrong.needle) {
 			t.Errorf("%s was tried and is wrong: %s", wrong.needle, wrong.why)
@@ -540,15 +543,38 @@ func TestFullscreenAsksTheStageAndReportsRefusal(t *testing.T) {
 	// A refusal says so. Asserted on the message, because an empty catch block is the shape this guards against
 	// and an empty block is hard to match reliably.
 	if !strings.Contains(code, "Fuld skærm er ikke tilgængelig her.") {
-		t.Error("a refused fullscreen request must say so: swallowing it is what made this take three rounds")
+		t.Error("a refused fullscreen request must say so: swallowing it is what made this take four rounds")
 	}
 
-	// The stage has to bring its own background when it becomes the fullscreen element, since the dialog that
+	// The frame has to bring its own background when it becomes the fullscreen element, since the dialog that
 	// supplies the colour in windowed mode is no longer behind it.
 	css := withoutComments(viewerAsset(t, "viewer.css"))
-	if !strings.Contains(css, ".hv-stage:fullscreen") || !strings.Contains(css, ".hv-stage::backdrop") {
-		t.Error("the fullscreen stage needs its own background and backdrop, or it is a photograph on the " +
+	if !strings.Contains(css, ".hv-frame:fullscreen") || !strings.Contains(css, ".hv-frame::backdrop") {
+		t.Error("the fullscreen frame needs its own background and backdrop, or it is a photograph on the " +
 			"browser's black rather than on the viewer's")
+	}
+}
+
+// The filmstrip is inside the fullscreen element (task 419).
+//
+// Reported plainly: "now the row of thumbnails has gone from the fullscreen view". Task 418 had made the stage the
+// fullscreen element and called losing the strip a reasonable trade. It was not — the strip is how you see where
+// you are in an album, and fullscreen is exactly when an album is being looked through rather than glanced at.
+//
+// Asserted structurally, because "is it visible" is not a question this suite can ask: the strip must be a child of
+// the frame, so that whatever the frame fills, the strip is in it.
+func TestTheFilmstripIsInsideTheFullscreenElement(t *testing.T) {
+	code := withoutComments(viewerAsset(t, "viewer.js"))
+
+	for _, want := range []string{"frame.appendChild(stage)", "frame.appendChild(strip)", "dialog.appendChild(frame)"} {
+		if !strings.Contains(code, want) {
+			t.Errorf("want %s: the frame must hold the whole viewer, or fullscreening it leaves part behind", want)
+		}
+	}
+	for _, forbidden := range []string{"dialog.appendChild(stage)", "dialog.appendChild(strip)"} {
+		if strings.Contains(code, forbidden) {
+			t.Errorf("%s puts a piece of the viewer outside the frame, so fullscreen would lose it", forbidden)
+		}
 	}
 }
 
