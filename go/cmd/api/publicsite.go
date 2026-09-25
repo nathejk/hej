@@ -549,14 +549,14 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
      has not loaded holds its space. Same shape as the frontpage's album cards (task 414); not shared with
      them because these tiles are half the size and the two will drift apart deliberately.
 
-     The caption and the credit still sit under each tile. They leave in task 403, **with** the viewer that
-     replaces them — the credit is a published attribution (task 393) and PRD 011's one documented exception
-     to naming no person, so taking it off the page before there is somewhere else to read it would be a
-     regression dressed as a layout change. Hence a two-line label under a small tile for now, which is
-     merely less pretty. */
+     The caption moved into the viewer's info panel in task 403. The credit did not, and could not: it is a
+     published attribution (task 393) and PRD 011's one documented exception to naming no person, so it has to be
+     readable without the viewer having loaded. It is over the photograph's bottom-left corner instead
+     (task 422) — on the page, out of the layout. */
   .photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
          gap: 1rem .75rem; align-items: start; }
-  .photos figure { margin: 0; }
+  /* The positioning context for the credit. Without it the credit would be placed against the page. */
+  .photos figure { margin: 0; position: relative; }
   /* The tile is a link (task 403), so the link colour and underline come back off it: the picture is the
      affordance, and a blue box around a photograph looks like a broken image. */
   .photos .tile { display: block; color: inherit; text-decoration: none; }
@@ -565,11 +565,28 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   .photos .frame img { width: 100%; height: 100%; object-fit: cover; display: block;
          transition: opacity .15s ease-in-out; }
   .photos .tile:hover .frame img { opacity: .85; }
-  .photos figcaption { color: #555; font-size: .8rem; line-height: 1.35; margin-top: .3rem; }
-  /* The photographer's credit (task 393). Its own block under the caption, quieter than it: the caption is
-     what the photograph is of, the credit is who took it, and running them together as one sentence would
-     read as though the photographer were part of the scene. */
-  .photos .credit { display: block; color: #777; font-size: .75rem; margin-top: .1rem; }
+  /* **The credit sits over the photograph, bottom left** (task 422).
+
+     It was a line under the tile, which cost every row the height of one — and cost it unevenly, since only some
+     photographs carry a credit, so a grid of them had rows of two different heights for no reason a reader could
+     see. Absolutely positioned, it is out of the layout entirely: every tile is now exactly a square.
+
+     It is **not** truncated. A long name wraps onto a second line and covers a little more of the picture, which
+     is the right way round for an attribution: the whole point of the field is that somebody is named, and
+     "Foto: Vibeke K…" would be a worse outcome than a slightly obscured corner.
+
+     Making it transparent to the pointer is load-bearing rather than tidy. The figcaption is a sibling of the
+     link, not inside it, so a click landing on the credit would do nothing at all — a dead corner on every
+     credited photograph. Transparent to the pointer, the click passes through to the tile underneath, which is
+     what the visitor was aiming at. (No backticks in here: Go raw string.) */
+  .photos figcaption { position: absolute; left: 0; bottom: 0; z-index: 1; max-width: 100%;
+         padding: .15rem .4rem; border-radius: 0 .25rem 0 .25rem;
+         background: rgba(0,0,0,.6); color: #fff; font-size: .7rem; line-height: 1.3;
+         pointer-events: none; }
+  /* The photographer's credit (task 393), which is the only thing left in the figcaption since the caption moved
+     into the viewer. It inherits the plate's colour and size rather than setting its own — the plate is the styling
+     now, and two places deciding the same thing is how one of them gets forgotten. */
+  .photos .credit { display: block; color: inherit; font-size: inherit; margin: 0; }
   /* The patrol page's header: who they are on the left, the diploma on the right. Flex rather than
      grid so it collapses to one column on a narrow screen without a media query. */
   .patrolhead { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start;

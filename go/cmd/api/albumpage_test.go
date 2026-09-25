@@ -522,6 +522,28 @@ func TestTheCreditStaysOnThePageWhileTheCaptionMovesToTheViewer(t *testing.T) {
 	if strings.Contains(page, `<figcaption>Ved målstregen`) {
 		t.Error("the caption's visible line under the tile should have moved into the viewer's info panel")
 	}
+
+	// And the credit is over the photograph rather than under it (task 422): out of the layout, so every tile is a
+	// square and a grid does not have rows of two heights depending on which photographs happen to be credited.
+	css := stripCSSComments(page)
+	plate := ruleFor(t, css, ".photos figcaption {")
+	for _, want := range []struct{ needle, why string }{
+		{"position: absolute", "out of the layout, or it takes a row's height from every tile"},
+		{"bottom: 0", "at the bottom of the photograph"},
+		{"left: 0", "and in its left corner"},
+		{"pointer-events: none",
+			"the figcaption is a sibling of the link, not inside it, so without this a click on the credit would " +
+				"do nothing — a dead corner on every credited photograph"},
+	} {
+		if !strings.Contains(plate, want.needle) {
+			t.Errorf("the credit plate is missing %q — %s:\n%s", want.needle, want.why, plate)
+		}
+	}
+	// Not truncated. The whole point of the field is that somebody is named, and "Foto: Vibeke K…" would be a worse
+	// outcome than a slightly obscured corner of a photograph.
+	if strings.Contains(plate, "text-overflow") || strings.Contains(plate, "nowrap") {
+		t.Errorf("an attribution must not be truncated; let it wrap:\n%s", plate)
+	}
 }
 
 // An item with no caption must not reserve space for one.
