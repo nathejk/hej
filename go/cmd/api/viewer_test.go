@@ -606,6 +606,52 @@ func TestTheViewerDoesNotSelectItselfOnADoubleClick(t *testing.T) {
 	}
 }
 
+// Closing the viewer takes the photograph out of the address (task 421).
+//
+// # The report, and the two facts that were one flag
+//
+// "When I close the album the URL stays `?foto=9#foto-9`, and then if I reload the overview the previously
+// selected photo opens."
+//
+// Closing wound the history back — and only that. Which works when the viewer pushed the entry it is sitting on,
+// and fails in two ways when it did not:
+//
+//   - opened from a shared or reloaded `?foto=` link in a **fresh tab**, there is nothing behind it, so back does
+//     nothing at all: the address keeps the parameter and a reload reopens the photograph, exactly as reported;
+//   - and where there *is* something behind it, back leaves the album altogether.
+//
+// The cause was one flag standing for two different facts. `reflected` means the address already names the current
+// photograph, so moving should replace rather than push. `pushed` means *we* added an entry, so closing may wind
+// it back. A viewer opened from a link is the first and not the second.
+func TestClosingTheViewerClearsThePhotographFromTheAddress(t *testing.T) {
+	code := withoutComments(viewerAsset(t, "viewer.js"))
+
+	// The two facts are separate flags, and the link case sets them differently. This is the line the bug was on.
+	open := strings.Index(code, "openFromURL")
+	if open < 0 {
+		t.Fatal("no openFromURL")
+	}
+	tail := code[open:]
+	if !strings.Contains(tail, "ui.reflected = true") || !strings.Contains(tail, "ui.pushed = false") {
+		t.Error("a viewer opened from the address is reflected but not pushed: the entry it sits on belongs to " +
+			"whoever sent the link, so closing must not press back")
+	}
+
+	// And closing has both paths.
+	if !strings.Contains(code, "unreflectURL()") {
+		t.Error("closing a viewer we did not push must take the parameter out of the address in place")
+	}
+	for _, want := range []struct{ needle, why string }{
+		{"url.searchParams.delete(param)", "the parameter goes, or a reload reopens the photograph"},
+		{"url.hash = ''", "and the fragment with it — half a cleaned address gets reported a second time"},
+		{"window.history.replaceState({}, '', url.toString())", "in place, without navigating anywhere"},
+	} {
+		if !strings.Contains(code, want.needle) {
+			t.Errorf("unreflectURL is missing %s — %s", want.needle, want.why)
+		}
+	}
+}
+
 // Every class the viewer's CSS defines is prefixed, and its JS uses the same prefix.
 //
 // The viewer is loaded beside two other stylesheets it does not control — the public site's inline CSS and the

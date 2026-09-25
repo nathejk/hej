@@ -149,6 +149,7 @@
       opener: null,
       config: {},
       pushed: false,
+      reflected: false,
     };
 
     prev.addEventListener('click', function () { move(-1); });
@@ -330,6 +331,17 @@
   // Push on open, replace while moving: back should close the viewer, not walk back through every photograph
   // somebody swiped past. The fragment goes on too, so that a copied address scrolls to the tile — a query
   // string alone scrolls nowhere, and a fragment alone never reaches the server (task 401).
+  //
+  // **`pushed` and `reflected` are two different facts** (task 421), and conflating them was a bug:
+  //
+  //   - `reflected` means the address already names the current photograph, so the next move should replace
+  //     rather than push;
+  //   - `pushed` means *we* added a history entry, so closing may wind it back.
+  //
+  // A viewer opened from a `?foto=` link is reflected but not pushed — the entry it is sitting on belongs to
+  // whoever sent the link. Treating that as pushed made closing press back, which either went nowhere (a fresh
+  // tab has nothing behind it, so the address kept `?foto=` and a reload reopened the photograph) or left the
+  // album entirely.
   function reflectURL(item) {
     var param = ui.config.history;
     if (!param || !item.ordinal || !window.history) return;
@@ -338,12 +350,32 @@
     url.searchParams.set(param, item.ordinal);
     url.hash = param + '-' + item.ordinal;
 
-    if (ui.pushed) {
+    if (ui.reflected) {
       window.history.replaceState({ hv: true }, '', url.toString());
       return;
     }
     window.history.pushState({ hv: true }, '', url.toString());
+    ui.reflected = true;
     ui.pushed = true;
+  }
+
+  // Take the photograph back out of the address (task 421).
+  //
+  // Used when closing a viewer whose entry we did not push — one opened from a `?foto=` link. `replaceState`
+  // rather than `back()`, because there may be nothing behind it to go back to and because whatever *is* behind
+  // it belongs to the sender of the link rather than to this album.
+  //
+  // The fragment goes with the parameter. It would be harmless to leave — a hash scrolls, it does not open
+  // anything — but half a cleaned address is the kind of thing somebody reports as a bug a second time.
+  function unreflectURL() {
+    var param = ui.config.history;
+    if (!param || !window.history) return;
+
+    var url = new URL(window.location.href);
+    if (!url.searchParams.has(param) && !url.hash) return;
+    url.searchParams.delete(param);
+    url.hash = '';
+    window.history.replaceState({}, '', url.toString());
   }
 
   function onKeydown(event) {
@@ -476,6 +508,7 @@
       year: container.getAttribute('data-year') || '',
     };
     ui.pushed = false;
+    ui.reflected = false;
     ui.opener = document.activeElement;
     ui.dialog.setAttribute(
       'aria-label',
@@ -519,12 +552,20 @@
     // from under somebody who is still looking at one.
     ui.dialog.dispatchEvent(new CustomEvent('hv:close'));
 
-    // Wind the address back to the album. Only when we put an entry there, or a viewer that never touched
-    // history would send the visitor off the page.
+    // Wind the address back to the album, one of two ways (task 421).
+    //
+    // If we pushed an entry, going back both closes that entry and restores the address in one move — and leaves
+    // no leftover entry that looks like a place you can return to. If we did not, there is nothing of ours to go
+    // back through, so the parameter is taken out of the address in place. The distinction is the whole of the
+    // bug this replaced: closing used to press back either way, which in a fresh tab went nowhere and left
+    // `?foto=` in the address, so reloading reopened the photograph.
     if (ui.pushed && window.history) {
       ui.pushed = false;
       window.history.back();
+    } else {
+      unreflectURL();
     }
+    ui.reflected = false;
     if (ui.opener && typeof ui.opener.focus === 'function') {
       ui.opener.focus();
     }
@@ -613,9 +654,12 @@
       for (var j = 0; j < items.length; j++) {
         if (items[j].ordinal === wanted) {
           open(container, j);
-          // Opened from the address rather than from a click, so there is nothing to push: the entry the
-          // visitor arrived on already names this photograph, and back belongs to wherever they came from.
-          ui.pushed = true;
+          // Opened from the address rather than from a click. The address already names this photograph, so
+          // moving replaces rather than pushes — but **nothing of ours is in the history**, so closing must take
+          // the parameter out in place rather than pressing back. Those are two different flags for a reason;
+          // see reflectURL.
+          ui.reflected = true;
+          ui.pushed = false;
           return;
         }
       }
