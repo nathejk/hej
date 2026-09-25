@@ -37,6 +37,12 @@
     prev: '<path d="m15 18-6-6 6-6"/>',
     next: '<path d="m9 18 6-6-6-6"/>',
     close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    maximize:
+      '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/>' +
+      '<path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
+    minimize:
+      '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/>' +
+      '<path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>',
   };
 
   function icon(name) {
@@ -319,8 +325,20 @@
         event.preventDefault();
         show(ui.items.length - 1);
         break;
+      case 'Escape':
+        // **Esc in fullscreen leaves fullscreen, and nothing else** (task 404).
+        //
+        // Two features want this key: the browser exits fullscreen with it, and a modal dialog closes with it.
+        // Which one wins is not something to leave to a browser to arbitrate — the orders differ, and "Esc
+        // closed the whole viewer when I only wanted the window back" is a complaint nobody can reproduce on
+        // demand. So it is decided here: in fullscreen, Esc is the fullscreen key; otherwise it is the dialog's.
+        if (fullscreenElement()) {
+          event.preventDefault();
+          exitFullscreen();
+        }
+        break;
       default:
-        // Esc is the dialog's own, and so is Tab: showModal traps focus without help.
+        // Tab is the dialog's own: showModal traps focus without help.
         break;
     }
   }
@@ -569,4 +587,80 @@
     bind: bindAll,
     icons: ICONS,
   };
+  // Fullscreen (task 404, PRD 023 §7.5).
+  //
+  // # Why this is a real feature and not the same as the overlay
+  //
+  // The overlay already fills the viewport. Fullscreen escapes the browser *chrome* — the address bar, the
+  // tabs, the toolbar — which the overlay cannot do, and on a laptop that is most of the screen. PRD 023 §2
+  // establishes that albums are read after the event, often on a laptop, so this is not a nicety.
+  //
+  // # Three platform facts, built in rather than discovered
+  //
+  //   - **Safari needs the prefixed call.** Two lines; without them the button silently does nothing on a Mac.
+  //   - **An iPhone has no element fullscreen at all.** iOS Safari implements fullscreen only for video;
+  //     iPadOS supports it for elements. So the control is **absent** rather than inert where the API is
+  //     missing: a visible button that does nothing is worse than no button, and it costs an iPhone nothing
+  //     real, because the overlay already covers the viewport and an installed PWA is standalone anyway.
+  //   - **The state is not ours to track.** A visitor leaves fullscreen with Esc, a swipe or a system gesture,
+  //     none of which come through our button, so the icon and the label follow `fullscreenchange` rather than
+  //     a variable we increment.
+  function fullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+
+  function fullscreenSupported() {
+    if (document.fullscreenEnabled || document.webkitFullscreenEnabled) return true;
+    return false;
+  }
+
+  function exitFullscreen() {
+    if (document.exitFullscreen) {
+      document.exitFullscreen();
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    }
+  }
+
+  function enterFullscreen(el) {
+    if (el.requestFullscreen) {
+      // A promise on modern engines, and it rejects when the gesture is not trusted. Swallowed: there is
+      // nothing to tell the visitor that the unchanged window does not already say.
+      var request = el.requestFullscreen();
+      if (request && typeof request.catch === 'function') request.catch(function () {});
+    } else if (el.webkitRequestFullscreen) {
+      el.webkitRequestFullscreen();
+    }
+  }
+
+  function paintFullscreenButton() {
+    if (!ui) return;
+    var el = ui.bar.querySelector('.hv-act-fullscreen');
+    if (!el) return;
+
+    var on = !!fullscreenElement();
+    var label = on ? 'Afslut fuld skærm' : 'Fuld skærm';
+    el.innerHTML = icon(on ? 'minimize' : 'maximize');
+    el.setAttribute('aria-label', label);
+    el.title = label;
+  }
+
+  document.addEventListener('fullscreenchange', paintFullscreenButton);
+  document.addEventListener('webkitfullscreenchange', paintFullscreenButton);
+
+  if (fullscreenSupported()) {
+    window.hejViewer.register('fullscreen', {
+      icon: 'maximize',
+      label: 'Fuld skærm',
+      activate: function (ctx) {
+        if (fullscreenElement()) {
+          exitFullscreen();
+          return;
+        }
+        // The dialog, not the image: the controls, the info panel and the filmstrip have to come with it, and
+        // a fullscreened img would be a photograph with no way out of it.
+        enterFullscreen(ctx.dialog);
+      },
+    });
+  }
 })();

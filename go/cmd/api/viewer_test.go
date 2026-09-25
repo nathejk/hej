@@ -260,6 +260,50 @@ func TestTheFilmstripHidesOnSmallScreensByMediaQueryAlone(t *testing.T) {
 	}
 }
 
+// Fullscreen is gated on the API existing, and speaks both dialects (task 404, PRD 023 §7.5).
+//
+// The three facts these needles stand for are platform facts, not preferences, and each of them produces a bug
+// that is invisible on the machine most of this was written on:
+//
+//   - Safari wants `webkitRequestFullscreen`, so a Mac gets a button that silently does nothing without it.
+//   - An **iPhone has no element fullscreen at all** — iOS Safari implements it only for video, while iPadOS
+//     supports it for elements — so the control must be *absent* rather than inert. A button that does nothing
+//     is worse than no button, and it costs an iPhone nothing real: the overlay already fills the viewport.
+//   - `Esc` is wanted by two features at once. Left to the browser, which one wins varies, and "Esc closed the
+//     whole viewer when I only wanted the window back" is a complaint nobody can reproduce on demand.
+func TestFullscreenIsFeatureGatedAndSpeaksBothDialects(t *testing.T) {
+	code := withoutComments(viewerAsset(t, "viewer.js"))
+
+	for _, want := range []struct{ needle, why string }{
+		{"requestFullscreen", "the standard call"},
+		{"webkitRequestFullscreen", "Safari's, without which the button silently does nothing on a Mac"},
+		{"exitFullscreen", "leaving again"},
+		{"webkitExitFullscreen", "and leaving again on Safari"},
+		{"fullscreenEnabled", "the feature gate: an iPhone has no element fullscreen at all"},
+		{"webkitFullscreenEnabled", "the same gate in Safari's dialect"},
+		{"fullscreenchange", "the state comes from the event, because Esc and system gestures bypass our button"},
+		{"webkitfullscreenchange", "and Safari's spelling of it"},
+	} {
+		if !strings.Contains(code, want.needle) {
+			t.Errorf("viewer.js is missing %s — %s", want.needle, want.why)
+		}
+	}
+
+	// The control is registered **inside** the gate, which is what makes it absent rather than inert where the
+	// API is missing.
+	gate := strings.Index(code, "if (fullscreenSupported())")
+	reg := strings.Index(code, "register('fullscreen'")
+	if gate < 0 || reg < 0 || reg < gate {
+		t.Error("the fullscreen control must be registered inside the feature gate, so a device without the API " +
+			"gets no button rather than a button that does nothing")
+	}
+
+	// And Esc in fullscreen leaves fullscreen rather than closing the viewer.
+	if !strings.Contains(code, "case 'Escape':") || !strings.Contains(code, "exitFullscreen();") {
+		t.Error("Esc must be decided here: in fullscreen it is the fullscreen key, otherwise the dialog's")
+	}
+}
+
 // Every class the viewer's CSS defines is prefixed, and its JS uses the same prefix.
 //
 // The viewer is loaded beside two other stylesheets it does not control — the public site's inline CSS and the
