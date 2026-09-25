@@ -578,6 +578,34 @@ func TestTheFilmstripIsInsideTheFullscreenElement(t *testing.T) {
 	}
 }
 
+// Nothing in the viewer is selectable, except the field you type in (task 420).
+//
+// Two fast presses on the next arrow are a double-click as far as the browser is concerned, and a double-click
+// selects — so moving quickly through an album left a blue highlight over the photograph. Reported from Brave on
+// macOS. The clicks themselves were always fine; it is the selection that is unwanted.
+//
+// The exception matters as much as the rule: the caption editor's field is text being written, and a curator who
+// could not select a word of their own caption to replace it would have a worse problem than the one this fixes.
+func TestTheViewerDoesNotSelectItselfOnADoubleClick(t *testing.T) {
+	css := withoutComments(viewerAsset(t, "viewer.css"))
+
+	root := ruleFor(t, css, ".hv {")
+	for _, want := range []string{"user-select: none", "-webkit-user-select: none"} {
+		if !strings.Contains(root, want) {
+			t.Errorf("the overlay is missing %q, so two fast presses on an arrow highlight the photograph:\n%s",
+				want, root)
+		}
+	}
+
+	field := ruleFor(t, css, ".hv-edit-field {")
+	for _, want := range []string{"user-select: text", "-webkit-user-select: text"} {
+		if !strings.Contains(field, want) {
+			t.Errorf("the editor's field must opt back in to selection (%q), or a curator cannot select a word of "+
+				"their own caption to replace it:\n%s", want, field)
+		}
+	}
+}
+
 // Every class the viewer's CSS defines is prefixed, and its JS uses the same prefix.
 //
 // The viewer is loaded beside two other stylesheets it does not control — the public site's inline CSS and the

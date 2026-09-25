@@ -38,6 +38,20 @@
   background: #111;
   color: #f4f4f5;
   overflow: hidden;
+  /* **Nothing in here is selectable** (task 420).
+   *
+   * Two fast presses on the next arrow are a double-click as far as the browser is concerned, and a double-click
+   * selects — so moving quickly through an album left a blue highlight over the photograph. That is the whole bug:
+   * the clicks themselves register fine, it is the *selection* that is unwanted.
+   *
+   * The whole overlay rather than just the arrows, because the same thing happens on any of the controls and
+   * because there is nothing here a visitor would want to select. The caption is the only text, and it is already
+   * `pointer-events: none`, so this takes nothing away that was reachable. The editor's field opts back in — see
+   * `.hv-edit-field`.
+   *
+   * Prefixed as well as not: Safari wanted `-webkit-user-select` until well after the 16.4 floor in `.rules`. */
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .hv::backdrop {
@@ -324,6 +338,11 @@
   color: #f4f4f5;
   font: inherit;
   resize: vertical;
+  /* The one place in the overlay where text must be selectable, because it is text being written: the rest is
+     `user-select: none` so that a fast double-press on an arrow does not highlight the photograph (task 420).
+     Without this, a curator could not select a word of their own caption to replace it. */
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* The public form of a credit, shown while it is being typed rather than after it is saved: a curator putting a
