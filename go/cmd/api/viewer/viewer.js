@@ -235,6 +235,15 @@
     markStrip(index);
     reflectURL(item);
     prefetchAround(index);
+
+    // Announce the change, so a control that is showing something about *this* photograph can follow along.
+    //
+    // Generic on purpose: the viewer does not know that the admin tool's caption editor is listening, only that
+    // something might be. It is what makes "caption this one, press the right arrow, caption the next" work
+    // without the viewer knowing what a caption editor is.
+    state.dialog.dispatchEvent(
+      new CustomEvent('hv:show', { detail: { item: item, index: index } })
+    );
   }
 
   function move(delta) {
@@ -479,6 +488,11 @@
   function onClose() {
     unlockScroll();
     ui.img.removeAttribute('src');
+
+    // Announced for the same reason as hv:show: a host page may have work it deliberately deferred until the
+    // overlay was out of the way — the admin tool reloads its sheet here rather than swapping 120 thumbnails out
+    // from under somebody who is still looking at one.
+    ui.dialog.dispatchEvent(new CustomEvent('hv:close'));
 
     // Wind the address back to the album. Only when we put an entry there, or a viewer that never touched
     // history would send the visitor off the page.

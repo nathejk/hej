@@ -88,6 +88,7 @@ function initAdminTool() {
   // "Vis stort" (task 406). First of the actions, because it is the only one that changes nothing — a curator
   // reaches for it to *decide*, and the rest of the bar is what they do afterwards.
   initViewAction(ctx);
+  initViewerEdit(ctx);
   initAlbumAction(ctx);
   initPositionAction(ctx);
   initPatrolAction(ctx);

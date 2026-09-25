@@ -218,7 +218,7 @@ func TestNoPublicPageLinksToTheCuratorsTool(t *testing.T) {
 func TestTheContactSheetKeepsItsClicksAfterWiringTheViewer(t *testing.T) {
 	src := adminPageSource(t)
 
-	if !strings.Contains(src, `data-viewer data-viewer-actions="fullscreen" data-viewer-click="none"`) {
+	if !strings.Contains(src, `data-viewer data-viewer-actions="caption,credit,fullscreen" data-viewer-click="none"`) {
 		t.Error(`the sheet must declare data-viewer-click="none": with the cells carrying data-viewer-item, the ` +
 			"viewer would otherwise open on a click that is supposed to select (PRD 022 §7)")
 	}
@@ -267,5 +267,98 @@ func TestTheAdminCellsCarryTheViewerContract(t *testing.T) {
 		if !strings.Contains(fragments, want.needle) {
 			t.Errorf("the contact sheet's cell is missing %s — %s", want.needle, want.why)
 		}
+	}
+}
+
+// The caption and the credit are editable in the viewer, and they are **two controls** (tasks 407, 408).
+//
+// # Why the separateness is the thing asserted
+//
+// They look like the same widget and are not the same kind of thing:
+//
+//   - One form writing both fields would let a curator fixing a typo in a caption **blank a credit** by leaving
+//     it alone, which is a loss nobody notices until a photographer asks why their name is gone.
+//   - The credit is the one field in this tool that publishes a person's name (task 393, PRD 011's single
+//     documented exception), so clearing it is its own act rather than "save an empty field" — the rule
+//     `creditaction.js` already applies, because removing an attribution should not be something a stray
+//     select-all-and-delete does on its way past.
+func TestTheViewerEditsCaptionAndCreditSeparately(t *testing.T) {
+	// **Comments stripped before searching.** This test caught its own explanatory prose twice while being
+	// written — once on `panel.hidden`, once on `lastCredit` — which is the sixth time a guard in this repo has
+	// matched the comment that explains it. `withoutComments` (viewer_test.go) is the standing answer.
+	src := withoutComments(adminSource(t, "adminui/vieweredit.js"))
+
+	// Two registered actions, not one combined editor.
+	for _, name := range []string{"caption:", "credit:"} {
+		if !strings.Contains(src, name) {
+			t.Errorf("want a %s field spec; the two must be separate controls", name)
+		}
+	}
+	// One request per field, carrying only that field. `body[open.name] = value` is what makes that true for both
+	// without two copies of the request.
+	if !strings.Contains(src, "body[open.name] = value") {
+		t.Error("each save must send only the field being edited, or a caption edit can blank a credit")
+	}
+	// Clearing is its own button, and only the credit has one.
+	if !strings.Contains(src, `clear: 'Fjern fotokredit'`) {
+		t.Error("clearing a credit must be its own act, not saving an empty field")
+	}
+	if !strings.Contains(src, "clear: null") {
+		t.Error("the caption has no separate clear button; only the credit's removal is a deliberate act")
+	}
+
+	// The credit's warning, and the public form shown while it is typed.
+	if !strings.Contains(src, "vises offentligt sammen med billedet") {
+		t.Error("the credit field must say that it publishes, in Danish")
+	}
+	if !strings.Contains(src, "'Offentligt: '") {
+		t.Error("a curator writing a colleague's name onto a public page should see the public form as they type")
+	}
+
+	// Prefilled from the photograph, never from the sheet's remembered credit. That key exists because a *batch*
+	// has no single current value; with one photograph in front of you the honest prefill is its own text.
+	for _, forbidden := range []string{"localStorage", "lastCredit"} {
+		if strings.Contains(src, forbidden) {
+			t.Errorf("the viewer's editor must prefill from the photograph, not from %s", forbidden)
+		}
+	}
+
+	// Through ctx.fetch, which is what stamps the working year. A direct window.fetch would be a silent
+	// wrong-year write, and TestTheAdminScriptsFetchOnlyThroughTheYear covers this file for free because it lives
+	// on this side of the boundary rather than inside the shared viewer.
+	if !strings.Contains(src, "ctx.fetch('/api/admin/photos'") {
+		t.Error("the save must go through ctx.fetch, which carries the year the API refuses a request without")
+	}
+
+	// A failed save keeps what was typed. Asserted as the absence of a reset on the error path, which is the only
+	// way this can be checked without executing it.
+	errPath := src[strings.Index(src, "if (!res.ok)"):]
+	errPath = errPath[:strings.Index(errPath, "return;")]
+	if strings.Contains(errPath, ".value = ") {
+		t.Error("a failed save must keep the typed text: a caption is a sentence somebody composed, and losing " +
+			"it to a dropped hotel connection is what makes a curator stop trusting the tool")
+	}
+}
+
+// The editors are registered from the admin side, and the shared viewer stays free of admin concepts.
+//
+// This is the boundary `TestTheViewerKnowsNothingAboutItsSurfaces` protects, seen from the other side: the write
+// is behind the admin credential and needs the working year, so it belongs to the tool — and keeping it here is
+// what lets the public album page load the same viewer file without loading the code for an editing control.
+func TestTheViewerEditorsLiveOnTheAdminSide(t *testing.T) {
+	if src := withoutComments(viewerAsset(t, "viewer.js")); strings.Contains(src, "photoIds") {
+		t.Error("the shared viewer must not know the admin write's shape; the editors register from the tool")
+	}
+	src := withoutComments(adminSource(t, "adminui/vieweredit.js"))
+	if !strings.Contains(src, "window.hejViewer.register(") {
+		t.Error("the editors must plug into the viewer through its registry rather than being built into it")
+	}
+	// The sheet is reloaded once, on close, rather than after every save — swapping 120 thumbnails out from under
+	// somebody still looking at one, to change an attribute nobody can see on a cell, is the wrong trade.
+	if !strings.Contains(src, "ctx.reloadSheet()") {
+		t.Error("a saved edit must reconcile with the server through the sheet's existing refresh")
+	}
+	if !strings.Contains(src, "hv:close") {
+		t.Error("the refresh belongs on the viewer closing, not on each save")
 	}
 }

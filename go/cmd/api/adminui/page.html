@@ -135,7 +135,7 @@
        free. -->
   <div id="sheet" role="listbox" aria-multiselectable="true" aria-label="Billeder" tabindex="0"
        data-query="{{.Query}}"
-       data-viewer data-viewer-actions="fullscreen" data-viewer-click="none"
+       data-viewer data-viewer-actions="caption,credit,fullscreen" data-viewer-click="none"
        data-viewer-label="Billeder"
        hx-get="/admin/fragments/photos?limit=120{{if .Query}}&{{.Query}}{{end}}" hx-trigger="load" hx-swap="innerHTML"></div>
   <!-- The "more" button arrives as an out-of-band swap carrying the next page's offset, so the browser never adds
@@ -350,6 +350,7 @@
 // @inject sheetshell.js
 // @inject contactsheet.js
 // @inject viewaction.js
+// @inject vieweredit.js
 // @inject albumaction.js
 // @inject positionaction.js
 // @inject patrolaction.js
