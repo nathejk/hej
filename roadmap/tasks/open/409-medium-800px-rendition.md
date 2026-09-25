@@ -71,6 +71,9 @@ Task 410 is what makes the browser actually ask for this rendition.
 - [ ] The `glimtThumbEdges` decision (shared or split) is recorded in PRD 023 and reflected in the code, so
       glimt's storage does not change by accident
 - [ ] No backfill is run and no photograph without a medium rendition renders a gap
+- [ ] The album page starts emitting `data-medium` on each tile **in this task**, not earlier: task 403 left it
+      out deliberately, because a URL in the DOM that the server does not serve is a broken image waiting for
+      somebody to write the `srcset` that uses it
 
 ## Progress Log
 

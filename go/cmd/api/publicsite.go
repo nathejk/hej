@@ -557,9 +557,14 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   .photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
          gap: 1rem .75rem; align-items: start; }
   .photos figure { margin: 0; }
+  /* The tile is a link (task 403), so the link colour and underline come back off it: the picture is the
+     affordance, and a blue box around a photograph looks like a broken image. */
+  .photos .tile { display: block; color: inherit; text-decoration: none; }
   .photos .frame { display: block; aspect-ratio: 1 / 1; overflow: hidden; border-radius: .25rem;
          background: #eee; }
-  .photos .frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .photos .frame img { width: 100%; height: 100%; object-fit: cover; display: block;
+         transition: opacity .15s ease-in-out; }
+  .photos .tile:hover .frame img { opacity: .85; }
   .photos figcaption { color: #555; font-size: .8rem; line-height: 1.35; margin-top: .3rem; }
   /* The photographer's credit (task 393). Its own block under the caption, quieter than it: the caption is
      what the photograph is of, the credit is who took it, and running them together as one sentence would
@@ -717,21 +722,45 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 </section>
 {{template "layout-foot" .}}{{end}}
 
-{{define "album"}}{{template "layout-head" .}}
-<h1>{{.Album.Title}}</h1>
-{{if .Album.Description}}<p class="intro">{{.Album.Description}}</p>{{end}}
+{{/* The item list, in its own define (task 403, PRD 023 §8).
 
-{{if .Items}}
+     One rendering of a tile, so the page and the deferred fragment endpoint (task 412) cannot disagree about
+     what a tile is. Cheap to do now and impossible to retrofit cheaply: two renderings of the same list drift,
+     and the first thing to drift would be the data contract the viewer reads.
+
+     Takes the page's data, so the album and the items are reached the same way from both callers. Still no
+     backtick anywhere in this template — it is a Go raw string, and one ends the literal. */}}
+{{define "album-items"}}
 {{$album := .Album}}
-<div class="photos">
-  {{range .Items}}
-  <!-- id="foto-N" is the other half of the ?foto= deep link (task 401), and the halves do different jobs:
-       the **query** tells this handler which page to render, and the **fragment** tells the browser where to
-       scroll once it has it. A query string alone scrolls nowhere — only a fragment does — and a fragment
-       alone cannot reach past the first page, because a fragment is never sent to a server. So a shared link
-       carries both (?foto=137 plus #foto-137 — no backticks in here, see the stylesheet's warning), and each
-       half still degrades to something sensible on its own. -->
-  <figure id="foto-{{.Ordinal}}">
+{{range .Items}}
+<!-- id="foto-N" is the other half of the ?foto= deep link (task 401), and the halves do different jobs:
+     the **query** tells this handler which page to render, and the **fragment** tells the browser where to
+     scroll once it has it. A query string alone scrolls nowhere — only a fragment does — and a fragment
+     alone cannot reach past the first page, because a fragment is never sent to a server. So a shared link
+     carries both (?foto=137 plus #foto-137 — no backticks in here, see the stylesheet's warning), and each
+     half still degrades to something sensible on its own. -->
+<figure id="foto-{{.Ordinal}}">
+  <!-- **The tile is a real link to the photograph** (task 403, PRD 023 §6).
+
+       This is the whole mitigation for "a JavaScript bug takes the album page with it": with no viewer — script
+       off, asset blocked, a browser too old — a click opens the display image in the browser, which is a
+       perfectly good way to look at a photograph and was the only way until now. The viewer intercepts the
+       click once it has loaded, and leaves modified clicks alone so cmd-click still opens a new tab.
+
+       The data- attributes are the viewer's whole input (§7.4). Attributes rather than a JSON blob in a script
+       tag, for the reason the admin tool already records: a value in an attribute is escaped **as an attribute**
+       by html/template and is inspectable in dev tools, while a value interpolated into JavaScript is escaped as
+       JavaScript and mangles in ways nobody notices until a browser does something strange.
+
+       There is deliberately no data-medium yet. Task 409 adds the 800px rendition and the attribute together:
+       putting a URL in the DOM before the server serves it would be a broken image waiting for somebody to
+       write the srcset that uses it. -->
+  <a class="tile" href="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}"
+     data-viewer-item data-viewer-ordinal="{{.Ordinal}}"
+     data-full="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}"
+     data-thumb="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}?variant=thumb"
+     {{if .Caption}}data-caption="{{.Caption}}"{{end}}
+     {{if .Credit}}data-credit="{{.Credit}}"{{end}}>
     <!-- The thumbnail, always: this page is read by a lot of people at once on whatever connection
          they have. Every item gets its own tag — there is no carousel here, so every photograph is
          reachable on a desktop without a swipe and without script. See the handler comment.
@@ -747,9 +776,38 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
            loading="lazy" decoding="async"
            {{if and .Width .Height}}width="{{.Width}}" height="{{.Height}}"{{end}}>
     </span>
-    {{if or .Caption .Credit}}<figcaption>{{.Caption}}{{if .Credit}}<span class="credit">{{.Credit}}</span>{{end}}</figcaption>{{end}}
-  </figure>
-  {{end}}
+  </a>
+  <!-- **The credit stays visible; the caption does not** (task 403).
+
+       PRD 023 §7.1 traded the caption under the tile for the viewer's info panel: at 150px there is no room,
+       and the caption is still in the alt text and in data-caption. The credit is **not** the same kind of
+       thing and did not go with it. It is a published attribution (task 393) — a photographer asked to be
+       named, and PRD 011's "names no person" claim was formally narrowed to allow exactly this. An attribution
+       that only renders once a script has run is an attribution we stop making for anybody whose script did not
+       run, and that is not a decision a layout change is entitled to take. -->
+  {{if .Credit}}<figcaption><span class="credit">{{.Credit}}</span></figcaption>{{end}}
+</figure>
+{{end}}
+{{end}}
+
+{{define "album"}}{{template "layout-head" .}}
+<h1>{{.Album.Title}}</h1>
+{{if .Album.Description}}<p class="intro">{{.Album.Description}}</p>{{end}}
+
+{{if .Items}}
+{{/* The container declares what the viewer may do here (PRD 023 §7.7): share and fullscreen, and no editing.
+     The viewer reads this and builds exactly those controls — it has no idea which surface it is on, so "the
+     public viewer has no caption editor" is a control that is never built rather than a branch that could be
+     inverted.
+
+     data-viewer-history names the query parameter the current photograph is reflected in, which is task 401's
+     ?foto=. Only this page declares one, because only this page has a server that understands it. */}}
+<div class="photos" data-viewer
+     data-viewer-actions="share,fullscreen"
+     data-viewer-history="foto"
+     data-viewer-label="Billeder fra {{.Album.Title}}"
+     data-share-title="{{.Album.Title}} — Nathejk {{.Year}}">
+  {{template "album-items" .}}
 </div>
 {{else}}
 <p class="empty">Der er ingen billeder i dette album.</p>
@@ -764,6 +822,19 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 {{end}}
 
 <p class="more"><a href="{{.Root}}">Tilbage til forsiden</a></p>
+
+<!-- The photo viewer (task 403, PRD 023). A **progressive enhancement**, and the same arrangement the patrol
+     page's map uses: in the body rather than the head, deferred so it does not block the page, and same-origin
+     so there is no third party in a position to log who looked at which photograph.
+
+     Everything above works without it. Each tile is a link to its photograph, the caption is in the alt text,
+     the credit is on the page, and "Vis flere" is an anchor. If these two assets fail to load — script off, a
+     browser too old for a modal dialog, an asset blocked — what remains is the page that was here before the
+     viewer existed. That is why the viewer is allowed to be a second request at all (see viewer.go).
+
+     The path carries a content hash, so it is cached for a year and a fix still lands immediately. -->
+<link rel="stylesheet" href="{{viewer "viewer.css"}}">
+<script src="{{viewer "viewer.js"}}" defer></script>
 {{template "layout-foot" .}}{{end}}
 
 {{define "patrol"}}{{template "layout-head" .}}

@@ -366,8 +366,22 @@ func stripCSSComments(page string) string {
 	}
 }
 
-// Every item gets its own tag. That is the no-carousel decision (PRD 019 task 323) restated for albums:
-// a desktop visitor must reach every photograph without a swipe and without script.
+// Every item gets its own tag, and every one of them is reachable without script.
+//
+// That is the no-carousel decision (PRD 019 task 323) restated for albums: a desktop visitor must reach every
+// photograph without a swipe.
+//
+// # This test used to forbid the string "<script" and no longer can
+//
+// Task 403 gave the page a viewer, so it now loads one deferred, same-origin script. The assertion it replaces
+// was a proxy for what actually matters, and keeping the proxy would have meant either deleting the test or
+// leaving the page without the enhancement. So the requirement is written out instead, in three parts, all of
+// which were true before the viewer and must stay true after it:
+//
+//   - **every photograph is reachable by a link**, which is what a visitor without the viewer uses;
+//   - **no inline script**, so the page carries no behaviour of its own and nothing that needs a nonce;
+//   - **every script is deferred and same-origin**, so nothing blocks the page and no third party learns who
+//     looked at which photograph.
 func TestAlbumPageRendersEveryItemWithoutACarousel(t *testing.T) {
 	app, _ := albumApp(t)
 	srv := httptest.NewServer(app.routes())
@@ -379,11 +393,134 @@ func TestAlbumPageRendersEveryItemWithoutACarousel(t *testing.T) {
 	if got := strings.Count(page, "<img "); got != 2 {
 		t.Errorf("want one img per item (2), got %d\n%s", got, page)
 	}
+	// One link per photograph, to the photograph. This is the fallback the whole progressive-enhancement
+	// argument rests on (PRD 023 §8), so it is asserted rather than assumed.
+	if got := strings.Count(page, `<a class="tile" href="/api/public/albums/al-1/media/`); got != 2 {
+		t.Errorf("want one link per photograph (2), got %d\n%s", got, page)
+	}
 	lower := strings.ToLower(page)
-	for _, forbidden := range []string{"<script", "onclick=", "scroll-snap"} {
+	for _, forbidden := range []string{"onclick=", "scroll-snap"} {
 		if strings.Contains(lower, forbidden) {
 			t.Errorf("the album page must work without script, found %q", forbidden)
 		}
+	}
+	assertScriptsAreDeferredAndOurs(t, page)
+}
+
+// assertScriptsAreDeferredAndOurs holds the three rules a public page's script tags must obey.
+//
+// Shared by the album-page tests because the rules are about the page rather than about one behaviour, and
+// because the failure they guard against — a CDN tag, or an inline block — arrives in a change that is about
+// something else entirely.
+func assertScriptsAreDeferredAndOurs(t *testing.T, page string) {
+	t.Helper()
+
+	for _, tag := range regexp.MustCompile(`<script[^>]*>`).FindAllString(page, -1) {
+		if !strings.Contains(tag, " src=") {
+			t.Errorf("inline script on a public page: %s", tag)
+			continue
+		}
+		if !strings.Contains(tag, " defer") {
+			t.Errorf("script is not deferred, so it blocks the page: %s", tag)
+		}
+		if !strings.Contains(tag, `src="/`) {
+			t.Errorf("script is not same-origin, so a third party could log who looked at which photograph: %s",
+				tag)
+		}
+	}
+}
+
+// The album page hands the viewer its whole input, and declares what it may do (task 403, PRD 023 §7.4, §7.7).
+//
+// # Why the declaration is asserted, not just the attributes
+//
+// `data-viewer-actions="share,fullscreen"` is the mechanism by which the public viewer has **no editing
+// controls**. Not a hidden button, not a disabled one: the viewer builds only what the page names, so there is
+// nothing on a public page for anybody to un-hide. A future edit that added `caption` here would be a public
+// caption editor, and since no test can execute the viewer's JavaScript, this line of markup is where that gets
+// caught.
+func TestTheAlbumPageWiresTheViewer(t *testing.T) {
+	app, _ := albumApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
+	page := string(body)
+
+	for _, want := range []struct{ needle, why string }{
+		{`data-viewer-actions="share,fullscreen"`,
+			"share and fullscreen, and nothing that edits: the public viewer's controls are what this page names"},
+		{`data-viewer-history="foto"`,
+			"the current photograph is reflected in ?foto=, which is the parameter task 401 taught the server"},
+		{`data-share-title="Lørdag morgen — Nathejk 2026"`,
+			"the share sheet's title is the album's, never a caption: a caption is free text and the one place a " +
+				"person's name could plausibly land"},
+		{`data-viewer-item`, "each tile announces itself to the viewer"},
+		{`data-viewer-ordinal="0"`, "and carries the ordinal the deep link names"},
+		{`data-full="/api/public/albums/al-1/media/0"`, "the display image, for the overlay"},
+		{`data-thumb="/api/public/albums/al-1/media/0?variant=thumb"`, "the thumbnail, for the filmstrip"},
+		{`data-caption="Ved målstregen"`, "the caption reaches the viewer without a request"},
+		{`data-credit="` + fixtureCredit + `"`, "and so does the credit"},
+		{`id="foto-0"`, "the anchor half of the deep link"},
+	} {
+		if !strings.Contains(page, want.needle) {
+			t.Errorf("the album page is missing %s — %s", want.needle, want.why)
+		}
+	}
+
+	// The viewer must not be able to edit anything from here, and the way to be sure is that the page never asks
+	// for a control that could. Read the declaration back out and check every name in it, rather than hunting for
+	// substrings: an allowlist cannot be defeated by a spelling nobody thought of.
+	for _, declared := range regexp.MustCompile(`data-viewer-actions="([^"]*)"`).FindAllStringSubmatch(page, -1) {
+		for _, name := range strings.Split(declared[1], ",") {
+			switch strings.TrimSpace(name) {
+			case "share", "fullscreen":
+			default:
+				t.Errorf("the public page declares the viewer action %q; only share and fullscreen belong on an "+
+					"unauthenticated surface", name)
+			}
+		}
+	}
+	if strings.Contains(page, "data-caption-endpoint") {
+		t.Error("the public page must not carry a write endpoint")
+	}
+
+	// And it is an enhancement: both assets are ours, deferred, and hashed so a fix is not stuck in a cache.
+	if !strings.Contains(page, `<script src="`+viewerAssetPath("viewer.js")+`" defer></script>`) {
+		t.Errorf("want the viewer's script, deferred and versioned\n%s", page)
+	}
+	if !strings.Contains(page, `<link rel="stylesheet" href="`+viewerAssetPath("viewer.css")+`">`) {
+		t.Errorf("want the viewer's stylesheet\n%s", page)
+	}
+}
+
+// The caption's visible line went; **the credit's did not** (task 403, PRD 023 §7.1).
+//
+// PRD 023 traded the caption under the tile for the viewer's info panel: at 150px there is no room, and the
+// caption is still in the alt text and in `data-caption`. The credit is a different kind of thing. It is a
+// published attribution — a photographer asked to be named, and PRD 011's "names no person" claim was formally
+// narrowed to allow exactly this (task 393). An attribution that only renders once a script has run is an
+// attribution we stop making for everybody whose script did not run, and no layout change is entitled to decide
+// that.
+func TestTheCreditStaysOnThePageWhileTheCaptionMovesToTheViewer(t *testing.T) {
+	app, _ := albumApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
+	page := string(body)
+
+	// Visible, in its own element, with no script involved.
+	if !strings.Contains(page, `<figcaption><span class="credit">`+fixtureCredit+`</span></figcaption>`) {
+		t.Errorf("the photographer's credit must still be readable without the viewer\n%s", page)
+	}
+	// The caption is present as data and as alt text, and no longer as a line under the tile.
+	if !strings.Contains(page, `data-caption="Ved målstregen"`) ||
+		!strings.Contains(page, `alt="Ved målstregen"`) {
+		t.Errorf("the caption must stay in the markup for the viewer and for a screen reader\n%s", page)
+	}
+	if strings.Contains(page, `<figcaption>Ved målstregen`) {
+		t.Error("the caption's visible line under the tile should have moved into the viewer's info panel")
 	}
 }
 
@@ -572,12 +709,17 @@ func TestABigAlbumIsCappedWithAPlainLink(t *testing.T) {
 	}
 	// The window really is the first one, and the tail really is absent — counting tiles alone cannot tell a
 	// correct first page from one that rendered the wrong 200.
-	if !strings.Contains(first, "Billede nr 0") || strings.Contains(first, "Billede nr 200") {
+	if !strings.Contains(first, `data-caption="Billede nr 0"`) ||
+		strings.Contains(first, `data-caption="Billede nr 200"`) {
 		t.Errorf("the first page should hold ordinals 0–199\n%s", first)
 	}
-	if strings.Contains(strings.ToLower(first), "<script") {
-		t.Error("reaching the rest of an album must not need script")
+	// Reaching the rest must not need script. The link above is the whole mechanism; this checks nothing has
+	// quietly replaced it with a handler — and that the viewer's own script stays a deferred, same-origin
+	// enhancement rather than a dependency (task 403).
+	if strings.Contains(strings.ToLower(first), "hx-get") {
+		t.Error("paging must not become an htmx swap on a page that has to work without script")
 	}
+	assertScriptsAreDeferredAndOurs(t, first)
 
 	_, body = getPublic(t, srv.URL+"/2026/album/loerdag-morgen?side=2", nil)
 	second := string(body)
@@ -585,7 +727,8 @@ func TestABigAlbumIsCappedWithAPlainLink(t *testing.T) {
 	if got := strings.Count(second, `<span class="frame">`); got != 50 {
 		t.Errorf("the second page carries %d photographs, want the remaining 50", got)
 	}
-	if !strings.Contains(second, "Billede nr 200") || strings.Contains(second, "Billede nr 199") {
+	if !strings.Contains(second, `data-caption="Billede nr 200"`) ||
+		strings.Contains(second, `data-caption="Billede nr 199"`) {
 		t.Errorf("the second page should hold ordinals 200–249\n%s", second)
 	}
 	// And no link onward from the last page: a control promising a page that does not exist is the failure the
@@ -638,10 +781,10 @@ func TestTheFotoDeepLinkRendersThePageHoldingIt(t *testing.T) {
 					resp.StatusCode)
 			}
 			page := string(body)
-			if !strings.Contains(page, tc.want+"<") {
+			if !strings.Contains(page, `data-caption="`+tc.want+`"`) {
 				t.Errorf("want %q on the page: %s", tc.want, tc.why)
 			}
-			if strings.Contains(page, tc.deny+"<") {
+			if strings.Contains(page, `data-caption="`+tc.deny+`"`) {
 				t.Errorf("did not want %q on the page: %s", tc.deny, tc.why)
 			}
 			// The anchor is the half of the link the browser uses. Without it the server lands on the right page
@@ -689,10 +832,10 @@ func TestTheFotoDeepLinkCountsPositionsRatherThanOrdinals(t *testing.T) {
 	}
 	page := string(body)
 
-	if !strings.Contains(page, "Billede nr 5<") {
+	if !strings.Contains(page, `data-caption="Billede nr 5"`) {
 		t.Errorf("the deep link must land on the page the item is *positioned* on, not on ordinal/cap\n%s", page)
 	}
-	if strings.Contains(page, "Billede nr 200<") {
+	if strings.Contains(page, `data-caption="Billede nr 200"`) {
 		t.Error("a high ordinal near the front of an album is not a high position: this is page two, which " +
 			"means the side was derived by dividing the ordinal")
 	}
