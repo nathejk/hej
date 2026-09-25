@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/julienschmidt/httprouter"
@@ -97,11 +98,12 @@ type publicAlbumItem struct {
 // albumPageHandler renders one album.
 //
 // @Summary      One public album (HTML)
-// @Description  A curated album: its title, description and photographs in the curator's order. **Every photograph is its own img tag — there is no carousel** — so every one is reachable on a desktop without a swipe and without script. Thumbnails are served, lazily. At most 200 photographs per response (task 399): a larger album carries a plain "Vis flere" link to `?side=2`, which is a real link and not script, so every photograph stays reachable with JavaScript disabled. `side` is clamped rather than validated — a nonsense or out-of-range value lands on the first page, because the address still names a real album. Unpublished, deleted and unknown albums all answer 404 identically, so the open web cannot enumerate drafts. Unauthenticated and it ignores the session cookie entirely. Not indexed.
+// @Description  A curated album: its title, description and photographs in the curator's order. **Every photograph is its own img tag — there is no carousel** — so every one is reachable on a desktop without a swipe and without script. Thumbnails are served, lazily. At most 200 photographs per response (task 399): a larger album carries a plain "Vis flere" link to `?side=2`, which is a real link and not script, so every photograph stays reachable with JavaScript disabled. `foto` is a deep link to one photograph by ordinal (task 401): it renders whichever page holds that item, and it **wins over `side`** when both are given, because a photograph is what a sender meant and a window is only how the page is cut up today. Both parameters are clamped or ignored rather than validated — a nonsense, out-of-range or taken-down value lands on the album's first page, never a 404 or a 400, because the address still names a real album. Every tile carries `id="foto-{ordinal}"`, so a link with the matching fragment scrolls to it with no script at all. Unpublished, deleted and unknown albums all answer 404 identically, so the open web cannot enumerate drafts. Unauthenticated and it ignores the session cookie entirely. Not indexed.
 // @Tags         public-site
 // @Produce      html
 // @Param        slug  path      string  true   "album slug"
 // @Param        side  query     int     false  "which window of 200 photographs, 1-based (default 1)"
+// @Param        foto  query     int     false  "open on this ordinal: renders the page holding it, and overrides side"
 // @Success      200  {string}  string  "the page"
 // @Failure      404  {object}  map[string]string  "unknown, unpublished or deleted"
 // @Failure      429  {object}  map[string]string  "read rate limit, by IP"
@@ -148,7 +150,7 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 		Album:          a,
 	}
 
-	window, side, hasMore := albumPageWindow(items, r.URL.Query().Get("side"))
+	window, side, hasMore := albumPageWindow(items, albumRequestedSide(items, r.URL.Query()))
 	data.HasMore = hasMore
 	data.NextSide = side + 1
 	for _, it := range window {
@@ -162,6 +164,61 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	app.renderPublicPage(w, "album", data)
+}
+
+// albumRequestedSide decides which window a request asks for, from `foto` if it names an item and `side`
+// otherwise (task 401).
+//
+// # Why `foto` beats `side`
+//
+// They are different kinds of request and only one of them was typed by a human. `side` names a window — it
+// comes from the "Vis flere" link this page rendered a moment ago. `foto` names **a specific photograph**, and
+// it comes from somebody having pressed share in the viewer (task 405). When a link carries both and they
+// disagree, the photograph is what the sender meant; the window is an implementation detail of how this page
+// happens to be cut up today, and the cut can move when a curator adds photographs.
+//
+// So a stale `?side=2&foto=17` still lands on the photograph.
+func albumRequestedSide(items []album.Item, query url.Values) string {
+	if side, ok := albumSideHolding(items, query.Get("foto")); ok {
+		return strconv.Itoa(side)
+	}
+	return query.Get("side")
+}
+
+// albumSideHolding finds which 1-based side holds the item with this ordinal.
+//
+// # An ordinal is not an index, and this is the bug that division would have shipped
+//
+// `ordinal / albumPageCap + 1` reads correctly and is wrong. An ordinal identifies a **slot in this album**,
+// and the slots are sparse: `album_item` rows are soft-deleted, and a photograph deleted from the library stops
+// satisfying the join in `BySlug` — which is exactly how the projection intends a deletion to take effect
+// everywhere at once. So an album that has had items removed can hand back ordinals 0, 1, 5, 9, 400, and
+// dividing 400 by the cap would send a visitor to page 3 of a one-page album.
+//
+// The position in the slice `BySlug` returned is the only thing that knows where an item actually sits, so that
+// is what this counts. Linear, over a few hundred items, once per request that carries the parameter.
+//
+// # Not found is not an error
+//
+// A missing, non-numeric, negative or unknown ordinal returns false and the caller falls back to `side`, which
+// means the album's first page. PRD 023 §8: the address still names a real, published album, and a link that
+// has half-rotted — because the photograph it pointed at was taken down — should land on the album rather than
+// on an error page. **Ordinal 0 is a perfectly good ordinal**, so it must not be lumped in with the rubbish;
+// `strconv.Atoi` plus a lookup keeps that distinction without a special case.
+func albumSideHolding(items []album.Item, rawFoto string) (int, bool) {
+	if rawFoto == "" {
+		return 0, false
+	}
+	ordinal, err := strconv.Atoi(rawFoto)
+	if err != nil {
+		return 0, false
+	}
+	for i, it := range items {
+		if it.Ordinal == ordinal {
+			return i/albumPageCap + 1, true
+		}
+	}
+	return 0, false
 }
 
 // albumSide reads the `side` query parameter as a 1-based window number.

@@ -545,17 +545,34 @@ and it is the reason this was worth overriding §4 for.
 
 ### 7.8 Share — a link to this photograph in this album
 
-The shared URL is `https://…/2026/album/{slug}?foto={ordinal}` — absolute, because it is going into somebody
-else's messaging app.
+The shared URL is `https://…/2026/album/{slug}?foto={ordinal}#foto-{ordinal}` — absolute, because it is going
+into somebody else's messaging app, and **carrying both a query and a fragment**, because they do two different
+jobs. Task 401 found this while implementing: the first draft of this section said the query alone would scroll
+the recipient to the photograph, and it will not.
+
+- The **query** is for the server: it is what lets the handler render the page that holds item 137 rather than
+  the album's first page.
+- The **fragment** is for the browser: a query string scrolls nowhere, and only `#foto-137` matching a tile's
+  `id` gets a recipient to the photograph without script.
+
+Neither half is redundant and neither can do the other's work — a fragment is never sent to a server, so a
+hash-only link cannot reach past the first page at all. Each still degrades sensibly alone: query-only lands on
+the right page unscrolled, fragment-only scrolls correctly within whatever page it got.
 
 This is why the viewer's address is a **query parameter and not a fragment**, and the requirement is worth
 reading in that order: a hash is client-only, so a recipient who opens `#foto-137` lands on the album's
 first page and, if the album is past the cap, the photograph they were sent is a "Vis flere" press away.
 `?foto=137` lets the **server** do the work it is holding the data for: it renders the page containing item
-137, the tile carries `id="foto-137"` so the browser scrolls there by itself, and the viewer opens on it if
-it loaded. A recipient with JavaScript off still gets the right photograph on the right page, which a hash
-cannot do at all. With a 200-item cap most albums are one page and the derivation is trivial — it is there so
-that a shared link does not quietly stop working the first time an album is bigger.
+137, the tile carries `id="foto-137"` so the browser scrolls there by itself once the fragment is on the URL
+too, and the viewer opens on it if it loaded. A recipient with JavaScript off still gets the right photograph
+on the right page, which a hash cannot do at all. With a 200-item cap most albums are one page and the
+derivation is trivial — it is there so that a shared link does not quietly stop working the first time an album
+is bigger.
+
+**And the derivation is a lookup, not a division.** An ordinal identifies a slot in the album, not a position
+in it: `album_item` rows are soft-deleted and a deleted photograph stops satisfying `BySlug`'s join, so a
+long-lived album hands back sparse ordinals and `ordinal / cap` sends a visitor to a page the photograph is not
+on (task 401).
 
 Also worth noting given §2's timing: a shared album link is read **days later**, often on a different device
 from the one that sent it. That is the opposite of glimt's "look at this now" and it is the reason the address

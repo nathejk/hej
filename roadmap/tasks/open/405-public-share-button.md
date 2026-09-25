@@ -10,7 +10,7 @@
 ## Description
 
 PRD 023 §4, §6 ("Functional — share (public only)") and §7.8. A share control in the **public** viewer's
-action row that shares the absolute `https://…/2026/album/{slug}?foto={ordinal}` — a link to this photograph
+action row that shares the absolute `https://…/2026/album/{slug}?foto={ordinal}#foto-{ordinal}` — a link to this photograph
 in this album.
 
 **Depends on task 401.** That task makes `?foto=` resolve on the server; this one is only useful once it does.
@@ -47,7 +47,9 @@ decision rather than become an omission by implementation. Do not add Open Graph
 
 ## Acceptance Criteria
 
-- [ ] The shared URL is absolute and carries `?foto={ordinal}` for the photograph on screen, and opening it on
+- [ ] The shared URL is absolute and carries **both** `?foto={ordinal}` and `#foto-{ordinal}` for the photograph
+      on screen — the query is what lets the server render the right page, the fragment is what scrolls the
+      recipient to the tile, and neither can do the other's job (task 401 found this; PRD 023 §7.8). Opening it on
       a device that has never loaded the album lands on that photograph
 - [ ] `navigator.share` is called with `title` and `url` only — no `files`, asserted by a source guard that
       strips comments before searching
@@ -60,3 +62,4 @@ decision rather than become an omission by implementation. Do not add Open Graph
 ## Progress Log
 
 - 2026-09-25 — Task created from PRD 023.
+- 2026-09-25 — Updated while task 401 landed: the shared URL needs the fragment as well as the query. A query string scrolls nowhere and a fragment is never sent to a server, so the link carries both.

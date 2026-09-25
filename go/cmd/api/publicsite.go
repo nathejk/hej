@@ -722,7 +722,13 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 {{$album := .Album}}
 <div class="photos">
   {{range .Items}}
-  <figure>
+  <!-- id="foto-N" is the other half of the ?foto= deep link (task 401), and the halves do different jobs:
+       the **query** tells this handler which page to render, and the **fragment** tells the browser where to
+       scroll once it has it. A query string alone scrolls nowhere — only a fragment does — and a fragment
+       alone cannot reach past the first page, because a fragment is never sent to a server. So a shared link
+       carries both (?foto=137 plus #foto-137 — no backticks in here, see the stylesheet's warning), and each
+       half still degrades to something sensible on its own. -->
+  <figure id="foto-{{.Ordinal}}">
     <!-- The thumbnail, always: this page is read by a lot of people at once on whatever connection
          they have. Every item gets its own tag — there is no carousel here, so every photograph is
          reachable on a desktop without a swipe and without script. See the handler comment.

@@ -595,6 +595,112 @@ func TestABigAlbumIsCappedWithAPlainLink(t *testing.T) {
 	}
 }
 
+// The deep link lands on the page holding the photograph (task 401).
+//
+// # The case that matters is the one past the cap
+//
+// Within the first page every implementation works, including the wrong ones, which is why this walks the cap
+// boundary. A shared link is opened days later on somebody else's device (PRD 023 §2) — there is no app state
+// to fall back on and no second chance to get it right.
+func TestTheFotoDeepLinkRendersThePageHoldingIt(t *testing.T) {
+	app, store := albumApp(t)
+	bigAlbum(t, store, "loerdag-morgen", albumPageCap+50)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	for _, tc := range []struct {
+		query      string
+		want, deny string
+		why        string
+	}{
+		{"?foto=0", "Billede nr 0", "Billede nr 200",
+			"ordinal 0 is a real ordinal and must not be treated as a missing parameter"},
+		{"?foto=210", "Billede nr 210", "Billede nr 0",
+			"an ordinal past the cap must land on its own page, not on the first one"},
+		{"?foto=249", "Billede nr 249", "Billede nr 199",
+			"the last photograph is reachable by link"},
+		// `foto` wins over `side`: the photograph is what the sender meant, and the window is only how this page
+		// happens to be cut up today.
+		{"?side=1&foto=210", "Billede nr 210", "Billede nr 0",
+			"a stale side beside a foto must not win"},
+		{"?side=2&foto=3", "Billede nr 3", "Billede nr 210",
+			"and that is true in both directions"},
+		// Rubbish and rot land on the album, never on an error.
+		{"?foto=abc", "Billede nr 0", "Billede nr 210", "nonsense falls back to the first page"},
+		{"?foto=-4", "Billede nr 0", "Billede nr 210", "a negative ordinal falls back"},
+		{"?foto=99999", "Billede nr 0", "Billede nr 210",
+			"an ordinal that no longer exists — the photograph was taken down — lands on the album"},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			resp, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen"+tc.query, nil)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("want 200 — a half-rotted link must land on the album, not on an error — got %d",
+					resp.StatusCode)
+			}
+			page := string(body)
+			if !strings.Contains(page, tc.want+"<") {
+				t.Errorf("want %q on the page: %s", tc.want, tc.why)
+			}
+			if strings.Contains(page, tc.deny+"<") {
+				t.Errorf("did not want %q on the page: %s", tc.deny, tc.why)
+			}
+			// The anchor is the half of the link the browser uses. Without it the server lands on the right page
+			// and the visitor still has to hunt for the photograph.
+			if !strings.Contains(page, `<figure id="foto-`) {
+				t.Errorf("every tile needs its anchor\n%s", page)
+			}
+		})
+	}
+}
+
+// An ordinal is not an index, and a division would have shipped that bug (task 401).
+//
+// `album_item` rows are soft-deleted and a photograph deleted from the library stops satisfying `BySlug`'s
+// join — which is how the projection intends a deletion to take effect everywhere at once. So a long-lived
+// album hands back sparse ordinals, and `ordinal / albumPageCap + 1` would send a visitor to a page the
+// photograph is not on.
+//
+// # The fixture has to be past the cap, and the first version of this test was not
+//
+// Written first with three sparsely-numbered photographs, it passed with the division in place — because
+// `albumPageWindow` returns early for an album at or under the cap and never consults the side at all. A guard
+// that cannot fail is worse than no guard, so the fixture is now 250 items with **one** deliberately high
+// ordinal near the front: the two implementations disagree about which page holds it, and only one of them is
+// right.
+func TestTheFotoDeepLinkCountsPositionsRatherThanOrdinals(t *testing.T) {
+	app, store := albumApp(t)
+	bigAlbum(t, store, "loerdag-morgen", albumPageCap+50)
+
+	// Position 5 — firmly on page one — carrying an ordinal from a much larger album that has since been
+	// pruned. Dividing it by the cap lands on page 21, which clamps to the last page, which is nowhere near it.
+	const strandedOrdinal = 4000
+	for i := range store.albums {
+		if store.albums[i].album.Slug == "loerdag-morgen" {
+			store.albums[i].items[5].Ordinal = strandedOrdinal
+		}
+	}
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	resp, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen?foto=4000", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	page := string(body)
+
+	if !strings.Contains(page, "Billede nr 5<") {
+		t.Errorf("the deep link must land on the page the item is *positioned* on, not on ordinal/cap\n%s", page)
+	}
+	if strings.Contains(page, "Billede nr 200<") {
+		t.Error("a high ordinal near the front of an album is not a high position: this is page two, which " +
+			"means the side was derived by dividing the ordinal")
+	}
+	if !strings.Contains(page, `id="foto-4000"`) {
+		t.Error("the anchor must carry the item's real ordinal, since that is what the link names")
+	}
+}
+
 // An ordinary album gets no paging furniture at all.
 //
 // Worth its own test because the cap is insurance, not a feature: PRD 011's albums are three to five dozen
