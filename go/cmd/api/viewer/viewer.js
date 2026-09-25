@@ -489,6 +489,11 @@
     unlockScroll();
     ui.img.removeAttribute('src');
 
+    // Leaving fullscreen with the viewer, because the thing that was fullscreen is the thing being closed.
+    // Without this, closing while fullscreen leaves the browser filling the screen with the album page behind —
+    // no chrome, no viewer, and no obvious way back.
+    if (fullscreenElement()) exitFullscreen();
+
     // Announced for the same reason as hv:show: a host page may have work it deliberately deferred until the
     // overlay was out of the way — the admin tool reloads its sheet here rather than swapping 120 thumbnails out
     // from under somebody who is still looking at one.
@@ -611,15 +616,9 @@
     openFromURL();
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', start);
-  } else {
-    start();
-  }
-
   // The seam the other tasks use: fullscreen (404), share (405), the caption editor (407) and the credit
-  // editor (408) each call `register` once, at the bottom of this file. Exposed on `window` rather than kept
-  // private so that a host page can also rebind after replacing its tiles.
+  // editor (408) each call `register` once. Exposed on `window` rather than kept private so that a host page can
+  // register its own controls — which is what the admin tool's editors do — and rebind after replacing its tiles.
   window.hejViewer = {
     register: function (name, action) { actions[name] = action; },
     bind: bindAll,
@@ -783,5 +782,21 @@
         );
       },
     });
+  }
+
+  // **Last, and that is the fix for a real bug** (task 415).
+  //
+  // `start()` binds the containers and — crucially — opens the viewer immediately when the address carries
+  // `?foto=`. It used to run halfway up this file, before the controls below were registered, so a cold load of a
+  // shared link built its action row from an **empty registry**: a viewer with nothing but a close button, no
+  // fullscreen and no share. Reported from Brave on macOS, and reproducible every time by reloading the page the
+  // viewer had just put `?foto=` on.
+  //
+  // The ordering is the whole guarantee, so it is asserted by test rather than left to whoever adds the next
+  // control to notice.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
   }
 })();

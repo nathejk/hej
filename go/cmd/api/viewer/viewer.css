@@ -45,6 +45,21 @@
   background: #111;
 }
 
+/* **A closed dialog must be told to hide, because the rule above unhides it** (task 415).
+ *
+ * The browser's own stylesheet has `dialog:not([open]) { display: none }`, and it is tempting to think the rule
+ * above loses to it on specificity — `dialog:not([open])` is (0,1,1) against `.hv`'s (0,1,0). It does not, and
+ * that is the trap: **the cascade compares origin before specificity**, and any author declaration beats a
+ * user-agent one however specific. So `display: grid` above applies to a *closed* dialog too, and `.close()`
+ * leaves a full-viewport dark box sitting over the page with nothing in it — which is exactly the bug reported
+ * from Brave on macOS: the photograph vanished (the JavaScript ran) and the viewer stayed (the CSS won).
+ *
+ * This is also why Pico ships the same rule for the elements it styles. Anything that sets `display` on a
+ * `dialog` has to hide it again by hand. */
+.hv:not([open]) {
+  display: none;
+}
+
 /* The photograph, and the two arrows that sit over it. */
 .hv-stage {
   position: relative;

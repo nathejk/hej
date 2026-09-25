@@ -365,6 +365,71 @@ func TestASharedLinkDropsThePageNumber(t *testing.T) {
 	}
 }
 
+// A closed dialog must be hidden by our own stylesheet (task 415).
+//
+// # The bug this is the guard for, because it is genuinely counter-intuitive
+//
+// The browser's stylesheet has `dialog:not([open]) { display: none }`, and `.hv { display: grid }` looks like it
+// should lose to it — (0,1,1) against (0,1,0) on specificity. It does not: **the cascade compares origin before
+// specificity**, and any author declaration beats a user-agent one however specific. So setting `display` on a
+// dialog silently un-hides it when closed.
+//
+// Reported from Brave on macOS: clicking the close control made the photograph vanish (the JavaScript ran) while
+// the dark overlay stayed (the CSS won), and `Esc` then did nothing because the dialog was already closed. Pico
+// carries the same rule for the same reason, which is the hint that this is a property of `dialog` rather than a
+// mistake peculiar to this file.
+func TestAClosedViewerIsHidden(t *testing.T) {
+	css := withoutComments(viewerAsset(t, "viewer.css"))
+
+	i := strings.Index(css, ".hv:not([open])")
+	if i < 0 {
+		t.Fatal("viewer.css must hide a closed dialog itself: it sets display on .hv, which beats the browser's " +
+			"own dialog:not([open]) rule by cascade origin, so .close() would leave the overlay on screen")
+	}
+	rule := css[i:]
+	if j := strings.Index(rule, "}"); j >= 0 {
+		rule = rule[:j]
+	}
+	if !strings.Contains(rule, "display: none") {
+		t.Errorf("the closed-dialog rule must hide it:\n%s", rule)
+	}
+}
+
+// The controls are registered before anything can open the viewer (task 415).
+//
+// # Why the order is a correctness property and not tidiness
+//
+// `start()` does two things: it binds the containers, and it **opens the viewer immediately** when the address
+// carries `?foto=`. It used to run halfway up the file, before the controls at the bottom were registered, so a
+// cold load of a shared link built its action row from an empty registry — a viewer with a close button and
+// nothing else.
+//
+// That is not a corner case. The viewer puts `?foto=` on the address as you move, so reloading the page
+// reproduces it every time, which is exactly how it was found: "there is no fullscreen icon, and no share icon"
+// from Brave on macOS.
+//
+// Asserted by position, because the failure is invisible in review — both orderings look equally sensible — and
+// silent in every Go test, since none of them can execute this file.
+func TestTheViewerRegistersItsControlsBeforeItCanOpen(t *testing.T) {
+	code := withoutComments(viewerAsset(t, "viewer.js"))
+
+	start := strings.LastIndex(code, "start();")
+	if start < 0 {
+		t.Fatal("viewer.js never starts")
+	}
+	for _, name := range []string{"register('fullscreen'", "register('share'"} {
+		at := strings.Index(code, name)
+		if at < 0 {
+			t.Errorf("no %s", name)
+			continue
+		}
+		if at > start {
+			t.Errorf("%s is registered after the viewer can open, so a ?foto= load builds its action row from an "+
+				"empty registry — a viewer with nothing but a close button", name)
+		}
+	}
+}
+
 // Every class the viewer's CSS defines is prefixed, and its JS uses the same prefix.
 //
 // The viewer is loaded beside two other stylesheets it does not control — the public site's inline CSS and the

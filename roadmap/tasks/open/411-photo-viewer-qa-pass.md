@@ -58,3 +58,4 @@ where they went. A pass with no notes is indistinguishable from a pass that did 
 ## Progress Log
 
 - 2026-09-25 — Task created from PRD 023.
+- 2026-09-25 — Sharpened by task 415, which found two bugs in first use that this pass was meant to catch: the viewer could not be closed at all (a cascade conflict on `dialog`), and a `?foto=` load opened it with no controls (an initialisation order). Every guard written for tasks 402–408 passed throughout, because they assert *decisions* — no surface check, no `files` in a share, the filmstrip hidden by media query — and no source-reading test can see a cascade conflict or an ordering. **Two checks from this pass are cheap enough to run on every change to the viewer, and should be:** open it and close it, and reload the page it leaves in the address bar.
