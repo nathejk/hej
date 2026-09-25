@@ -431,6 +431,9 @@ var publicSiteFuncs = template.FuncMap{
 	// because the same count appears in the admin tool's markup and in six Go sentences, and this page was the one
 	// of the nine written without the singular. See plural.go.
 	"photos": photoCount,
+	// `albums` is the count beside the "Billeder" heading. **`album` is invariant in Danish**, and the helper is
+	// how that is said once rather than guessed at by analogy with `billede` — see plural.go.
+	"albums": albumCount,
 }
 
 // publicSiteTemplates is the whole site: one layout plus one template per page.
@@ -479,25 +482,86 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   section { border-top: 1px solid #ddd; padding: 1.25rem 0; }
   .empty { border: 1px dashed #bbb; border-radius: .5rem; padding: 1.5rem; text-align: center;
          color: #555; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-         gap: .75rem; }
-  .card { display: block; color: inherit; text-decoration: none; }
-  .card img { width: 100%; height: auto; border-radius: .25rem; background: #eee; display: block; }
-  .card .name { font-weight: 600; margin-top: .35rem; }
-  .card .meta { color: #666; font-size: .85rem; }
+  /* The album list (task 414).
+
+     It was three inline spans under a photograph of whatever shape the photograph happened to be, so a
+     row of cards agreed on nothing: the title, the description and the count ran together on one line
+     because a span has no block box to hang a margin-top off, and every cover was a different height, so
+     the labels started at a different place in each column. It read as a list of links that happened to
+     have pictures near them.
+
+     The shape is the one a photo library uses, and each part of it is load-bearing:
+
+     - a **fixed square crop**, so the covers are the same shape whatever the photographer framed. That is
+       what lets the eye read down a column instead of along a ragged edge;
+     - the **label as a block stack**, so the title, the description and the count are three lines in a
+       fixed order and the titles share a baseline across the row;
+     - the crop on a **wrapper** rather than on the img itself, so the grey box has the same footprint as a
+       photograph. A cover that has not loaded — or an album that has none — must not make its card
+       shorter than its neighbours, which is the state a visitor on the event's connection sees first.
+
+     auto-fill rather than auto-fit: with two albums, auto-fit collapses the empty tracks and stretches
+     the two covers to half the page each, which is a slideshow rather than a list.
+
+     No backtick anywhere in here: this stylesheet lives in a Go raw string, so one would end the literal
+     and the compiler would point at a line of CSS. See the template's own comment. */
+  .albumgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+         gap: 1.5rem 1rem; }
+  .album { display: block; color: inherit; text-decoration: none; }
+  .album .cover { display: flex; align-items: center; justify-content: center;
+         aspect-ratio: 1 / 1; overflow: hidden; border-radius: .375rem; background: #eee; }
+  .album .cover img { width: 100%; height: 100%; object-fit: cover; display: block;
+         transition: opacity .15s ease-in-out; }
+  .album:hover .cover img { opacity: .85; }
+  .album:hover .name { text-decoration: underline; }
+  /* Lucide's "image", inline (see .rules: same icon set as the app, no build step to import it through).
+     Quiet on purpose — it marks an album whose cover is missing, which is not news the visitor needs. */
+  .album .cover .nocover { width: 2rem; height: 2rem; color: #a3a3a3; }
+  .album .name { display: block; font-weight: 600; font-size: 1.05rem; line-height: 1.25;
+         margin-top: .5rem; }
+  .album .desc { display: block; color: #555; font-size: .9rem; margin-top: .1rem; }
+  .album .meta { display: block; color: #777; font-size: .85rem; margin-top: .1rem; }
+  /* The count beside the heading, as in a photo library's year header. Not the display font and not the
+     heading's weight: it is a fact about the list, not part of its name. */
+  h2 .count { font-family: system-ui, sans-serif; font-weight: 400; font-size: .95rem;
+         letter-spacing: 0; color: #64748b; }
   .thumbs { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem; }
   .thumbs img { width: 100%; height: auto; border-radius: .25rem; background: #eee; display: block; }
-  /* One photograph per row on a phone, two where there is room. Wider than the thumbnail grid on
-     purpose: an album is for looking at, so the pictures get the space. */
-  .photos { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
-         gap: 1rem; }
+  /* The album page's photograph grid (task 398, PRD 023 §7.1).
+
+     It used to be minmax(18rem, 1fr) — one photograph per row on a phone, two where there was room — on the
+     reasoning that an album is for looking at, so the pictures should get the space. That was right about the
+     goal and wrong about the mechanism, in a way worth recording because it is easy to repeat:
+
+     **an 18rem column is a 288px tile, and the stored thumbnail is 320px on its longest edge.** So the tile
+     was very nearly the whole image, and on the 2x display every phone has, visibly soft — while an album of
+     300 photographs asked the browser to lay out and decode 300 of them. Slow *and* blurry, which is the
+     worst trade available: we were paying for upscaled pixels.
+
+     At ~10rem the 320px thumbnail is a genuine 2x image, a tile costs a quarter of the decode, and a screen
+     holds enough photographs to scan. "Looking at" one is what the viewer is for (PRD 023) — the grid's job
+     is finding it.
+
+     Square crops so the rows line up, and the crop is on a wrapper rather than the img so a photograph that
+     has not loaded holds its space. Same shape as the frontpage's album cards (task 414); not shared with
+     them because these tiles are half the size and the two will drift apart deliberately.
+
+     The caption and the credit still sit under each tile. They leave in task 403, **with** the viewer that
+     replaces them — the credit is a published attribution (task 393) and PRD 011's one documented exception
+     to naming no person, so taking it off the page before there is somewhere else to read it would be a
+     regression dressed as a layout change. Hence a two-line label under a small tile for now, which is
+     merely less pretty. */
+  .photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+         gap: 1rem .75rem; align-items: start; }
   .photos figure { margin: 0; }
-  .photos img { width: 100%; height: auto; border-radius: .25rem; background: #eee; display: block; }
-  .photos figcaption { color: #555; font-size: .9rem; margin-top: .35rem; }
+  .photos .frame { display: block; aspect-ratio: 1 / 1; overflow: hidden; border-radius: .25rem;
+         background: #eee; }
+  .photos .frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .photos figcaption { color: #555; font-size: .8rem; line-height: 1.35; margin-top: .3rem; }
   /* The photographer's credit (task 393). Its own block under the caption, quieter than it: the caption is
      what the photograph is of, the credit is who took it, and running them together as one sentence would
      read as though the photographer were part of the scene. */
-  .photos .credit { display: block; color: #777; font-size: .8rem; margin-top: .15rem; }
+  .photos .credit { display: block; color: #777; font-size: .75rem; margin-top: .1rem; }
   /* The patrol page's header: who they are on the left, the diploma on the right. Flex rather than
      grid so it collapses to one column on a narrow screen without a media query. */
   .patrolhead { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start;
@@ -582,17 +646,30 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 
 {{if .ShowAlbums}}
 <section>
-  <h2>Billeder</h2>
+  <h2>Billeder{{if .Albums}} <span class="count">({{albums (len .Albums)}})</span>{{end}}</h2>
   {{if .Albums}}
-  <div class="grid">
+  <div class="albumgrid">
     {{range .Albums}}
-    <a class="card" href="{{$.Root}}/album/{{.Slug}}">
-      {{if .HasCover}}
-      <img src="/api/public/albums/{{.CoverAlbumID}}/media/{{.CoverOrdinal}}?variant=thumb"
-           alt="{{.Title}}" loading="lazy" decoding="async">
-      {{end}}
+    <a class="album" href="{{$.Root}}/album/{{.Slug}}">
+      <!-- The cover's alt is **empty on purpose**: the title is the next thing in the link, so a
+           description here would have a screen reader read the album's name twice. The wrapper is what
+           carries the crop, so it stands in for a missing cover at the same size. -->
+      <span class="cover">
+        {{if .HasCover}}
+        <img src="/api/public/albums/{{.CoverAlbumID}}/media/{{.CoverOrdinal}}?variant=thumb"
+             alt="" loading="lazy" decoding="async">
+        {{else}}
+        <svg class="nocover" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
+          <circle cx="9" cy="9" r="2"/>
+          <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+        </svg>
+        {{end}}
+      </span>
       <span class="name">{{.Title}}</span>
-      {{if .Description}}<span class="meta">{{.Description}}</span>{{end}}
+      {{if .Description}}<span class="desc">{{.Description}}</span>{{end}}
       {{if .Count}}<span class="meta">{{photos .Count}}</span>{{end}}
     </a>
     {{end}}
@@ -648,11 +725,19 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   <figure>
     <!-- The thumbnail, always: this page is read by a lot of people at once on whatever connection
          they have. Every item gets its own tag — there is no carousel here, so every photograph is
-         reachable on a desktop without a swipe and without script. See the handler comment. -->
-    <img src="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}?variant=thumb"
-         alt="{{if .Caption}}{{.Caption}}{{else}}Billede fra {{$album.Title}}{{end}}"
-         loading="lazy" decoding="async"
-         {{if and .Width .Height}}width="{{.Width}}" height="{{.Height}}"{{end}}>
+         reachable on a desktop without a swipe and without script. See the handler comment.
+
+         The .frame wrapper is what carries the square crop (task 398). On the img itself it would collapse
+         when the bytes have not arrived, so a half-loaded grid would jump as each photograph landed — which
+         is the thing width/height were added to prevent. Those attributes stay: they are the image's real
+         proportions, they are what a reader saving the page gets, and this grid simply does not use them for
+         layout. -->
+    <span class="frame">
+      <img src="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}?variant=thumb"
+           alt="{{if .Caption}}{{.Caption}}{{else}}Billede fra {{$album.Title}}{{end}}"
+           loading="lazy" decoding="async"
+           {{if and .Width .Height}}width="{{.Width}}" height="{{.Height}}"{{end}}>
+    </span>
     {{if or .Caption .Credit}}<figcaption>{{.Caption}}{{if .Credit}}<span class="credit">{{.Credit}}</span>{{end}}</figcaption>{{end}}
   </figure>
   {{end}}

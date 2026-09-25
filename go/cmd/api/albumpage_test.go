@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -272,6 +274,94 @@ func TestAlbumPageRendersItsPhotographs(t *testing.T) {
 		if !strings.Contains(page, want) {
 			t.Errorf("the album page is missing %q\n%s", want, page)
 		}
+	}
+}
+
+// The grid must never display a thumbnail larger than the thumbnail actually is (task 398, PRD 023 §7.1).
+//
+// # Why a test about CSS, in a suite that cannot execute any
+//
+// Because the number *is* the decision. The stored thumbnail is 320px on its longest edge
+// (`glimtThumbEdges`), and this grid used to ask for an 18rem column — a 288px tile, so very nearly the whole
+// image, and visibly soft on the 2× display every phone has. An album of 300 photographs was therefore both
+// slower and blurrier than it needed to be: we were paying to upscale.
+//
+// One number fixes it, and the thing most likely to undo it is somebody widening the column again because a
+// page "looks too dense" — a change that looks purely cosmetic and is not. This fails when they do, and the
+// message says what it costs and what the alternative is.
+//
+// # The stylesheet is read with its comments stripped
+//
+// Deliberately, because the comment above the rule quotes `minmax(18rem, 1fr)` in order to explain what was
+// wrong with it. A needle that matches the prose explaining the rule is the recurring failure of
+// source-reading guards in this repo — four times so far; see `foldBody` in
+// `nathejk/table/album/membershipsafety_test.go`.
+func TestTheAlbumGridDoesNotUpscaleItsThumbnails(t *testing.T) {
+	app, _ := albumApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
+	page := string(body)
+
+	// Every thumbnail sits in the square frame. It is what makes a row of tiles line up, and what holds a
+	// tile's space before its bytes arrive — on the img itself the ratio collapses while the image is
+	// loading, and the grid jumps as each photograph lands.
+	if got, want := strings.Count(page, `<span class="frame">`), 2; got != want {
+		t.Errorf("want one square frame per item (%d), got %d\n%s", want, got, page)
+	}
+
+	css := stripCSSComments(page)
+	i := strings.Index(css, ".photos {")
+	if i < 0 {
+		t.Fatalf("no .photos rule in the page's stylesheet\n%s", css)
+	}
+	rule := css[i:]
+	if j := strings.Index(rule, "}"); j >= 0 {
+		rule = rule[:j]
+	}
+
+	// 10rem is 160px at a 16px root, which a 320px thumbnail covers exactly at 2×.
+	const maxTileRem = 10.0
+
+	m := regexp.MustCompile(`minmax\(([0-9.]+)rem`).FindStringSubmatch(rule)
+	if m == nil {
+		t.Fatalf("the .photos grid no longer sizes its columns with minmax(…rem), so this guard cannot "+
+			"check them: %q", rule)
+	}
+	rem, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		t.Fatalf("unreadable column width %q: %v", m[1], err)
+	}
+	if rem > maxTileRem {
+		t.Errorf("the album grid asks for a %grem column, i.e. a %.0fpx tile, while the stored thumbnail is "+
+			"%dpx on its longest edge — so every photograph on the page is upscaled, and soft on any 2\u00d7 "+
+			"display. Keep the column at or below %grem, or serve a larger rendition (PRD 023 §7.9).",
+			rem, rem*16, glimtThumbEdges[0], maxTileRem)
+	}
+}
+
+// stripCSSComments removes every /* … */ from a rendered page.
+//
+// So that a guard about a CSS rule cannot be satisfied — or defeated — by the comment that explains the rule.
+// The public site's stylesheet is inline and heavily commented, and those comments quote the declarations they
+// argue against, which is exactly the text a naive `strings.Contains` would match.
+func stripCSSComments(page string) string {
+	var out strings.Builder
+	for {
+		i := strings.Index(page, "/*")
+		if i < 0 {
+			out.WriteString(page)
+			return out.String()
+		}
+		out.WriteString(page[:i])
+		rest := page[i+2:]
+		j := strings.Index(rest, "*/")
+		if j < 0 {
+			// An unterminated comment: everything after it is comment, so there is nothing more to keep.
+			return out.String()
+		}
+		page = rest[j+2:]
 	}
 }
 
