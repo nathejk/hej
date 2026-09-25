@@ -497,37 +497,58 @@ func ruleFor(t *testing.T, css, selector string) string {
 	return rule
 }
 
-// Fullscreen asks the dialog, and reports a refusal (tasks 416, 417).
+// Fullscreen asks the stage, and reports a refusal (tasks 416, 417, 418).
 //
-// # Both directions of this were tried, and only one of them is right
+// # All three targets were tried on a real browser, and only one of them works
 //
-// A modal dialog is in the **top layer**, because `showModal` put it there. The fullscreen API uses the same top
-// layer, and the order things are added to it decides what paints over what.
+// This took three rounds, so the conclusions are asserted rather than described:
 //
-// So fullscreening `document.documentElement` adds `html` to the top layer **after** the dialog: the album page
-// paints over the photograph, and the info panel that is over the photograph in windowed mode ends up under it.
-// That was reported from Brave on macOS after task 416 made exactly that change, and it is worse than the
-// original complaint. Asking the dialog adds nothing above it and leaves the stacking inside the overlay alone.
+//   - **The dialog is refused.** It is in the top layer because `showModal` put it there, and Chromium will not
+//     fullscreen an element that is already in it — the promise rejects (Brave, macOS).
+//   - **The document element is accepted and renders wrong.** It joins the top layer *after* the dialog, so the
+//     album page paints over the photograph and the info panel falls behind it.
+//   - **The stage works**: an ordinary div inside the dialog, so not in the top layer itself, and it holds
+//     everything a fullscreen view needs — the photograph, the arrows, the action row and the caption.
 //
-// # The reporting is the half that stops this repeating
+// Both wrong answers are named, because a guard that only asserts the current target is satisfied by whatever is
+// there. This one fails if either mistake comes back.
 //
-// The original "fullscreen is not working" was diagnosed without a console, because the first version caught the
-// rejected promise and did nothing. A silent failure is what turned a one-line question into two rounds of
-// guesswork, so a refusal now says so on screen.
-func TestFullscreenAsksTheDialogAndReportsRefusal(t *testing.T) {
+// # The reporting is what ended the guessing
+//
+// The original complaint was "fullscreen is not working", and the first version caught the rejected promise and
+// said nothing, so there was no way to tell a refusal from a rendering fault. Two of the three rounds above were
+// spent on that. A refusal now says so on screen.
+func TestFullscreenAsksTheStageAndReportsRefusal(t *testing.T) {
 	code := withoutComments(viewerAsset(t, "viewer.js"))
 
-	if !strings.Contains(code, "enterFullscreen(ctx.dialog)") {
-		t.Error("fullscreen must be requested on the dialog, which is already in the top layer")
+	if !strings.Contains(code, "enterFullscreen(ctx.stage)") {
+		t.Error("fullscreen must be requested on the stage: it is not in the top layer, so the request is accepted, " +
+			"and it holds the photograph, the arrows, the action row and the caption")
 	}
-	if strings.Contains(code, "enterFullscreen(document.documentElement)") {
-		t.Error("requesting fullscreen on the document element adds html to the top layer above the dialog, so the " +
-			"album page paints over the photograph and the caption falls behind it (task 417)")
+	for _, wrong := range []struct{ needle, why string }{
+		{"enterFullscreen(ctx.dialog)",
+			"Chromium refuses a fullscreen request for an element already in the top layer, which a modal dialog " +
+				"is (task 417)"},
+		{"enterFullscreen(document.documentElement)",
+			"the document element joins the top layer above the dialog, so the album page paints over the " +
+				"photograph and the caption falls behind it (task 416)"},
+	} {
+		if strings.Contains(code, wrong.needle) {
+			t.Errorf("%s was tried and is wrong: %s", wrong.needle, wrong.why)
+		}
 	}
 	// A refusal says so. Asserted on the message, because an empty catch block is the shape this guards against
 	// and an empty block is hard to match reliably.
 	if !strings.Contains(code, "Fuld skærm er ikke tilgængelig her.") {
-		t.Error("a refused fullscreen request must say so: swallowing it is what made this take two rounds to find")
+		t.Error("a refused fullscreen request must say so: swallowing it is what made this take three rounds")
+	}
+
+	// The stage has to bring its own background when it becomes the fullscreen element, since the dialog that
+	// supplies the colour in windowed mode is no longer behind it.
+	css := withoutComments(viewerAsset(t, "viewer.css"))
+	if !strings.Contains(css, ".hv-stage:fullscreen") || !strings.Contains(css, ".hv-stage::backdrop") {
+		t.Error("the fullscreen stage needs its own background and backdrop, or it is a photograph on the " +
+			"browser's black rather than on the viewer's")
 	}
 }
 

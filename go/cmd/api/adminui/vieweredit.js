@@ -140,15 +140,14 @@ function initViewerEdit(ctx) {
     editPanel.appendChild(row);
     editPanel.appendChild(note);
 
-    // Inside the dialog, above the filmstrip. Not appended at the end: the info panel now sits over the
-    // photograph (task 416), so "after the info panel" no longer means anything, and an editor below the
-    // filmstrip reads as belonging to the strip rather than to the photograph.
-    const strip = dialog.querySelector('.hv-strip');
-    if (strip) {
-      dialog.insertBefore(editPanel, strip);
-    } else {
-      dialog.appendChild(editPanel);
-    }
+    // **Inside the stage**, because the stage is what goes fullscreen (task 418).
+    //
+    // It used to sit in the dialog beside the filmstrip, which was fine until fullscreen existed: the pencil is in
+    // the action row and stays clickable in fullscreen, so a panel outside the fullscreen element would have
+    // opened somewhere nobody could see it — a control that appears to do nothing, which is a failure this viewer
+    // has already produced twice by other means.
+    const stage = dialog.querySelector('.hv-stage');
+    (stage || dialog).appendChild(editPanel);
 
     editPanel.els = { heading, hint, field, preview, row, save, clear, cancel, note };
 
@@ -206,6 +205,9 @@ function initViewerEdit(ctx) {
   function close() {
     if (!editPanel) return;
     editPanel.hidden = true;
+    // The info panel occupies the same corner of the stage, so the two take turns: while you are editing a
+    // caption, the read-only copy of it underneath would be one sentence out of date.
+    if (open) open.vctx.dialog.classList.remove('is-editing');
     open = null;
   }
 
@@ -266,6 +268,7 @@ function initViewerEdit(ctx) {
     return (vctx) => {
       build(vctx.dialog);
       open = { name, spec, vctx };
+      vctx.dialog.classList.add('is-editing');
       editPanel.hidden = false;
       fill();
       editPanel.els.field.focus();

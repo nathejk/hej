@@ -436,6 +436,9 @@
       item: ui.items[ui.index],
       button: el,
       dialog: ui.dialog,
+      // The stage rather than the whole overlay, for the one control that needs an element to hand to a platform
+      // API. See the fullscreen action: the dialog itself cannot be the one (task 418).
+      stage: ui.stage,
       config: ui.config,
       refresh: function () { show(ui.index); },
     };
@@ -709,24 +712,23 @@
           exitFullscreen();
           return;
         }
-        // **The dialog, and not the document element** (task 417).
+        // **The stage — neither the dialog nor the page** (task 418).
         //
-        // This went the other way in task 416 and that was a mistake, so both halves are recorded here.
+        // Both of the obvious targets are wrong, each in its own way, and both were tried on a real browser
+        // before this. Recorded together because the next person will reach for one of them:
         //
-        // A modal dialog is in the **top layer** because `showModal` put it there. The fullscreen API uses the
-        // same top layer, and the order things were added decides what paints over what. Fullscreening the
-        // document element therefore adds `html` to the top layer *after* the dialog — so the whole album page
-        // paints over the photograph, and the panel that is over the photograph in windowed mode ends up under
-        // it. That is exactly what was reported, and it is worse than the bug 416 was trying to fix.
+        //   - **The dialog is refused.** It is in the top layer, put there by `showModal`, and Chromium will not
+        //     fullscreen an element that is already there — the promise rejects (Brave, macOS, task 417).
+        //   - **The document element renders wrong.** It is accepted, and it joins the top layer *after* the
+        //     dialog, so the album page paints over the photograph and the info panel falls behind it
+        //     (task 416/417).
         //
-        // Asking the dialog is the combination the two features are specified to cope with: it is already in the
-        // top layer, so nothing is added above it and the stacking inside the overlay is untouched.
-        //
-        // Task 416's report was that this target "did nothing", which is why it was changed. That was diagnosed
-        // without a console: the request may have been refused, and the old code caught the rejection and said
-        // nothing. It no longer does — see enterFullscreen — so if this target is genuinely refused, the viewer
-        // now says so instead of leaving somebody to guess.
-        enterFullscreen(ctx.dialog);
+        // The stage is an ordinary div inside the dialog: not in the top layer itself, so the request is
+        // accepted, and it is what a visitor actually wants filled — it holds the photograph, the arrows, the
+        // action row and the caption. The filmstrip and the editor are outside it and so are not part of a
+        // fullscreen view, which is the right trade rather than a regrettable one: fullscreen is for looking at
+        // one photograph as large as the screen allows, and the strip is how you leave it.
+        enterFullscreen(ctx.stage);
       },
     });
   }
