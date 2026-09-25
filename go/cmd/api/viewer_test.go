@@ -304,6 +304,67 @@ func TestFullscreenIsFeatureGatedAndSpeaksBothDialects(t *testing.T) {
 	}
 }
 
+// Share sends a link and never the bytes (task 405, PRD 023 §4, §7.8).
+//
+// # Why `files` is the needle that matters
+//
+// `navigator.share` accepts them, and one line would turn this into a way to hand out copies of a child's
+// photograph that outlive a takedown. A shared **link** stops working when a photograph comes down; a shared
+// **JPEG** does not. That is the whole distinction between "look at this" and republishing, and it is one word
+// away in either direction — so it is asserted rather than trusted.
+func TestShareSendsALinkAndNeverTheBytes(t *testing.T) {
+	code := withoutComments(viewerAsset(t, "viewer.js"))
+
+	if !strings.Contains(code, "navigator.share") {
+		t.Fatal("no share at all")
+	}
+	// Asserted on the whole call rather than on the word "files", because "files" appears in no end of innocent
+	// contexts and a needle that matches the code removing the thing it checks for has fooled this repo before.
+	if !strings.Contains(code, "navigator.share({ title: ctx.config.shareTitle, url: url })") {
+		t.Errorf("the share call must pass a title and a url and nothing else — never files, which would hand out " +
+			"copies that outlive a takedown")
+	}
+
+	// The title comes from the container's declaration, which is the album's. A caption is free text a curator
+	// typed and the one place a person's name could plausibly end up, and a share sheet's title is what gets
+	// quoted into a group chat.
+	if strings.Contains(code, "title: ctx.item.caption") {
+		t.Error("the share title must be the album's, never a caption")
+	}
+
+	// A clipboard fallback exists, and the control is absent where neither API does — the same rule as the
+	// fullscreen button. A share button that does nothing on a laptop is worse than one that copies.
+	if !strings.Contains(code, "navigator.clipboard.writeText") {
+		t.Error("desktop Firefox has no navigator.share, so copying is the fallback")
+	}
+	if !strings.Contains(code, "Linket er kopieret.") {
+		t.Error("copying must say so, in Danish, or it looks like nothing happened")
+	}
+	gate := strings.Index(code, "if (canShare || canCopy)")
+	reg := strings.Index(code, "register('share'")
+	if gate < 0 || reg < 0 || reg < gate {
+		t.Error("the share control must be registered inside its feature gate, so a browser with neither API gets " +
+			"no button rather than an inert one")
+	}
+
+	// The shared address carries both halves (task 401): the query for the server, the fragment for the browser.
+	if !strings.Contains(code, "url.searchParams.set(param, ctx.item.ordinal)") ||
+		!strings.Contains(code, "url.hash = param") {
+		t.Error("a shared link needs the query and the fragment: one picks the page, the other scrolls to the tile")
+	}
+}
+
+// A shared link must not carry the window it happened to be cut to.
+//
+// `?side=2` in a shared address is a page number that stops meaning anything the moment a curator adds
+// photographs, and the server derives the right window from the ordinal anyway (task 401).
+func TestASharedLinkDropsThePageNumber(t *testing.T) {
+	code := withoutComments(viewerAsset(t, "viewer.js"))
+	if !strings.Contains(code, "url.searchParams.delete('side')") {
+		t.Error("the share URL must drop ?side=: it is how this page is cut up today, not part of what is shared")
+	}
+}
+
 // Every class the viewer's CSS defines is prefixed, and its JS uses the same prefix.
 //
 // The viewer is loaded beside two other stylesheets it does not control — the public site's inline CSS and the

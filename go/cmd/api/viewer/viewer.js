@@ -37,6 +37,9 @@
     prev: '<path d="m15 18-6-6 6-6"/>',
     next: '<path d="m9 18 6-6-6-6"/>',
     close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    share:
+      '<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/>' +
+      '<line x1="12" x2="12" y1="2" y2="15"/>',
     maximize:
       '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/>' +
       '<path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
@@ -660,6 +663,87 @@
         // The dialog, not the image: the controls, the info panel and the filmstrip have to come with it, and
         // a fullscreened img would be a photograph with no way out of it.
         enterFullscreen(ctx.dialog);
+      },
+    });
+  }
+  // Share (task 405, PRD 023 §4, §7.8).
+  //
+  // # A link, never the bytes
+  //
+  // `navigator.share` accepts `files`, and this deliberately never passes any. The distinction is the takedown
+  // path: a shared **link** stops working when a photograph is taken down, and a shared **JPEG** does not. It is
+  // also what keeps this a way to say "look at this" rather than a republishing tool. Somebody who wants the
+  // file can save it from the photograph; we are simply not the ones handing out copies that outlive a
+  // takedown.
+  //
+  // # The title is the album's, never the caption
+  //
+  // From `data-share-title`. Not fussiness: a caption is free text a curator typed and the one place a person's
+  // name could plausibly end up, while a share sheet's title is the string that gets quoted into a group chat.
+  //
+  // # Why the URL is built here rather than read off the address bar
+  //
+  // Because the address bar is only right when `data-viewer-history` is set, and a host page that does not
+  // reflect the current photograph would share whatever page happens to be showing. Building it from the
+  // ordinal means the link names the photograph on screen either way.
+  //
+  // Query **and** fragment, for the reason task 401 recorded: the query is what lets the server render the page
+  // holding the item, the fragment is what scrolls the recipient to the tile, and neither can do the other's
+  // job.
+  function shareURL(ctx) {
+    var url = new URL(window.location.href);
+    var param = ctx.config.history || 'foto';
+    if (ctx.item.ordinal) {
+      url.searchParams.set(param, ctx.item.ordinal);
+      url.hash = param + '-' + ctx.item.ordinal;
+    }
+    // The window this page was cut to is not part of what is being shared: the server derives it from the
+    // ordinal, and a stale one in a link somebody keeps would be a page number that no longer means anything.
+    url.searchParams.delete('side');
+    return url.toString();
+  }
+
+  // A short confirmation in the info panel, which clears itself.
+  //
+  // In the panel rather than as an alert, because an alert is a second modal over a modal and needs dismissing;
+  // this is a receipt, not a question.
+  function flash(message) {
+    if (!ui) return;
+    var note = document.createElement('span');
+    note.className = 'hv-credit';
+    note.textContent = message;
+    ui.info.appendChild(note);
+    window.setTimeout(function () {
+      if (note.parentNode) note.parentNode.removeChild(note);
+    }, 2500);
+  }
+
+  var canShare = !!(navigator.share && typeof navigator.share === 'function');
+  var canCopy = !!(navigator.clipboard && typeof navigator.clipboard.writeText === 'function');
+
+  if (canShare || canCopy) {
+    window.hejViewer.register('share', {
+      icon: 'share',
+      // "Del" rather than "Kopier link" even when copying is what will happen: the visitor's intent is the same
+      // and the label should name the intent, not the mechanism. The confirmation says which happened.
+      label: 'Del dette billede',
+      activate: function (ctx) {
+        var url = shareURL(ctx);
+        if (canShare) {
+          // No `files`. See the comment above; this is the line that keeps the promise.
+          var shared = navigator.share({ title: ctx.config.shareTitle, url: url });
+          if (shared && typeof shared.catch === 'function') {
+            shared.catch(function () {
+              // A cancelled share sheet rejects, and cancelling is not a failure — it is somebody changing their
+              // mind. Nothing to report.
+            });
+          }
+          return;
+        }
+        navigator.clipboard.writeText(url).then(
+          function () { flash('Linket er kopieret.'); },
+          function () { flash('Kunne ikke kopiere linket.'); }
+        );
       },
     });
   }
