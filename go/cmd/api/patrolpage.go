@@ -89,7 +89,9 @@ type publicPatrolPageData struct {
 	// Set from a query parameter after the form's redirect, not from any stored state: the page must not
 	// know whether *somebody else* reported it. "Others have complained about your patrol's page" is not
 	// a thing a public page should tell a visitor, and a count would invite exactly that rendering.
-	Reported bool
+	//
+	// Moved to `publicPageData` in task 423, when the form moved into the shared footer. Kept named here so
+	// `data.Reported` reads the same at the call site.
 }
 
 // publicScanRow is one registration as the page lists it.
@@ -141,6 +143,9 @@ func (app *application) publicPatrolPageHandler(w http.ResponseWriter, r *http.R
 	// The acknowledgement after the takedown form's redirect (task 343). A query parameter, so a reload
 	// keeps the message and nothing is stored about who reported what.
 	data.Reported = r.URL.Query().Get("anmeldt") == "1"
+	// Where that form posts (task 423). The footer renders the form now, and it renders one only for a page
+	// that names where it goes — so this line is what makes the patrol page the only page with one.
+	data.ReportPath = app.publicRoot() + "/patrulje/" + number + "/anmeld"
 	app.renderPublicPage(w, "patrol", data)
 }
 

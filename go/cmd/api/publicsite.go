@@ -80,6 +80,31 @@ type publicPageData struct {
 	//
 	// It carries **no trailing slash**, so `{{.Root}}/patrulje/42` reads naturally everywhere.
 	Root string
+
+	// AtRoot suppresses the footer's "back to the frontpage" link on the frontpage itself (task 423).
+	//
+	// A positive flag set by one handler rather than a negative one every other handler has to remember, and
+	// **not** inferred from `Title == ""`, which happens to be true of the frontpage today and is a fact about
+	// its heading rather than about where it is.
+	AtRoot bool
+
+	// ReportPath is where this page's takedown form posts, or "" when the page has none (task 423).
+	//
+	// On `publicPageData` rather than on the patrol page's own struct because the **footer** renders the form
+	// now, and the footer is shared: a field only some pages carry would be an execution error on the rest.
+	// Empty is the ordinary case — only a patrol page has a form, because only a patrol page is about one
+	// identifiable group of people.
+	ReportPath string
+
+	// Reported acknowledges a report that was just filed (task 343).
+	//
+	// Set from a query parameter after the form's redirect, not from any stored state: the page must not know
+	// whether *somebody else* reported it. "Others have complained about your patrol's page" is not a thing a
+	// public page should tell a visitor, and a count would invite exactly that rendering.
+	//
+	// Here rather than on the patrol page's struct for the same reason as ReportPath: the acknowledgement is
+	// rendered beside the form, and the form is in the shared footer.
+	Reported bool
 }
 
 // publicFrontpageData is the frontpage.
@@ -151,7 +176,7 @@ func (app *application) publicFrontpageHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	data := publicFrontpageData{
-		publicPageData: publicPageData{Year: app.config.eventYear, Root: app.publicRoot()},
+		publicPageData: publicPageData{Year: app.config.eventYear, Root: app.publicRoot(), AtRoot: true},
 		ShowAlbums:     app.config.publicAlbums,
 		SearchError:    patrolSearchError(r.URL.Query().Get("fejl")),
 	}
@@ -468,17 +493,44 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 <meta name="robots" content="noindex, nofollow">
 <style>
   :root { color-scheme: light dark; }
-  body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem;
-         max-width: 60rem; margin-inline: auto; line-height: 1.5; }
+  /* The page is a flex column so the footer can sit at the bottom of a short page and scroll away on a long one
+     (task 423). A min-height of 100vh plus a growing main is the whole mechanism — no fixed positioning, which
+     would take a strip of every screen for text nobody is reading yet.
+
+     The measure moved off the body and onto main, because the header and footer bars are full width and their
+     contents are not. (No backticks in this template: Go raw string.) */
+  body { font-family: system-ui, sans-serif; margin: 0; line-height: 1.5;
+         display: flex; flex-direction: column; min-height: 100vh;
+         padding-top: 3.5rem; box-sizing: border-box; }
+  main { flex: 1 0 auto; width: 100%; max-width: 60rem; margin-inline: auto; padding: 1rem;
+         box-sizing: border-box; }
   a { color: #1d4ed8; }
+  /* The header (task 423), after tilmelding.nathejk.dk's: a dark bar, fixed, with the moon and the wordmark on
+     it. Its height and the body's padding-top are the same number by necessity — a fixed header is out of the
+     flow, so nothing else reserves its space. */
+  .sitehead { position: fixed; top: 0; right: 0; left: 0; z-index: 20; height: 3.5rem;
+         background: #27272a; }
+  .sitehead .inner { height: 100%; display: flex; align-items: center; }
+  .sitehead .inner, .sitefoot .inner { width: 100%; max-width: 60rem; margin-inline: auto;
+         padding: 0 1rem; box-sizing: border-box; }
+  .moon { height: 1.75rem; width: auto; display: block; }
+  /* The footer's dark bar, the same grey as the header so the page reads as one thing between two rails. */
+  .sitefoot { background: #27272a; color: #d4d4d8; font-size: .9rem; }
+  .sitefoot .inner { padding: 1.25rem 1rem; }
+  /* Its own link colour: the page's #1d4ed8 is a dark blue, and dark blue on dark grey is not a link, it is a
+     smudge. */
+  .sitefoot a { color: #93c5fd; }
+  .sitefoot p { margin: 0 0 .6rem; }
+  .sitefoot p:last-child { margin-bottom: 0; }
+  .footlinks a { margin-right: 1rem; }
   /* The wordmark and page titles use the Nathejk font per .rules. It is loaded by the app's CSS,
      which this page does not load — so the stack degrades to the narrow-bold fallbacks, which is
      what the app's own --font-nathejk falls back to anyway. Stated rather than left to look like
      an oversight. */
   .wordmark, h1, h2 { font-family: Impact, "Haettenschweiler", "Arial Narrow Bold", sans-serif;
          letter-spacing: .01em; }
-  .wordmark { display: block; font-size: 1.1rem; text-transform: uppercase; color: #64748b;
-         text-decoration: none; margin-bottom: .75rem; }
+  .wordmark { display: inline-flex; align-items: center; gap: .55rem; font-size: 1.35rem;
+         text-transform: uppercase; color: #fafafa; text-decoration: none; }
   h1 { font-size: 1.9rem; margin: 0 0 .25rem; }
   h2 { font-size: 1.3rem; margin: 0 0 .5rem; }
   .intro { color: #555; margin-top: 0; }
@@ -557,6 +609,9 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
          gap: 1rem .75rem; align-items: start; }
   /* The positioning context for the credit. Without it the credit would be placed against the page. */
   .photos figure { margin: 0; position: relative; }
+  /* A fixed header overlaps whatever a fragment scrolls to, so a deep link (?foto=9#foto-9, task 401) would put
+     its photograph under the bar. The margin is the header's height plus a little air. */
+  .photos figure:target, .photos figure { scroll-margin-top: 4.5rem; }
   /* The tile is a link (task 403), so the link colour and underline come back off it: the picture is the
      affordance, and a blue box around a photograph looks like a broken image. */
   .photos .tile { display: block; color: inherit; text-decoration: none; }
@@ -631,10 +686,15 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   .find .hint { color: #666; font-size: .85rem; margin-top: .5rem; }
   .find .problem { color: #b91c1c; font-size: .9rem; margin-top: .5rem; }
   .more { margin-top: .75rem; }
-  /* The takedown form (task 343). Quiet by default — a <details> — so the page is not led by an apology,
-     but full width and full size once opened: this is the form somebody upset is filling in on a phone. */
-  .report { margin-top: 1.5rem; }
-  .report summary { cursor: pointer; color: #1d4ed8; }
+  /* The takedown form (task 343), which lives in the footer since task 423. Quiet by default — a details element
+     — so the page is not led by an apology, but full width and full size once opened: this is the form somebody
+     upset is filling in on a phone.
+
+     The colours are the footer's rather than the page's: on the dark bar, the old #1d4ed8 summary was invisible.
+     The thanks box stays a light panel on purpose — it is the one thing here that should read as an answer. */
+  .report { margin: 0 0 .6rem; }
+  .report summary { cursor: pointer; color: #93c5fd; }
+  .report p { color: inherit; }
   .report label { display: block; font-weight: 600; margin: .75rem 0 .35rem; }
   .report textarea { width: 100%; box-sizing: border-box; font: inherit; padding: .5rem;
          border: 1px solid #94a3b8; border-radius: .25rem; }
@@ -642,22 +702,95 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
          border-radius: .25rem; background: #1d4ed8; color: #fff; cursor: pointer; }
   .report .thanks { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: .25rem;
          padding: .6rem .75rem; color: #166534; }
-  footer { border-top: 1px solid #ddd; margin-top: 2rem; padding-top: 1rem;
-         color: #555; font-size: .85rem; }
 </style>
 </head>
 <body>
-<a class="wordmark" href="{{.Root}}">` + publicSiteTitle + ` {{.Year}}</a>
+<!-- The site header (task 423), after tilmelding.nathejk.dk's: the moon, the wordmark, on a dark bar, fixed at
+     the top.
+
+     **The moon is inlined rather than linked**, and that is the rule rather than a shortcut: a website asset may
+     not live under vue/ (.rules), and the master it comes from does —
+     vue/src/assets/brand/nathejk-moon.svg. So the path is transcribed here, which costs nothing: it is one path,
+     it saves a request, and it cannot 404. The coordinates are the original Bezier control points from the 2017
+     logo artwork and the colour is the one that directory's README settles on; if either changes, that README is
+     the source of truth and this is a copy to update. (No backticks in here — Go raw string.)
+
+     The bar is full width and its contents are not: they line up with the page's own measure, so the wordmark
+     sits over the first line of text rather than in the corner of the window. -->
+<header class="sitehead">
+  <div class="inner">
+    <a class="wordmark" href="{{.Root}}">
+      <svg class="moon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 109.965 150.907"
+           aria-hidden="true" focusable="false"><path fill="#E6EA08"
+        d="M77.7764 0.0669 C41.1167 -0.7261 7.14453 28.3286 1.15137 64.1606
+           C-1.65625 81.3906 0.386719 100.059 10.4336 114.661
+           C23.6045 134.527 45.5854 148.493 69.5586 150.536
+           C77.4131 152.794 68.418 144.161 67.6201 140.566
+           C57.4219 122.786 51.9604 102.145 55.2109 81.6689
+           C58.3828 55.3599 73.4834 31.126 95.2969 16.3716
+           C100.004 12.856 105.065 9.52783 109.965 6.12988
+           C99.8701 1.48047 88.8545 -0.390137 77.7764 0.0669 Z"/></svg>
+      <span>` + publicSiteTitle + ` {{.Year}}</span>
+    </a>
+  </div>
+</header>
+<main>
 {{end}}
 
 {{define "layout-foot"}}
-<footer>
-  <p>
-    Er der noget her, der ikke skal ligge offentligt? Skriv til os, så tager vi det ned.
-  </p>
-  <p>
-    <a href="{{.Root}}/privatliv">Data og privatliv</a>
-  </p>
+</main>
+<!-- The site footer (task 423). Everything that is *about* the site rather than on it lives here now: the
+     takedown invitation, the privacy link, the way back. The pages used to carry them one by one, which meant
+     four templates each ending in the same two paragraphs and a fifth forgetting one.
+
+     Same dark bar as the header, and the same measure inside it. It is **not** fixed: it sits at the bottom of
+     the viewport when a page is short (the flex column above does that) and scrolls away when a page is long,
+     which is what a footer is for. A fixed footer would take a strip of every screen for text nobody is reading
+     yet. -->
+<footer class="sitefoot">
+  <div class="inner">
+    {{if .ReportPath}}
+    <!-- **The takedown route** (task 343). A plain form, so it works with JavaScript off, and a details element
+         so it is present without shouting: a visitor looking for it finds it, and a family reading the page is
+         not greeted by a page apologising for itself.
+
+         It reports rather than removes — see cmd/api/patrolreport.go for why one anonymous request must not take
+         a patrol's page down. The wording says so, because a promise of "immediately" that we do not keep is
+         worse than an honest "we look at it".
+
+         Rendered only for a page that says where it posts, which today means a patrol page — the only page that
+         is about one identifiable group of people. -->
+    <section class="report">
+      {{if .Reported}}
+      <p class="thanks">
+        Tak. Vi har fået din besked og kigger på den.
+      </p>
+      {{end}}
+      <details>
+        <summary>Er der noget på denne side, der ikke skal ligge her?</summary>
+        <p>
+          Skriv til os, så kigger vi på det. Det kan være en registrering, der ikke er jeres, en rute, der ser
+          forkert ud, eller noget helt tredje. Du behøver ikke skrive dit navn.
+        </p>
+        <form method="post" action="{{.ReportPath}}">
+          <label for="reason">Hvad er der galt? (frivilligt)</label>
+          <textarea id="reason" name="reason" rows="4" maxlength="2000"></textarea>
+          <button type="submit">Send besked</button>
+        </form>
+      </details>
+    </section>
+    {{else}}
+    <!-- The same invitation, for a page with no form of its own. Only one of the two ever renders: a footer that
+         asked twice, once with a form and once without, would read as though the first one had not worked. -->
+    <p>
+      Er der noget her, der ikke skal ligge offentligt? Skriv til os, så tager vi det ned.
+    </p>
+    {{end}}
+    <p class="footlinks">
+      <a href="{{.Root}}/privatliv">Data og privatliv</a>
+      {{if not .AtRoot}}<a href="{{.Root}}">Tilbage til forsiden</a>{{end}}
+    </p>
+  </div>
 </footer>
 </body>
 </html>
@@ -838,7 +971,6 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 <p class="more"><a href="{{.Root}}/album/{{.Album.Slug}}?side={{.NextSide}}">Vis flere billeder</a></p>
 {{end}}
 
-<p class="more"><a href="{{.Root}}">Tilbage til forsiden</a></p>
 
 <!-- The photo viewer (task 403, PRD 023). A **progressive enhancement**, and the same arrangement the patrol
      page's map uses: in the body rather than the head, deferred so it does not block the page, and same-origin
@@ -961,34 +1093,6 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   {{end}}
 </section>
 
-<!-- **The takedown route** (task 343). A plain form, so it works with JavaScript off, and a <details> so
-     it is present without shouting: a visitor looking for it finds it, and a family reading the page is
-     not greeted by a page apologising for itself.
-
-     It reports rather than removes — see cmd/api/patrolreport.go for why one anonymous request must not
-     take a patrol's page down. The wording says so, because a promise of "immediately" that we do not keep
-     is worse than an honest "we look at it". -->
-<section class="report">
-  {{if .Reported}}
-  <p class="thanks">
-    Tak. Vi har fået din besked og kigger på den.
-  </p>
-  {{end}}
-  <details>
-    <summary>Er der noget på denne side, der ikke skal ligge her?</summary>
-    <p>
-      Skriv til os, så kigger vi på det. Det kan være en registrering, der ikke er jeres, en rute, der ser
-      forkert ud, eller noget helt tredje. Du behøver ikke skrive dit navn.
-    </p>
-    <form method="post" action="{{.Root}}/patrulje/{{.Patrol.Number}}/anmeld">
-      <label for="reason">Hvad er der galt? (frivilligt)</label>
-      <textarea id="reason" name="reason" rows="4" maxlength="2000"></textarea>
-      <button type="submit">Send besked</button>
-    </form>
-  </details>
-</section>
-
-<p class="more"><a href="{{.Root}}">Tilbage til forsiden</a></p>
 {{template "layout-foot" .}}{{end}}
 
 {{define "patrol-notyet"}}{{template "layout-head" .}}
@@ -1003,7 +1107,6 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 <p>
   Prøv igen efter løbet. Tjek også, at nummeret er skrevet rigtigt.
 </p>
-<p class="more"><a href="{{.Root}}">Tilbage til forsiden</a></p>
 {{template "layout-foot" .}}{{end}}
 {{define "privatliv"}}{{template "layout-head" .}}
 <h1>Data og privatliv</h1>
@@ -1056,7 +1159,6 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
      The two must not contradict each other: the wording here is lifted from the app's page rather than
      rewritten, and PRD 021 §11 Q3 asks which of the two should be the source. Until that is answered,
      keep them in step by hand — and prefer changing both to changing one. -->
-<p class="more"><a href="{{.Root}}">Tilbage til forsiden</a></p>
 {{template "layout-foot" .}}{{end}}
 
 {{define "notfound"}}{{template "layout-head" .}}

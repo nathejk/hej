@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 )
@@ -199,7 +200,7 @@ func TestPublicFrontpageUsesRealHeadingsAndAForm(t *testing.T) {
 	_, body := getPublic(t, srv.URL+"/2026", nil)
 	page := string(body)
 
-	for _, want := range []string{"<h1>", "<h2>", "<form method=\"get\"", "<label for=\"nummer\"", "<footer>"} {
+	for _, want := range []string{"<h1>", "<h2>", "<form method=\"get\"", "<label for=\"nummer\"", "<header class=\"sitehead\">", "<footer class=\"sitefoot\">"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the frontpage is missing %q", want)
 		}
@@ -391,7 +392,8 @@ func TestNotYetPageCarriesNoPatrolData(t *testing.T) {
 	defer srv.Close()
 
 	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
-	page := string(body)
+	// Minus the artwork, which contains "42" inside a Bezier coordinate — see withoutSVG.
+	page := withoutSVG(string(body))
 
 	// The requested number itself is patrol data on a closed page: echoing it back is how "is 42 real?"
 	// becomes answerable by comparing two responses.
@@ -638,5 +640,143 @@ func TestThePublicNotFoundPageOffersAWayBack(t *testing.T) {
 	}
 	if !strings.Contains(page, "Nathejk 2026") {
 		t.Error("the not-found page should name the year this deployment serves")
+	}
+}
+
+// withoutSVG removes every inline `<svg>…</svg>` from a rendered page.
+//
+// # Why the substring leak guards need this, and why it is safe
+//
+// Several guards on this surface ask "does this page contain this string anywhere at all" — a patrol number, a
+// name, a decimal distance. Blunt on purpose: `TestAClosedPageLeaksNothingAboutARealPatrol` says so in its own
+// comment, having once been failed by a hex colour containing "43", and concludes that the bluntness is worth a
+// false positive because a leak hiding in an attribute is exactly what it is for.
+//
+// Task 423 changed the arithmetic. The header now carries the Nathejk moon inline, which is forty Bézier
+// coordinates — `10.4336`, `57.4219`, `45.5854` — so "43", "42" and "5.5" are all present on **every** page of
+// the site, whatever it is about. That is no longer an occasional false positive; it is a guard that fails for
+// most two-digit patrol numbers regardless of whether anything leaked.
+//
+// Stripping artwork is the narrowest fix available. It is safe because **no SVG on this surface contains a
+// template action** — the marks are constants — so nothing that could be a leak can be inside one.
+// `TestNoInlineSvgOnThePublicSiteCarriesATemplateAction` is what keeps that true, and it is the licence for this
+// helper: without it, this would be a hole rather than an exception.
+func withoutSVG(page string) string {
+	var out strings.Builder
+	for {
+		i := strings.Index(page, "<svg")
+		if i < 0 {
+			out.WriteString(page)
+			return out.String()
+		}
+		out.WriteString(page[:i])
+		rest := page[i:]
+		j := strings.Index(rest, "</svg>")
+		if j < 0 {
+			// An unterminated svg: everything after it is artwork as far as this is concerned.
+			return out.String()
+		}
+		page = rest[j+len("</svg>"):]
+	}
+}
+
+// No inline SVG on the public site may carry a template action (task 423).
+//
+// This is the licence for `withoutSVG`, which the leak guards use to skip artwork. The moment a mark renders a
+// value — a patrol's initial, a count, anything — artwork stops being a constant and those guards stop covering
+// it. Then either this test fails and somebody makes a decision, or a leak walks straight through a hole nobody
+// remembers opening.
+//
+// Read from the source rather than from a rendered page, so it covers every page including ones no test renders.
+func TestNoInlineSvgOnThePublicSiteCarriesATemplateAction(t *testing.T) {
+	src, err := os.ReadFile("publicsite.go")
+	if err != nil {
+		t.Fatalf("reading publicsite.go: %v", err)
+	}
+
+	rest := string(src)
+	for {
+		i := strings.Index(rest, "<svg")
+		if i < 0 {
+			return
+		}
+		rest = rest[i:]
+		j := strings.Index(rest, "</svg>")
+		if j < 0 {
+			t.Fatal("an unterminated <svg> in publicsite.go")
+		}
+		if mark := rest[:j]; strings.Contains(mark, "{{") {
+			t.Errorf("an inline SVG renders a template value, so the leak guards' withoutSVG no longer skips "+
+				"only constants:\n%s", mark)
+		}
+		rest = rest[j+len("</svg>"):]
+	}
+}
+
+// Every page of the public site wears the same header and footer, and the footer carries the boilerplate
+// (task 423).
+//
+// # Why this is asserted per page rather than once
+//
+// The four strings in the footer used to be scattered: two in a shared footer, one on the patrol page, and "back
+// to the frontpage" copy-pasted into four templates. The failure mode of that arrangement is not a wrong page, it
+// is a **missing** line on the fifth page somebody adds — which nobody notices, because the other four are right.
+//
+// So this walks the pages and asks each one the same questions. A new page that forgets the layout fails here,
+// which is the whole point of having the layout.
+func TestEveryPublicPageWearsTheHeaderAndFooter(t *testing.T) {
+	app, _, _ := publicApp(t)
+	app.config.publicAlbums = true
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	for _, path := range []string{"/2026", "/2026/privatliv", "/2026/patrulje/42"} {
+		t.Run(path, func(t *testing.T) {
+			_, body := getPublic(t, srv.URL+path, nil)
+			page := string(body)
+
+			for _, want := range []struct{ needle, why string }{
+				{`<header class="sitehead">`, "the dark bar with the moon and the wordmark"},
+				{`<a class="wordmark" href="/2026">`, "which is also the way home"},
+				{`class="moon"`, "the mark itself, inlined so it cannot 404 and needs no asset under vue/"},
+				{"<main>", "the page's own content, which is what carries the measure"},
+				{`<footer class="sitefoot">`, "the same bar at the bottom"},
+				{"Data og privatliv", "the privacy link belongs to the site, not to a page"},
+			} {
+				if !strings.Contains(page, want.needle) {
+					t.Errorf("%s is missing %s — %s", path, want.needle, want.why)
+				}
+			}
+
+			// The takedown invitation is in the footer in exactly one of its two forms, never both: a footer that
+			// asked twice, once with a form and once without, would read as though the first one had not worked.
+			form := strings.Contains(page, "Er der noget på denne side")
+			line := strings.Contains(page, "Er der noget her, der ikke skal ligge offentligt")
+			if form == line {
+				t.Errorf("%s must carry exactly one takedown invitation (form=%v, line=%v)", path, form, line)
+			}
+		})
+	}
+}
+
+// The frontpage does not offer a link to itself.
+//
+// Small, and it is the kind of thing a shared footer gets wrong by default: the link is right on every other page
+// and pointless on this one, which is why the flag that suppresses it is set positively by the one handler that
+// knows rather than inferred from something that happens to correlate.
+func TestTheFrontpageFooterHasNoLinkBackToItself(t *testing.T) {
+	app, _, _ := publicApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body := getPublic(t, srv.URL+"/2026", nil)
+	if strings.Contains(string(body), "Tilbage til forsiden") {
+		t.Error("the frontpage must not link back to the frontpage")
+	}
+
+	// And a page that is not the frontpage does.
+	_, body = getPublic(t, srv.URL+"/2026/privatliv", nil)
+	if !strings.Contains(string(body), "Tilbage til forsiden") {
+		t.Error("every other page needs the way back, and the footer is where it lives now")
 	}
 }

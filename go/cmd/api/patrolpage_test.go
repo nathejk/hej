@@ -260,7 +260,9 @@ func TestAClosedPageLeaksNothingAboutARealPatrol(t *testing.T) {
 	_, _, srv := patrolPageApp(t)
 
 	_, body := getPublic(t, srv.URL+"/2026/patrulje/43", nil)
-	page := string(body)
+	// Minus the artwork: the header's moon is forty Bezier coordinates and "43" is inside one of them. See
+	// withoutSVG for why that is an exception rather than a softening.
+	page := withoutSVG(string(body))
 
 	for _, forbidden := range []string{"Ulvene", "2. Gruppe", "KFUM", "43", "team-43"} {
 		if strings.Contains(page, forbidden) {
@@ -341,9 +343,11 @@ func TestPatrolPageShowsTheDistance(t *testing.T) {
 	if !strings.Contains(page, "mindst ~5 km") {
 		t.Errorf("want the distance floor\n%s", page)
 	}
-	// Never a decimal, and never a comparison.
+	// Never a decimal, and never a comparison. Artwork excluded: the moon's path contains "45.5854", and a
+	// coordinate is not a distance (see withoutSVG).
+	bare := withoutSVG(page)
 	for _, forbidden := range []string{"5,5", "5.5", "længst", "rekord"} {
-		if strings.Contains(page, forbidden) {
+		if strings.Contains(bare, forbidden) {
 			t.Errorf("the distance must be a plain floor, found %q", forbidden)
 		}
 	}
