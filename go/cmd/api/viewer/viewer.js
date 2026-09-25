@@ -112,8 +112,13 @@
     stage.appendChild(img);
     stage.appendChild(missing);
     stage.appendChild(next);
+    // **The info panel lives over the photograph, not under it** (task 416).
+    //
+    // It used to be a row of the dialog's grid, which meant a caption changed the height of the stage — so the
+    // arrows moved between one photograph and the next depending on whether it had a caption. Inside the stage and
+    // positioned over it, the geometry is the same for every photograph.
+    stage.appendChild(info);
     dialog.appendChild(stage);
-    dialog.appendChild(info);
     dialog.appendChild(strip);
     document.body.appendChild(dialog);
 
@@ -663,13 +668,21 @@
 
   function enterFullscreen(el) {
     if (el.requestFullscreen) {
-      // A promise on modern engines, and it rejects when the gesture is not trusted. Swallowed: there is
-      // nothing to tell the visitor that the unchanged window does not already say.
       var request = el.requestFullscreen();
-      if (request && typeof request.catch === 'function') request.catch(function () {});
-    } else if (el.webkitRequestFullscreen) {
-      el.webkitRequestFullscreen();
+      if (request && typeof request.catch === 'function') {
+        request.catch(function () {
+          // **Reported, not swallowed** (task 416). The first version caught this and did nothing, which is how
+          // "the fullscreen icon is not working" reached a maintainer rather than the person who wrote it.
+          flash('Fuld skærm er ikke tilgængelig her.');
+        });
+      }
+      return;
     }
+    if (el.webkitRequestFullscreen) {
+      el.webkitRequestFullscreen();
+      return;
+    }
+    flash('Fuld skærm er ikke tilgængelig her.');
   }
 
   function paintFullscreenButton() {
@@ -696,9 +709,17 @@
           exitFullscreen();
           return;
         }
-        // The dialog, not the image: the controls, the info panel and the filmstrip have to come with it, and
-        // a fullscreened img would be a photograph with no way out of it.
-        enterFullscreen(ctx.dialog);
+        // **The document element, not the dialog** (task 416).
+        //
+        // Asking the dialog itself was the obvious thing and it did nothing at all — reported from Brave on
+        // macOS, where the button appeared and had no effect. The dialog is in the **top layer**, put there by
+        // `showModal`, and a top-layer element is precisely the awkward case for the fullscreen API: two
+        // mechanisms that both mean "render this above everything", with engines disagreeing about the
+        // combination.
+        //
+        // Fullscreening the page sidesteps the argument and looks identical, because the dialog already covers
+        // the viewport and stays in the top layer over it. There is nothing of the page left to see.
+        enterFullscreen(document.documentElement);
       },
     });
   }

@@ -430,6 +430,103 @@ func TestTheViewerRegistersItsControlsBeforeItCanOpen(t *testing.T) {
 	}
 }
 
+// The caption must not move the arrows (task 416).
+//
+// Reported by the maintainer: the info panel "takes up space and changes the position of the left/right arrows".
+// It was a row of the dialog's grid, so a captioned photograph made the stage shorter than an uncaptioned one and
+// the arrows sat somewhere else — furniture moving under the cursor between one press and the next, which is the
+// kind of thing that feels broken without being nameable.
+//
+// The fix is that the panel is positioned over the photograph rather than laid out beside it, and that is what
+// this asserts: a later "tidy-up" putting it back in the flow would bring the bug back exactly.
+func TestTheCaptionOverlaysThePhotographRatherThanMovingIt(t *testing.T) {
+	css := withoutComments(viewerAsset(t, "viewer.css"))
+
+	rule := ruleFor(t, css, ".hv-info {")
+	if !strings.Contains(rule, "position: absolute") {
+		t.Errorf("the info panel must be positioned over the stage, or a caption changes where the arrows are:\n%s",
+			rule)
+	}
+	if !strings.Contains(rule, "pointer-events: none") {
+		t.Error("nothing in the info panel is interactive and it sits over the middle of the picture, where a " +
+			"swipe starts — a caption that swallowed a swipe would be a caption that broke the album")
+	}
+	// Two rows, not three: the panel is no longer one of them.
+	if root := ruleFor(t, css, ".hv {"); !strings.Contains(root, "grid-template-rows: 1fr auto") {
+		t.Errorf("want the stage and the filmstrip as the only rows:\n%s", root)
+	}
+}
+
+// The arrows are small to look at and large to hit (task 416).
+//
+// "It's fine that right/left arrows are relatively small, but make sure that I can click a larger area." The two
+// are different properties and there is no reason for them to be the same number: the button is a tall column
+// down the side of the photograph, and the circle you see is painted on the icon inside it.
+func TestTheViewerArrowsHaveALargerHitAreaThanIcon(t *testing.T) {
+	css := withoutComments(viewerAsset(t, "viewer.css"))
+
+	rule := ruleFor(t, css, ".hv-nav {")
+	for _, want := range []struct{ needle, why string }{
+		{"top: 0", "the hit area runs the height of the stage"},
+		{"bottom: 0", "both edges, or it is a strip rather than a column"},
+		{"width: 22%", "and it is a proportion of the width, so it scales with the viewport"},
+		{"background: transparent", "the button itself is invisible; only the icon is seen"},
+	} {
+		if !strings.Contains(rule, want.needle) {
+			t.Errorf("the arrow's hit area is missing %q — %s:\n%s", want.needle, want.why, rule)
+		}
+	}
+	// The visible circle is on the icon, which is what keeps the two sizes independent.
+	if icon := ruleFor(t, css, ".hv-nav svg {"); !strings.Contains(icon, "border-radius: 50%") {
+		t.Errorf("the icon carries the visible circle:\n%s", icon)
+	}
+}
+
+// ruleFor returns the declarations of one CSS rule, for guards that are about a specific decision in it.
+func ruleFor(t *testing.T, css, selector string) string {
+	t.Helper()
+
+	i := strings.Index(css, selector)
+	if i < 0 {
+		t.Fatalf("no %s rule in viewer.css", selector)
+	}
+	rule := css[i:]
+	if j := strings.Index(rule, "}"); j >= 0 {
+		rule = rule[:j]
+	}
+	return rule
+}
+
+// Fullscreen asks the page, not the dialog (task 416).
+//
+// Asking the dialog was the obvious thing and it did nothing at all — reported from Brave on macOS. The dialog is
+// in the **top layer**, put there by `showModal`, which is the awkward case for the fullscreen API: two mechanisms
+// that both mean "render this above everything".
+//
+// Fullscreening the document element sidesteps the argument and looks identical, because the dialog already
+// covers the viewport and stays in the top layer over it.
+//
+// The second half of this matters as much: the failure is **reported rather than swallowed**. The first version
+// caught the rejected promise and did nothing, which is precisely how "the fullscreen icon is not working" reached
+// a maintainer instead of reaching the person who wrote it.
+func TestFullscreenAsksThePageAndReportsRefusal(t *testing.T) {
+	code := withoutComments(viewerAsset(t, "viewer.js"))
+
+	if !strings.Contains(code, "enterFullscreen(document.documentElement)") {
+		t.Error("fullscreen must be requested on the document element: a dialog shown with showModal is already in " +
+			"the top layer, and that combination did nothing at all in Brave on macOS")
+	}
+	if strings.Contains(code, "enterFullscreen(ctx.dialog)") {
+		t.Error("requesting fullscreen on the dialog is the arrangement that failed")
+	}
+	// A refusal says so. Asserted on the message, because an empty catch block is the shape this is guarding
+	// against and an empty block is hard to match reliably.
+	if !strings.Contains(code, "Fuld skærm er ikke tilgængelig her.") {
+		t.Error("a refused fullscreen request must say so: swallowing it is how this bug reached a maintainer " +
+			"rather than the person who wrote it")
+	}
+}
+
 // Every class the viewer's CSS defines is prefixed, and its JS uses the same prefix.
 //
 // The viewer is loaded beside two other stylesheets it does not control — the public site's inline CSS and the

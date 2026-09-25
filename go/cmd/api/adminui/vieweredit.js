@@ -140,8 +140,15 @@ function initViewerEdit(ctx) {
     editPanel.appendChild(row);
     editPanel.appendChild(note);
 
-    // Inside the dialog, under the info panel, so it is part of the overlay rather than a second one.
-    dialog.appendChild(editPanel);
+    // Inside the dialog, above the filmstrip. Not appended at the end: the info panel now sits over the
+    // photograph (task 416), so "after the info panel" no longer means anything, and an editor below the
+    // filmstrip reads as belonging to the strip rather than to the photograph.
+    const strip = dialog.querySelector('.hv-strip');
+    if (strip) {
+      dialog.insertBefore(editPanel, strip);
+    } else {
+      dialog.appendChild(editPanel);
+    }
 
     editPanel.els = { heading, hint, field, preview, row, save, clear, cancel, note };
 
