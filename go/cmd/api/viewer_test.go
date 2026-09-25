@@ -497,33 +497,37 @@ func ruleFor(t *testing.T, css, selector string) string {
 	return rule
 }
 
-// Fullscreen asks the page, not the dialog (task 416).
+// Fullscreen asks the dialog, and reports a refusal (tasks 416, 417).
 //
-// Asking the dialog was the obvious thing and it did nothing at all — reported from Brave on macOS. The dialog is
-// in the **top layer**, put there by `showModal`, which is the awkward case for the fullscreen API: two mechanisms
-// that both mean "render this above everything".
+// # Both directions of this were tried, and only one of them is right
 //
-// Fullscreening the document element sidesteps the argument and looks identical, because the dialog already
-// covers the viewport and stays in the top layer over it.
+// A modal dialog is in the **top layer**, because `showModal` put it there. The fullscreen API uses the same top
+// layer, and the order things are added to it decides what paints over what.
 //
-// The second half of this matters as much: the failure is **reported rather than swallowed**. The first version
-// caught the rejected promise and did nothing, which is precisely how "the fullscreen icon is not working" reached
-// a maintainer instead of reaching the person who wrote it.
-func TestFullscreenAsksThePageAndReportsRefusal(t *testing.T) {
+// So fullscreening `document.documentElement` adds `html` to the top layer **after** the dialog: the album page
+// paints over the photograph, and the info panel that is over the photograph in windowed mode ends up under it.
+// That was reported from Brave on macOS after task 416 made exactly that change, and it is worse than the
+// original complaint. Asking the dialog adds nothing above it and leaves the stacking inside the overlay alone.
+//
+// # The reporting is the half that stops this repeating
+//
+// The original "fullscreen is not working" was diagnosed without a console, because the first version caught the
+// rejected promise and did nothing. A silent failure is what turned a one-line question into two rounds of
+// guesswork, so a refusal now says so on screen.
+func TestFullscreenAsksTheDialogAndReportsRefusal(t *testing.T) {
 	code := withoutComments(viewerAsset(t, "viewer.js"))
 
-	if !strings.Contains(code, "enterFullscreen(document.documentElement)") {
-		t.Error("fullscreen must be requested on the document element: a dialog shown with showModal is already in " +
-			"the top layer, and that combination did nothing at all in Brave on macOS")
+	if !strings.Contains(code, "enterFullscreen(ctx.dialog)") {
+		t.Error("fullscreen must be requested on the dialog, which is already in the top layer")
 	}
-	if strings.Contains(code, "enterFullscreen(ctx.dialog)") {
-		t.Error("requesting fullscreen on the dialog is the arrangement that failed")
+	if strings.Contains(code, "enterFullscreen(document.documentElement)") {
+		t.Error("requesting fullscreen on the document element adds html to the top layer above the dialog, so the " +
+			"album page paints over the photograph and the caption falls behind it (task 417)")
 	}
-	// A refusal says so. Asserted on the message, because an empty catch block is the shape this is guarding
-	// against and an empty block is hard to match reliably.
+	// A refusal says so. Asserted on the message, because an empty catch block is the shape this guards against
+	// and an empty block is hard to match reliably.
 	if !strings.Contains(code, "Fuld skærm er ikke tilgængelig her.") {
-		t.Error("a refused fullscreen request must say so: swallowing it is how this bug reached a maintainer " +
-			"rather than the person who wrote it")
+		t.Error("a refused fullscreen request must say so: swallowing it is what made this take two rounds to find")
 	}
 }
 

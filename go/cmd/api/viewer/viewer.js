@@ -709,17 +709,24 @@
           exitFullscreen();
           return;
         }
-        // **The document element, not the dialog** (task 416).
+        // **The dialog, and not the document element** (task 417).
         //
-        // Asking the dialog itself was the obvious thing and it did nothing at all — reported from Brave on
-        // macOS, where the button appeared and had no effect. The dialog is in the **top layer**, put there by
-        // `showModal`, and a top-layer element is precisely the awkward case for the fullscreen API: two
-        // mechanisms that both mean "render this above everything", with engines disagreeing about the
-        // combination.
+        // This went the other way in task 416 and that was a mistake, so both halves are recorded here.
         //
-        // Fullscreening the page sidesteps the argument and looks identical, because the dialog already covers
-        // the viewport and stays in the top layer over it. There is nothing of the page left to see.
-        enterFullscreen(document.documentElement);
+        // A modal dialog is in the **top layer** because `showModal` put it there. The fullscreen API uses the
+        // same top layer, and the order things were added decides what paints over what. Fullscreening the
+        // document element therefore adds `html` to the top layer *after* the dialog — so the whole album page
+        // paints over the photograph, and the panel that is over the photograph in windowed mode ends up under
+        // it. That is exactly what was reported, and it is worse than the bug 416 was trying to fix.
+        //
+        // Asking the dialog is the combination the two features are specified to cope with: it is already in the
+        // top layer, so nothing is added above it and the stacking inside the overlay is untouched.
+        //
+        // Task 416's report was that this target "did nothing", which is why it was changed. That was diagnosed
+        // without a console: the request may have been refused, and the old code caught the rejection and said
+        // nothing. It no longer does — see enterFullscreen — so if this target is genuinely refused, the viewer
+        // now says so instead of leaving somebody to guess.
+        enterFullscreen(ctx.dialog);
       },
     });
   }
