@@ -513,7 +513,6 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   .sitehead .inner { height: 100%; display: flex; align-items: center; }
   .sitehead .inner, .sitefoot .inner { width: 100%; max-width: 60rem; margin-inline: auto;
          padding: 0 1rem; box-sizing: border-box; }
-  .moon { height: 1.75rem; width: auto; display: block; }
   /* The footer's dark bar, the same grey as the header so the page reads as one thing between two rails. */
   .sitefoot { background: #27272a; color: #d4d4d8; font-size: .9rem; }
   .sitefoot .inner { padding: 1.25rem 1rem; }
@@ -529,8 +528,20 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
      an oversight. */
   .wordmark, h1, h2 { font-family: Impact, "Haettenschweiler", "Arial Narrow Bold", sans-serif;
          letter-spacing: .01em; }
-  .wordmark { display: inline-flex; align-items: center; gap: .55rem; font-size: 1.35rem;
+  /* The wordmark is **baseline-aligned with the moon**, which is how the logo is built (task 424).
+
+     A flex item with no baseline of its own — an SVG — has one synthesised from the bottom of its box, so
+     align-items: baseline puts the bottom of the crescent on the same line as the feet of the letters. Centring
+     them, which is what this did first, leaves the moon floating half a letter high.
+
+     That the moon is taller than the caps is correct rather than an accident: in the source artwork its height is
+     the distance from the top of the mark down to the wordmark's baseline, so it rises above the word by
+     construction. See vue/src/assets/brand/README.md. */
+  .wordmark { display: inline-flex; align-items: baseline; gap: .5rem; font-size: 1.35rem;
          text-transform: uppercase; color: #fafafa; text-decoration: none; }
+  /* Height rather than width, because the viewBox is the path's tight bounding box — the mark bleeds to all four
+     edges, so the box is the artwork and its bottom edge is the lowest point of the crescent. */
+  .moon { height: 1.9rem; width: auto; display: block; }
   h1 { font-size: 1.9rem; margin: 0 0 .25rem; }
   h2 { font-size: 1.3rem; margin: 0 0 .5rem; }
   .intro { color: #555; margin-top: 0; }
@@ -582,6 +593,18 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
          letter-spacing: 0; color: #64748b; }
   .thumbs { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem; }
   .thumbs img { width: 100%; height: auto; border-radius: .25rem; background: #eee; display: block; }
+  /* The glimt page's own rules (task 424), folded in when that page joined this layout. It kept its own
+     stylesheet until then, which is why .intro and .empty were defined twice in the service — those two are
+     the layout's now and only the rules below are the page's. */
+  .glimt { border-top: 1px solid #ddd; padding: 1rem 0; }
+  .hold { font-weight: 600; }
+  .when { color: #666; font-size: .85rem; }
+  .caption { margin: .5rem 0 0; white-space: pre-wrap; overflow-wrap: break-word; }
+  /* Every item, side by side where there is room and stacked where there is not. No carousel:
+     see publicGlimtPageHandler. */
+  .media { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+         gap: .5rem; margin-top: .75rem; }
+  .media img { width: 100%; height: auto; border-radius: .25rem; background: #eee; }
   /* The album page's photograph grid (task 398, PRD 023 §7.1).
 
      It used to be minmax(18rem, 1fr) — one photograph per row on a phone, two where there was room — on the
@@ -730,7 +753,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
            C58.3828 55.3599 73.4834 31.126 95.2969 16.3716
            C100.004 12.856 105.065 9.52783 109.965 6.12988
            C99.8701 1.48047 88.8545 -0.390137 77.7764 0.0669 Z"/></svg>
-      <span>` + publicSiteTitle + ` {{.Year}}</span>
+      <span>` + publicSiteTitle + `</span>
     </a>
   </div>
 </header>
@@ -1093,6 +1116,55 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   {{end}}
 </section>
 
+{{template "layout-foot" .}}{{end}}
+
+{{/* The public glimt page (PRD 019, task 362; moved into this layout in task 424).
+
+     Participants' own photographs, the ones they chose to share publicly. Two things about it are decisions
+     rather than defaults, and both are in publicGlimtPageHandler's comment at length: it is server-rendered so
+     that a grandparent on an old browser can see what the weekend looked like, and **every media item is its own
+     img tag** so that a desktop visitor reaches all of them without a swipe.
+
+     It carried its own copy of the layout until now, including a second definition of .intro and .empty. What it
+     did *not* carry was a footer: task 362 removed the takedown line, the retention period and the privacy link
+     from this page, because the maintainer found them "very overwhelming with all these disclaimer everywhere".
+     That judgement is not reversed by the shared footer — it is answered by it. The complaint was repetition on
+     a page that is just photographs; one footer on every page of the site is the opposite arrangement. */}}
+{{define "glimt"}}{{template "layout-head" .}}
+<h1>Glimt fra Nathejk {{.Year}}</h1>
+<p class="intro">
+  Billeder som deltagerne selv har valgt at dele offentligt. Der står ikke navne på billederne —
+  et glimt vises med patruljen eller klanen, ikke med personen.
+</p>
+
+{{if .Unavailable}}
+<p class="empty">Billederne kan ikke vises lige nu. Prøv igen om lidt.</p>
+{{else if not .Glimt}}
+<p class="empty">Der er ikke delt nogen offentlige billeder endnu.</p>
+{{else}}
+  {{range .Glimt}}
+  <article class="glimt">
+    <p class="hold">{{hold .Hold}}</p>
+    <p class="when">{{date .CreatedAt}}</p>
+    {{if .Caption}}<p class="caption">{{.Caption}}</p>{{end}}
+    {{if .Media}}
+    {{$g := .}}
+    <div class="media">
+      {{range .Media}}
+      <!-- The thumbnail, always. This page is read by a lot of people at once on whatever connection they have,
+           and a grid of full-size images is the difference between usable and not. loading=lazy is a plain
+           attribute, not a script.
+
+           Every item gets its own tag — there is no carousel here. See the handler comment. -->
+      <img src="/api/public/glimt/{{$g.ID}}/media/{{.Ordinal}}?variant=thumb"
+           alt="Glimt fra {{hold $g.Hold}}" loading="lazy" decoding="async"
+           {{if and .Width .Height}}width="{{.Width}}" height="{{.Height}}"{{end}}>
+      {{end}}
+    </div>
+    {{end}}
+  </article>
+  {{end}}
+{{end}}
 {{template "layout-foot" .}}{{end}}
 
 {{define "patrol-notyet"}}{{template "layout-head" .}}

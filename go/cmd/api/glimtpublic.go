@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"html/template"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,7 +11,6 @@ import (
 
 	"nathejk.dk/internal/blob"
 	"nathejk.dk/internal/commands"
-	"nathejk.dk/internal/eventtime"
 	"nathejk.dk/nathejk/table/glimt"
 )
 
@@ -383,122 +381,39 @@ func (app *application) publicGlimtPageHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	data := publicGlimtPageData{
-		Year:        app.config.eventYear,
+		publicPageData: publicPageData{
+			Year:  app.config.eventYear,
+			Title: "Glimt",
+			Root:  app.publicRoot(),
+		},
 		Unavailable: err != nil,
-		Root:        app.publicRoot(),
 	}
 	for _, g := range rows {
 		data.Glimt = append(data.Glimt, newPublicGlimtResponse(g))
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// Same short window as the JSON: shareable, but a takedown must land quickly.
-	w.Header().Set("Cache-Control", "public, max-age=60")
-	if rerr := publicGlimtPageTemplate.Execute(w, data); rerr != nil {
-		// The response has already begun. Logged rather than answered.
-		app.Logger.Error("executing the public glimt template", "err", rerr)
-	}
+	// Through the shared renderer since task 424, which is what gives this page the site's header and footer — and
+	// incidentally the `X-Robots-Tag` header the meta tag below used to carry alone.
+	app.renderPublicPage(w, "glimt", data)
 }
 
+// publicGlimtPageData is the public glimt page.
+//
+// # It uses the shared layout now (task 424)
+//
+// This page was built before there was a layout to share and kept its own template afterwards, which
+// `publicSiteTemplates` recorded as a deliberate omission: "it works, it is tested, and rewriting a shipped
+// public page to prove a point about layout sharing is how a refactor becomes an outage. If it is ever touched
+// for another reason, this is where it should land."
+//
+// The maintainer asking for the header and footer here is that reason. So the page moved, and the embedded
+// `publicPageData` is what carries the year, the title and the base path that the layout needs.
 type publicGlimtPageData struct {
-	Year        string
+	publicPageData
+
 	Glimt       []publicGlimtResponse
 	Unavailable bool
-
-	// Root is the public site's base path (`/2026`), for the same reason publicPageData carries one: the
-	// prefix moved once (task 351) and will move again when PRD 021 lands, and a path typed into a template
-	// is one nobody remembers to change.
-	Root string
 }
-
-// publicGlimtPageTemplate is the whole page: one file, no assets, no script.
-//
-// The CSS is inline for the same reason there is no bundle — a separate stylesheet is a second
-// request that can fail, and there is not enough of it to be worth caching. `html/template` escapes
-// every interpolation, which matters here because a caption is participant-authored text on an
-// unauthenticated page.
-var publicGlimtPageTemplate = template.Must(template.New("publicGlimt").Funcs(template.FuncMap{
-	"hold": publicHoldLabel,
-	// The same helper the rest of the public site uses (task 358). This used to be a one-line closure over a
-	// Go layout string, and it had **two** bugs that a reader would not see: `januar` is not a layout token, so
-	// Go copied it through as a literal and every glimt was dated in January; and nothing converted the
-	// instant, so the clock was UTC. Both were invisible because the code looked like a format string.
-	"date": eventtime.Danish,
-}).Parse(`<!DOCTYPE html>
-<html lang="da">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Glimt fra Nathejk {{.Year}}</title>
-<!-- Not indexed. The photographs were shared publicly by their authors, which is not the same as
-     asking for them to be findable by name in a search engine years later. -->
-<meta name="robots" content="noindex, nofollow">
-<style>
-  :root { color-scheme: light dark; }
-  body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem;
-         max-width: 60rem; margin-inline: auto; line-height: 1.5; }
-  h1 { font-size: 1.6rem; margin-bottom: .25rem; }
-  .intro { color: #555; margin-top: 0; }
-  .glimt { border-top: 1px solid #ddd; padding: 1rem 0; }
-  .hold { font-weight: 600; }
-  .when { color: #666; font-size: .85rem; }
-  .caption { margin: .5rem 0 0; white-space: pre-wrap; overflow-wrap: break-word; }
-  /* Every item, side by side where there is room and stacked where there is not. No carousel:
-     see the handler comment. */
-  .media { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-           gap: .5rem; margin-top: .75rem; }
-  .media img { width: 100%; height: auto; border-radius: .25rem; background: #eee; }
-  .empty { border: 1px dashed #bbb; border-radius: .5rem; padding: 2rem; text-align: center;
-           color: #555; }
-  footer { border-top: 1px solid #ddd; margin-top: 2rem; padding-top: 1rem;
-           color: #555; font-size: .85rem; }
-</style>
-</head>
-<body>
-<h1>Glimt fra Nathejk {{.Year}}</h1>
-<p class="intro">
-  Billeder som deltagerne selv har valgt at dele offentligt. Der står ikke navne på billederne —
-  et glimt vises med patruljen eller klanen, ikke med personen.
-</p>
-
-{{if .Unavailable}}
-  <p class="empty">Billederne kan ikke vises lige nu. Prøv igen om lidt.</p>
-{{else if not .Glimt}}
-  <p class="empty">Der er ikke delt nogen offentlige billeder endnu.</p>
-{{else}}
-  {{range .Glimt}}
-  <article class="glimt">
-    <p class="hold">{{hold .Hold}}</p>
-    <p class="when">{{date .CreatedAt}}</p>
-    {{if .Caption}}<p class="caption">{{.Caption}}</p>{{end}}
-    {{if .Media}}
-    {{$g := .}}
-    <div class="media">
-      {{range .Media}}
-      <!-- The thumbnail, always. This page is read by a lot of people at once on whatever
-           connection they have, and a grid of full-size images is the difference between usable
-           and not. loading=lazy is a plain attribute, not a script.
-
-           Every item gets its own tag - there is no carousel here. See the handler comment. -->
-      <img src="/api/public/glimt/{{$g.ID}}/media/{{.Ordinal}}?variant=thumb"
-           alt="Glimt fra {{hold $g.Hold}}" loading="lazy" decoding="async"
-           {{if and .Width .Height}}width="{{.Width}}" height="{{.Height}}"{{end}}>
-      {{end}}
-    </div>
-    {{end}}
-  </article>
-  {{end}}
-{{end}}
-
-<!-- No footer here (task 362).
-     This page carried a takedown line, the retention period and a privacy link. The maintainer removed them:
-     "It's already stated elsewhere and it seems very overwhelming with all these disclaimer everywhere."
-     Both statements are still on /{year}/privatliv, and the patrol page keeps the takedown *affordance* —
-     the details/summary somebody actually uses when a picture is wrong (task 343). What went is the repetition
-     of it on a page that is just photographs. -->
-</body>
-</html>
-`))
 
 // publicHoldLabel is the attribution line, in Danish, matching the app's.
 //

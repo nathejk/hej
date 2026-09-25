@@ -212,7 +212,9 @@ func TestPublicSitePagesAreNotIndexed(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	for _, path := range []string{"/2026", "/2026/patrulje/42"} {
+	// The glimt page joined this list in task 424, when it moved into the shared layout. Until then it carried
+	// only the meta tag, because it rendered itself and the header came from the shared renderer it did not use.
+	for _, path := range []string{"/2026", "/2026/patrulje/42", "/2026/glimt"} {
 		resp, body := getPublic(t, srv.URL+path, nil)
 		if got := resp.Header.Get("X-Robots-Tag"); !strings.Contains(got, "noindex") {
 			t.Errorf("%s: want a noindex X-Robots-Tag, got %q", path, got)
@@ -730,7 +732,7 @@ func TestEveryPublicPageWearsTheHeaderAndFooter(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	for _, path := range []string{"/2026", "/2026/privatliv", "/2026/patrulje/42"} {
+	for _, path := range []string{"/2026", "/2026/privatliv", "/2026/patrulje/42", "/2026/glimt"} {
 		t.Run(path, func(t *testing.T) {
 			_, body := getPublic(t, srv.URL+path, nil)
 			page := string(body)
