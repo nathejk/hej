@@ -293,6 +293,9 @@ var adminTemplates = template.Must(template.Must(template.New("admin").Funcs(adm
 var adminTemplateFuncs = template.FuncMap{
 	"photos": photoCount,
 	"albums": albumCount,
+	// The shared photo viewer's assets (task 402). The same function the public site's templates use, because it
+	// is the same asset at the same URL — which is the entire point of PRD 023's "one implementation".
+	"viewer": viewerAssetPath,
 }
 
 // mustInjectAdminAssets splices a page's CSS and its scripts into its HTML, ready to be parsed.

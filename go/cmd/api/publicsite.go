@@ -431,6 +431,9 @@ var publicSiteFuncs = template.FuncMap{
 	// because the same count appears in the admin tool's markup and in six Go sentences, and this page was the one
 	// of the nine written without the singular. See plural.go.
 	"photos": photoCount,
+	// `viewer` is the hashed path to one of the photo viewer's two assets (task 402). A function rather than a
+	// written-out URL, so the version cannot go stale in a template — see viewer.go.
+	"viewer": viewerAssetPath,
 	// `albums` is the count beside the "Billeder" heading. **`album` is invariant in Danish**, and the helper is
 	// how that is said once rather than guessed at by analogy with `billede` — see plural.go.
 	"albums": albumCount,

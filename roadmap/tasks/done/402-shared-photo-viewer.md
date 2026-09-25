@@ -1,11 +1,11 @@
 # 402 — The shared photo viewer: one file, two surfaces, no build step
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-25
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-09-25
+**Completed:** 2026-09-25
 
 ## Description
 
@@ -80,19 +80,30 @@ positives — and by the manual QA in task 411. That asymmetry is the reason to 
 
 ## Acceptance Criteria
 
-- [ ] `viewer.js` and `viewer.css` exist as real files under `go/cmd/api/viewer/`, embedded, with no build
+- [x] `viewer.js` and `viewer.css` exist as real files under `go/cmd/api/viewer/`, embedded, with no build
       step, no npm dependency, no CDN and nothing added under `vue/` except the dev-proxy key
-- [ ] `/viewer/{asset}` serves exactly those two assets through a **fixed map**; an encoded `../` or any
+- [x] `/viewer/{asset}` serves exactly those two assets through a **fixed map**; an encoded `../` or any
       other name 404s, asserted by test
-- [ ] The assets are cacheable long with a version in the path, from a route outside `/admin`, so task 371's
+- [x] The assets are cacheable long with a version in the path, from a route outside `/admin`, so task 371's
       `no-store` rule needs no exception
-- [ ] The overlay is a native `<dialog>` opened with `showModal()`, labelled, keyboard-operable throughout,
+- [x] The overlay is a native `<dialog>` opened with `showModal()`, labelled, keyboard-operable throughout,
       with focus returning to the tile that opened it
-- [ ] Which controls appear comes only from the host page's `data-viewer-actions`; `viewer.js` contains no
+- [x] Which controls appear comes only from the host page's `data-viewer-actions`; `viewer.js` contains no
       surface check and no reference to either surface
-- [ ] The filmstrip is hidden on narrow **and** short viewports by media query alone, and the source guards
+- [x] The filmstrip is hidden on narrow **and** short viewports by media query alone, and the source guards
       strip comments before searching
 
 ## Progress Log
 
 - 2026-09-25 — Task created from PRD 023.
+- 2026-09-25 — Picked up. Plan: viewer.css and viewer.js as real files, viewer.go with the embed and the fixed-map route under a content-hash path, template helpers for both surfaces to link them, the /viewer proxy key, then source guards plus a behavioural test of the asset route.
+- 2026-09-25 — `go/cmd/api/viewer/{viewer.js,viewer.css}` as real files, `viewer.go` with the embed, the fixed-map route at `/viewer/:version/:asset`, `viewerAssetPath` exposed to **both** surfaces' template FuncMaps (the same function, because it is the same asset at the same URL), and the `/viewer` dev-proxy key in vite.config.ts.
+- 2026-09-25 — The version is the first 10 hex of the two files' combined SHA-256, hashed in a **fixed order** rather than by ranging the map: map iteration order would change the version on every boot and defeat the caching it exists for. Derived rather than bumped by hand, because a version somebody must remember to change is wrong exactly when it matters — after a one-line fix to a file cached for a year.
+- 2026-09-25 — Decided the version is a **cache key, not a lookup**: an old version path is answered with current bytes rather than 404'd, so a page served inside the public site's 60-second window just before a deploy keeps its viewer. The alternative — storing every past version — is a build system, which is the thing this PRD avoids. Documented at `viewerAssetCacheControl` and asserted by `TestAnOlderViewerVersionIsStillServed`.
+- 2026-09-25 — Every class is prefixed `hv-`, with a guard. The viewer loads beside two stylesheets it does not own (the public site's inline CSS, and Pico plus page.css), so an unprefixed `.stage` or `.info` would collide eventually and present as a viewer bug on one surface only — the most expensive kind of failure this arrangement can produce.
+- 2026-09-25 — Actions are a **registry**, not a fixed row: `window.hejViewer.register(name, action)`, rendered in the order the host page declared in `data-viewer-actions`, and a declared action this build does not have is skipped in silence. That is what makes tasks 404, 405, 407 and 408 separable from this one, and what keeps `if (isAdmin)` out of the file — asserted by `TestTheViewerKnowsNothingAboutItsSurfaces`.
+- 2026-09-25 — Items are re-read from the DOM on every open, never cached. Same reasoning the admin sheet gives for rebuilding its `order` after a swap: "the photographs currently on the page" is not state, it is a fact about the DOM, and deriving it from the DOM cannot be wrong. It is also what makes the viewer work after a "Vis flere" page or an htmx swap with no bookkeeping.
+- 2026-09-25 — **Modified clicks are left alone** — cmd, ctrl, shift, alt and middle-click. Every tile is a real `<a href>` so the plain page works (PRD 023 §6), and swallowing those would take a working browser gesture away to show an overlay nobody asked for.
+- 2026-09-25 — `pictureFor` is the single place an image URL is chosen, so task 410's `srcset` work is one function rather than a hunt. The history reflection (`data-viewer-history`) is implemented here but **inert until a host page declares the parameter**, which is task 403's line; that keeps the code where it belongs without wiring anything.
+- 2026-09-25 — ✅ All criteria met. Guards: the asset route end-to-end (content types, the year-long immutable cache, seven refused names including encoded traversals), no template actions, no surface knowledge, the filmstrip's media query covering **narrow and short** with no `matchMedia` in the JS, and the prefix rule. Comments are stripped before searching, and each guard was verified to fail — a needle matching the prose that explains it is this repo's recurring source-guard bug. `gofmt`, `go vet`, full `go test ./cmd/api/` clean.
+- 2026-09-25 — Not in this task, by design: fullscreen (404), share (405), the caption and credit editors (407, 408), the `srcset` choice (410), and the wiring into each page (403, 406). Nothing loads the viewer yet, which is why `TestTheAdminToolAddsNothingToTheFrontend` is still green — it starts mattering in task 406.

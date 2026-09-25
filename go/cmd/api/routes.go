@@ -186,6 +186,14 @@ func (app *application) routes() http.Handler {
 	// here and a loop afterwards.
 	router.HandlerFunc(http.MethodGet, publicRoot+"/privatliv", app.publicPrivacyPageHandler)
 	router.HandlerFunc(http.MethodGet, publicRoot+"/album/:slug", app.albumPageHandler)
+	// The shared photo viewer's two assets (task 402). **Outside the year prefix and outside /admin**, because
+	// both surfaces load them and one of those surfaces answers `no-store` to everything under its own prefix
+	// (task 371). Registered bare like the public pages, so no session is read: it is code, not data, and a
+	// public page cannot load an authenticated asset.
+	//
+	// Two path segments rather than a query string for the version, so a shared cache keys on the path and
+	// cannot be configured to strip it. See viewer.go for why the version is not validated.
+	router.HandlerFunc(http.MethodGet, "/viewer/:version/:asset", app.serveViewerAssetHandler)
 	router.HandlerFunc(http.MethodGet, publicRoot+"/patrulje", app.patrolSearchLookupHandler)
 	router.HandlerFunc(http.MethodGet, publicRoot+"/patrulje/:number", app.publicPatrolPageHandler)
 	// The takedown route (task 343). A **form POST**, not a JSON endpoint, because it has to work with

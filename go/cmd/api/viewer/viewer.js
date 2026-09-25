@@ -1,0 +1,572 @@
+// The shared photo viewer (task 402, PRD 023 §6, §7.2, §7.7).
+//
+// One full-viewport overlay, used unchanged by the public album page and by the curator's admin tool. No
+// framework: the public page loads neither htmx nor Alpine, and this has to be the same file on both surfaces.
+// No build step either — it is served from the Go binary exactly as written.
+//
+// # It does not know which surface it is on, and that is load-bearing
+//
+// Everything page-specific arrives through `data-` attributes (PRD 023 §7.7): the list of photographs, their
+// URLs, their captions, and **which controls the action row carries**. There is deliberately no `isAdmin`
+// anywhere below. The same behaviour written as a branch would be one inverted boolean away from a public edit
+// button — and since nothing in the Go test suite can execute this file, nobody would find out from a test.
+// A control the host page never declares is a control this file never builds.
+//
+// # No template actions in here, ever
+//
+// This is a static asset served from a fixed map, not a template — the rule that already governs
+// `adminui/*.js`. An action inside a script is escaped as JavaScript by `html/template`, which mangles values
+// in ways nobody notices until a browser does something strange, and it stops the file being something a
+// formatter or a linter can read.
+//
+// # What lives elsewhere
+//
+// The action row is a registry, and the controls that go in it are their own tasks: fullscreen (404), share
+// (405), the caption editor (407) and the credit editor (408) each add one entry to `actions` below. A declared
+// action this file does not know about is skipped in silence, so a page may ask for a control before it exists
+// and simply not get one. That is what keeps those four tasks separable from this one.
+//
+// `pictureFor` is the single place an image URL is chosen, so task 410's `srcset` work is one function rather
+// than a hunt.
+(function () {
+  'use strict';
+
+  // Lucide, inline, because there is no build step to import a component through (.rules). Same icon set as
+  // the app, different delivery.
+  var ICONS = {
+    prev: '<path d="m15 18-6-6 6-6"/>',
+    next: '<path d="m9 18 6-6-6-6"/>',
+    close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  };
+
+  function icon(name) {
+    return (
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+      ICONS[name] +
+      '</svg>'
+    );
+  }
+
+  function button(className, iconName, label) {
+    var el = document.createElement('button');
+    el.type = 'button';
+    el.className = className;
+    el.innerHTML = icon(iconName);
+    el.setAttribute('aria-label', label);
+    el.title = label;
+    return el;
+  }
+
+  // The action registry. Later tasks add entries; each is { icon, label, activate(ctx) } and gets one button in
+  // the row, in the order the host page declared them.
+  var actions = {};
+
+  // The viewer is a singleton: one dialog in the document, whatever opened it. Two overlays over one page is a
+  // state with no sensible meaning, and building the DOM once keeps the filmstrip's scroll position honest
+  // between openings of the same album.
+  var ui = null;
+
+  function build() {
+    if (ui) return ui;
+
+    var dialog = document.createElement('dialog');
+    dialog.className = 'hv';
+
+    var stage = document.createElement('div');
+    stage.className = 'hv-stage';
+
+    var prev = button('hv-nav hv-prev', 'prev', 'Forrige billede');
+    var next = button('hv-nav hv-next', 'next', 'Næste billede');
+
+    var img = document.createElement('img');
+    img.className = 'hv-img';
+    // Decorative here: the caption is in the panel below, and an alt repeating it would have a screen reader
+    // read the same sentence twice.
+    img.alt = '';
+
+    var missing = document.createElement('p');
+    missing.className = 'hv-missing';
+    missing.textContent = 'Billedet er ikke tilgængeligt.';
+
+    var bar = document.createElement('div');
+    bar.className = 'hv-bar';
+
+    var info = document.createElement('div');
+    info.className = 'hv-info';
+
+    var strip = document.createElement('div');
+    strip.className = 'hv-strip';
+
+    stage.appendChild(bar);
+    stage.appendChild(prev);
+    stage.appendChild(img);
+    stage.appendChild(missing);
+    stage.appendChild(next);
+    dialog.appendChild(stage);
+    dialog.appendChild(info);
+    dialog.appendChild(strip);
+    document.body.appendChild(dialog);
+
+    ui = {
+      dialog: dialog,
+      stage: stage,
+      img: img,
+      bar: bar,
+      info: info,
+      strip: strip,
+      prev: prev,
+      next: next,
+      // The open album: its items, where we are in it, and what the host page asked for.
+      items: [],
+      index: 0,
+      opener: null,
+      config: {},
+      pushed: false,
+    };
+
+    prev.addEventListener('click', function () { move(-1); });
+    next.addEventListener('click', function () { move(1); });
+
+    img.addEventListener('load', function () {
+      dialog.classList.remove('is-loading');
+      dialog.classList.remove('is-missing');
+    });
+    img.addEventListener('error', function () {
+      // Not an error state to recover from: a photograph can be taken down between the page loading and a
+      // visitor reaching it. Say so, and let the arrows keep working.
+      dialog.classList.remove('is-loading');
+      dialog.classList.add('is-missing');
+    });
+
+    dialog.addEventListener('keydown', onKeydown);
+    dialog.addEventListener('close', onClose);
+    // The backdrop is part of the dialog's box, so a click that lands on the dialog itself rather than on any
+    // of its children is a click outside the photograph.
+    dialog.addEventListener('click', function (event) {
+      if (event.target === dialog) dialog.close();
+    });
+
+    bindSwipe(stage);
+
+    return ui;
+  }
+
+  // Read the items out of the DOM, every time the viewer opens.
+  //
+  // Not cached, deliberately, and this is the same reasoning the admin contact sheet gives for rebuilding its
+  // `order` after a swap: "the photographs currently on the page" is not state, it is a fact about the DOM, and
+  // deriving it from the DOM cannot be wrong. It is also what makes the viewer work after a "Vis flere" link,
+  // an htmx swap, or anything else that adds tiles.
+  function itemsIn(container) {
+    var nodes = container.querySelectorAll('[data-viewer-item]');
+    var out = [];
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      out.push({
+        node: node,
+        full: node.getAttribute('data-full') || '',
+        medium: node.getAttribute('data-medium') || '',
+        thumb: node.getAttribute('data-thumb') || '',
+        caption: node.getAttribute('data-caption') || '',
+        credit: node.getAttribute('data-credit') || '',
+        ordinal: node.getAttribute('data-viewer-ordinal') || '',
+        id: node.getAttribute('data-viewer-id') || '',
+      });
+    }
+    return out;
+  }
+
+  // The one place an image URL is chosen.
+  //
+  // Task 410 gives this a `srcset` and a `sizes` hint so the browser can take an 800px rendition on a phone
+  // instead of the 1600px display image. Until then the display image is all there is, and having one function
+  // to change is the point of writing it this way now.
+  function pictureFor(item) {
+    return item.full || item.thumb;
+  }
+
+  function show(index) {
+    var state = ui;
+    if (index < 0 || index >= state.items.length) return;
+    state.index = index;
+
+    var item = state.items[index];
+    state.dialog.classList.add('is-loading');
+    state.dialog.classList.remove('is-missing');
+    state.img.src = pictureFor(item);
+
+    state.info.innerHTML = '';
+    if (item.caption) {
+      var caption = document.createElement('span');
+      caption.className = 'hv-caption';
+      caption.textContent = item.caption;
+      state.info.appendChild(caption);
+    }
+    if (item.credit) {
+      var credit = document.createElement('span');
+      credit.className = 'hv-credit';
+      credit.textContent = item.credit;
+      state.info.appendChild(credit);
+    }
+
+    state.prev.disabled = index === 0;
+    state.next.disabled = index === state.items.length - 1;
+
+    markStrip(index);
+    reflectURL(item);
+    prefetchAround(index);
+  }
+
+  function move(delta) {
+    show(ui.index + delta);
+  }
+
+  function markStrip(index) {
+    var buttons = ui.strip.children;
+    for (var i = 0; i < buttons.length; i++) {
+      var current = i === index;
+      buttons[i].setAttribute('aria-current', current ? 'true' : 'false');
+      if (current) {
+        // `nearest` rather than `center` for the block axis: centring vertically would scroll the *page* behind
+        // the dialog on some browsers, and the strip only ever needs to move sideways.
+        buttons[i].scrollIntoView({ block: 'nearest', inline: 'center' });
+      }
+    }
+  }
+
+  function fillStrip() {
+    var strip = ui.strip;
+    strip.innerHTML = '';
+    for (var i = 0; i < ui.items.length; i++) {
+      var item = ui.items[i];
+      var thumb = document.createElement('button');
+      thumb.type = 'button';
+      thumb.setAttribute('aria-label', item.caption || 'Billede ' + (i + 1));
+      var img = document.createElement('img');
+      img.src = item.thumb || pictureFor(item);
+      img.alt = '';
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      thumb.appendChild(img);
+      thumb.addEventListener('click', jumpTo(i));
+      strip.appendChild(thumb);
+    }
+  }
+
+  function jumpTo(index) {
+    return function () { show(index); };
+  }
+
+  // Two ahead and one back (PRD 023 §6), and no further.
+  //
+  // Revised upward from one-each-way once §2 established that albums are read after the event on home
+  // connections rather than on a congested cell at the finish line: the next photograph being there when you
+  // press the arrow is most of how this feels, and the cost of guessing wrong is small. Still bounded —
+  // prefetching a whole album is the thing PRD 023 exists to stop.
+  function prefetchAround(index) {
+    var wanted = [index + 1, index + 2, index - 1];
+    for (var i = 0; i < wanted.length; i++) {
+      var at = wanted[i];
+      if (at < 0 || at >= ui.items.length) continue;
+      var url = pictureFor(ui.items[at]);
+      if (!url) continue;
+      var pre = new Image();
+      pre.src = url;
+    }
+  }
+
+  // Reflect the current photograph in the address, when the host page asked for it.
+  //
+  // `data-viewer-history="foto"` names the query parameter. Opt-in rather than automatic because only the
+  // public album page has a server that understands the parameter (task 401); the admin tool's sheet is a
+  // filtered view whose address means something else entirely.
+  //
+  // Push on open, replace while moving: back should close the viewer, not walk back through every photograph
+  // somebody swiped past. The fragment goes on too, so that a copied address scrolls to the tile — a query
+  // string alone scrolls nowhere, and a fragment alone never reaches the server (task 401).
+  function reflectURL(item) {
+    var param = ui.config.history;
+    if (!param || !item.ordinal || !window.history) return;
+
+    var url = new URL(window.location.href);
+    url.searchParams.set(param, item.ordinal);
+    url.hash = param + '-' + item.ordinal;
+
+    if (ui.pushed) {
+      window.history.replaceState({ hv: true }, '', url.toString());
+      return;
+    }
+    window.history.pushState({ hv: true }, '', url.toString());
+    ui.pushed = true;
+  }
+
+  function onKeydown(event) {
+    switch (event.key) {
+      case 'ArrowLeft':
+        event.preventDefault();
+        move(-1);
+        break;
+      case 'ArrowRight':
+        event.preventDefault();
+        move(1);
+        break;
+      case 'Home':
+        event.preventDefault();
+        show(0);
+        break;
+      case 'End':
+        event.preventDefault();
+        show(ui.items.length - 1);
+        break;
+      default:
+        // Esc is the dialog's own, and so is Tab: showModal traps focus without help.
+        break;
+    }
+  }
+
+  function bindSwipe(stage) {
+    var startX = 0;
+    var startY = 0;
+    var tracking = false;
+
+    stage.addEventListener(
+      'pointerdown',
+      function (event) {
+        if (event.pointerType === 'mouse') return;
+        tracking = true;
+        startX = event.clientX;
+        startY = event.clientY;
+      },
+      { passive: true }
+    );
+
+    stage.addEventListener(
+      'pointerup',
+      function (event) {
+        if (!tracking) return;
+        tracking = false;
+        var dx = event.clientX - startX;
+        var dy = event.clientY - startY;
+        // Horizontal intent only, and a threshold generous enough that a tap with a shaky thumb is still a tap.
+        // Without the vertical comparison, a scroll attempt on a tall photograph changes the picture.
+        if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
+        move(dx < 0 ? 1 : -1);
+      },
+      { passive: true }
+    );
+  }
+
+  function renderActions(names) {
+    ui.bar.innerHTML = '';
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i];
+      var action = actions[name];
+      // A declared action this build does not have is skipped rather than announced. A host page may ask for a
+      // control whose task has not landed yet, and an empty gap beats a button that does nothing.
+      if (!action) continue;
+      ui.bar.appendChild(actionButton(name, action));
+    }
+    ui.bar.appendChild(closeButton());
+  }
+
+  function actionButton(name, action) {
+    var el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'hv-act hv-act-' + name;
+    el.innerHTML = icon(action.icon);
+    el.setAttribute('aria-label', action.label);
+    el.title = action.label;
+    el.addEventListener('click', function () {
+      action.activate(context(el));
+    });
+    return el;
+  }
+
+  // What an action gets to work with. Narrow on purpose: the current item, the means to redraw it, and its own
+  // button for state. An action that needed the whole `ui` would be an action that could move the viewer, and
+  // the four that exist need none of that.
+  function context(el) {
+    return {
+      item: ui.items[ui.index],
+      button: el,
+      dialog: ui.dialog,
+      config: ui.config,
+      refresh: function () { show(ui.index); },
+    };
+  }
+
+  function closeButton() {
+    var el = button('hv-close', 'close', 'Luk');
+    el.addEventListener('click', function () { ui.dialog.close(); });
+    return el;
+  }
+
+  function open(container, index) {
+    build();
+
+    ui.items = itemsIn(container);
+    if (!ui.items.length) return;
+    if (index < 0 || index >= ui.items.length) index = 0;
+
+    ui.config = {
+      history: container.getAttribute('data-viewer-history') || '',
+      shareTitle: container.getAttribute('data-share-title') || document.title,
+      captionEndpoint: container.getAttribute('data-caption-endpoint') || '',
+      year: container.getAttribute('data-year') || '',
+    };
+    ui.pushed = false;
+    ui.opener = document.activeElement;
+    ui.dialog.setAttribute(
+      'aria-label',
+      container.getAttribute('data-viewer-label') || 'Billeder'
+    );
+
+    renderActions(declaredActions(container));
+    fillStrip();
+
+    lockScroll();
+    ui.dialog.showModal();
+    show(index);
+    // After showModal, so the dialog is focusable. The close button rather than the photograph: it is the one
+    // control every viewer has, and landing on it means the first Tab goes forwards through the row.
+    var close = ui.bar.querySelector('.hv-close');
+    if (close) close.focus();
+  }
+
+  function declaredActions(container) {
+    var raw = container.getAttribute('data-viewer-actions') || '';
+    var names = raw.split(',');
+    var out = [];
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i].trim();
+      if (name) out.push(name);
+    }
+    return out;
+  }
+
+  function onClose() {
+    unlockScroll();
+    ui.img.removeAttribute('src');
+
+    // Wind the address back to the album. Only when we put an entry there, or a viewer that never touched
+    // history would send the visitor off the page.
+    if (ui.pushed && window.history) {
+      ui.pushed = false;
+      window.history.back();
+    }
+    if (ui.opener && typeof ui.opener.focus === 'function') {
+      ui.opener.focus();
+    }
+    ui.opener = null;
+  }
+
+  // Scroll lock, with the position remembered.
+  //
+  // `showModal` makes the page behind inert but does not reliably stop it scrolling, and a viewer that returns
+  // you to a different part of the album than you left is disorienting in a way nobody can quite name.
+  var scrollY = 0;
+
+  function lockScroll() {
+    scrollY = window.scrollY || 0;
+    document.documentElement.style.overflow = 'hidden';
+  }
+
+  function unlockScroll() {
+    document.documentElement.style.overflow = '';
+    window.scrollTo(0, scrollY);
+  }
+
+  // A click on a tile opens the viewer instead of following the link.
+  //
+  // Delegated from the container, so tiles appended later — a "Vis flere" page, an htmx swap — need no
+  // registration.
+  //
+  // **Modified clicks are left alone.** A cmd-click, middle-click or shift-click on a tile means "open the
+  // photograph in a new tab or window", and the whole reason every tile is a real `<a href>` (PRD 023 §6) is
+  // that the plain page has to work. Swallowing those would take a working browser gesture away in order to
+  // show an overlay the visitor did not ask for.
+  function bindContainer(container) {
+    if (container.getAttribute('data-viewer-bound') === 'true') return;
+    container.setAttribute('data-viewer-bound', 'true');
+
+    container.addEventListener('click', function (event) {
+      if (event.defaultPrevented) return;
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+      var opener = event.target.closest('[data-viewer-open], [data-viewer-item]');
+      if (!opener) return;
+      var item = opener.closest('[data-viewer-item]');
+      if (!item) return;
+
+      var items = container.querySelectorAll('[data-viewer-item]');
+      var index = Array.prototype.indexOf.call(items, item);
+      if (index < 0) return;
+
+      event.preventDefault();
+      open(container, index);
+    });
+  }
+
+  function bindAll() {
+    var containers = document.querySelectorAll('[data-viewer]');
+    for (var i = 0; i < containers.length; i++) {
+      bindContainer(containers[i]);
+    }
+  }
+
+  // Open on load when the address names a photograph (task 401's `?foto=`).
+  //
+  // The server has already rendered the page that holds it, so the item is in the DOM; this only opens the
+  // overlay on it. Without JavaScript the same address is the right page scrolled to the right tile, which is
+  // the whole point of the parameter being a query rather than app state.
+  function openFromURL() {
+    var containers = document.querySelectorAll('[data-viewer][data-viewer-history]');
+    for (var i = 0; i < containers.length; i++) {
+      var container = containers[i];
+      var param = container.getAttribute('data-viewer-history');
+      var wanted = new URL(window.location.href).searchParams.get(param);
+      if (!wanted) continue;
+
+      var items = itemsIn(container);
+      for (var j = 0; j < items.length; j++) {
+        if (items[j].ordinal === wanted) {
+          open(container, j);
+          // Opened from the address rather than from a click, so there is nothing to push: the entry the
+          // visitor arrived on already names this photograph, and back belongs to wherever they came from.
+          ui.pushed = true;
+          return;
+        }
+      }
+    }
+  }
+
+  window.addEventListener('popstate', function () {
+    // Back was pressed while the viewer was open. Close it without winding history again — `onClose` only does
+    // that for an entry this file pushed, and the press we are answering has already consumed it.
+    if (ui && ui.dialog.open) {
+      ui.pushed = false;
+      ui.dialog.close();
+    }
+  });
+
+  function start() {
+    bindAll();
+    openFromURL();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+
+  // The seam the other tasks use: fullscreen (404), share (405), the caption editor (407) and the credit
+  // editor (408) each call `register` once, at the bottom of this file. Exposed on `window` rather than kept
+  // private so that a host page can also rebind after replacing its tiles.
+  window.hejViewer = {
+    register: function (name, action) { actions[name] = action; },
+    bind: bindAll,
+    icons: ICONS,
+  };
+})();

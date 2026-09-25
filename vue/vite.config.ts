@@ -360,6 +360,19 @@ export default defineConfig({
         target: 'http://api:4000',
         changeOrigin: true,
       },
+      // The shared photo viewer's two assets (PRD 023 §7.3, task 402), which the
+      // public album page and the admin tool both load from `/viewer/<hash>/…`.
+      //
+      // Dev routing only. **The assets themselves are not here** — they live in
+      // `go/cmd/api/viewer/` and are embedded in the Go binary, because the hard
+      // rule in `.rules` is that website assets do not go under `vue/`. Without
+      // this key Vite would answer them with the SPA shell, and a page would load
+      // `index.html` as its JavaScript: the viewer would silently not open, which
+      // looks like a viewer bug rather than an unrouted path.
+      '/viewer': {
+        target: 'http://api:4000',
+        changeOrigin: true,
+      },
     },
   },
 })
