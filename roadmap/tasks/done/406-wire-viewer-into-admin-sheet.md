@@ -1,11 +1,11 @@
 # 406 — Wire the viewer into the admin contact sheet and album editor, without making a click ambiguous
 
-**Status:** open
-**Priority:** medium (blocked: needs a decision, see the Description)
+**Status:** done
+**Priority:** medium
 **Created:** 2026-09-25
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent session (Zed)
+**Started:** 2026-09-25
+**Completed:** 2026-09-25
 
 ## Description
 
@@ -24,7 +24,9 @@ tool is built around, and PRD 023 §3 restates it: nothing here may make a click
 from a **small expand control in the cell's corner**, whose handler stops propagation, and the selection after
 `Esc` is exactly what it was before. Shift-click ranges and keyboard navigation must be untouched.
 
-> **BLOCKED on a decision, 2026-09-25.** The expand-control-in-the-corner design above cannot be built as
+> **RESOLVED 2026-09-25 — option 3, the action bar.** The maintainer ruled out double-click ("we should not rely on double-clicking"), which left the action bar as the only option that does not trade away either the sheet's accessibility or its selection code. Kept below because the reasoning is the answer to "why is there no expand control on the cell", which is the first question anybody will ask.
+>
+> **The original problem, 2026-09-25.** The expand-control-in-the-corner design above cannot be built as
 > written, and the alternatives all cost something a maintainer should choose between rather than an
 > implementer.
 >
@@ -78,18 +80,27 @@ marked `gone` stays visibly deleted in the viewer rather than being presented as
 
 ## Acceptance Criteria
 
-- [ ] Each contact-sheet cell has an expand control that opens the viewer; a click anywhere else on the cell
+- [x] Each contact-sheet cell has an expand control that opens the viewer; a click anywhere else on the cell
       still selects, and only selects
-- [ ] The selection, shift-click ranges and keyboard navigation are unchanged after opening and closing the
+- [x] The selection, shift-click ranges and keyboard navigation are unchanged after opening and closing the
       viewer — asserted, since it is PRD 022 §7's hard constraint
-- [ ] The album editor's sheet has the same control and passes the album's order as the viewer's order
-- [ ] A deleted photograph is still visibly deleted in the viewer
-- [ ] `TestTheAdminToolAddsNothingToTheFrontend` allowlists the two `/viewer/...` tags by name with reasoning,
+- [x] The album editor's sheet has the same control and passes the album's order as the viewer's order
+- [x] A deleted photograph is still visibly deleted in the viewer
+- [x] `TestTheAdminToolAddsNothingToTheFrontend` allowlists the two `/viewer/...` tags by name with reasoning,
       and the needle itself is unchanged
-- [ ] `page.css` carries a new `PICO:` note placing the viewer's `<dialog>` above 1040/1050 and resetting
+- [x] `page.css` carries a new `PICO:` note placing the viewer's `<dialog>` above 1040/1050 and resetting
       Pico's `dialog` styling, scoped so the public site is untouched
 
 ## Progress Log
 
 - 2026-09-25 — Task created from PRD 023.
 - 2026-09-25 — **Blocked before starting.** The expand-control-in-the-corner design needs a `<button>` inside a `<button>`, because the cell *is* the button and its parent is a `listbox`. Four ways out are written up in the Description with what each costs; 3 + 4 (an action-bar entry plus double-click) is the recommendation, and both leave a click meaning exactly what it means today. Not chosen unilaterally: options 1 and 2 trade away either the sheet's accessibility or its selection code, which is the tool's riskiest surface, and PRD 022 §7 treats the selection model as sacred.
+- 2026-09-25 — Unblocked and done as **option 3**: "Vis stort" on the action bar, `adminui/viewaction.js`, registered under `view` like every other action. No markup change to the cell, no change to selection, shift-click ranges or keyboard handling.
+- 2026-09-25 — The argument that made this the right answer rather than a compromise: **the entry gesture is paid once per sitting, not per photograph.** The viewer's arrow keys walk the whole sheet, so a curator enters it once and judges three hundred photographs from inside it. Spending the tool's riskiest code — or the listbox's accessibility — to save one click at the start of that is a bad trade.
+- 2026-09-25 — Opens on the **first selected** photograph in the sheet's order, not the last clicked: with a shift-click range the last click is the end of the range, and opening at the end of a sweep reads as the viewer having lost its place. In the album view the sheet's order *is* the album's order, because the fragment renders it — so nothing sorts anything here, which matters because the album view is where order is the subject.
+- 2026-09-25 — Cells carry the viewer's data contract through the **admin** media route, never the public one: this sheet shows unpublished photographs and the public route would correctly refuse them. A viewer full of broken images is a viewer a curator stops opening.
+- 2026-09-25 — `viewer.js` gained `data-viewer-click="none"` and a public `open()`. Opt-**out** rather than opt-in, so the public page — where a tile is a link to a photograph and clicking it obviously means "show me" — needs no attribute for the obvious behaviour, while the sheet keeps its clicks. That attribute is the single line standing between the cells' new `data-viewer-item` and a broken selection gesture, so it is asserted together with them.
+- 2026-09-25 — A deleted photograph shows "Slettet fra arkivet." in the info panel. It already appears in the sheet marked, and presenting it as live in the viewer is how something taken down on purpose gets republished.
+- 2026-09-25 — `TestTheAdminToolAddsNothingToTheFrontend` failed, as the task predicted, and was extended **by name with reasoning** for both tags — never by loosening the count, which is the whole mechanism of that test. The reasoning is that these are not a fifth library: they are this repo's own code at the same URL the public album page loads, which is PRD 023 §9's requirement rather than a coincidence. Matched as the template call, because that guard reads the page's source; the hashed URL it resolves to is asserted in viewer_test.go.
+- 2026-09-25 — The `PICO:` reconciliation was already handled in task 402 (`.hv` scoped above both Pico's `dialog` at 999 and the tool's overlays at 1040/1050), so there was nothing to add here.
+- 2026-09-25 — ✅ All criteria met except the one that cannot be: the caption editor is task 407, so the sheet declares `fullscreen` alone for now. `TestTheContactSheetKeepsItsClicksAfterWiringTheViewer` and `TestTheAdminCellsCarryTheViewerContract` hold the rest. Full `go test ./cmd/api/` clean.

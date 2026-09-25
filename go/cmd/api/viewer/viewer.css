@@ -188,6 +188,16 @@
   font-size: 0.85rem;
 }
 
+/* A photograph the curator has deleted from the library (task 406). It still appears in their sheet, marked, and
+   it must stay marked here: presenting it as live is how something taken down on purpose gets re-published. Amber
+   rather than red — it is a state, not a failure. */
+.hv-deleted {
+  display: block;
+  margin-top: 0.15rem;
+  color: #fcd34d;
+  font-size: 0.85rem;
+}
+
 /* The filmstrip. One row, scrolled horizontally, the current photograph ringed and kept centred. */
 .hv-strip {
   display: flex;

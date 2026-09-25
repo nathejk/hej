@@ -26,6 +26,15 @@
 <link rel="stylesheet" href="/admin/vendor/pico.min.css">
 <script src="/admin/vendor/htmx.min.js" defer></script>
 <script src="/admin/vendor/alpine.min.js" defer></script>
+<!-- The shared photo viewer (task 406, PRD 023). **The same two URLs the public album page loads**, which is the
+     requirement rather than a coincidence: PRD 023 §9 says the feature has failed if a second copy appears. Served
+     from this binary, not a CDN, and from outside `/admin` so the tool's no-store rule (task 371) needs no
+     exception — see viewer.go.
+
+     An enhancement here too: without it a curator has the contact sheet they had before, and "Vis stort" is a
+     button that does nothing rather than a broken page. -->
+<link rel="stylesheet" href="{{viewer "viewer.css"}}">
+<script src="{{viewer "viewer.js"}}" defer></script>
 <style>
 /* @inject page.css */
 </style>
@@ -126,6 +135,8 @@
        free. -->
   <div id="sheet" role="listbox" aria-multiselectable="true" aria-label="Billeder" tabindex="0"
        data-query="{{.Query}}"
+       data-viewer data-viewer-actions="fullscreen" data-viewer-click="none"
+       data-viewer-label="Billeder"
        hx-get="/admin/fragments/photos?limit=120{{if .Query}}&{{.Query}}{{end}}" hx-trigger="load" hx-swap="innerHTML"></div>
   <!-- The "more" button arrives as an out-of-band swap carrying the next page's offset, so the browser never adds
        up page sizes — its idea of how many it holds would drift the first time a clamped limit differed from the
@@ -137,6 +148,17 @@
        this task's. -->
   <div id="actions" hidden aria-live="polite">
     <span id="selcount"></span>
+    <!-- "Vis stort" opens the shared viewer on the selection (task 406).
+
+         On the action bar rather than as a control in each cell, and the reason is markup rather than taste: the
+         cell is a `<button>` with `role="option"` inside a `role="listbox"`, so a corner control would be a
+         button inside a button, and an `option` may not hold interactive descendants in any case. The four
+         alternatives and their costs are written up in task 406.
+
+         It reads better than it sounds, because the viewer's arrow keys then walk the **whole sheet**: a curator
+         enters it once per sitting and judges three hundred photographs from inside it. The entry gesture is paid
+         once, which is why the cheapest, least invasive one is the right one. -->
+    <button type="button" data-act="view">Vis stort</button>
     <button type="button" data-act="album">Tilføj til album</button>
     <button type="button" data-act="position">Sæt position</button>
     <button type="button" data-act="patrol">Tag patrulje</button>
@@ -327,6 +349,7 @@
 // @inject main.js
 // @inject sheetshell.js
 // @inject contactsheet.js
+// @inject viewaction.js
 // @inject albumaction.js
 // @inject positionaction.js
 // @inject patrolaction.js

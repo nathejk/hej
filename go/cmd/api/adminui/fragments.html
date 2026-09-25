@@ -286,8 +286,23 @@ Everything that is not a cell arrives as an out-of-band swap, which is how one r
 */}}
 {{define "contactsheet"}}
 {{range .Photos}}
+{{/* The cell is the selectable thing, and it carries the viewer's data contract as attributes (task 406).
+
+     **The attributes do not make it clickable.** `#sheet` declares `data-viewer-click="none"`, so the viewer
+     never intercepts a click here — a click selects, and only selects (PRD 022 §7). The viewer is opened from
+     the action bar's "Vis stort", which is how every other action in this tool works.
+
+     That is also why there is no expand control in the corner: the cell **is** a `<button>` inside a
+     `role="listbox"`, so a control in it would be a button inside a button — invalid markup — and an
+     `option` may not contain interactive descendants either way. See task 406. */}}
 <button type="button" class="cell{{if .Deleted}} gone{{end}}" data-id="{{.ID}}"
-        role="option" aria-selected="false">
+        role="option" aria-selected="false"
+        data-viewer-item data-viewer-id="{{.ID}}"
+        data-full="/api/admin/photos/{{.ID}}/media?year={{$.Year}}"
+        data-thumb="/api/admin/photos/{{.ID}}/media?variant=thumb&amp;year={{$.Year}}"
+        {{if .Caption}}data-caption="{{.Caption}}"{{end}}
+        {{if .Credit}}data-credit="{{.Credit}}"{{end}}
+        {{if .Deleted}}data-viewer-deleted="true"{{end}}>
   <img loading="lazy" decoding="async" alt="{{.Caption}}"
        src="/api/admin/photos/{{.ID}}/media?variant=thumb&amp;year={{$.Year}}">
   <span class="tick" aria-hidden="true">✓</span>

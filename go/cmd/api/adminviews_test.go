@@ -198,3 +198,74 @@ func TestNoPublicPageLinksToTheCuratorsTool(t *testing.T) {
 		}
 	}
 }
+
+// The sheet keeps its clicks (task 406, PRD 022 §7).
+//
+// # The one thing this wiring must not break
+//
+// A click on a cell **selects**, and only selects. The whole tool is built on that: a curator sorting three
+// hundred photographs clicks constantly, and a gesture that sometimes opened an overlay instead would make the
+// single most-used interaction in the tool ambiguous.
+//
+// The cells now carry the viewer's data attributes, which is exactly the arrangement that could break it —
+// `viewer.js` opens on a click on `[data-viewer-item]` by default. `data-viewer-click="none"` is what switches
+// that off, so this asserts the two halves together: the sheet is a viewer container, and it is opted out of
+// click-to-open.
+//
+// It also records why there is no expand control in the cell's corner, which is the design task 406 was written
+// with: the cell is a `<button>` with `role="option"` inside a `role="listbox"`, so a control in it would be a
+// button inside a button — invalid markup — and an `option` may not hold interactive descendants in any case.
+func TestTheContactSheetKeepsItsClicksAfterWiringTheViewer(t *testing.T) {
+	src := adminPageSource(t)
+
+	if !strings.Contains(src, `data-viewer data-viewer-actions="fullscreen" data-viewer-click="none"`) {
+		t.Error(`the sheet must declare data-viewer-click="none": with the cells carrying data-viewer-item, the ` +
+			"viewer would otherwise open on a click that is supposed to select (PRD 022 §7)")
+	}
+	// The viewer is opened from the action bar instead, like every other action in this tool.
+	if !strings.Contains(src, `<button type="button" data-act="view">Vis stort</button>`) {
+		t.Error("want a Vis stort action on the bar, which is how the viewer is reached without touching the " +
+			"selection gesture")
+	}
+
+	// No interactive control inside a cell, which is the thing that cannot be built here.
+	fragments := adminSource(t, "adminui/fragments.html")
+	cell := fragments[strings.Index(fragments, `<button type="button" class="cell`):]
+	cell = cell[:strings.Index(cell, "</button>")]
+	if strings.Count(cell, "<button") > 1 {
+		t.Error("a cell must not contain a button: the cell is itself a button with role=option, so a nested " +
+			"one is invalid markup and undescribable to a screen reader")
+	}
+
+	// The public page's share control must not leak onto this surface: it shares a public album URL, which an
+	// unpublished photograph does not have.
+	if strings.Contains(src, `data-viewer-actions="share`) {
+		t.Error("the admin tool must not offer the public share control")
+	}
+}
+
+// The admin cells hand the viewer the same things the public tiles do (task 406, PRD 023 §7.4).
+//
+// Through the **admin** media route, not the public one, for the reason the album list fragment already records:
+// this sheet shows unpublished photographs, and the public route would correctly refuse them. A viewer full of
+// broken images is a viewer a curator stops opening.
+func TestTheAdminCellsCarryTheViewerContract(t *testing.T) {
+	fragments := adminSource(t, "adminui/fragments.html")
+
+	for _, want := range []struct{ needle, why string }{
+		{`data-viewer-item data-viewer-id="{{.ID}}"`, "the viewer identifies a photograph by id here"},
+		{`data-full="/api/admin/photos/{{.ID}}/media?year={{$.Year}}"`,
+			"the display image through the admin route, because the sheet shows unpublished photographs"},
+		{`data-thumb="/api/admin/photos/{{.ID}}/media?variant=thumb&amp;year={{$.Year}}"`,
+			"and the thumbnail for the filmstrip"},
+		{`{{if .Caption}}data-caption="{{.Caption}}"{{end}}`, "the caption, when there is one"},
+		{`{{if .Credit}}data-credit="{{.Credit}}"{{end}}`, "and the credit"},
+		{`{{if .Deleted}}data-viewer-deleted="true"{{end}}`,
+			"a deleted photograph stays visibly deleted in the viewer rather than being presented as live, " +
+				"which is how something taken down on purpose gets republished"},
+	} {
+		if !strings.Contains(fragments, want.needle) {
+			t.Errorf("the contact sheet's cell is missing %s — %s", want.needle, want.why)
+		}
+	}
+}

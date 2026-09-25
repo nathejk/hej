@@ -181,6 +181,7 @@
         credit: node.getAttribute('data-credit') || '',
         ordinal: node.getAttribute('data-viewer-ordinal') || '',
         id: node.getAttribute('data-viewer-id') || '',
+        deleted: node.getAttribute('data-viewer-deleted') === 'true',
       });
     }
     return out;
@@ -217,6 +218,15 @@
       credit.className = 'hv-credit';
       credit.textContent = item.credit;
       state.info.appendChild(credit);
+    }
+    if (item.deleted) {
+      // A photograph the curator has deleted from the library still appears in their sheet, marked. It must stay
+      // marked here: presenting it as live is how somebody re-publishes something that was taken down on
+      // purpose (PRD 023 §5).
+      var gone = document.createElement('span');
+      gone.className = 'hv-deleted';
+      gone.textContent = 'Slettet fra arkivet.';
+      state.info.appendChild(gone);
     }
 
     state.prev.disabled = index === 0;
@@ -511,6 +521,17 @@
     if (container.getAttribute('data-viewer-bound') === 'true') return;
     container.setAttribute('data-viewer-bound', 'true');
 
+    // **A container may keep its clicks** (task 406), with `data-viewer-click="none"`.
+    //
+    // The curator's contact sheet is the case this exists for: a click there **selects**, and PRD 022 §7 builds
+    // the whole tool on that. Intercepting it to show an overlay would make the one gesture a curator uses three
+    // hundred times a sitting mean two things. That sheet opens the viewer from its action bar instead, through
+    // `hejViewer.open`.
+    //
+    // Opt-out rather than opt-in, so the public page — where a tile is a link to a photograph and clicking it
+    // obviously means "show me" — needs no attribute to get the obvious behaviour.
+    if (container.getAttribute('data-viewer-click') === 'none') return;
+
     container.addEventListener('click', function (event) {
       if (event.defaultPrevented) return;
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -588,6 +609,8 @@
   window.hejViewer = {
     register: function (name, action) { actions[name] = action; },
     bind: bindAll,
+    // For a host page that opens the viewer itself rather than on a click — see `data-viewer-click="none"`.
+    open: open,
     icons: ICONS,
   };
   // Fullscreen (task 404, PRD 023 §7.5).

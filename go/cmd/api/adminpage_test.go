@@ -404,7 +404,14 @@ func TestAdminUploaderExplainsEveryFailureInDanish(t *testing.T) {
 //     requires scanning markup at build time — see adminui/vendor/README.md.
 //   - **Nothing under `vue/`.** The PWA and the website stay separate; that is the maintainer's hard rule.
 //
-// So this is an allowlist of four, not a licence. A fifth library still fails and still needs its own decision.
+// So this is an allowlist of four third-party libraries, not a licence. A fifth still fails and still needs its
+// own decision.
+//
+// Task 406 added a fifth and a sixth **tag**, and it is worth being precise about why that is not a fifth
+// library: `/viewer/…/viewer.js` and `viewer.css` are **this repo's own code**, and the same two URLs the public
+// album page loads. The point of PRD 023 is that there is exactly one photo viewer; §9 says the feature has
+// failed if a second copy appears. So they are excepted **by name, with that reasoning** — never by loosening
+// the count, which is the whole mechanism of this test.
 func TestTheAdminToolAddsNothingToTheFrontend(t *testing.T) {
 	src := adminPageSource(t)
 
@@ -420,20 +427,27 @@ func TestTheAdminToolAddsNothingToTheFrontend(t *testing.T) {
 			"Alpine holds the local state the sheets need without a build step"},
 		{`<link rel="stylesheet" href="/admin/vendor/pico.min.css">`,
 			"Pico is one static stylesheet, chosen over Tailwind precisely because it needs no pipeline"},
+		{`<script src="{{viewer "viewer.js"}}" defer></script>`,
+			"the shared photo viewer (task 406) — **our own code**, at the same URL the public album page loads, " +
+				"which is PRD 023's requirement rather than a coincidence: one viewer, one file, one cache entry. " +
+				"Matched as the template call rather than a resolved path because this guard reads the page's " +
+				"source; the hashed URL it produces is asserted in viewer_test.go"},
+		{`<link rel="stylesheet" href="{{viewer "viewer.css"}}">`,
+			"the same, for its stylesheet"},
 	} {
 		if !strings.Contains(src, allowed.tag) {
 			t.Errorf("the page no longer loads %s — %s", allowed.tag, allowed.why)
 		}
 	}
 
-	// Nothing beyond the allowlist. Counted, so a fifth library is a failure rather than a thing somebody
-	// noticed later.
-	if got := strings.Count(src, "<script src="); got != 3 {
-		t.Errorf("want exactly 3 external scripts (Leaflet, htmx, Alpine), found %d — a fourth is a new "+
-			"dependency and needs its own decision", got)
+	// Nothing beyond the allowlist. Counted, so a new library is a failure rather than a thing somebody noticed
+	// later. Five scripts and three stylesheets: three vendored libraries, plus the viewer, plus Leaflet's CSS.
+	if got := strings.Count(src, "<script src="); got != 4 {
+		t.Errorf("want exactly 4 external scripts (Leaflet, htmx, Alpine, and our own viewer), found %d — another "+
+			"is a new dependency and needs its own decision", got)
 	}
-	if got := strings.Count(src, "<link rel=\"stylesheet\""); got != 2 {
-		t.Errorf("want exactly 2 stylesheets (Leaflet's and Pico), found %d", got)
+	if got := strings.Count(src, "<link rel=\"stylesheet\""); got != 3 {
+		t.Errorf("want exactly 3 stylesheets (Leaflet's, Pico and our own viewer's), found %d", got)
 	}
 
 	// **Self-hosted only.** This is the half of the original boundary that did not move an inch.
