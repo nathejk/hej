@@ -746,6 +746,14 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 <p class="empty">Der er ingen billeder i dette album.</p>
 {{end}}
 
+{{/* The next page (task 399). A real link, so it works with no script and each page is an address a visitor
+     can send. Rendered only when the server knows there is another page — the same discipline the admin
+     sheet's "Hent flere" follows, so the control cannot be left behind promising a page that does not
+     exist. */}}
+{{if .HasMore}}
+<p class="more"><a href="{{.Root}}/album/{{.Album.Slug}}?side={{.NextSide}}">Vis flere billeder</a></p>
+{{end}}
+
 <p class="more"><a href="{{.Root}}">Tilbage til forsiden</a></p>
 {{template "layout-foot" .}}{{end}}
 

@@ -42,7 +42,35 @@ type publicAlbumPageData struct {
 
 	Album album.Album
 	Items []publicAlbumItem
+
+	// HasMore and NextSide carry the "Vis flere" link (task 399).
+	//
+	// Computed by the handler rather than by the template, because only the handler knows how many items the
+	// album holds — the template is handed the window and cannot tell a full last page from a full first one.
+	// That is the same reasoning the admin contact sheet's "Hent flere" follows: the server renders the button
+	// because the server is what knows whether there is another page, so it cannot be left behind promising a
+	// page that does not exist.
+	HasMore  bool
+	NextSide int
 }
+
+// albumPageCap is how many photographs one response carries (task 399, PRD 023 §2a.3).
+//
+// # Deliberately generous, and not a pagination feature
+//
+// PRD 023 §2a is honest about what this buys and what it does not. It buys **bounded server work per
+// request** — `BySlug` materialises every row of an album on every request and there is no server-side cache,
+// `max-age=60` being a header rather than one — plus a bounded DOM on a weak device and a bounded list for
+// the viewer to walk. It buys approximately **nothing** on transferred bytes: `loading="lazy"` already does
+// that, which is why it stays on every tile.
+//
+// So 200 is insurance against somebody emptying a 2000-photograph memory card into one album, not a page size
+// chosen for reading. **Do not tune it downward because a page looks long.** An album of 40 photographs — the
+// ordinary case PRD 011 described — must still be one page, one address, one scroll, with no control to
+// press: a "next" button on a two-screen album is a worse page than a long one.
+//
+// If 200 is the wrong number, task 400 is the measurement that says so.
+const albumPageCap = 200
 
 // publicAlbumItem is one photograph as the page renders it.
 //
@@ -69,10 +97,11 @@ type publicAlbumItem struct {
 // albumPageHandler renders one album.
 //
 // @Summary      One public album (HTML)
-// @Description  A curated album: its title, description and photographs in the curator's order. **Every photograph is its own img tag — there is no carousel** — so every one is reachable on a desktop without a swipe and without script. Thumbnails are served, lazily. Unpublished, deleted and unknown albums all answer 404 identically, so the open web cannot enumerate drafts. Unauthenticated and it ignores the session cookie entirely. Not indexed.
+// @Description  A curated album: its title, description and photographs in the curator's order. **Every photograph is its own img tag — there is no carousel** — so every one is reachable on a desktop without a swipe and without script. Thumbnails are served, lazily. At most 200 photographs per response (task 399): a larger album carries a plain "Vis flere" link to `?side=2`, which is a real link and not script, so every photograph stays reachable with JavaScript disabled. `side` is clamped rather than validated — a nonsense or out-of-range value lands on the first page, because the address still names a real album. Unpublished, deleted and unknown albums all answer 404 identically, so the open web cannot enumerate drafts. Unauthenticated and it ignores the session cookie entirely. Not indexed.
 // @Tags         public-site
 // @Produce      html
-// @Param        slug  path      string  true  "album slug"
+// @Param        slug  path      string  true   "album slug"
+// @Param        side  query     int     false  "which window of 200 photographs, 1-based (default 1)"
 // @Success      200  {string}  string  "the page"
 // @Failure      404  {object}  map[string]string  "unknown, unpublished or deleted"
 // @Failure      429  {object}  map[string]string  "read rate limit, by IP"
@@ -118,7 +147,11 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 		publicPageData: publicPageData{Year: app.config.eventYear, Title: a.Title, Root: app.publicRoot()},
 		Album:          a,
 	}
-	for _, it := range items {
+
+	window, side, hasMore := albumPageWindow(items, r.URL.Query().Get("side"))
+	data.HasMore = hasMore
+	data.NextSide = side + 1
+	for _, it := range window {
 		data.Items = append(data.Items, publicAlbumItem{
 			Ordinal: it.Ordinal,
 			Caption: it.Caption,
@@ -129,6 +162,63 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	app.renderPublicPage(w, "album", data)
+}
+
+// albumSide reads the `side` query parameter as a 1-based window number.
+//
+// # Every wrong value is page one
+//
+// Not a 404, and not an error: `?side=abc`, `?side=0`, `?side=-3` and `?side=99` on a three-page album all
+// land on the first page. The address still names a real, published album, and the visitor did not type the
+// query string — a link did, possibly one that was correct when it was sent and is not now because the curator
+// removed photographs.
+//
+// That is the same instinct as `patrolSearchLookupHandler`'s redirect: when the input is wrong and the thing
+// asked for exists, answer with the page rather than with the mistake. A 404 here would turn a stale link into
+// a dead album.
+func albumSide(raw string) int {
+	if raw == "" {
+		return 1
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 1
+	}
+	return n
+}
+
+// albumPageWindow returns the slice of items `side` asks for, the side it resolved to, and whether another
+// page follows.
+//
+// It returns the **resolved** side rather than leaving the caller to re-derive it, because the caller needs it
+// for the "next" link and calling `albumSide` twice is how the link ends up one page off the window beside it.
+//
+// A free function over the item slice rather than a method on the handler, so the windowing is testable
+// without an HTTP server — the off-by-one at the last page is exactly the kind of thing that wants a table
+// test, and exactly the kind of thing an end-to-end test reports as "the link is missing" without saying why.
+//
+// A `side` past the end clamps to the **last** page rather than returning nothing. An empty grid under a real
+// album's title reads as "the photographs are gone", which is a much worse lie than "here is the end of the
+// album".
+func albumPageWindow(items []album.Item, rawSide string) ([]album.Item, int, bool) {
+	if len(items) <= albumPageCap {
+		// The ordinary album, and the one the feature was described for: one page, one address, no control to
+		// press. Answered before any arithmetic so that `?side=7` on a 40-photograph album is simply the album.
+		return items, 1, false
+	}
+
+	lastSide := (len(items) + albumPageCap - 1) / albumPageCap
+	side := albumSide(rawSide)
+	if side > lastSide {
+		side = lastSide
+	}
+
+	start := (side - 1) * albumPageCap
+	end := start + albumPageCap
+	if end > len(items) {
+		end = len(items)
+	}
+	return items[start:end], side, side < lastSide
 }
 
 // albumMediaHandler serves one album photograph.

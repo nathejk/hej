@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -455,6 +456,164 @@ func TestAlbumPageIsNotIndexedAndShortCached(t *testing.T) {
 	}
 	if got := resp.Header.Get("Cache-Control"); !strings.Contains(got, "max-age=60") {
 		t.Errorf("want the short window task 335 depends on, got %q", got)
+	}
+}
+
+// bigAlbum replaces an album's items with n synthetic ones, for the paging tests (task 399).
+//
+// The captions are numbered so a test can say *which* window it is looking at rather than only how big it is.
+// Counting tiles cannot distinguish page 2 from a second copy of page 1, and that is exactly the bug an
+// off-by-one in the offset produces.
+func bigAlbum(t *testing.T, store *albumStore, slug string, n int) {
+	t.Helper()
+
+	for i := range store.albums {
+		if store.albums[i].album.Slug != slug {
+			continue
+		}
+		items := make([]album.Item, 0, n)
+		for ordinal := 0; ordinal < n; ordinal++ {
+			items = append(items, album.Item{
+				Ordinal: ordinal,
+				Caption: fmt.Sprintf("Billede nr %d", ordinal),
+				Width:   1600, Height: 1200,
+				BoundsVerdict: album.BoundsNone,
+			})
+		}
+		store.albums[i].items = items
+		return
+	}
+	t.Fatalf("no album with slug %q to enlarge", slug)
+}
+
+// The window arithmetic (task 399), table-driven and away from HTTP.
+//
+// # Why this is not only tested through the page
+//
+// Because the failure it guards against is an off-by-one, and an off-by-one reaches the page as "the link is
+// missing" or "one photograph is on both pages" — symptoms that are a long way from the line that caused them.
+// The end-to-end test below asserts the page; this asserts the arithmetic, including the cases nobody would
+// think to click.
+func TestTheAlbumWindowCapsAndClamps(t *testing.T) {
+	items := func(n int) []album.Item {
+		out := make([]album.Item, n)
+		for i := range out {
+			out[i] = album.Item{Ordinal: i}
+		}
+		return out
+	}
+
+	for _, tc := range []struct {
+		name      string
+		count     int
+		side      string
+		wantFirst int
+		wantLen   int
+		wantSide  int
+		wantMore  bool
+	}{
+		// The ordinary album PRD 011 described: one page, no control to press, and `side` is not even consulted.
+		{"a short album is one page", 40, "", 0, 40, 1, false},
+		{"a short album ignores side", 40, "7", 0, 40, 1, false},
+		{"exactly the cap still has no next page", albumPageCap, "", 0, albumPageCap, 1, false},
+		{"one over the cap splits", albumPageCap + 1, "", 0, albumPageCap, 1, true},
+		{"the second page is the remainder", albumPageCap + 1, "2", albumPageCap, 1, 2, false},
+		{"a middle page has a next", albumPageCap*2 + 5, "2", albumPageCap, albumPageCap, 2, true},
+		{"the last page has none", albumPageCap*2 + 5, "3", albumPageCap * 2, 5, 3, false},
+		// Wrong input is page one or the last page — never an error and never an empty grid.
+		{"a side past the end clamps to the last", albumPageCap*2 + 5, "99", albumPageCap * 2, 5, 3, false},
+		{"nonsense is page one", albumPageCap + 1, "abc", 0, albumPageCap, 1, true},
+		{"zero is page one", albumPageCap + 1, "0", 0, albumPageCap, 1, true},
+		{"negative is page one", albumPageCap + 1, "-3", 0, albumPageCap, 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, side, more := albumPageWindow(items(tc.count), tc.side)
+			if len(got) != tc.wantLen {
+				t.Errorf("got %d items, want %d", len(got), tc.wantLen)
+			}
+			if len(got) > 0 && got[0].Ordinal != tc.wantFirst {
+				t.Errorf("window starts at ordinal %d, want %d", got[0].Ordinal, tc.wantFirst)
+			}
+			if side != tc.wantSide {
+				t.Errorf("resolved side %d, want %d", side, tc.wantSide)
+			}
+			if more != tc.wantMore {
+				t.Errorf("hasMore = %v, want %v", more, tc.wantMore)
+			}
+			if len(got) > albumPageCap {
+				t.Errorf("a response carries %d items, which is past the cap of %d", len(got), albumPageCap)
+			}
+		})
+	}
+}
+
+// A big album is capped, and the rest is reachable by a **link** rather than by script (task 399).
+//
+// The no-script half is the point: PRD 011 §8 requires this page to work with JavaScript disabled, and after
+// PRD 023 the album page is the one public page that will grow a JavaScript viewer. If the way to photograph
+// 201 is ever an event listener, this test is what should stop it.
+func TestABigAlbumIsCappedWithAPlainLink(t *testing.T) {
+	app, store := albumApp(t)
+	bigAlbum(t, store, "loerdag-morgen", albumPageCap+50)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
+	first := string(body)
+
+	if got := strings.Count(first, `<span class="frame">`); got != albumPageCap {
+		t.Errorf("the first page carries %d photographs, want the cap of %d", got, albumPageCap)
+	}
+	if !strings.Contains(first, `href="/2026/album/loerdag-morgen?side=2"`) {
+		t.Errorf("want a real link to the next page\n%s", first)
+	}
+	if !strings.Contains(first, "Vis flere") {
+		t.Error("the link needs its Danish label")
+	}
+	// The window really is the first one, and the tail really is absent — counting tiles alone cannot tell a
+	// correct first page from one that rendered the wrong 200.
+	if !strings.Contains(first, "Billede nr 0") || strings.Contains(first, "Billede nr 200") {
+		t.Errorf("the first page should hold ordinals 0–199\n%s", first)
+	}
+	if strings.Contains(strings.ToLower(first), "<script") {
+		t.Error("reaching the rest of an album must not need script")
+	}
+
+	_, body = getPublic(t, srv.URL+"/2026/album/loerdag-morgen?side=2", nil)
+	second := string(body)
+
+	if got := strings.Count(second, `<span class="frame">`); got != 50 {
+		t.Errorf("the second page carries %d photographs, want the remaining 50", got)
+	}
+	if !strings.Contains(second, "Billede nr 200") || strings.Contains(second, "Billede nr 199") {
+		t.Errorf("the second page should hold ordinals 200–249\n%s", second)
+	}
+	// And no link onward from the last page: a control promising a page that does not exist is the failure the
+	// admin sheet's "Hent flere" was built to avoid, and it is worse here because a visitor cannot tell.
+	if strings.Contains(second, "?side=3") {
+		t.Errorf("the last page must not offer a next one\n%s", second)
+	}
+}
+
+// An ordinary album gets no paging furniture at all.
+//
+// Worth its own test because the cap is insurance, not a feature: PRD 011's albums are three to five dozen
+// photographs, and a "Vis flere" link under a two-screen album would be a control that does nothing useful and
+// a page that looks truncated when it is complete.
+func TestAnOrdinaryAlbumHasNoPagingControl(t *testing.T) {
+	app, _ := albumApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen?side=4", nil)
+	page := string(body)
+
+	if strings.Contains(page, "Vis flere") || strings.Contains(page, "?side=") {
+		t.Errorf("a two-photograph album needs no paging control\n%s", page)
+	}
+	// And the nonsense `side` did not empty it: the address names a real album, so it renders one.
+	if !strings.Contains(page, "Ved målstregen") {
+		t.Errorf("an out-of-range side must still render the album\n%s", page)
 	}
 }
 
