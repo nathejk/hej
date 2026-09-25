@@ -701,11 +701,32 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   .scans .what { font-weight: 600; }
   .scans .when { color: #666; font-size: .85rem; margin-left: .4rem; }
   .scans .nopos { color: #94a3b8; font-size: .8rem; margin-left: .4rem; }
+  /* "Find din patrulje" is a **card** (task 425), because it is the one thing on the frontpage a visitor is
+     asked to *do*. The other sections are things to look at; this one has a field in it, and a panel is how a
+     page says so without a heading having to.
+
+     It opts out of the section divider rather than sitting under one: a card below a rule reads as two
+     boundaries for one edge.
+
+     Both colours are set, not just the background. The page declares a light-dark color-scheme, so a UA in dark
+     mode supplies light text — and light text on a light card is an invisible form. The same reasoning as the
+     takedown form's thanks panel, which is the other light island here. */
+  .find { border-top: 0; margin: 1.25rem 0; padding: 1.25rem;
+         background: #fafafa; color: #27272a;
+         border: 1px solid #e4e4e7; border-radius: .5rem; }
   .find label { display: block; font-weight: 600; margin-bottom: .35rem; }
   .find input { font-size: 1.1rem; padding: .5rem; width: 8rem; border: 1px solid #94a3b8;
-         border-radius: .25rem; }
+         border-radius: .25rem; background: #fff; color: #27272a; }
+  /* The brand yellow, darkened (task 425). #E6EA08 is the logo's colour and unusable behind text at full
+     brightness; this is it at about 70%, which is still recognisably the same yellow.
+
+     The label is near-black rather than white, and that is a contrast decision rather than a taste one. Against
+     this yellow, white lands around 2.7:1 — below the 4.5:1 a form's only button has to clear — while near-black
+     is about 7.7:1. Going dark enough for white text would take it to olive, which is no longer the logo's
+     yellow. */
   .find button { font-size: 1.1rem; padding: .5rem 1rem; border: 0; border-radius: .25rem;
-         background: #1d4ed8; color: #fff; cursor: pointer; }
+         background: #a3a607; color: #1c1917; font-weight: 600; cursor: pointer; }
+  .find button:hover { background: #8d9006; }
   .find .hint { color: #666; font-size: .85rem; margin-top: .5rem; }
   .find .problem { color: #b91c1c; font-size: .9rem; margin-top: .5rem; }
   .more { margin-top: .75rem; }
