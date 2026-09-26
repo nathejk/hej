@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -780,5 +781,51 @@ func TestTheFrontpageFooterHasNoLinkBackToItself(t *testing.T) {
 	_, body = getPublic(t, srv.URL+"/2026/privatliv", nil)
 	if !strings.Contains(string(body), "Tilbage til forsiden") {
 		t.Error("every other page needs the way back, and the footer is where it lives now")
+	}
+}
+
+// The public site's favicon is the app's favicon (task 426).
+//
+// # Why this reads the app's own markup instead of asserting a URL
+//
+// The requirement is not "the public site has a favicon", it is that the two surfaces show the **same** one. A
+// test naming `/favicon.svg` twice would pass happily on the day somebody renames the app's icon, and the
+// website would quietly go back to a blank tab — the exact failure this is for, since nobody looks at a favicon
+// on purpose.
+//
+// So the app's `index.html` is the source of truth and this compares against it. If the app's icon moves, this
+// fails and names the new URL, which is the only moment anybody would think about the website's copy.
+//
+// The public site declares **only** the icon, not the app's `apple-touch-icon`: that tag is what iOS uses when a
+// page is added to the home screen, and a home-screen icon that looks exactly like the app but opens a read-only
+// public page is worse than no icon at all.
+func TestThePublicSiteUsesTheAppsFavicon(t *testing.T) {
+	shell, err := os.ReadFile("../../../vue/index.html")
+	if err != nil {
+		t.Fatalf("reading the app's index.html: %v", err)
+	}
+
+	icon := regexp.MustCompile(`<link rel="icon" href="([^"]+)"`).FindStringSubmatch(string(shell))
+	if icon == nil {
+		t.Fatal("the app declares no rel=icon; if that is deliberate, this test is the thing to decide about")
+	}
+
+	app, _, _ := publicApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body := getPublic(t, srv.URL+"/2026", nil)
+	page := string(body)
+
+	want := `<link rel="icon" href="` + icon[1] + `" type="image/svg+xml">`
+	if !strings.Contains(page, want) {
+		t.Errorf("the public site must declare the app's own favicon (%s), so the two surfaces cannot drift "+
+			"apart; want %s", icon[1], want)
+	}
+
+	// And not the app's home-screen icon, for the reason above.
+	if strings.Contains(page, "apple-touch-icon") {
+		t.Error("the public site must not declare an apple-touch-icon: the app is the installable thing, and a " +
+			"home-screen icon that looks like it but opens a public page is worse than none")
 	}
 }

@@ -491,6 +491,20 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{if .Title}}{{.Title}} · {{end}}` + publicSiteTitle + ` {{.Year}}</title>
 <meta name="robots" content="noindex, nofollow">
+<!-- The same favicon the app declares, at the same URL (task 426).
+
+     **A reference, not a copy.** The file lives in vue/public/favicon.svg and is served from the origin's root by
+     Vite in dev and by the Go binary's SPA file server in production. Embedding a second copy in this binary would
+     respect the letter of .rules (website assets are not to live under vue/) and break the actual requirement,
+     which is that the two surfaces show the *same* icon — two copies of an image drift, and nothing would notice.
+     The rule exists to keep the PWA's build machinery out of the website; pointing at a static file by URL is not
+     that. TestThePublicSiteUsesTheAppsFavicon reads both declarations and fails if they ever diverge.
+
+     **No apple-touch-icon**, deliberately, and it is the one tag the app has that this does not want. It is what
+     iOS uses when a page is added to the home screen, and a home-screen icon that looks exactly like the app but
+     opens a read-only public page is worse than no icon: the app is the installable thing (PRD 005), and this
+     page is what a desktop visitor is sent to instead of installing it. -->
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
   :root { color-scheme: light dark; }
   /* The page is a flex column so the footer can sit at the bottom of a short page and scroll away on a long one
