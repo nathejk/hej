@@ -771,16 +771,31 @@ func TestAPhotographWithoutAMediumRenditionGetsNoSrcset(t *testing.T) {
 // on screen. Deciding it a second way from viewport width would reproduce the very bug this task removes — a
 // phone displaying 800px images while quietly downloading 1600px ones two ahead — and only on devices nobody
 // here owns.
-func TestPrefetchFollowsTheResolvedVariant(t *testing.T) {
-	code := withoutComments(viewerAsset(t, "viewer.js"))
-
-	i := strings.Index(code, "function prefetchAround(")
+// jsFunctionBody returns the text of one top-level function in the viewer's JS, from its signature to its
+// closing brace.
+//
+// Two-space indentation is what delimits it: everything in viewer.js lives inside one IIFE, so a top-level
+// function's closing brace is the first "\n  }" after its signature. Blunt, and sufficient for asking whether a
+// particular line is inside a particular function.
+func jsFunctionBody(t *testing.T, code, name string) string {
+	t.Helper()
+	i := strings.Index(code, "function "+name+"(")
 	if i < 0 {
-		t.Fatal("no prefetchAround in viewer.js")
+		return ""
 	}
 	body := code[i:]
 	if j := strings.Index(body, "\n  }"); j >= 0 {
 		body = body[:j]
+	}
+	return body
+}
+
+func TestPrefetchFollowsTheResolvedVariant(t *testing.T) {
+	code := withoutComments(viewerAsset(t, "viewer.js"))
+
+	body := jsFunctionBody(t, code, "prefetchAround")
+	if body == "" {
+		t.Fatal("no prefetchAround in viewer.js")
 	}
 
 	if !strings.Contains(body, "currentSrc") {
@@ -792,5 +807,64 @@ func TestPrefetchFollowsTheResolvedVariant(t *testing.T) {
 	}
 	if strings.Contains(body, "index + 3") {
 		t.Error("prefetching further than two ahead is the thing PRD 023 exists to stop")
+	}
+}
+
+// The filmstrip must not fetch the whole album when the viewer opens (task 432).
+//
+// Reported from a real album: opening a 45-photograph album left dozens of `?variant=thumb` requests pending,
+// all attributed to `fillStrip`. `loading="lazy"` was not broken — it was the wrong instrument at this
+// density. Its scroll-distance threshold is thousands of pixels, tuned for a page of full-width images, while
+// a strip button is about 62px wide; so "just off screen" covered roughly fifty thumbnails.
+//
+// PRD 023 §6 budgets **two ahead and one back**. A strip quietly spending two orders of magnitude more than
+// the prefetch is the thing that PRD exists to prevent, so this is pinned rather than left to a heuristic.
+func TestTheFilmstripDoesNotFetchTheWholeAlbumOnOpen(t *testing.T) {
+	js := withoutComments(viewerAsset(t, "viewer.js"))
+
+	strip := jsFunctionBody(t, js, "fillStrip")
+	if strip == "" {
+		t.Fatal("viewer.js no longer has fillStrip; this guard needs updating")
+	}
+
+	// The URL must not go straight onto `src`: an <img> with a src is already a request, whatever an observer
+	// decides afterwards.
+	if strings.Contains(strip, "img.src =") {
+		t.Error("fillStrip assigns img.src directly, so every thumbnail in the album is requested the moment " +
+			"the viewer opens. Put the URL on data-src and let the observer promote it (task 432)")
+	}
+	if !strings.Contains(strip, "data-src") {
+		t.Error("fillStrip should stage the thumbnail URL on data-src")
+	}
+
+	// And the observer has to be rooted on the strip, because the strip is the scroll container. Rooted on the
+	// viewport it would consider every horizontally-scrolled thumbnail visible and we would be back where we
+	// started.
+	if !strings.Contains(strip, "IntersectionObserver") {
+		t.Error("fillStrip should hydrate thumbnails through an IntersectionObserver")
+	}
+	if !strings.Contains(strip, "root: strip") {
+		t.Error("the strip's observer must be rooted on the strip itself; rooted on the viewport it would " +
+			"treat the whole scrolled row as visible and fetch the album again")
+	}
+
+	// `loading="lazy"` is what caused this, so it must not quietly come back as the mechanism.
+	if strings.Contains(strip, "loading") {
+		t.Error("fillStrip sets a loading attribute again. lazy's threshold is far larger than a 62px strip " +
+			"button, which is precisely the bug this replaced")
+	}
+}
+
+// The observer is torn down with the album, or it holds every thumbnail <img> the viewer has ever shown — which
+// the admin tool would accumulate one album at a time.
+func TestTheFilmstripObserverIsTornDown(t *testing.T) {
+	js := withoutComments(viewerAsset(t, "viewer.js"))
+
+	if !strings.Contains(js, "stripObserver.disconnect()") {
+		t.Error("nothing disconnects the strip's observer")
+	}
+	if n := strings.Count(js, "stripObserver.disconnect()"); n < 2 {
+		t.Errorf("want the strip observer disconnected both on close and when the strip is refilled, found %d "+
+			"call(s)", n)
 	}
 }

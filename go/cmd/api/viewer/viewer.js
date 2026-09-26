@@ -141,6 +141,8 @@
       bar: bar,
       info: info,
       strip: strip,
+      // Watches the strip's thumbnails so only the ones near it are fetched (task 432). Rebuilt per album.
+      stripObserver: null,
       prev: prev,
       next: next,
       // The open album: its items, where we are in it, and what the host page asked for.
@@ -320,8 +322,60 @@
     }
   }
 
+  // The filmstrip's thumbnails are loaded through an observer, not by `loading="lazy"` (task 432).
+  //
+  // `lazy` is not broken here, it is simply the wrong instrument at this density. Its scroll-distance
+  // threshold is thousands of pixels — tuned for a page of full-width images — while a strip button is about
+  // 62px wide, so "just off screen" covers something like fifty thumbnails. Opening a 45-photograph album
+  // therefore fired ~45 requests at once, most for thumbnails the grid had never fetched, and they competed
+  // with the photograph the visitor was actually waiting for.
+  //
+  // That is the thing PRD 023 §6 exists to prevent — it budgets **two ahead and one back** — so the strip
+  // quietly spending two orders of magnitude more than the prefetch is not a tuning detail.
+  //
+  // `root: strip` is the load-bearing part: the strip is the scroll container, so intersection has to be
+  // measured against it rather than the viewport. A generous horizontal `rootMargin` keeps scrolling smooth
+  // without going back to a whole-album fetch.
+  var STRIP_ROOT_MARGIN = '0px 300px';
+
+  function observeStripThumb(img) {
+    // No observer (or none possible) means load it now: a visible thumbnail beats a clever one, and this is a
+    // bandwidth optimisation rather than a correctness property.
+    if (!ui.stripObserver) {
+      hydrateStripThumb(img);
+      return;
+    }
+    ui.stripObserver.observe(img);
+  }
+
+  function hydrateStripThumb(img) {
+    var src = img.getAttribute('data-src');
+    if (!src) return;
+    img.removeAttribute('data-src');
+    img.src = src;
+  }
+
   function fillStrip() {
     var strip = ui.strip;
+
+    // Torn down and rebuilt with the strip, or the observer would hold every <img> of every album the viewer
+    // has ever opened — the admin tool reopens this overlay repeatedly against a changing sheet.
+    if (ui.stripObserver) {
+      ui.stripObserver.disconnect();
+      ui.stripObserver = null;
+    }
+    if (typeof IntersectionObserver === 'function') {
+      ui.stripObserver = new IntersectionObserver(function (entries) {
+        for (var i = 0; i < entries.length; i++) {
+          if (!entries[i].isIntersecting) continue;
+          hydrateStripThumb(entries[i].target);
+          // Once loaded there is nothing left to watch for, and an observer that keeps every thumbnail of a
+          // 200-photograph album under observation is its own small leak.
+          ui.stripObserver.unobserve(entries[i].target);
+        }
+      }, { root: strip, rootMargin: STRIP_ROOT_MARGIN });
+    }
+
     strip.innerHTML = '';
     for (var i = 0; i < ui.items.length; i++) {
       var item = ui.items[i];
@@ -329,13 +383,15 @@
       thumb.type = 'button';
       thumb.setAttribute('aria-label', item.caption || 'Billede ' + (i + 1));
       var img = document.createElement('img');
-      img.src = item.thumb || pictureFor(item);
+      // The URL goes on data-src and is promoted to src by the observer. Deliberately not both: an <img> with a
+      // src is already a request, whatever an observer decides afterwards.
+      img.setAttribute('data-src', item.thumb || pictureFor(item));
       img.alt = '';
-      img.loading = 'lazy';
       img.decoding = 'async';
       thumb.appendChild(img);
       thumb.addEventListener('click', jumpTo(i));
       strip.appendChild(thumb);
+      observeStripThumb(img);
     }
   }
 
@@ -597,6 +653,14 @@
   function onClose() {
     unlockScroll();
     ui.img.removeAttribute('src');
+
+    // The strip's observer goes with the strip's contents. Left connected it would keep every thumbnail <img>
+    // of the album alive for as long as the page lives, which the admin tool would accumulate one album at a
+    // time.
+    if (ui.stripObserver) {
+      ui.stripObserver.disconnect();
+      ui.stripObserver = null;
+    }
 
     // Leaving fullscreen with the viewer, because the thing that was fullscreen is the thing being closed.
     // Without this, closing while fullscreen leaves the browser filling the screen with the album page behind —
