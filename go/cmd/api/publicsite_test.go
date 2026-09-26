@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -916,9 +917,31 @@ func TestTheFrontpageFooterHasNoLinkBackToItself(t *testing.T) {
 // page is added to the home screen, and a home-screen icon that looks exactly like the app but opens a read-only
 // public page is worse than no icon at all.
 func TestThePublicSiteUsesTheAppsFavicon(t *testing.T) {
-	shell, err := os.ReadFile("../../../vue/index.html")
+	// # Why this tolerates the app's tree being absent, and how it avoids becoming a silent skip
+	//
+	// This is the only test in the Go suite that reads a **sibling tree**, and that broke `docker build`
+	// (task 428). The Dockerfile's `build` stage is `FROM base`, which copies `go/` and nothing else — that split is
+	// the point of the multistage layout — so `go test ./...` there found no `vue/index.html` and failed a build
+	// over a favicon.
+	//
+	// The distinction that keeps the guard honest is **the directory, not the file**:
+	//
+	//   - no `vue/` at all → a Go-only build context, so there is nothing to compare against and the check is
+	//     skipped;
+	//   - `vue/` present but no `index.html` in it → somebody moved or deleted the app's shell, which is a real
+	//     failure and is reported as one.
+	//
+	// A plain "skip if the file is missing" would have passed in both cases, which would have made this guard
+	// worthless in exactly the situation it exists for.
+	const appTree = "../../../vue"
+	if _, err := os.Stat(appTree); errors.Is(err, os.ErrNotExist) {
+		t.Skip("no vue/ tree in this context (the Dockerfile's build stage copies go/ only), so there is nothing " +
+			"to compare the favicon against")
+	}
+
+	shell, err := os.ReadFile(appTree + "/index.html")
 	if err != nil {
-		t.Fatalf("reading the app's index.html: %v", err)
+		t.Fatalf("the app's tree is here but its index.html is not — moved or deleted? %v", err)
 	}
 
 	icon := regexp.MustCompile(`<link rel="icon" href="([^"]+)"`).FindStringSubmatch(string(shell))
