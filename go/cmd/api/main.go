@@ -762,6 +762,14 @@ func run(logger *slog.Logger) error {
 	} else {
 		blobs = fs
 		logger.Info("blob store ready", "path", cfg.blobPath)
+		if merr := fs.MigrationError(); merr != nil {
+			// Loud, but **not** a reason to fall back to memory: the store reads objects from the legacy
+			// location too, so photographs are served either way. What an operator needs to know is that some
+			// objects are still outside the `original/` subtree and therefore outside the backup path.
+			logger.Error("the blob layout migration did not complete: some objects are still in the legacy "+
+				"location and are NOT covered by a backup of the original/ subtree",
+				"path", cfg.blobPath, "err", merr)
+		}
 	}
 
 	// The freshness check's metrics, constructed before the caches so each can be handed the same

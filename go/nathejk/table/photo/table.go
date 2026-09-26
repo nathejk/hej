@@ -109,7 +109,7 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
 		// The 800px rendition's ref (task 409).
 		{"medium_lookup", "ALTER TABLE photo ADD KEY medium_lookup (mediumRef)"},
 	} {
-		if err := ensureIndex(r, w, "photo", idx.name, idx.ddl); err != nil {
+		if err := cqrs.EnsureIndex(r, w, "photo", idx.name, idx.ddl); err != nil {
 			return nil, fmt.Errorf("photo: ensure index %s: %w", idx.name, err)
 		}
 	}
@@ -119,35 +119,6 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
 		querier:        querier{db: r},
 		curatorQuerier: curatorQuerier{db: r},
 	}, nil
-}
-
-// ensureIndex adds an index if the table does not already have one by that name.
-//
-// `cqrs.EnsureColumn`'s counterpart for keys, and it exists here rather than in cqrs because this is the
-// first projection that needed it — moving it upstream is a change to a shared library for one caller.
-//
-// Keyed on the index **name** rather than on the column, so a key that was added by hand under a different
-// name is left alone rather than duplicated. Same INFORMATION_SCHEMA approach and the same dialect
-// assumption `EnsureColumn` and `dropLegacyAlbumItem` make: this repository is MariaDB, and there is no
-// dialect-neutral way to ask.
-//
-// Additive only. Nothing here ever drops an index, for the reason `person/table.go` gives about columns: a
-// destructive statement on every boot is what that pattern exists to keep out.
-func ensureIndex(r cqrs.Reader, w cqrs.Writer, table, name, ddl string) error {
-	var n int
-	err := r.QueryRow(`
-		SELECT COUNT(*)
-		FROM INFORMATION_SCHEMA.STATISTICS
-		WHERE TABLE_SCHEMA = DATABASE()
-		  AND TABLE_NAME = ?
-		  AND INDEX_NAME = ?`, table, name).Scan(&n)
-	if err != nil {
-		return fmt.Errorf("check index: %w", err)
-	}
-	if n > 0 {
-		return nil
-	}
-	return w.Consume(ddl)
 }
 
 // CreateTableSql exposes the schema, matching the other entities' shape.

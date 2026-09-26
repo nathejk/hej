@@ -108,7 +108,17 @@ func (app *application) repairRenditionInBackground(r *http.Request, plan rendit
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), renditionRebuildTimeout)
 	go func() {
 		defer cancel()
-		if err := app.repairRendition(ctx, plan); err != nil {
+		switch err := app.repairRendition(ctx, plan); {
+		case err == nil:
+		case errors.Is(err, blob.ErrNotFound):
+			// The **source** is gone too, so this rendition is not rebuildable and never will be. A real
+			// state rather than a fault: glimt media is purged on a retention schedule (PRD 019), which
+			// leaves rows whose blobs are legitimately absent. Debug, because at WARN this fires once per
+			// request per dead item and buries everything else in the log — which is exactly what it did on
+			// the first deploy.
+			app.Logger.Debug("a missing rendition cannot be rebuilt: its source is gone too",
+				"target", plan.Target.String(), "source", plan.Source.String())
+		default:
 			// Warn, not error: the request it came from was answered correctly from the source, so
 			// nothing is broken for anybody. It is worth a line because a rendition that never comes
 			// back means every future request pays the full-size transfer.
@@ -148,7 +158,9 @@ func (app *application) repairRendition(ctx context.Context, plan renditionRepai
 		if err != nil {
 			// Includes the case that matters most: the source is gone too. Then this rendition is not
 			// rebuildable and never will be, which is a real outcome rather than an error to retry —
-			// the caller has already served what it could.
+			// the caller has already served what it could. The wrapping keeps `blob.ErrNotFound`
+			// inspectable so the caller can log that case quietly; a glimt whose media was purged on
+			// retention (PRD 019) reaches here on every request for it.
 			return nil, fmt.Errorf("reading the source: %w", err)
 		}
 

@@ -34,13 +34,20 @@ import (
 // should not be written twice just because they arrived through a different call.
 type FileStore struct {
 	root string
+
+	// migrationErr records a failed boot-time layout migration. Never fatal — see NewFileStore.
+	migrationErr error
 }
 
-// The two class subtrees. Names, not two characters, so they can never collide with a
-// hash bucket — which is what makes the legacy migration below unambiguous.
+// The two class subtrees, and the layout that predates them.
+//
+// Names, not two characters, so they can never collide with a hash bucket — which is what makes the legacy
+// migration unambiguous. `legacyDir` is the empty string because the old layout put objects directly under
+// the root: `filepath.Join` drops it, so it costs no special case anywhere.
 const (
 	originalDir = "original"
 	cacheDir    = "cache"
+	legacyDir   = ""
 )
 
 // NewFileStore creates the root directory if needed and returns a store rooted
@@ -72,11 +79,25 @@ func NewFileStore(root string) (*FileStore, error) {
 		return nil, fmt.Errorf("blob: secure root %s: %w", root, err)
 	}
 	s := &FileStore{root: root}
+	// **Deliberately not fatal.** The layout migration is housekeeping for backup hygiene (see the package
+	// comment), and the store reads correctly whether or not it has run — `locate` looks in the legacy
+	// location too. Returning an error here would be catastrophically out of proportion: `cmd/api` treats a
+	// failed `NewFileStore` as "blob store unavailable" and falls back to an **empty in-memory store**, so a
+	// single un-renameable directory would take every photograph in the service offline.
+	//
+	// Learned the hard way, which is why this is spelled out: the first deploy of the split did exactly that.
 	if err := s.migrateLegacyLayout(); err != nil {
-		return nil, err
+		s.migrationErr = err
 	}
 	return s, nil
 }
+
+// MigrationError reports a failure of the boot-time layout migration, or nil.
+//
+// Exposed so the caller can say so in a log without the failure being fatal — an operator needs to know
+// that some objects are still in the legacy location and therefore outside the `original/` backup path,
+// which is a real thing to fix and not a reason to stop serving photographs.
+func (s *FileStore) MigrationError() error { return s.migrationErr }
 
 // OriginalDir is the directory a backup must cover.
 //
@@ -193,20 +214,44 @@ func (s *FileStore) path(class string, ref Ref) (string, error) {
 	return filepath.Join(s.root, class, name[:2], name), nil
 }
 
-// locate returns the path of an existing object, searching both classes.
+// locate returns the path of an existing object, searching every location it could be in.
 //
-// Readers are class-agnostic by design (see the package comment): a Ref on the wire says
-// nothing about how the bytes were made, and it must not have to. The cost is one extra
-// stat on a cache hit against a local filesystem, which is not worth avoiding by
-// teaching every projection a second column.
+// Readers are class-agnostic by design (see the package comment): a Ref on the wire says nothing about how
+// the bytes were made, and it must not have to. The cost is at most two extra `stat`s against a local
+// filesystem, which is not worth avoiding by teaching every projection a second column.
 //
-// Original is checked first because it is the larger and more frequently read class —
-// full renditions — and because if the same bytes somehow exist in both, the original is
-// the copy guaranteed not to be reclaimed.
+// Original is checked first because it is the larger and more frequently read class — full renditions — and
+// because if the same bytes somehow exist in more than one place, the original is the copy guaranteed not to
+// be reclaimed.
+//
+// # Why the legacy location is still searched
+//
+// This is what keeps `migrateLegacyLayout` **housekeeping rather than a precondition**. Originally it was not
+// here, on the reasoning that the migration runs on every boot and converges — which was wrong in the way
+// that matters: it made a successful migration load-bearing for reading anything at all, so a migration that
+// failed, or got halfway, silently made photographs unreachable. Reading from wherever the bytes actually are
+// costs one `stat` and removes that entire class of failure.
+//
+// It is not dead code even long after the migration: an operator restoring an old backup into the volume
+// lands objects in exactly this layout.
+//
+// # One broken location must not hide the others
+//
+// A stat error that is not "does not exist" — a file where `original/` should be a directory, an EIO on a
+// failing disk — does **not** abort the search. It is remembered and the next location is tried, and the
+// error is only returned if the object was found nowhere. Getting this wrong is how a single unreadable
+// subtree makes every object in the store unreadable, which is the shape of the outage this whole file's
+// comment is about.
+//
+// Note the deliberate asymmetry with `PutAs`, which keeps a strict loop and fails closed on the same error.
+// A read degrading to "no photo" is the documented behaviour (PRD 008 §8); a *write* guard that degrades
+// would let a rebuild shadow an original, so it must refuse instead.
 func (s *FileStore) locate(ref Ref) (string, bool, error) {
-	for _, class := range []string{originalDir, cacheDir} {
+	var firstErr error
+	for _, class := range []string{originalDir, cacheDir, legacyDir} {
 		p, err := s.path(class, ref)
 		if err != nil {
+			// An invalid ref, which is the same in every location, so there is nothing to keep trying.
 			return "", false, err
 		}
 		switch _, err := os.Stat(p); {
@@ -215,10 +260,12 @@ func (s *FileStore) locate(ref Ref) (string, bool, error) {
 		case errors.Is(err, os.ErrNotExist):
 			continue
 		default:
-			return "", false, fmt.Errorf("blob: stat: %w", err)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("blob: stat: %w", err)
+			}
 		}
 	}
-	return "", false, nil
+	return "", false, firstErr
 }
 
 func (s *FileStore) Put(ctx context.Context, data []byte) (Ref, error) {
@@ -245,17 +292,24 @@ func (s *FileStore) PutAs(ctx context.Context, ref Ref, data []byte) error {
 	//
 	// Checked rather than assumed, because a repair path holds two refs — a source and a
 	// target — and passing them in the wrong order is an ordinary mistake to make.
-	orig, err := s.path(originalDir, ref)
-	if err != nil {
-		return err
-	}
-	switch _, serr := os.Stat(orig); {
-	case serr == nil:
-		return fmt.Errorf("blob: refusing to rebuild %s: it names an original, not a rendition", ref)
-	case errors.Is(serr, os.ErrNotExist):
-		// Good: not an original.
-	default:
-		return fmt.Errorf("blob: stat: %w", serr)
+	//
+	// **The legacy location counts as original**, which is the subtle half. The migration treats every
+	// un-migrated object as an original (it cannot know otherwise), and `locate` checks `cache/` *before*
+	// the legacy path — so without this, a rebuilt rendition written to `cache/` would shadow a legacy
+	// original and reads would silently start returning the re-encode instead of the photograph.
+	for _, class := range []string{originalDir, legacyDir} {
+		p, err := s.path(class, ref)
+		if err != nil {
+			return err
+		}
+		switch _, serr := os.Stat(p); {
+		case serr == nil:
+			return fmt.Errorf("blob: refusing to rebuild %s: it names an original, not a rendition", ref)
+		case errors.Is(serr, os.ErrNotExist):
+			// Good: not an original in this location.
+		default:
+			return fmt.Errorf("blob: stat: %w", serr)
+		}
 	}
 
 	return s.writeObject(cacheDir, ref, data)
@@ -381,18 +435,18 @@ func (s *FileStore) Exists(ctx context.Context, ref Ref) (bool, error) {
 	return ok, err
 }
 
-// Delete removes the object from both classes.
+// Delete removes the object from every location it could be in.
 //
-// Both, not "the class it happens to be in": the purge paths (blobpurge.go,
-// portraitpurge.go) have already established that nothing references this ref, and
-// leaving a copy in the other subtree would mean a deleted photograph still on the disk
-// — and still in the backup. Deleting something absent is not an error, so retention
-// jobs stay re-runnable.
+// All of them, not "the one it happens to be in": the purge paths (blobpurge.go, portraitpurge.go) have
+// already established that nothing references this ref, and leaving a copy behind in another subtree would
+// mean a deleted photograph still on the disk — and still in the backup. The legacy location is included for
+// exactly that reason: an un-migrated object must not survive a takedown. Deleting something absent is not an
+// error, so retention jobs stay re-runnable.
 func (s *FileStore) Delete(ctx context.Context, ref Ref) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	for _, class := range []string{originalDir, cacheDir} {
+	for _, class := range []string{originalDir, cacheDir, legacyDir} {
 		p, err := s.path(class, ref)
 		if err != nil {
 			return err
