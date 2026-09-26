@@ -1070,12 +1070,19 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
        by html/template and is inspectable in dev tools, while a value interpolated into JavaScript is escaped as
        JavaScript and mangles in ways nobody notices until a browser does something strange.
 
-       There is deliberately no data-medium yet. Task 409 adds the 800px rendition and the attribute together:
-       putting a URL in the DOM before the server serves it would be a broken image waiting for somebody to
-       write the srcset that uses it. -->
+       data-medium is the 800px rendition (task 409), and it is emitted **only when the photograph has one**.
+       That conditional is the whole no-backfill story: a photograph uploaded before the rendition existed has
+       an empty mediumRef, so the attribute is absent, and the viewer emits no srcset at all for it and renders
+       the display image (task 410). An attribute that was always present would name a URL the server answers by
+       falling back — correct bytes under a 800w label that is a lie, which is the one thing srcset must not be
+       told.
+
+       (No backticks in this comment: the whole template is a Go raw string literal, so one would end it. Same
+       warning the stylesheet carries.) -->
   <a class="tile" href="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}"
      data-viewer-item data-viewer-ordinal="{{.Ordinal}}"
      data-full="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}"
+     {{if .HasMedium}}data-medium="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}?variant=medium"{{end}}
      data-thumb="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}?variant=thumb"
      {{if .Caption}}data-caption="{{.Caption}}"{{end}}
      {{if .Credit}}data-credit="{{.Credit}}"{{end}}>

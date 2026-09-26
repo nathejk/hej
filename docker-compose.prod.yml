@@ -64,14 +64,31 @@
 # **host-local**:
 #
 #   * `db` keeps MariaDB's data directory in a named volume
-#   * `hej` keeps portrait bytes in a bind mount at ${BLOB_DIR}
+#   * `hej` keeps photograph bytes in a bind mount at ${BLOB_DIR}
 #
 # Neither is shared storage, so this stack must always be deployed on the same
 # host. That is implicit with compose (there is no scheduler to move it), which
 # is one fewer failure mode than the Swarm version's placement constraints —
-# but it does mean "deploy hej" means "deploy hej on that host". Portraits are
-# the one thing here that cannot be rebuilt from the event log (task 063 backs
-# up exactly that directory).
+# but it does mean "deploy hej" means "deploy hej on that host".
+#
+# BACKUP: back up ${BLOB_DIR}/original — that path, not the whole directory.
+#
+# The blob store is the one thing here that cannot be rebuilt from the event log
+# (task 063), but only half of what is in it is irreplaceable, and since task 429
+# the two halves are separate subtrees so a backup command can tell them apart:
+#
+#   ${BLOB_DIR}/original/   the only copy of these pixels. BACK THIS UP.
+#   ${BLOB_DIR}/cache/      derived thumbnails. Skip it; it is reproducible.
+#
+# Skipping `cache/` matters at the photograph library's volumes: PRD 022 §6 puts
+# one event's hand-in at order 1 GB and §11 Q2 means it is never purged, so the
+# backup grows by one event per year forever and there is no reason to pay for
+# renditions in it. Every page that uses a thumbnail falls back to the full image
+# when it is missing, so a restore of `original/` alone is correct — soft grid
+# tiles until the renditions are rebuilt, not broken pages or lost photographs.
+#
+# `cache/` may also be emptied in place to reclaim disk in a hurry. Nothing in
+# `original/` is ever safe to delete (§11 Q2).
 #
 # phpMyAdmin is dev-only and must not be added here (task 066).
 
@@ -201,10 +218,11 @@ services:
       # Unreachable is survivable by design: reads come from SQL projections, so
       # a broker outage costs fresh projections and writes, not availability.
       JETSTREAM_DSN: ${JETSTREAM_DSN:-nats://jetstream:4222}
-      # Portrait bytes (task 057). A bind mount, so ${BLOB_DIR} must exist on the
-      # host before the first deploy — see the header. This is the only state
-      # here that cannot be rebuilt from the event log, and therefore the entire
-      # backup scope (task 063).
+      # Photograph bytes (task 057). A bind mount, so ${BLOB_DIR} must exist on the
+      # host before the first deploy — see the header. This is the only state here
+      # that cannot be rebuilt from the event log. The backup scope is the
+      # `original/` subtree of it, not the whole directory (task 429) — again, see
+      # the header.
       BLOB_PATH: /blobs
       # SMS delivery of login PINs (CPSMS). Required in production: without it the
       # API logs PINs instead of sending them, which means nobody can log in — a
@@ -252,7 +270,7 @@ services:
       # Bind mount rather than a named volume: chosen so the bytes are visible on
       # host for backup (task 063) without going through a container. Absolute
       # path, required: see the header for why there is no default.
-      - ${BLOB_DIR:?set BLOB_DIR to the absolute host path holding the portraits}:/blobs
+      - ${BLOB_DIR:?set BLOB_DIR to the absolute host path holding the photographs}:/blobs
     networks:
       - traefik
       - local

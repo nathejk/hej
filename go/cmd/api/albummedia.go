@@ -46,9 +46,16 @@ import (
 type albumMediaPrepared struct {
 	Ref      string
 	ThumbRef string
-	Width    int
-	Height   int
-	Bytes    int
+
+	// MediumRef is the 800px rendition (task 409), or "" if it could not be produced.
+	//
+	// Empty is a normal answer rather than a failure: readers fall back to the full image, which is what
+	// lets this rendition exist without a backfill for everything uploaded before it.
+	MediumRef string
+
+	Width  int
+	Height int
+	Bytes  int
 
 	// Location is nil unless the file carried a usable coordinate, which is the common case.
 	//
@@ -59,6 +66,34 @@ type albumMediaPrepared struct {
 	// shape is what keeps that refusal from arriving downstream as a coordinate off Ghana.
 	Location *photo.Location
 }
+
+// libraryThumbEdges are the rendition sizes a **library** photograph gets, longest edge in pixels.
+//
+// # Why this is not `glimtThumbEdges`
+//
+// It was, until task 409 added the 800px rendition. PRD 023 §11 Q8 asked whether glimt should get that
+// rendition too, and the answer is **not decided here**, because `glimtThumbEdges` is glimt's storage
+// decision and belongs to PRD 019. Editing a shared constant would have changed a second feature's
+// storage for every future upload, silently, in a diff about album pages — which is precisely the kind of
+// change nobody reviews. So the constant splits and glimt keeps exactly what it had.
+//
+// The two are free to differ, and there is a reason to expect they will: an album photograph is opened
+// full-screen in a viewer on a laptop, while a glimt is a grid tile and a phone-sized view. What they must
+// not do is differ *by accident*.
+//
+// Recorded in PRD 023 §11 Q8 as well, because a decision that only exists in a comment is a decision the
+// next person re-takes.
+//
+// Order matters to nothing here — renditions are looked up by name (`imaging.ThumbName`), never by index,
+// exactly so that adding a size cannot silently re-point an existing one.
+var libraryThumbEdges = []int{mediumEdge, glimtThumbEdges[0]}
+
+// mediumEdge is the longest edge of the 800px rendition (task 409, PRD 023 §7.9).
+//
+// 800 because a 390pt phone shows about that at 2×, so the 1600px display image is four times the pixels
+// for no visible gain. It is also the `800w` candidate the viewer names in its `srcset` (task 410): change
+// this and that width has to change with it, or the browser is told a size the bytes do not have.
+const mediumEdge = 800
 
 // storeAlbumImage normalizes and stores one curated photograph.
 //
@@ -71,7 +106,7 @@ func (app *application) storeAlbumImage(ctx context.Context, year string, raw []
 	// Read first. After Prepare there is nothing left to read — which is the whole design.
 	lat, lng, hasCoordinate := imaging.ReadGPS(raw)
 
-	prepared, err := imaging.Prepare(raw, maxGlimtEdge, glimtThumbEdges, glimtJPEGQuality, false)
+	prepared, err := imaging.Prepare(raw, maxGlimtEdge, libraryThumbEdges, glimtJPEGQuality, false)
 	if err != nil {
 		if errors.Is(err, imaging.ErrNotAnImage) {
 			return albumMediaPrepared{}, errGlimtNotMedia
@@ -84,23 +119,27 @@ func (app *application) storeAlbumImage(ctx context.Context, year string, raw []
 		return albumMediaPrepared{}, fmt.Errorf("store album media: %w", err)
 	}
 
-	// A thumbnail failure does not fail the ingest, for the reason the glimt path records: the page
-	// falls back to the full image, so losing a thumbnail costs bandwidth rather than the photograph.
-	thumbRef := ""
-	if len(prepared.Thumbs) > 0 && len(prepared.Thumbs[0].Bytes) > 0 {
-		if tr, terr := app.blobs.Put(ctx, prepared.Thumbs[0].Bytes); terr != nil {
-			app.Logger.Warn("storing album thumbnail", "err", terr)
-		} else {
-			thumbRef = tr.String()
-		}
-	}
+	// A rendition failure does not fail the ingest, for the reason the glimt path records: the page
+	// falls back to the full image, so losing one costs bandwidth rather than the photograph.
+	//
+	// Which is also why these are PutCache: the same fallback that makes the failure survivable makes the
+	// bytes worth excluding from the backup, and they are reproducible from the full rendition above.
+	// That one stays an original — an admin upload keeps no separate original either (§8.5), so it is the
+	// only copy of the photographer's work, and PRD 022 §11 Q2 says it is never purged.
+	//
+	// **By name, not by index.** `prepared.Thumbs` is in the order of `libraryThumbEdges`, so indexing it
+	// would mean every reader here silently depends on that order — and adding a rendition would re-point
+	// the thumbnail to whatever now sits at [0]. That is a data bug that looks like a layout bug.
+	thumbRef := app.storeRendition(ctx, prepared, glimtThumbEdges[0], "thumbnail")
+	mediumRef := app.storeRendition(ctx, prepared, mediumEdge, "medium")
 
 	out := albumMediaPrepared{
-		Ref:      ref.String(),
-		ThumbRef: thumbRef,
-		Width:    prepared.Full.Width,
-		Height:   prepared.Full.Height,
-		Bytes:    len(prepared.Full.Bytes),
+		Ref:       ref.String(),
+		ThumbRef:  thumbRef,
+		MediumRef: mediumRef,
+		Width:     prepared.Full.Width,
+		Height:    prepared.Full.Height,
+		Bytes:     len(prepared.Full.Bytes),
 	}
 	if hasCoordinate {
 		// The verdict is decided here, at ingest, and travels with the coordinate. Never recomputed on
@@ -112,6 +151,39 @@ func (app *application) storeAlbumImage(ctx context.Context, year string, raw []
 		}
 	}
 	return out, nil
+}
+
+// storeRendition stores one prepared rendition, identified by its edge, and returns its ref or "".
+//
+// Looks the rendition up **by name** rather than by position in `prepared.Thumbs`, which is the whole
+// reason this is a function. `imaging.ThumbName` derives the name from the edge, so the lookup cannot
+// disagree with what `Prepare` produced — whereas an index depends on the order of `libraryThumbEdges`,
+// and adding a size would silently re-point every existing reader.
+//
+// Never returns an error: a missing rendition is a normal state that readers handle by falling back to the
+// full image. `what` names it in the log so a volume or encoder problem is visible as something other than
+// pages that quietly got heavier.
+func (app *application) storeRendition(
+	ctx context.Context, prepared imaging.Portrait, edge int, what string,
+) string {
+	name := imaging.ThumbName(edge)
+	for _, r := range prepared.Thumbs {
+		if r.Name != name || len(r.Bytes) == 0 {
+			continue
+		}
+		// PutCache: derived from the full rendition, so outside the backup scope and rebuildable on a miss
+		// (tasks 429 and 430).
+		ref, err := app.blobs.PutCache(ctx, r.Bytes)
+		if err != nil {
+			app.Logger.Warn("storing an album rendition", "rendition", what, "edge", edge, "err", err)
+			return ""
+		}
+		return ref.String()
+	}
+	// Reached when `Prepare` produced nothing at this edge — today only if the edge is not in
+	// `libraryThumbEdges`, which would be a wiring mistake worth seeing in a log.
+	app.Logger.Warn("no rendition was produced at this edge", "rendition", what, "edge", edge)
+	return ""
 }
 
 // albumBoundsVerdict judges a coordinate against the race area.

@@ -130,3 +130,41 @@ These cannot be done from here. They are the reason the task is still open:
 4. **Sign off before inviting a photographer.** The failure this task exists to prevent is a photographer
    uploading a full card onto a disk that fills, with their card already wiped. The 507 turns that into a
    refusal instead of a partial write, which is worth having and is **not** the same as having enough disk.
+
+## Appended 2026-09-26: criterion 3 got smaller (task 429)
+
+Criterion 3 above says *the blob store is the whole backup scope*. That was true when it was written and
+is now more precise than that, which makes the criterion cheaper to satisfy rather than changing what it
+asks.
+
+Task 429 split the blob root into two subtrees, because the store could not previously tell a photograph
+from a thumbnail of that photograph and therefore neither could a backup:
+
+| Path | Backup |
+|---|---|
+| `${BLOB_DIR}/original/` | **yes** — the only copy of these pixels; a full rendition, a portrait, a kept original |
+| `${BLOB_DIR}/cache/` | **no** — derived renditions, reproducible from an original |
+
+So **the backup target only has to hold `original/`**, and the restore in criterion 3 only has to restore
+it. Every surface that serves a cached rendition already falls back to the full image when it is absent,
+so a restore without `cache/` is soft grid tiles rather than broken pages — that fallback is the
+precondition that makes the exclusion safe, and it is asserted by test rather than assumed.
+
+Two things this does **not** change, and one to carry into the measurement:
+
+- It does not reduce the growth rate of the thing that matters. §11 Q2 still means one event's worth of
+  *originals* per year, forever. The trajectory question in criterion 2 is untouched.
+- It does not reduce the **disk** requirement at all — the cache still occupies the volume, which is what
+  `ADMIN_DISK_FLOOR_BYTES` measures. It reduces what has to be copied off it and stored twice.
+- When taking the production measurement, size `original/` and `cache/` **separately**. "How much of the
+  volume is expendable" is a useful number to have in hand the first time the disk gets tight, and it is
+  the number nobody can produce after the fact.
+
+One caveat worth carrying to the sign-off rather than discovering: nothing yet rebuilds `cache/` — see
+task 430. Excluding it from the backup is safe today because of the fallbacks, not because a
+regeneration command exists.
+
+**Update 2026-09-26:** that caveat is now closed. Task 430 is done: a cache miss on a derived rendition
+rebuilds it from the original during the serve. `TestEmptyingTheWholeCacheDirectoryIsRecoverable` deletes
+the whole `cache/` directory against a real `FileStore` and asserts the pages still serve and the cache
+refills. So a restore of `original/` alone is now recoverable by demonstration, not only survivable.

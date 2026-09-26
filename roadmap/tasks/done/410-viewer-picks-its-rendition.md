@@ -1,11 +1,11 @@
 # 410 — The viewer picks its rendition with `srcset`, not `matchMedia`
 
-**Status:** open
+**Status:** done (pending device verification, task 411)
 **Priority:** medium
 **Created:** 2026-09-25
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent
+**Started:** 2026-09-26
+**Completed:** 2026-09-26
 
 ## Description
 
@@ -51,15 +51,25 @@ checkable in a network panel. Task 411 checks it on real devices.
 
 ## Acceptance Criteria
 
-- [ ] The viewer's `<img>` carries `srcset` with both candidates and their real widths, plus the `sizes` hint;
+- [x] The viewer's `<img>` carries `srcset` with both candidates and their real widths, plus the `sizes` hint;
       no `matchMedia` or window measurement decides the rendition
-- [ ] A comment in `viewer.js`/`viewer.css` states that `sizes` deliberately under-declares the narrow-viewport
+- [x] A comment in `viewer.js`/`viewer.css` states that `sizes` deliberately under-declares the narrow-viewport
       slot, and why, so it is not "fixed" to `100vw`
 - [ ] A narrow high-DPR viewport fetches the 800 w candidate and a laptop fetches the 1600 w one, verified in a
-      network panel
-- [ ] Prefetch — two ahead, one back — requests the same variant the current photograph resolved to
-- [ ] A photograph with no medium rendition renders from the display image with no gap and no extra request
+      network panel — *manual, belongs to task 411*
+- [x] Prefetch — two ahead, one back — requests the same variant the current photograph resolved to
+- [x] A photograph with no medium rendition renders from the display image with no gap and no extra request
 
 ## Progress Log
 
 - 2026-09-25 — Task created from PRD 023.
+- 2026-09-26 — Implemented in `viewer.js`. `pictureFor` keeps its job as the one plain-URL decision (the
+  `srcset`-less fallback and the filmstrip use it); a new `applyPicture(img, item)` sets
+  `srcset="…?variant=medium 800w, … 1600w"` and `sizes="(max-width: 40rem) 400px, 100vw"` together with `src`,
+  and *removes* both attributes when there is no medium rendition — the overlay reuses one `<img>`, so leaving
+  them would carry the previous photograph's candidates over. The under-declared `sizes` carries the comment
+  §7.9 asks for.
+  Prefetch moved from `show` to the `<img>`'s `load` handler, because that is the first moment `currentSrc`
+  reports which rendition this viewport resolved to; the neighbour's variant is matched against the current
+  item's own `data-medium` (a suffix match — the shared viewer still knows no endpoint, PRD 023 §7.7). Still
+  two ahead, one back. Four guards added to `go/cmd/api/viewer_test.go`; `go test ./cmd/api/` green.

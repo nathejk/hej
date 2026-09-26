@@ -158,6 +158,10 @@
     img.addEventListener('load', function () {
       dialog.classList.remove('is-loading');
       dialog.classList.remove('is-missing');
+      // Prefetch from here rather than from `show`, because this is the first moment `currentSrc` reports which
+      // rendition this viewport actually resolved to (task 410). It also keeps the prefetches from competing
+      // with the photograph the visitor is waiting for.
+      prefetchAround(ui.index);
     });
     img.addEventListener('error', function () {
       // Not an error state to recover from: a photograph can be taken down between the page loading and a
@@ -205,13 +209,49 @@
     return out;
   }
 
-  // The one place an image URL is chosen.
-  //
-  // Task 410 gives this a `srcset` and a `sizes` hint so the browser can take an 800px rendition on a phone
-  // instead of the 1600px display image. Until then the display image is all there is, and having one function
-  // to change is the point of writing it this way now.
+  // The one place a plain image URL is chosen: the display image, or the thumbnail if a photograph somehow has
+  // no display rendition. This is what a browser that ignores `srcset` ends up with, and what the filmstrip
+  // falls back to.
   function pictureFor(item) {
     return item.full || item.thumb;
+  }
+
+  // The `sizes` value is a deliberate lie about layout, and it must stay one (task 410, PRD 023 §7.9).
+  //
+  // A phone's slot really is ~100vw. Declaring that truthfully on a 3x display asks the browser for ~1170px of
+  // image, which selects the 1600w candidate — re-introducing the exact cost this change exists to remove.
+  // Declaring 400px instead caps a narrow viewport at the 800px rendition, which is still a genuine 2x image on
+  // a 390pt screen. Only a 3x flagship gives anything up, and 800px over 390pt is not perceptible.
+  //
+  // Under-declaring `sizes` is a known technique rather than a slip: the number is intentionally *not* `100vw`.
+  // "Fixing" it to `100vw` silently undoes the whole feature — the photographs still look right, so nothing
+  // tells you the phone went back to downloading twice the bytes.
+  var SIZES = '(max-width: 40rem) 400px, 100vw';
+
+  // Point the overlay's image at a photograph, offering both renditions with their real widths.
+  //
+  // The widths are the renditions' longest-edge bounds (task 409): 800 and 1600. `srcset`/`sizes` rather than a
+  // JS branch, for the two reasons §7.9 gives. Device pixel ratio is half the decision and the browser already
+  // knows it, so a 390pt phone at 3x and an iPad at 2x get different answers without us writing that arithmetic
+  // down. And rotating or resizing re-runs the choice for free, where a branch taken once at open is wrong the
+  // moment a phone turns sideways — which matters because this viewer is for desktop *and* mobile (§2).
+  //
+  // With no medium rendition — every photograph uploaded before task 409 — we emit no `srcset` at all, rather
+  // than a single candidate plus a `sizes` hint that would then be a lie with nothing to gain by it. The display
+  // image is what such a photograph has: same rule and same reason as the missing-thumbnail fallback, because a
+  // rendition is an optimisation and losing one costs bandwidth rather than the photograph.
+  //
+  // `src` is set last and always: the candidate list has to be in place before the browser makes its selection,
+  // and `src` stays the answer for anything that ignores `srcset`.
+  function applyPicture(img, item) {
+    if (item.medium && item.full) {
+      img.srcset = item.medium + ' 800w, ' + item.full + ' 1600w';
+      img.sizes = SIZES;
+    } else {
+      img.removeAttribute('srcset');
+      img.removeAttribute('sizes');
+    }
+    img.src = pictureFor(item);
   }
 
   function show(index) {
@@ -222,7 +262,7 @@
     var item = state.items[index];
     state.dialog.classList.add('is-loading');
     state.dialog.classList.remove('is-missing');
-    state.img.src = pictureFor(item);
+    applyPicture(state.img, item);
 
     state.info.innerHTML = '';
     if (item.caption) {
@@ -252,7 +292,6 @@
 
     markStrip(index);
     reflectURL(item);
-    prefetchAround(index);
 
     // Announce the change, so a control that is showing something about *this* photograph can follow along.
     //
@@ -310,12 +349,29 @@
   // connections rather than on a congested cell at the finish line: the next photograph being there when you
   // press the arrow is most of how this feels, and the cost of guessing wrong is small. Still bounded —
   // prefetching a whole album is the thing PRD 023 exists to stop.
+  //
+  // **Of the variant this viewport resolved to**, which is why the neighbours are not simply `pictureFor`
+  // (task 410). Prefetching 1600px images to a phone that will then display 800px ones is this task's own bug
+  // arriving by the back door: the visible photograph gets cheaper and the invisible two ahead do not.
+  //
+  // The variant comes from `currentSrc` — what the browser actually picked for the photograph on screen — rather
+  // than from a second, independent guess here. A guess would have to re-derive viewport width and DPR, and two
+  // implementations of one decision drift apart exactly when a device is unusual. An empty `currentSrc` means
+  // nothing has resolved yet, so we fall back to the display image: the same answer a browser without `srcset`
+  // gets, wrong only in costing bandwidth.
   function prefetchAround(index) {
+    var current = ui.items[index];
+    var resolved = ui.img.currentSrc || '';
+    // A suffix match, because `currentSrc` is absolute and the item's URLs come off the page as written. Nothing
+    // about the variant's spelling is known here — the shared viewer holds no endpoint (PRD 023 §7.7).
+    var medium = !!(current && current.medium) && resolved.indexOf(current.medium) >= 0;
+
     var wanted = [index + 1, index + 2, index - 1];
     for (var i = 0; i < wanted.length; i++) {
       var at = wanted[i];
       if (at < 0 || at >= ui.items.length) continue;
-      var url = pictureFor(ui.items[at]);
+      var item = ui.items[at];
+      var url = (medium && item.medium) || pictureFor(item);
       if (!url) continue;
       var pre = new Image();
       pre.src = url;

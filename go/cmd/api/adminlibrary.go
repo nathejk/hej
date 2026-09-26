@@ -306,11 +306,11 @@ func adminQueryInt(r *http.Request, key string, fallback int) int {
 // showAdminPhotoMediaHandler streams one photograph's bytes.
 //
 // @Summary      Serve a library photograph's bytes
-// @Description  Streams one photograph from the year's library, as a thumbnail with `?variant=thumb` or the full stored rendition otherwise. The id is resolved through the library projection rather than being handed to the blob store, so this route serves photographs of the configured year and nothing else. A deleted photograph answers 404. Requires the admin credential.
+// @Description  Streams one photograph from the year's library, as a thumbnail with `?variant=thumb`, the 800px rendition with `?variant=medium`, or the full stored rendition otherwise. A variant whose rendition was never produced falls back to the full image rather than 404-ing. The id is resolved through the library projection rather than being handed to the blob store, so this route serves photographs of the configured year and nothing else. A deleted photograph answers 404. Requires the admin credential.
 // @Tags         admin
 // @Produce      image/jpeg
 // @Param        photoId  path      string  true   "library photograph id"
-// @Param        variant  query     string  false  "thumb for the thumbnail; omit for the full rendition"
+// @Param        variant  query     string  false  "thumb for the 320px thumbnail, medium for the 800px rendition; omit for the full rendition"
 // @Success      200  {file}  binary
 // @Failure      304  "not modified: the browser already holds these bytes. A rendition is immutable, so its id is its content hash and a revalidation can always be answered without reading the object."
 // @Failure      400  {object}  map[string]string  "no working year, or one the tool does not know (X-Admin-Year or ?year=)"
@@ -357,8 +357,16 @@ func (app *application) showAdminPhotoMediaHandler(w http.ResponseWriter, r *htt
 	}
 
 	ref := p.Ref
-	if r.URL.Query().Get("variant") == "thumb" && p.ThumbRef != "" {
-		ref = p.ThumbRef
+	edge := 0
+	switch r.URL.Query().Get("variant") {
+	case "thumb":
+		if p.ThumbRef != "" {
+			ref, edge = p.ThumbRef, glimtThumbEdges[0]
+		}
+	case "medium":
+		if p.MediumRef != "" {
+			ref, edge = p.MediumRef, mediumEdge
+		}
 	}
 	// Validated even though it came out of our own row, because a ref is the one string here that becomes a
 	// filesystem path — the same belt-and-braces `albumItemRef` applies.
@@ -369,9 +377,25 @@ func (app *application) showAdminPhotoMediaHandler(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// The repair plan (task 430). It matters more on this surface than anywhere else: the contact sheet is
+	// one thumbnail request per photograph, so a curator opening a full library after a restore is the
+	// single largest burst of rebuildable misses the service will ever see — which is exactly what the
+	// single-flight in repairRendition is for.
+	plan := renditionRepair{}
+	if edge > 0 {
+		if full := blob.Ref(p.Ref); full.Valid() {
+			plan = renditionRepair{
+				Target:  stored,
+				Source:  full,
+				Edge:    edge,
+				Quality: glimtJPEGQuality,
+			}
+		}
+	}
+
 	// `no-store`, not the year-long immutable cache the public media route uses. The bytes are immutable, so
 	// caching them would be safe in the ordinary sense — but this is an admin surface and PRD 022 §6 requires
 	// every response on it to be unstorable: a contact sheet of the event's photographs left in a shared
 	// laptop's disk cache outlives the session that fetched it.
-	app.streamGlimtMedia(w, r, stored, photoID, "no-store")
+	app.streamGlimtMedia(w, r, stored, photoID, "no-store", plan)
 }

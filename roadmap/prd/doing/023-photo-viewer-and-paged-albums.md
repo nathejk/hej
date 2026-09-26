@@ -786,11 +786,11 @@ viewer task is the one that must not be split, because a half-wired viewer is a 
 - [ ] Task: the admin credit editor in the viewer — its own field, its own save, its own "remove" action, the
       public-consequence line ("Foto: …"), prefilled from the photograph and **not** from
       `hej.admin.lastCredit`
-- [ ] Task: the 800 px rendition — `mediumRef` column, event field, fold, querier, `variant=medium` on both
-      media routes, **the shared-blob delete walks taught about the new column**, and the glimt-or-not
-      decision on `glimtThumbEdges`
-- [ ] Task: the viewer picks its rendition with `srcset`/`sizes`, capped to 800 px on narrow viewports, with
-      the comment explaining why `sizes` under-declares; prefetch follows the same choice
+- [x] Task 409: the 800 px rendition — `mediumRef` column, event field, fold, querier, `variant=medium` on
+      both media routes, **the shared-blob delete walks taught about the new column**, and the
+      glimt-or-not decision on `glimtThumbEdges` (**split**; §11 Q8)
+- [x] Task 410: the viewer picks its rendition with `srcset`/`sizes`, capped to 800 px on narrow viewports,
+      with the comment explaining why `sizes` under-declares; prefetch follows the same choice
 - [ ] Task: QA pass on the baseline devices — iPhone Safari (no fullscreen button, native share sheet, no
       filmstrip, **800 px fetched not 1600**), iPad Safari (fullscreen, filmstrip), Chrome desktop, desktop
       Firefox (clipboard fallback), and once with JavaScript disabled including opening a shared `?foto=` link
@@ -838,12 +838,28 @@ Still open:
 4. **Does the admin viewer need the sheet's marks** (position / album count / patrol / deleted) in the info
    panel? They are part of why a curator opens a photograph. Reading them is not editing, so it no longer
    conflicts with §4 — but it is more surface, and the marks are already on the cell behind the overlay.
-8. **Does glimt get the 800 px rendition too?** `glimtThumbEdges` is shared, so the medium variant either
-   lands in both features or the constant splits. Glimt's own viewer is the PWA's, which has the same phone
-   problem — so "both" may be right, but it changes a second feature's storage and belongs to whoever owns
-   PRD 019, not to a silent constant edit here.
-9. **Is an 800 px backfill worth running?** Not needed for correctness (§7.9's fallback), but it is cheapest
-   today and grows more expensive with every hand-in.
+8. ~~**Does glimt get the 800 px rendition too?**~~ **Partly resolved (2026-09-26, task 409): the constant
+   splits, and glimt keeps what it had.**
+
+   `libraryThumbEdges` (`[]int{800, 320}`) is now the library's own list and `glimtThumbEdges`
+   (`[]int{320}`) stays glimt's. That is deliberately the *narrow* half of the answer: it makes the library
+   change reviewable without changing a second feature's storage for every future upload inside a diff about
+   album pages. `TestGlimtStorageIsUnchangedByTheLibrarysRenditions` holds the line.
+
+   **Whether glimt should also get one is still PRD 019's call** — and worth re-asking, because the
+   arithmetic that made it a real cost has changed since this question was written. Task 429 split the blob
+   store into `original/` (backed up) and `cache/` (not), and an 800 px rendition is derivable from the 1600
+   px display image, so it is **cache**: outside the backup scope, reclaimable, and rebuilt on demand by
+   task 430. The original objection to "both" was that it grows the only irreplaceable data in the service;
+   that objection no longer applies. What remains is disk on the volume, which is measurable.
+
+   Glimt's viewer is the PWA's and has the same phone problem, so "both" now looks more likely to be right
+   than it did. It still needs PRD 019's owner to say so.
+9. **Is an 800 px backfill worth running?** Not needed for correctness (§7.9's fallback), and **cheaper than
+   this question assumed**: since task 430 a missing derived rendition is rebuilt on the serve that misses
+   it, so "backfill" no longer has to mean a long offline pass over the library. What is *not* yet built is
+   producing a rendition for a photograph whose row has no ref for it at all — the repair path fills a ref
+   the projection already names. That is the remaining work, and it is smaller than it was.
 5. **Does the credit follow the caption into the editor?** Same shape of field, same endpoint family
    (`creditaction.js`), arguably the same moment — you learn who took a photograph by looking at it. Left out
    because it was not asked for, and because a credit is the one public field that names a person, so putting

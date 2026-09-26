@@ -234,8 +234,8 @@ func (app *application) showPhotoHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Which rendition to serve — see portraitRefForSize.
-	stored := portraitRefForSize(p, r.URL.Query().Get("size"))
+	// Which rendition to serve — see portraitRefAndRepair.
+	stored, plan := portraitRefAndRepair(p, r.URL.Query().Get("size"))
 
 	ref := blob.Ref(stored)
 	if !ref.Valid() {
@@ -248,10 +248,11 @@ func (app *application) showPhotoHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	app.streamPortrait(w, r, ref, "private, max-age=3600", s.UserID)
+	app.streamPortrait(w, r, ref, "private, max-age=3600", s.UserID, plan)
 }
 
-// portraitRefForSize picks which stored rendition to serve for a `size` query value.
+// portraitRefAndRepair picks which stored rendition to serve for a `size` query value, and says how to
+// rebuild it if the bytes are gone (task 430).
 //
 // `size=thumb` means "the default thumbnail" (the smallest, denormalized onto the row);
 // `size=thumb256` — or just `size=256` — names one explicitly, which is how a client asks
@@ -261,19 +262,41 @@ func (app *application) showPhotoHandler(w http.ResponseWriter, r *http.Request)
 // image rather than 404-ing: a client asking for something small would rather have
 // something large than nothing.
 //
-// Shared by the own-portrait handler and the contacts photo handler (PRD 007) so the two
-// cannot drift on what `?size=thumb` means — which would be a subtle way for the contacts
-// pane to start shipping full-resolution faces.
-func portraitRefForSize(p person.Person, sizeParam string) string {
-	stored := p.PortraitRef
+// Shared by the own-portrait handler, the contacts photo handler (PRD 007) and the patrol portrait handler,
+// so they cannot drift on what `?size=thumb` means — which would be a subtle way for the contacts pane to
+// start shipping full-resolution faces.
+//
+// # The repair half
+//
+// The returned plan is non-zero only when a **thumbnail distinct from the display image** is being served.
+// The display image and task 111's original are originals, with nothing behind them to rebuild from — which
+// is exactly why they are the half that gets backed up (task 429).
+//
+// The source is the **display image**, not the kept original, and that is deliberate. The original has
+// its metadata stripped, so its EXIF orientation tag is gone and only `person.PortraitOriginal`'s
+// recorded `Orientation` knows which way up it goes; re-rendering from it would need that rotation
+// applied by hand, and getting it wrong means sideways faces. The display image already has the rotation
+// baked into its pixels, so a resize of it cannot be upside down. Slightly lossier, and the same choice
+// the glimt and album paths make for the same reason.
+func portraitRefAndRepair(p person.Person, sizeParam string) (string, renditionRepair) {
+	full := p.PortraitRef
+	stored := full
+	edge := 0
+
 	size := strings.ToLower(strings.TrimSpace(sizeParam))
 	if size == "" || size == "full" {
-		return stored
+		return stored, renditionRepair{}
 	}
 
 	switch {
 	case size == "thumb" && p.PortraitThumbRef != "":
 		stored = p.PortraitThumbRef
+		// The denormalized default thumbnail is the smallest configured rendition, so its edge is the
+		// first entry of the list the upload used. Taken from the same constant rather than hardcoded,
+		// so adding a size cannot silently make rebuilds the wrong shape.
+		if len(thumbnailEdges) > 0 {
+			edge = thumbnailEdges[0]
+		}
 	default:
 		name := size
 		if !strings.HasPrefix(name, "thumb") {
@@ -281,9 +304,25 @@ func portraitRefForSize(p person.Person, sizeParam string) string {
 		}
 		if t, ok := p.Thumb(name); ok {
 			stored = t.Ref
+			// From the stored dimensions rather than by parsing the name: the row records what was
+			// actually produced, and a rebuild should reproduce that rather than what the name implies.
+			edge = max(t.Width, t.Height)
 		}
 	}
-	return stored
+
+	plan := renditionRepair{}
+	if stored != full && stored != "" && full != "" && edge > 0 {
+		target, source := blob.Ref(stored), blob.Ref(full)
+		if target.Valid() && source.Valid() {
+			plan = renditionRepair{
+				Target:  target,
+				Source:  source,
+				Edge:    edge,
+				Quality: jpegQuality,
+			}
+		}
+	}
+	return stored, plan
 }
 
 // streamPortrait writes the blob behind ref as JPEG.
@@ -300,8 +339,27 @@ func portraitRefForSize(p person.Person, sizeParam string) string {
 //
 // `private` at minimum on every path: these are photographs of members, many of them minors,
 // so they must never sit in a shared cache.
-func (app *application) streamPortrait(w http.ResponseWriter, r *http.Request, ref blob.Ref, cacheControl, logID string) {
+func (app *application) streamPortrait(
+	w http.ResponseWriter, r *http.Request, ref blob.Ref, cacheControl, logID string, plan renditionRepair,
+) {
+	etag := `"` + string(ref) + `"`
+
 	reader, err := app.blobs.Get(r.Context(), ref)
+	if errors.Is(err, blob.ErrNotFound) && plan.possible() {
+		// A rebuildable rendition has gone missing (task 430). Rebuild off the request path and answer
+		// now from the display image.
+		app.repairRenditionInBackground(r, plan)
+
+		// Bytes, ETag and cache window move together, so the answer never claims the display image is
+		// the thumbnail. `no-store` stays `no-store`: a patrol member's portrait must not be cached at
+		// all (PRD 007 §8), and a degraded answer is no reason to weaken that.
+		ref = plan.Source
+		etag = `"` + string(ref) + `"`
+		if cacheControl != "no-store" {
+			cacheControl = degradedRenditionCacheControl
+		}
+		reader, err = app.blobs.Get(r.Context(), ref)
+	}
 	if err != nil {
 		if errors.Is(err, blob.ErrNotFound) {
 			app.NotFoundResponse(w, r)
@@ -317,7 +375,7 @@ func (app *application) streamPortrait(w http.ResponseWriter, r *http.Request, r
 	// The ref is a content hash, so it is a perfect ETag: same bytes, same value, and a
 	// changed portrait is a different ref. This is what lets the sync engine skip images it
 	// already holds without a size or date heuristic.
-	w.Header().Set("ETag", `"`+string(ref)+`"`)
+	w.Header().Set("ETag", etag)
 
 	if _, err := io.Copy(w, reader); err != nil {
 		// The response has already begun; there is nothing to say to the client that it

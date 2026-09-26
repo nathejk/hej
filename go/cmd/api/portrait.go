@@ -56,7 +56,12 @@ func (app *application) storePortrait(
 		if len(t.Bytes) == 0 {
 			continue
 		}
-		thumbRef, terr := app.blobs.Put(ctx, t.Bytes)
+		// PutCache: a thumbnail is a resize of bytes this store already holds. It is not
+		// backed up, and does not need to be — a portrait without a given rendition falls
+		// back to the full image when served (see the size parameter on the portrait
+		// routes), so a restore that brings back no thumbnails degrades rather than breaks,
+		// and task 111's original is there to regenerate from.
+		thumbRef, terr := app.blobs.PutCache(ctx, t.Bytes)
 		if terr != nil {
 			// Fails the upload rather than storing a portrait with a missing rendition
 			// (task 104's requirement). PRD 007 relies on the thumbnails existing for

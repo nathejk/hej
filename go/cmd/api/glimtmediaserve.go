@@ -116,35 +116,49 @@ func (app *application) showGlimtMediaHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	ref, ok := glimtVariantRef(g, ordinal, r.URL.Query().Get("variant"))
+	ref, plan, ok := glimtVariantRef(g, ordinal, r.URL.Query().Get("variant"))
 	if !ok {
 		app.NotFoundResponse(w, r)
 		return
 	}
 
-	app.streamGlimtMedia(w, r, ref, glimtID, glimtMediaCacheControl)
+	app.streamGlimtMedia(w, r, ref, glimtID, glimtMediaCacheControl, plan)
 }
 
-// glimtVariantRef picks the ref for an ordinal and a variant.
+// glimtVariantRef picks the ref for an ordinal and a variant, and says how to rebuild it if it is gone.
 //
 // Falls back to the full item when a thumbnail was asked for and none exists. That fallback is not
 // laziness: task 303 deliberately lets a thumbnail fail without failing the upload, so
 // "thumbnail-less item" is a state that really occurs, and the alternative here would be a 404 for a
 // tile whose photo is perfectly fine.
-func glimtVariantRef(g glimt.Glimt, ordinal int, variant string) (blob.Ref, bool) {
+//
+// The second return value is the repair plan (task 430). It is non-zero **only** when the ref being
+// served is a thumbnail distinct from the full item, because that is the only case where there is
+// something to rebuild and something to rebuild it from. A glimt keeps no original, so the full item is
+// the source — which is also why the full item itself can never be repaired: nothing sits behind it.
+func glimtVariantRef(g glimt.Glimt, ordinal int, variant string) (blob.Ref, renditionRepair, bool) {
 	for _, m := range g.Media {
 		if m.Ordinal != ordinal {
 			continue
 		}
+		full, fullOK := glimtBlobRef(m.Ref)
 		if strings.EqualFold(variant, "thumb") && m.ThumbRef != "" {
 			if ref, ok := glimtBlobRef(m.ThumbRef); ok {
-				return ref, true
+				plan := renditionRepair{}
+				if fullOK {
+					plan = renditionRepair{
+						Target:  ref,
+						Source:  full,
+						Edge:    glimtThumbEdges[0],
+						Quality: glimtJPEGQuality,
+					}
+				}
+				return ref, plan, true
 			}
 		}
-		ref, ok := glimtBlobRef(m.Ref)
-		return ref, ok
+		return full, renditionRepair{}, fullOK
 	}
-	return "", false
+	return "", renditionRepair{}, false
 }
 
 // streamGlimtMedia writes the bytes with caching headers.
@@ -159,7 +173,7 @@ func glimtVariantRef(g glimt.Glimt, ordinal int, variant string) (blob.Ref, bool
 // Passing it in keeps it visible at each call site instead of hidden in a wrapper a reader would
 // have to prove nobody changed.
 func (app *application) streamGlimtMedia(
-	w http.ResponseWriter, r *http.Request, ref blob.Ref, logID, cacheControl string,
+	w http.ResponseWriter, r *http.Request, ref blob.Ref, logID, cacheControl string, plan renditionRepair,
 ) {
 	etag := `"` + string(ref) + `"`
 
@@ -176,6 +190,19 @@ func (app *application) streamGlimtMedia(
 	}
 
 	reader, err := app.blobs.Get(r.Context(), ref)
+	if errors.Is(err, blob.ErrNotFound) && plan.possible() {
+		// The rendition is gone but rebuildable (task 430): an emptied cache, or a restore that omitted
+		// it. Rebuild off the request path and answer now from the source.
+		app.repairRenditionInBackground(r, plan)
+
+		// Everything switches to the source together — the bytes, the ETag and the cache window — which is
+		// what keeps the answer honest. Serving source bytes under the *thumbnail's* ETag would tell every
+		// cache that the full-size image is the thumbnail, and `immutable` would make that permanent.
+		ref = plan.Source
+		etag = `"` + string(ref) + `"`
+		cacheControl = degradedRenditionCacheControl
+		reader, err = app.blobs.Get(r.Context(), ref)
+	}
 	if err != nil {
 		if errors.Is(err, blob.ErrNotFound) {
 			// A row referencing bytes that have gone degrades to 404, per PRD 008 §8: "a

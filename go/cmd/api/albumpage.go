@@ -93,6 +93,15 @@ type publicAlbumItem struct {
 
 	Width  int
 	Height int
+
+	// HasMedium says whether the photograph has an 800px rendition (task 409), so the tile can emit
+	// `data-medium` only when one exists.
+	//
+	// **A boolean, not the ref.** No blob hash may appear in a public payload: content addressing would make
+	// it a forwardable, unrevokable capability, which is the rule `glimtpublic_test.go` asserts structurally.
+	// The page addresses photographs by ordinal for exactly that reason, and this field carries the one bit
+	// the template actually needs rather than the string it would be tempting to pass.
+	HasMedium bool
 }
 
 // albumPageHandler renders one album.
@@ -155,11 +164,12 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 	data.NextSide = side + 1
 	for _, it := range window {
 		data.Items = append(data.Items, publicAlbumItem{
-			Ordinal: it.Ordinal,
-			Caption: it.Caption,
-			Credit:  it.Credit,
-			Width:   it.Width,
-			Height:  it.Height,
+			Ordinal:   it.Ordinal,
+			Caption:   it.Caption,
+			Credit:    it.Credit,
+			Width:     it.Width,
+			Height:    it.Height,
+			HasMedium: it.MediumRef != "",
 		})
 	}
 
@@ -292,12 +302,12 @@ func albumPageWindow(items []album.Item, rawSide string) ([]album.Item, int, boo
 // publication filter rather than fetching the item directly.
 //
 // @Summary      One album photograph
-// @Description  Serves the stored bytes for item `ordinal` of a **published, non-deleted** album. `variant=thumb` serves the 320px thumbnail, which is what the pages request. Unauthenticated and it ignores the session cookie; the album's publication state is re-checked here, so this route cannot be used to reach a draft album's photographs by id. Answers 404 when `PUBLIC_ALBUMS=false` hides the feature — the bytes go with the pages, or hiding the section would only unadvertise it. Cached `public` and `immutable`, which is safe precisely because the answer does not depend on who asked.
+// @Description  Serves the stored bytes for item `ordinal` of a **published, non-deleted** album. `variant=thumb` serves the 320px thumbnail, which is what the grid requests; `variant=medium` serves the 800px rendition, which is what the viewer's `srcset` offers a phone; anything else serves the 1600px display image. A variant whose rendition was never produced — including every photograph uploaded before the 800px rendition existed — falls back to the display image rather than answering 404, so no page ever renders a gap. Unauthenticated and it ignores the session cookie; the album's publication state is re-checked here, so this route cannot be used to reach a draft album's photographs by id. Answers 404 when `PUBLIC_ALBUMS=false` hides the feature — the bytes go with the pages, or hiding the section would only unadvertise it. Cached `public` and `immutable`, which is safe precisely because the answer does not depend on who asked.
 // @Tags         public-site
 // @Produce      jpeg
 // @Param        albumId  path      string  true   "album id"
 // @Param        ordinal  path      int     true   "position within the album"
-// @Param        variant  query     string  false  "full (default) or thumb"
+// @Param        variant  query     string  false  "full (default), medium (800px) or thumb (320px)"
 // @Success      200  {file}    binary
 // @Failure      304  "not modified"
 // @Failure      404  {object}  map[string]string  "unknown album, unpublished, deleted, gone, or the albums section is switched off"
@@ -337,7 +347,7 @@ func (app *application) albumMediaHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	ref, ok, err := app.albumItemRef(albumID, ordinal, r.URL.Query().Get("variant"))
+	ref, plan, ok, err := app.albumItemRef(albumID, ordinal, r.URL.Query().Get("variant"))
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -350,7 +360,7 @@ func (app *application) albumMediaHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	app.streamGlimtMedia(w, r, ref, albumID, publicGlimtMediaCacheControl)
+	app.streamGlimtMedia(w, r, ref, albumID, publicGlimtMediaCacheControl, plan)
 }
 
 // albumItemRef resolves an album id and ordinal to the blob ref for the requested variant.
@@ -365,10 +375,12 @@ func (app *application) albumMediaHandler(w http.ResponseWriter, r *http.Request
 // That is deliberately the cheap, obviously-correct shape rather than a new `ByID` read. A second read
 // returning items would be a second place the publication filter has to be remembered, and this route
 // is precisely where forgetting it would matter.
-func (app *application) albumItemRef(albumID string, ordinal int, variant string) (blob.Ref, bool, error) {
+func (app *application) albumItemRef(
+	albumID string, ordinal int, variant string,
+) (blob.Ref, renditionRepair, bool, error) {
 	published, err := app.models.Albums.Published(app.config.eventYear)
 	if err != nil {
-		return "", false, err
+		return "", renditionRepair{}, false, err
 	}
 
 	slug := ""
@@ -379,34 +391,60 @@ func (app *application) albumItemRef(albumID string, ordinal int, variant string
 		}
 	}
 	if slug == "" {
-		return "", false, nil
+		return "", renditionRepair{}, false, nil
 	}
 
 	_, items, found, err := app.models.Albums.BySlug(app.config.eventYear, slug)
 	if err != nil || !found {
-		return "", false, err
+		return "", renditionRepair{}, false, err
 	}
 
 	for _, it := range items {
 		if it.Ordinal != ordinal {
 			continue
 		}
-		// The thumbnail when asked for and present; otherwise the full image. Falling back rather than
-		// 404ing on a missing thumbnail is the glimt grid's rule too: a thumbnail is an optimisation,
-		// and losing one should cost bandwidth rather than the photograph.
+		// The requested rendition when present; otherwise the full image. Falling back rather than 404ing on
+		// a missing rendition is the glimt grid's rule too: a rendition is an optimisation, and losing one
+		// should cost bandwidth rather than the photograph. It is also what lets the 800px rendition (task
+		// 409) ship with no backfill — every photograph uploaded before it has `mediumRef = ""` and serves
+		// the display image, which is correct rather than degraded.
 		ref := it.Ref
-		if variant == "thumb" && it.ThumbRef != "" {
-			ref = it.ThumbRef
+		edge := 0
+		switch variant {
+		case "thumb":
+			if it.ThumbRef != "" {
+				ref, edge = it.ThumbRef, glimtThumbEdges[0]
+			}
+		case "medium":
+			if it.MediumRef != "" {
+				ref, edge = it.MediumRef, mediumEdge
+			}
 		}
 		r := blob.Ref(ref)
 		if !r.Valid() {
 			// Not a hash, so not something this store put there. Refused rather than passed to the
 			// blob store, which is the one place a bad ref could become a filesystem path.
-			return "", false, nil
+			return "", renditionRepair{}, false, nil
 		}
-		return r, true, nil
+
+		// The repair plan (task 430), only when a **derived** rendition is being served — `edge` is non-zero
+		// exactly in those cases. An album upload keeps no separate original (PRD 022 §8.5), so the item's
+		// full rendition is the source; and the full rendition itself is therefore unrebuildable, which is
+		// exactly why it is the half that is backed up.
+		plan := renditionRepair{}
+		if edge > 0 {
+			if full := blob.Ref(it.Ref); full.Valid() {
+				plan = renditionRepair{
+					Target:  r,
+					Source:  full,
+					Edge:    edge,
+					Quality: glimtJPEGQuality,
+				}
+			}
+		}
+		return r, plan, true, nil
 	}
-	return "", false, nil
+	return "", renditionRepair{}, false, nil
 }
 
 // frontpageAlbums reads the album summaries the frontpage lists.

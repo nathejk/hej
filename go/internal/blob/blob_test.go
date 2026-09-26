@@ -168,9 +168,9 @@ func TestFileStorePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	p, err := s.path(ref)
+	p, _, err := s.locate(ref)
 	if err != nil {
-		t.Fatalf("path: %v", err)
+		t.Fatalf("locate: %v", err)
 	}
 	fi, err := os.Stat(p)
 	if err != nil {

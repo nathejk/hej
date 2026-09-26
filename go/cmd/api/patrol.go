@@ -196,7 +196,8 @@ func (app *application) patrolPhotoHandler(w http.ResponseWriter, r *http.Reques
 		if strings.TrimSpace(size) == "" {
 			size = "thumb"
 		}
-		ref := blob.Ref(portraitRefForSize(p, size))
+		refStr, plan := portraitRefAndRepair(p, size)
+		ref := blob.Ref(refStr)
 		if !ref.Valid() {
 			app.NotFoundResponse(w, r)
 			return
@@ -209,7 +210,7 @@ func (app *application) patrolPhotoHandler(w http.ResponseWriter, r *http.Reques
 		// no-store, not the directory's cacheable default: this is a minor's face, and the
 		// device must not keep it. Passed explicitly at the call site so the difference
 		// between the two portrait surfaces is visible here rather than buried in a helper.
-		app.streamPortrait(w, r, ref, "no-store", personID)
+		app.streamPortrait(w, r, ref, "no-store", personID, plan)
 		return
 	}
 

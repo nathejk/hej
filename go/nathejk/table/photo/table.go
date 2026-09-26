@@ -88,9 +88,29 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
 		// The photographer's credit line (task 393). See table.sql for why this is the one column in this
 		// projection that names a person, and what bounds that.
 		{"credit", `credit VARCHAR(160) NOT NULL DEFAULT ""`},
+		// The 800px rendition (task 409, PRD 023 §7.9) — the only schema change in that PRD.
+		//
+		// No backfill accompanies it, and none is needed: the column defaults to "", and "" means "fall
+		// back to the full image" everywhere it is read. So an existing library keeps working the moment
+		// this column appears, and photographs uploaded afterwards get the rendition.
+		{"mediumRef", `mediumRef VARCHAR(64) NOT NULL DEFAULT ""`},
 	} {
 		if err := cqrs.EnsureColumn(r, w, "photo", col.name, col.ddl); err != nil {
 			return nil, fmt.Errorf("photo: ensure column %s: %w", col.name, err)
+		}
+	}
+
+	// And the indexes for those columns, which `EnsureColumn` does not add.
+	//
+	// Easy to miss, and it matters here specifically: every ref column is interrogated by `RefsInUse`
+	// inside a **delete path**, so an unindexed one turns a purge check into a scan of the year's
+	// photographs. On a fresh database table.sql declares the key; on an existing one only this adds it.
+	for _, idx := range []struct{ name, ddl string }{
+		// The 800px rendition's ref (task 409).
+		{"medium_lookup", "ALTER TABLE photo ADD KEY medium_lookup (mediumRef)"},
+	} {
+		if err := ensureIndex(r, w, "photo", idx.name, idx.ddl); err != nil {
+			return nil, fmt.Errorf("photo: ensure index %s: %w", idx.name, err)
 		}
 	}
 
@@ -99,6 +119,35 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
 		querier:        querier{db: r},
 		curatorQuerier: curatorQuerier{db: r},
 	}, nil
+}
+
+// ensureIndex adds an index if the table does not already have one by that name.
+//
+// `cqrs.EnsureColumn`'s counterpart for keys, and it exists here rather than in cqrs because this is the
+// first projection that needed it — moving it upstream is a change to a shared library for one caller.
+//
+// Keyed on the index **name** rather than on the column, so a key that was added by hand under a different
+// name is left alone rather than duplicated. Same INFORMATION_SCHEMA approach and the same dialect
+// assumption `EnsureColumn` and `dropLegacyAlbumItem` make: this repository is MariaDB, and there is no
+// dialect-neutral way to ask.
+//
+// Additive only. Nothing here ever drops an index, for the reason `person/table.go` gives about columns: a
+// destructive statement on every boot is what that pattern exists to keep out.
+func ensureIndex(r cqrs.Reader, w cqrs.Writer, table, name, ddl string) error {
+	var n int
+	err := r.QueryRow(`
+		SELECT COUNT(*)
+		FROM INFORMATION_SCHEMA.STATISTICS
+		WHERE TABLE_SCHEMA = DATABASE()
+		  AND TABLE_NAME = ?
+		  AND INDEX_NAME = ?`, table, name).Scan(&n)
+	if err != nil {
+		return fmt.Errorf("check index: %w", err)
+	}
+	if n > 0 {
+		return nil
+	}
+	return w.Consume(ddl)
 }
 
 // CreateTableSql exposes the schema, matching the other entities' shape.

@@ -114,10 +114,15 @@ func (c consumer) handleUploaded(msg cqrs.Message, year string) error {
 		return fmt.Errorf("photo uploaded with an invalid ref")
 	}
 	// A malformed thumbnail ref costs the thumbnail, not the photograph — readers fall back to the full
-	// image. The same rule the glimt, portrait and album folds apply.
+	// image. The same rule the glimt, portrait and album folds apply, and it applies to every rendition:
+	// a rendition is an optimisation, and losing one must never cost the photograph.
 	thumbRef := body.ThumbRef
 	if thumbRef != "" && !validRef(thumbRef) {
 		thumbRef = ""
+	}
+	mediumRef := body.MediumRef
+	if mediumRef != "" && !validRef(mediumRef) {
+		mediumRef = ""
 	}
 
 	uploadedAt := body.UploadedAt
@@ -130,15 +135,17 @@ func (c consumer) handleUploaded(msg cqrs.Message, year string) error {
 	lat, lng, verdict := locationColumns(body.Location)
 
 	return c.w.Consume(fmt.Sprintf(
-		"INSERT INTO photo SET photoId=%s, year=%s, blobRef=%s, thumbRef=%s, caption=\"\", credit=\"\", "+
+		"INSERT INTO photo SET photoId=%s, year=%s, blobRef=%s, thumbRef=%s, mediumRef=%s, "+
+			"caption=\"\", credit=\"\", "+
 			"width=%d, height=%d, bytes=%d, latitude=%s, longitude=%s, boundsVerdict=%s, "+
 			"uploadedAt=%s "+
 			"ON DUPLICATE KEY UPDATE "+
 			"year=VALUES(year), blobRef=VALUES(blobRef), thumbRef=VALUES(thumbRef), "+
+			"mediumRef=VALUES(mediumRef), "+
 			"width=VALUES(width), height=VALUES(height), bytes=VALUES(bytes), "+
 			"latitude=VALUES(latitude), longitude=VALUES(longitude), "+
 			"boundsVerdict=VALUES(boundsVerdict), uploadedAt=VALUES(uploadedAt)",
-		quote(photoID), quote(year), quote(body.Ref), quote(thumbRef),
+		quote(photoID), quote(year), quote(body.Ref), quote(thumbRef), quote(mediumRef),
 		body.Width, body.Height, body.Bytes, lat, lng, quote(verdict),
 		quote(formatTime(uploadedAt)),
 	))

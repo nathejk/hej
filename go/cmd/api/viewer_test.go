@@ -678,3 +678,119 @@ func TestTheViewerStylesArePrefixed(t *testing.T) {
 		}
 	}
 }
+
+// The viewer offers both renditions and lets the browser choose (task 410, PRD 023 §7.9).
+//
+// Three separate decisions live in this one test, because each of them is individually easy to undo:
+//
+//  1. Both candidates with their real widths. One candidate is not a choice, and a wrong width is worse than no
+//     width, because the browser believes it.
+//  2. The choice is the browser's. A `matchMedia` branch here would look correct on the machine it was written
+//     on and be wrong on rotation and on every unusual pixel ratio.
+//  3. The `sizes` hint deliberately under-declares the narrow slot. That is the whole mechanism, it reads like a
+//     mistake, and "correcting" it to `100vw` would leave every photograph looking fine while phones quietly
+//     went back to fetching the 1600px image.
+func TestTheViewerOffersBothRenditionsAndLetsTheBrowserChoose(t *testing.T) {
+	code := withoutComments(viewerAsset(t, "viewer.js"))
+
+	for _, want := range []struct{ needle, why string }{
+		{"srcset", "the candidate list is how the browser is given the choice at all"},
+		{"800w", "the medium rendition's real width (task 409)"},
+		{"1600w", "the display image's real width"},
+		{"sizes", "without the hint the browser assumes 100vw and picks the larger candidate"},
+	} {
+		if !strings.Contains(code, want.needle) {
+			t.Errorf("viewer.js is missing %s — %s", want.needle, want.why)
+		}
+	}
+
+	// The rendition is not chosen by measuring the window. `matchMedia` and `innerWidth` are forbidden by the
+	// filmstrip's guard too; repeated here because the two reasons are different and either guard could be
+	// relaxed on its own.
+	for _, forbidden := range []string{"matchMedia", "innerWidth", "devicePixelRatio"} {
+		if strings.Contains(code, forbidden) {
+			t.Errorf("viewer.js chooses a rendition with %s; srcset already knows the viewport and the pixel "+
+				"ratio, and re-evaluates them on rotation for free", forbidden)
+		}
+	}
+
+	// The narrow case must name a fixed width below the slot rather than `100vw`. Only the first branch of the
+	// hint — `100vw` is the right answer for the wide case that follows it.
+	i := strings.Index(code, "(max-width: 40rem) ")
+	if i < 0 {
+		t.Fatalf("no narrow-viewport branch in the sizes hint:\n%s", code)
+	}
+	hint := code[i:]
+	if j := strings.IndexAny(hint, ",'"); j >= 0 {
+		hint = hint[:j]
+	}
+	if !strings.Contains(hint, "400px") || strings.Contains(hint, "100vw") {
+		t.Errorf("the narrow branch of sizes must under-declare the slot as a fixed width, not 100vw: %q", hint)
+	}
+
+	// And the comment that stops somebody "fixing" it. Searched in the *raw* source, since the comment is the
+	// thing being asserted, and just above the hint, because a note elsewhere in the file is not the warning the
+	// next reader gets.
+	raw := viewerAsset(t, "viewer.js")
+	at := strings.Index(raw, "'(max-width: 40rem) 400px, 100vw'")
+	if at < 0 {
+		t.Fatal("the sizes hint is not a literal in viewer.js")
+	}
+	from := at - 1600
+	if from < 0 {
+		from = 0
+	}
+	nearby := strings.ToLower(raw[from:at])
+	if !strings.Contains(nearby, "100vw") || !strings.Contains(nearby, "lie") {
+		t.Error("the sizes hint needs a comment immediately above it saying that it deliberately under-declares " +
+			"the narrow slot, and that 100vw would undo the feature")
+	}
+}
+
+// A photograph with no medium rendition renders from the display image alone (task 410).
+//
+// Everything uploaded before task 409 is in that state. A one-candidate `srcset` plus a `sizes` hint that lies
+// about the layout would be strictly worse than no `srcset`, so the branch has to exist — and having it means
+// the attributes must be *removed* rather than merely left unset, because one `<img>` element is reused for
+// every photograph in the album.
+func TestAPhotographWithoutAMediumRenditionGetsNoSrcset(t *testing.T) {
+	code := withoutComments(viewerAsset(t, "viewer.js"))
+
+	if !strings.Contains(code, "removeAttribute('srcset')") || !strings.Contains(code, "removeAttribute('sizes')") {
+		t.Error("the overlay's img is reused between photographs, so one without a medium rendition must clear " +
+			"srcset and sizes rather than inherit the previous one's")
+	}
+	if !strings.Contains(code, "item.medium && item.full") {
+		t.Error("the candidate list must be offered only when there really are two candidates")
+	}
+}
+
+// Prefetch asks for the variant the current photograph resolved to (task 410, PRD 023 §6).
+//
+// `currentSrc` is the point: it is what the browser *did*, so the prefetches cannot disagree with the photograph
+// on screen. Deciding it a second way from viewport width would reproduce the very bug this task removes — a
+// phone displaying 800px images while quietly downloading 1600px ones two ahead — and only on devices nobody
+// here owns.
+func TestPrefetchFollowsTheResolvedVariant(t *testing.T) {
+	code := withoutComments(viewerAsset(t, "viewer.js"))
+
+	i := strings.Index(code, "function prefetchAround(")
+	if i < 0 {
+		t.Fatal("no prefetchAround in viewer.js")
+	}
+	body := code[i:]
+	if j := strings.Index(body, "\n  }"); j >= 0 {
+		body = body[:j]
+	}
+
+	if !strings.Contains(body, "currentSrc") {
+		t.Errorf("prefetchAround must take the variant from what the img actually resolved to:\n%s", body)
+	}
+	if !strings.Contains(body, "index + 1") || !strings.Contains(body, "index + 2") ||
+		!strings.Contains(body, "index - 1") {
+		t.Errorf("prefetch must stay bounded at two ahead and one back:\n%s", body)
+	}
+	if strings.Contains(body, "index + 3") {
+		t.Error("prefetching further than two ahead is the thing PRD 023 exists to stop")
+	}
+}

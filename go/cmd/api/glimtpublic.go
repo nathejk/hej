@@ -178,7 +178,7 @@ func (app *application) showPublicGlimtMediaHandler(w http.ResponseWriter, r *ht
 		return
 	}
 
-	ref, ok := glimtVariantRef(g, ordinal, r.URL.Query().Get("variant"))
+	ref, plan, ok := glimtVariantRef(g, ordinal, r.URL.Query().Get("variant"))
 	if !ok {
 		app.NotFoundResponse(w, r)
 		return
@@ -187,7 +187,7 @@ func (app *application) showPublicGlimtMediaHandler(w http.ResponseWriter, r *ht
 	// `public`, unlike the authenticated route's `private`. Safe precisely because this handler's
 	// answer does not depend on who asked, and valuable because a public link is the one that gets
 	// shared widely — a CDN or a corporate proxy serving it is a feature here and a leak there.
-	app.streamPublicGlimtMedia(w, r, ref, glimtID)
+	app.streamPublicGlimtMedia(w, r, ref, glimtID, plan)
 }
 
 // publiclyVisible re-checks a glimt against the public rule.
@@ -221,9 +221,9 @@ func (app *application) publiclyVisible(g glimt.Glimt) bool {
 // `private` is a privacy property, and it should be visible at its own call site rather than
 // something a later reader has to prove nobody downstream changed.
 func (app *application) streamPublicGlimtMedia(
-	w http.ResponseWriter, r *http.Request, ref blob.Ref, logID string,
+	w http.ResponseWriter, r *http.Request, ref blob.Ref, logID string, plan renditionRepair,
 ) {
-	app.streamGlimtMedia(w, r, ref, logID, publicGlimtMediaCacheControl)
+	app.streamGlimtMedia(w, r, ref, logID, publicGlimtMediaCacheControl, plan)
 }
 
 // publicGlimtMediaCacheControl is a year, immutable, and **public**.

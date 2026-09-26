@@ -18,6 +18,7 @@ import (
 
 	"github.com/jrgensen/cqrs"
 	"github.com/nathejk/shared-go/tables/vehicle"
+	"golang.org/x/sync/singleflight"
 
 	bff "nathejk.dk/cmd/api/app"
 	"nathejk.dk/internal/blob"
@@ -245,6 +246,14 @@ type application struct {
 	// blobs stores binary objects that cannot be rebuilt from the event log —
 	// portrait bytes (PRDs 003/007). Never nil: it falls back to memory.
 	blobs blob.Store
+
+	// renditionRebuilds coalesces concurrent rebuilds of the same missing rendition
+	// (task 430, see blobrepair.go).
+	//
+	// Zero value is ready to use, so an `application` built as a struct literal in a test
+	// needs no wiring. In-process is sufficient because this service is single-process by
+	// design — docker-compose.prod.yml forbids replicas.
+	renditionRebuilds singleflight.Group
 
 	// contactsVersions caches the contacts directory version per permitted role set, for a
 	// few seconds (PRD 007's freshness poll, task 155).

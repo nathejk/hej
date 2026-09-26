@@ -626,7 +626,8 @@ func (app *application) contactsPhotoHandler(w http.ResponseWriter, r *http.Requ
 		size = "thumb"
 	}
 
-	ref := blob.Ref(portraitRefForSize(subjectRow, size))
+	refStr, plan := portraitRefAndRepair(subjectRow, size)
+	ref := blob.Ref(refStr)
 	if !ref.Valid() {
 		app.Logger.Error("portrait ref in projection is not a content hash",
 			"personId", personID, "ref", string(ref))
@@ -642,7 +643,7 @@ func (app *application) contactsPhotoHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	app.streamPortrait(w, r, ref, "private, max-age=3600", personID)
+	app.streamPortrait(w, r, ref, "private, max-age=3600", personID, plan)
 }
 
 // mayListSubject reports whether the viewer may see this person anywhere in the directory.

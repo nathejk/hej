@@ -32,9 +32,11 @@
 --
 -- # Everything here is rebuildable except the blobs
 --
--- A projection, replayed from the stream on every boot. `blobRef`/`thumbRef` point into the
--- content-addressed store, which is the one thing in this service that cannot be rebuilt and therefore
--- the one thing that must be backed up (PRD 008 §8).
+-- A projection, replayed from the stream on every boot. `blobRef`/`thumbRef`/`mediumRef` point into the
+-- content-addressed store. Since task 429 that store has two halves, and only one of them must be backed
+-- up (PRD 008 §8): `blobRef` is an **original** — an admin upload keeps no separate one, so those bytes
+-- are the photographer's only copy — while `thumbRef` and `mediumRef` are **cache**, derived from it and
+-- rebuilt on demand (task 430).
 --
 -- **PRD 022 resolved that these blobs are never purged** (§11 Q2): unlike glimt, nobody was told these
 -- photographs would disappear, so there is no retention job and the store grows by one event per year.
@@ -68,10 +70,27 @@ CREATE TABLE IF NOT EXISTS photo (
     -- portrait and album folds do: a ref is the one string here that could otherwise become a
     -- filesystem path.
     --
-    -- `thumbRef` may be "" when one could not be produced; readers fall back to the full image rather
-    -- than rendering a gap, as the glimt grid does.
+    -- `thumbRef` and `mediumRef` **may both be ""**, and readers fall back to the full image rather than
+    -- rendering a gap, as the glimt grid does. That rule is not a nicety, it is what removes the need for
+    -- a migration: every photograph uploaded before a rendition existed simply has "" and renders from
+    -- `blobRef`. So it is written down here rather than left to be inferred from the code.
     blobRef VARCHAR(64) NOT NULL DEFAULT "",
     thumbRef VARCHAR(64) NOT NULL DEFAULT "",
+
+    -- The 800px rendition (task 409, PRD 023 §7.9).
+    --
+    -- Between the 320px thumbnail and the 1600px display image, and it exists for one measured reason: a
+    -- 390pt phone shows about 800px of a photograph at 2x, so serving it the 1600px display image is four
+    -- times the pixels for no visible gain — times however many photographs somebody swipes through.
+    --
+    -- Produced **at upload**, not resized on request. `imaging.Prepare` already takes a list of edges, so
+    -- this is one more entry in that list; there is no image-resizing endpoint in this service and this is
+    -- not the feature that should introduce one.
+    --
+    -- Since task 429 these bytes are stored in the blob store's **cache** class: they are derivable from
+    -- `blobRef`, so they are outside the backup scope and task 430 rebuilds them on a miss. That is what
+    -- makes a third rendition cheap enough to be worth having.
+    mediumRef VARCHAR(64) NOT NULL DEFAULT "",
 
     -- The curator's words for this photograph, shared by every album it appears in.
     --
@@ -181,8 +200,13 @@ CREATE TABLE IF NOT EXISTS photo (
     KEY year_plottable (year, deleted, boundsVerdict),
     -- The shared-blob check, which must be able to ask "does any live photograph reference this ref?"
     -- cheaply — it runs inside the glimt and album delete paths.
+    --
+    -- **One key per ref column, and every ref column needs one.** A rendition whose column has no index
+    -- still gets asked about by `RefsInUse`, so the answer would come from a scan of the year's
+    -- photographs inside a delete path.
     KEY ref_lookup (blobRef),
-    KEY thumb_lookup (thumbRef)
+    KEY thumb_lookup (thumbRef),
+    KEY medium_lookup (mediumRef)
 );
 
 -- Which patrols a photograph shows (PRD 022 §8.6, task 367).

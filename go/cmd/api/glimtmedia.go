@@ -205,9 +205,13 @@ func (app *application) storeGlimtImage(r *http.Request, raw []byte) (glimtMedia
 	// forever. Here the client already falls back to the full item when `has_thumb` is false
 	// (task 302), so losing a thumbnail costs one grid tile some bandwidth rather than
 	// costing the member their photo.
+	// PutCache, unlike the full rendition above: the thumbnail is a resize of bytes the
+	// store already holds, so it is outside the backup scope. The full rendition is not —
+	// no original is kept (see "Why no original is kept"), which makes those bytes the
+	// only copy of the member's photograph however resized they were on the way in.
 	thumbRef := ""
 	if len(prepared.Thumbs) > 0 && len(prepared.Thumbs[0].Bytes) > 0 {
-		tr, terr := app.blobs.Put(ctx, prepared.Thumbs[0].Bytes)
+		tr, terr := app.blobs.PutCache(ctx, prepared.Thumbs[0].Bytes)
 		if terr != nil {
 			app.Logger.Warn("storing glimt thumbnail", "err", terr)
 		} else {

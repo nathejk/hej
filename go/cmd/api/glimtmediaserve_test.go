@@ -324,13 +324,13 @@ func TestGlimtVariantRefRejectsAStoredJunkRef(t *testing.T) {
 	// Defence in depth: the projection already refuses a malformed ref, but if one ever
 	// reached a row it must not become a filesystem path.
 	g := glimt.Glimt{Media: []glimt.Media{{Ordinal: 0, Ref: "../../etc/passwd"}}}
-	if _, ok := glimtVariantRef(g, 0, ""); ok {
+	if _, _, ok := glimtVariantRef(g, 0, ""); ok {
 		t.Error("a path-shaped stored ref was accepted")
 	}
 
 	valid := strings.Repeat("a", 64)
 	g = glimt.Glimt{Media: []glimt.Media{{Ordinal: 0, Ref: valid}}}
-	ref, ok := glimtVariantRef(g, 0, "")
+	ref, _, ok := glimtVariantRef(g, 0, "")
 	if !ok || ref != blob.Ref(valid) {
 		t.Errorf("glimtVariantRef = %q, %v", ref, ok)
 	}

@@ -190,13 +190,20 @@ func (app *application) deleteAdminPhotoHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	refs := make([]string, 0, 2)
+	// **Every ref column this photograph has.** A rendition left out here is bytes orphaned on disk
+	// forever; a rendition left out of `photo.RefsInUse` is worse, a live object deleted because nothing
+	// claimed it. Both halves have to know about each rendition — task 368's reasoning, restated by task 409
+	// when it added `mediumRef`.
+	refs := make([]string, 0, 3)
 	if p.Ref != "" {
 		refs = append(refs, p.Ref)
 	}
+	// A rendition is as shareable as the image, so each is checked and purged on the same terms.
 	if p.ThumbRef != "" {
-		// A thumbnail is as shareable as the image, so it is checked and purged on the same terms.
 		refs = append(refs, p.ThumbRef)
+	}
+	if p.MediumRef != "" {
+		refs = append(refs, p.MediumRef)
 	}
 
 	subject, serr := photo.Subject(adminYear(r), photoID, photo.VerbDeleted)

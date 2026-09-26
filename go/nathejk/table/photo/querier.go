@@ -2,6 +2,7 @@ package photo
 
 import (
 	"database/sql"
+	"strings"
 
 	"github.com/jrgensen/cqrs"
 )
@@ -51,18 +52,25 @@ type Queries interface {
 	// there, so every live row that references the bytes is a reason to keep them.
 	//
 	// Both the full ref and the thumbnail count as a use: a thumbnail is as shareable as the image.
+	//
+	// **Every ref column on this table must be named here.** A column this query does not ask about has two
+	// possible outcomes and both are bad: bytes orphaned on disk forever, or — worse — a live object deleted
+	// because nothing claimed it. Neither shows up in a test that only exercises uploads. Task 368's
+	// reasoning, and the reason task 409 called this out before adding `mediumRef`.
 	RefsInUse(year string, excluding []string, refs []string) (map[string]bool, error)
 }
 
 // Photo is one photograph in the library.
 type Photo struct {
-	ID       string
-	Ref      string
-	ThumbRef string
-	Caption  string
-	Width    int
-	Height   int
-	Bytes    int
+	ID  string
+	Ref string
+	// ThumbRef and MediumRef may be "", in which case readers serve Ref. See table.sql.
+	ThumbRef  string
+	MediumRef string
+	Caption   string
+	Width     int
+	Height    int
+	Bytes     int
 
 	// Lat/Lng are nil unless the photograph carries a usable coordinate. Nil rather than zero for the
 	// reason the scan projection gives: 0,0 is the Atlantic off Ghana, and "not plottable" must be
@@ -88,7 +96,7 @@ func (q querier) Get(year, photoID string) (Photo, bool, error) {
 	}
 
 	rows, err := q.db.Query(`
-		SELECT photoId, blobRef, thumbRef, caption, width, height, bytes,
+		SELECT photoId, blobRef, thumbRef, mediumRef, caption, width, height, bytes,
 		       latitude, longitude, boundsVerdict
 		FROM photo
 		WHERE year = ? AND photoId = ? AND deleted = 0`, year, photoID)
@@ -102,7 +110,7 @@ func (q querier) Get(year, photoID string) (Photo, bool, error) {
 	}
 	var p Photo
 	var lat, lng sql.NullFloat64
-	if err := rows.Scan(&p.ID, &p.Ref, &p.ThumbRef, &p.Caption, &p.Width, &p.Height, &p.Bytes,
+	if err := rows.Scan(&p.ID, &p.Ref, &p.ThumbRef, &p.MediumRef, &p.Caption, &p.Width, &p.Height, &p.Bytes,
 		&lat, &lng, &p.BoundsVerdict); err != nil {
 		return Photo{}, false, err
 	}
@@ -148,21 +156,30 @@ func (q querier) RefsInUse(year string, excluding []string, refs []string) (map[
 		excluded[id] = true
 	}
 
-	args := make([]any, 0, len(refs)*2+1)
+	// One `refs` copy per ref column, in the order the columns appear in the WHERE clause below. Three
+	// columns, three copies — the kind of arithmetic that silently breaks when a column is added, which is
+	// why the capacity, the loop and the clause are all derived from one list.
+	columns := []string{"blobRef", "thumbRef", "mediumRef"}
+
+	args := make([]any, 0, len(refs)*len(columns)+1)
 	args = append(args, year)
-	for _, ref := range refs {
-		args = append(args, ref)
-	}
-	for _, ref := range refs {
-		args = append(args, ref)
+	for range columns {
+		for _, ref := range refs {
+			args = append(args, ref)
+		}
 	}
 
 	marks := placeholders(len(refs))
+	clauses := make([]string, 0, len(columns))
+	for _, col := range columns {
+		clauses = append(clauses, col+" IN ("+marks+")")
+	}
+
 	rows, err := q.db.Query(`
-		SELECT photoId, blobRef, thumbRef
+		SELECT photoId, blobRef, thumbRef, mediumRef
 		FROM photo
 		WHERE year = ? AND deleted = 0
-		  AND (blobRef IN (`+marks+`) OR thumbRef IN (`+marks+`))`, args...)
+		  AND (`+strings.Join(clauses, " OR ")+`)`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -173,20 +190,19 @@ func (q querier) RefsInUse(year string, excluding []string, refs []string) (map[
 		wanted[ref] = true
 	}
 	for rows.Next() {
-		var id, full, thumb string
-		if err := rows.Scan(&id, &full, &thumb); err != nil {
+		var id, full, thumb, medium string
+		if err := rows.Scan(&id, &full, &thumb, &medium); err != nil {
 			return nil, err
 		}
 		if excluded[id] {
 			continue
 		}
-		// Filtered against what was asked for, because a matching row carries both its refs and only one
+		// Filtered against what was asked for, because a matching row carries all of its refs and only one
 		// of them may be the one in question.
-		if wanted[full] {
-			inUse[full] = true
-		}
-		if wanted[thumb] {
-			inUse[thumb] = true
+		for _, ref := range []string{full, thumb, medium} {
+			if wanted[ref] {
+				inUse[ref] = true
+			}
 		}
 	}
 	return inUse, rows.Err()

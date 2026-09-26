@@ -148,10 +148,12 @@ type Counts struct {
 // A wider type than `Photo` because the contact sheet shows what the public never does: whether the
 // photograph is in an album, whether it was deleted, and how many patrols it is attributed to.
 type LibraryPhoto struct {
-	ID       string
-	Ref      string
-	ThumbRef string
-	Caption  string
+	ID  string
+	Ref string
+	// ThumbRef and MediumRef may be "", in which case readers serve Ref. See photo/table.sql.
+	ThumbRef  string
+	MediumRef string
+	Caption   string
 
 	// Credit is the photographer's credit line, or "" when there is none (task 393).
 	//
@@ -210,7 +212,7 @@ type curatorQuerier struct {
 // Shared so the two cannot disagree about what a LibraryPhoto contains — they scan into the same struct,
 // and a column added to one and not the other is a silent zero value.
 const libraryColumns = `
-	p.photoId, p.blobRef, p.thumbRef, p.caption, p.credit, p.width, p.height, p.bytes,
+	p.photoId, p.blobRef, p.thumbRef, p.mediumRef, p.caption, p.credit, p.width, p.height, p.bytes,
 	p.latitude, p.longitude, p.boundsVerdict, p.deleted, p.uploadedAt,
 	(SELECT COUNT(*) FROM album_item i
 	  WHERE i.photoId = p.photoId AND i.deleted = 0) AS albumCount,
@@ -343,7 +345,7 @@ func scanLibraryPhoto(rows *sql.Rows) (LibraryPhoto, error) {
 	var p LibraryPhoto
 	var lat, lng sql.NullFloat64
 	var deleted int
-	if err := rows.Scan(&p.ID, &p.Ref, &p.ThumbRef, &p.Caption, &p.Credit, &p.Width, &p.Height, &p.Bytes,
+	if err := rows.Scan(&p.ID, &p.Ref, &p.ThumbRef, &p.MediumRef, &p.Caption, &p.Credit, &p.Width, &p.Height, &p.Bytes,
 		&lat, &lng, &p.BoundsVerdict, &deleted, &p.UploadedAt,
 		&p.AlbumCount, &p.TagCount); err != nil {
 		return LibraryPhoto{}, err

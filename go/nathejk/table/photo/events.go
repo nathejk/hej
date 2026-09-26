@@ -51,10 +51,13 @@ type Uploaded struct {
 	PhotoID string `json:"photoId"`
 	Year    string `json:"year"`
 
-	// Ref and ThumbRef are content hashes. ThumbRef may be "" when one could not be produced; readers
-	// fall back to the full image rather than rendering a gap, as the glimt grid does.
-	Ref      string `json:"ref"`
-	ThumbRef string `json:"thumbRef,omitempty"`
+	// Ref, ThumbRef and MediumRef are content hashes. ThumbRef and MediumRef may be "" when the rendition
+	// could not be produced — or, for MediumRef, because the photograph was uploaded before task 409 added
+	// it. Readers fall back to the full image rather than rendering a gap, as the glimt grid does, and that
+	// rule is what lets a new rendition ship with no backfill.
+	Ref       string `json:"ref"`
+	ThumbRef  string `json:"thumbRef,omitempty"`
+	MediumRef string `json:"mediumRef,omitempty"`
 
 	Width  int `json:"width,omitempty"`
 	Height int `json:"height,omitempty"`

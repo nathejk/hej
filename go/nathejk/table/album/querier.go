@@ -86,9 +86,12 @@ type Item struct {
 	// identifies a *slot in this album*, which is not the same thing and is not stable across a reorder.
 	PhotoID string
 
-	Ref      string
-	ThumbRef string
-	Caption  string
+	Ref string
+	// ThumbRef is the 320px grid rendition and MediumRef the 800px one (task 409). Either may be "", in
+	// which case the page falls back to Ref — which is what lets a rendition ship with no backfill.
+	ThumbRef  string
+	MediumRef string
+	Caption   string
 
 	// Credit is the photographer's credit line, or "" when there is none (task 393).
 	//
@@ -242,8 +245,8 @@ func (q querier) BySlug(year, slug string) (Album, []Item, bool, error) {
 // order of two messages is not something a page should be able to notice.
 func (q querier) items(albumID string) ([]Item, error) {
 	rows, err := q.db.Query(`
-		SELECT i.ordinal, i.photoId, p.blobRef, p.thumbRef, p.caption, p.credit, p.width, p.height,
-		       p.latitude, p.longitude, p.boundsVerdict
+		SELECT i.ordinal, i.photoId, p.blobRef, p.thumbRef, p.mediumRef, p.caption, p.credit,
+		       p.width, p.height, p.latitude, p.longitude, p.boundsVerdict
 		FROM album_item i
 		JOIN photo p ON p.photoId = i.photoId
 		WHERE i.albumId = ? AND i.deleted = 0 AND p.deleted = 0
@@ -257,7 +260,8 @@ func (q querier) items(albumID string) ([]Item, error) {
 	for rows.Next() {
 		var it Item
 		var lat, lng sql.NullFloat64
-		if err := rows.Scan(&it.Ordinal, &it.PhotoID, &it.Ref, &it.ThumbRef, &it.Caption, &it.Credit,
+		if err := rows.Scan(&it.Ordinal, &it.PhotoID, &it.Ref, &it.ThumbRef, &it.MediumRef,
+			&it.Caption, &it.Credit,
 			&it.Width, &it.Height, &lat, &lng, &it.BoundsVerdict); err != nil {
 			return nil, err
 		}

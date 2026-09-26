@@ -242,6 +242,7 @@ func (app *application) uploadAdminPhotoHandler(w http.ResponseWriter, r *http.R
 			Year:       adminYear(r),
 			Ref:        stored.Ref,
 			ThumbRef:   stored.ThumbRef,
+			MediumRef:  stored.MediumRef,
 			Width:      stored.Width,
 			Height:     stored.Height,
 			Bytes:      stored.Bytes,
