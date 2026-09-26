@@ -208,25 +208,141 @@ func TestPublicFrontpageUsesRealHeadingsAndAForm(t *testing.T) {
 	}
 }
 
-func TestPublicSitePagesAreNotIndexed(t *testing.T) {
-	app, _, _ := publicApp(t)
+// The crawling policy, per surface (task 427, PRD 011 §0c).
+//
+// # This test used to be one rule for the whole site, and that is what hid the problem
+//
+// Every public page answered `noindex, nofollow`, which read as a careful privacy posture and was in one respect
+// the opposite: the page the event *wants* found was blocked, and the photographs it wants protected carried no
+// policy of their own at all — they were covered only by their hosting page being unindexed.
+//
+// So the rule is per surface now, and the table is the decision (maintainer, 2026-09-25): the frontpage is
+// findable, individual photographs never are, and the glimt page is never indexable at all.
+//
+// The meta tag and the header are checked together on purpose. They come from one method, and a page that told a
+// header-reading crawler one thing and a markup-reading one another would be a bug nobody could see.
+func TestTheCrawlingPolicyIsPerSurface(t *testing.T) {
+	// albumApp rather than publicApp: without an album projection the album route answers 503 through the shared
+	// JSON helper, which carries none of these headers — a real gap, but an error path rather than a surface, and
+	// not what this test is about.
+	app, _ := albumApp(t)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	// The glimt page joined this list in task 424, when it moved into the shared layout. Until then it carried
-	// only the meta tag, because it rendered itself and the header came from the shared renderer it did not use.
-	for _, path := range []string{"/2026", "/2026/patrulje/42", "/2026/glimt"} {
-		resp, body := getPublic(t, srv.URL+path, nil)
-		if got := resp.Header.Get("X-Robots-Tag"); !strings.Contains(got, "noindex") {
-			t.Errorf("%s: want a noindex X-Robots-Tag, got %q", path, got)
+	for _, tc := range []struct{ path, want, why string }{
+		{"/2026", publicRobotsTextOnly,
+			"the frontpage is meant to be found — somebody searching for nathejk fotos should land here — and " +
+				"noimageindex is what keeps the album covers and the glimt strip on it out of image search"},
+		{"/2026/album/loerdag-morgen", publicRobotsNone,
+			"an album is a page of photographs and nothing else yet; it becomes indexable when it carries words " +
+				"worth finding, and then as text only"},
+		{"/2026/glimt", publicRobotsNone,
+			"never indexable: these are participants' own photographs, and sharing one publicly is not asking " +
+				"to be findable in a search engine years later"},
+		{"/2026/patrulje/42", publicRobotsNone,
+			"a page about one identifiable group of children, whose whole design is that the open web cannot " +
+				"enumerate them"},
+		{"/2026/privatliv", publicRobotsNone,
+			"harmless either way, so it follows the default rather than being a third decision"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			resp, body := getPublic(t, srv.URL+tc.path, nil)
+			page := string(body)
+
+			if got := resp.Header.Get("X-Robots-Tag"); got != tc.want {
+				t.Errorf("X-Robots-Tag = %q, want %q — %s", got, tc.want, tc.why)
+			}
+			if want := `<meta name="robots" content="` + tc.want + `">`; !strings.Contains(page, want) {
+				t.Errorf("want the same policy in the markup: %s", want)
+			}
+			// Task 335 depends on this bound: a removed photograph must leave the public page promptly.
+			if got := resp.Header.Get("Cache-Control"); !strings.Contains(got, "max-age=60") {
+				t.Errorf("want the short 60s cache window, got %q", got)
+			}
+		})
+	}
+}
+
+// No page is ever indexed *with* its photographs (task 427).
+//
+// There are two policies and no third, which is what makes this checkable: the only way into the index carries
+// `noimageindex`. A future constant that indexed a page and its images would be the one mistake here that cannot
+// be withdrawn — a photograph of eight children, in image search, recalled by nobody — so adding one should take a
+// conversation rather than a keystroke, and this is the keystroke's tripwire.
+func TestNoPolicyIndexesAPageWithItsImages(t *testing.T) {
+	for _, policy := range []string{publicRobotsNone, publicRobotsTextOnly} {
+		if strings.Contains(policy, "index") && !strings.Contains(policy, "noindex") &&
+			!strings.Contains(policy, "noimageindex") {
+			t.Errorf("policy %q puts a page in the index without excluding its images", policy)
 		}
-		if !strings.Contains(string(body), `name="robots"`) {
-			t.Errorf("%s: want a robots meta tag in the document", path)
-		}
-		// Task 335 depends on this bound: a removed photograph must leave the public page promptly.
-		if got := resp.Header.Get("Cache-Control"); !strings.Contains(got, "max-age=60") {
-			t.Errorf("%s: want the short 60s cache window, got %q", path, got)
-		}
+	}
+}
+
+// The glimt and patrol pages refuse to be indexed whatever their data says (task 427).
+//
+// Both override `RobotsPolicy`, rather than simply leaving the field unset. Today those look identical; they are
+// not the same promise. An unset field is one assignment away from being set — by somebody wiring an unrelated
+// feature, who would have no reason to know — while an override has to be deleted, past a comment saying not to.
+//
+// The test sets the field to the indexable policy and requires the answer to be unchanged. That is the exact
+// accident it exists for.
+func TestGlimtAndPatrolPagesCannotBeMadeIndexable(t *testing.T) {
+	glimt := publicGlimtPageData{publicPageData: publicPageData{Robots: publicRobotsTextOnly}}
+	if got := glimt.RobotsPolicy(); got != publicRobotsNone {
+		t.Errorf("the glimt page answered %q; it must never be indexable", got)
+	}
+
+	patrol := publicPatrolPageData{publicPageData: publicPageData{Robots: publicRobotsTextOnly}}
+	if got := patrol.RobotsPolicy(); got != publicRobotsNone {
+		t.Errorf("a patrol page answered %q; it must never be indexable", got)
+	}
+
+	// And the default is the safe one, so a page that says nothing stays out.
+	if got := (publicPageData{}).RobotsPolicy(); got != publicRobotsNone {
+		t.Errorf("an unset policy answered %q, want the safe default", got)
+	}
+}
+
+// A photograph is never indexed, whichever URL reaches it (task 427).
+//
+// The pages' `noimageindex` covers "found through the page" and this covers "found by its own URL". Neither covers
+// both, and this is the half that was missing entirely: an image has no head element, so before this the bytes
+// carried no policy at all.
+//
+// The 304 is included deliberately. A crawler that already holds the bytes still reads the headers of that answer,
+// and a policy that applied only to a cache miss would be a policy with a hole in it.
+func TestPhotographsAreNeverIndexed(t *testing.T) {
+	app, store := albumApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	_ = store
+
+	resp, _ := getPublic(t, srv.URL+"/api/public/albums/al-1/media/0?variant=thumb", nil)
+	if got := resp.Header.Get("X-Robots-Tag"); !strings.Contains(got, "noindex") {
+		t.Errorf("a photograph answered X-Robots-Tag %q; the bytes need their own policy, because an image has "+
+			"no markup to put one in", got)
+	}
+	etag := resp.Header.Get("ETag")
+	if etag == "" {
+		t.Fatal("want an ETag, to exercise the 304 path")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/api/public/albums/al-1/media/0?variant=thumb", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("If-None-Match", etag)
+	notModified, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer notModified.Body.Close()
+
+	if notModified.StatusCode != http.StatusNotModified {
+		t.Fatalf("want 304 with the ETag, got %d", notModified.StatusCode)
+	}
+	if got := notModified.Header.Get("X-Robots-Tag"); !strings.Contains(got, "noindex") {
+		t.Errorf("the 304 answered %q: a crawler that already has the bytes still reads these headers", got)
 	}
 }
 
@@ -827,5 +943,61 @@ func TestThePublicSiteUsesTheAppsFavicon(t *testing.T) {
 	if strings.Contains(page, "apple-touch-icon") {
 		t.Error("the public site must not declare an apple-touch-icon: the app is the installable thing, and a " +
 			"home-screen icon that looks like it but opens a public page is worse than none")
+	}
+}
+
+// robots.txt exists, allows crawling, and names nothing (task 427).
+//
+// # Three separate properties, and the middle one is the counter-intuitive one
+//
+//  1. **It is served at all.** Before this it fell through to the SPA handler, so a crawler asking for the rules
+//     got `index.html` with a 200. Crawlers are tolerant of that, but it is not an answer.
+//  2. **It contains no `Disallow`.** `Disallow` blocks *crawling*, not indexing — so a blocked URL is one a
+//     crawler can never read a `noindex` from, and can still list as a bare URL with no way to unlist it.
+//     Everything that must stay out says so in its own response instead. A well-meaning `Disallow: /2026/glimt`
+//     would make the glimt page *more* likely to be listed, not less.
+//  3. **It names no path.** In particular not `/admin`: the tool is behind a credential and sends `noindex` on
+//     every response, and a public file naming it advertises a door rather than locking one.
+func TestRobotsTxtAllowsCrawlingAndNamesNothing(t *testing.T) {
+	app, _, _ := publicApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	resp, body := getPublic(t, srv.URL+"/robots.txt", nil)
+	txt := string(body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("Content-Type = %q, want text/plain — the SPA handler used to answer this with HTML", ct)
+	}
+	if strings.Contains(txt, "<html") || strings.Contains(txt, "<div id=\"app\"") {
+		t.Fatalf("the app shell was served instead of the rules:\n%s", txt)
+	}
+	if !strings.Contains(txt, "User-agent: *") || !strings.Contains(txt, "Allow: /") {
+		t.Errorf("want crawling allowed:\n%s", txt)
+	}
+
+	// The two that matter. Checked against the file with its comment lines stripped, because the comment
+	// *explains* Disallow at length and a guard that matched its own reasoning would be the sixth in this repo to
+	// do so.
+	var rules []string
+	for _, line := range strings.Split(txt, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "#") {
+			rules = append(rules, line)
+		}
+	}
+	body2 := strings.Join(rules, "\n")
+
+	if strings.Contains(body2, "Disallow") {
+		t.Errorf("robots.txt must carry no Disallow: it blocks crawling rather than indexing, so a blocked URL "+
+			"is one a crawler can never read a noindex from — and can still be listed as a bare URL:\n%s", body2)
+	}
+	for _, path := range []string{"/admin", "/api", "/2026", "glimt", "patrulje"} {
+		if strings.Contains(body2, path) {
+			t.Errorf("robots.txt names %q; the policy lives in each response, and a public file listing paths "+
+				"advertises them", path)
+		}
 	}
 }

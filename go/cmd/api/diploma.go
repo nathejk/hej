@@ -80,6 +80,9 @@ func (app *application) patrolDiplomaHandler(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Disposition",
 		fmt.Sprintf(`inline; filename="nathejk-diplom-patrulje-%s.pdf"`, d.Number))
 	w.Header().Set("Cache-Control", diplomaCacheControl)
+	// A certificate names a patrol, so it is never indexed (task 427). A PDF has no head element, which makes the
+	// header the only place this can be said.
+	w.Header().Set("X-Robots-Tag", "noindex")
 
 	if err := diploma.PDF(d, w); err != nil {
 		// The response has begun — a PDF is streamed — so there is nothing to answer with. Logged, as the
@@ -118,6 +121,7 @@ func (app *application) patrolDiplomaThumbHandler(w http.ResponseWriter, r *http
 
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Cache-Control", diplomaCacheControl)
+	w.Header().Set("X-Robots-Tag", "noindex")
 	if _, err := w.Write(bytes); err != nil {
 		app.Logger.Error("writing a diploma thumbnail", "err", err)
 	}

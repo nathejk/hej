@@ -94,6 +94,19 @@ type publicPatrolPageData struct {
 	// `data.Reported` reads the same at the call site.
 }
 
+// RobotsPolicy shadows the embedded one: **a patrol page is never indexable** (task 427).
+//
+// This is the strictest of the three surfaces and the one where the reasoning is not a preference. A patrol page
+// is about **one identifiable group of children**: their route, where they were scanned, how far they walked. PRD
+// 011 §0b built the whole feature on the difference between a family finding their own patrol by typing its
+// number and the page being a search result for anybody — and the page answers "not yet" identically for a patrol
+// that does not exist precisely so that the open web cannot enumerate them. An index entry would undo that with
+// no code change at all.
+//
+// An override rather than an unset field, for the same reason as the glimt page's: today they look the same, and
+// only one of them survives somebody setting a field while wiring something else.
+func (d publicPatrolPageData) RobotsPolicy() string { return publicRobotsNone }
+
 // publicScanRow is one registration as the page lists it.
 //
 // **Race order, oldest first.** The app's list is newest-first, because a participant during the race wants

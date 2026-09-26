@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (Zed)
 **Created:** 2026-08-28
-**Last updated:** 2026-09-19
+**Last updated:** 2026-09-25 (§0c added: crawling and indexing)
 **Approved:** 2026-09-19
 **Shipped:**
 **Target users:** anyone outside the app — parents, grandparents, siblings, friends, a leader on a
@@ -312,6 +312,74 @@ This also settles what the label may claim. *"mindst"* ("at least") was in tensi
 could overstate; once a car is excluded by status and bad fixes are dropped individually, the remaining
 error is dominated by **missing** data rather than spurious data — which is the direction *mindst*
 honestly describes. The word stays, and the reasoning for it is now true rather than aspirational.
+
+## 0c. Crawling and indexing (2026-09-25, maintainer)
+
+Until now every public page answered `noindex, nofollow`, and this document's reasoning — *"participants shared
+these photographs publicly, which is not the same as asking to be findable by name in a search engine years
+later"* — was applied uniformly to the whole surface.
+
+The maintainer narrowed that:
+
+> *"It's ok that the frontpage is indexed and if people search for 'nathejk' and 'fotos' or 'video' that they can
+> find us, that's very much intended, but we do not want the individual photos indexed. […] Glimt should never be
+> indexable."*
+
+### What the uniform rule was hiding
+
+It read as a careful privacy posture and was, in one respect, the opposite of one. The page the event **wants**
+found was the one blocked, while the photographs it wants protected carried **no policy of their own at all** —
+they were covered only by their hosting page being unindexed, which is indirect and does not reach a photograph
+fetched by its own URL.
+
+### The policy
+
+There are exactly **two** page policies, and there is deliberately no third:
+
+| | Policy |
+|---|---|
+| Not in the index | `noindex, nofollow` — the default, and the zero value means it |
+| In the index, as text | `index, follow, noimageindex` — the only way a public page is ever indexed |
+
+**No policy indexes a page together with its photographs.** That is a stronger guarantee than a per-page setting:
+the failure nobody would notice — a photograph of eight children turning up in image search — cannot be reached by
+filling in a field wrongly. It would take adding a third constant, which is a conversation rather than a typo.
+
+| Surface | Policy | Why |
+|---|---|---|
+| Frontpage `/{year}` | in the index, as text | What was asked for. `noimageindex` is what makes it compatible with the rest: the album covers and the glimt strip on this page are photographs of children |
+| `/{year}/album/{slug}` | not indexed | A page of photographs and nothing else **yet** — see below |
+| `/{year}/glimt` | **never** indexed | Participants' own photographs. This document's original sentence still applies, and this is the distinction that lets a curated album be treated differently |
+| `/{year}/patrulje/{number}` | **never** indexed | One identifiable group of children, on a page whose whole design is that the open web cannot enumerate them (§0b, §3) |
+| `/{year}/privatliv` | not indexed | Harmless either way, so it follows the default rather than being a third decision |
+| every photograph, and the diploma | `X-Robots-Tag: noindex` on the bytes | An image has no `<head>`, so a header is the only place this can be said — and it is the half that covers a photograph reached by its own URL |
+| `robots.txt` | no `Disallow` lines | See the trap below |
+
+**"Never" is a method, not an omission.** The glimt and patrol page data override `RobotsPolicy` to return the
+unindexed policy whatever their field says. Today an override and an unset field look identical; they are not the
+same promise. An unset field is one assignment away from being set — by somebody wiring an unrelated feature, who
+would have no reason to know — while an override has to be deleted, past a comment saying not to.
+
+**Albums are expected to become indexable**, and the shape above is built for it:
+
+> *"if we at a later point adds some storytelling to an album, that should be indexable too"*
+
+An album that carries words worth finding gets `index, follow, noimageindex` — the same policy as the frontpage,
+one field on one page. The photographs in it stay out of image search by construction, because that is the only
+indexable policy there is.
+
+### The `robots.txt` trap, recorded so it is not re-introduced
+
+`Disallow` blocks **crawling**, not indexing. A crawler that may not fetch a URL never reads the `noindex` on it,
+and a disallowed page that is linked from anywhere can still be listed — as a bare URL, with no way to remove it.
+So a well-meaning `Disallow: /{year}/glimt` would make the glimt page **more** likely to appear in results, not
+less.
+
+Hence: crawling is allowed everywhere, and indexing is refused per response. `/robots.txt` exists mainly so that a
+crawler asking for the rules is not answered with the app shell, which is what it got before — and it names no
+path, including not `/admin`, because a public file naming a door advertises it rather than locking it.
+
+---
 
 ## 1. Summary
 

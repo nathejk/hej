@@ -60,6 +60,31 @@ import (
 // publicSiteTitle is the site's name, used in every page title and the wordmark.
 const publicSiteTitle = "Nathejk"
 
+// The crawling policy, per surface (task 427, PRD 011 §0c).
+//
+// # There are exactly two policies, and that is the point
+//
+// The maintainer's decision, 2026-09-25: the **frontpage** should be findable — somebody searching for "nathejk
+// fotos" is meant to find us, and that is the whole reason the site exists — while **individual photographs must
+// never be indexed**. Those two requirements are only compatible if being indexed and having your images indexed
+// are separate things, which is what `noimageindex` is for.
+//
+// So there is no policy that indexes a page *with* its photographs. A page is either not in the index at all, or
+// in it as text. That is a stronger guarantee than a per-page setting, because the failure nobody would notice —
+// a photograph of eight children turning up in image search — cannot be reached by setting a field wrongly. It
+// would take adding a third constant, which is a conversation rather than a typo.
+const (
+	// publicRobotsNone is the default, and the zero value means it (see RobotsPolicy).
+	publicRobotsNone = "noindex, nofollow"
+
+	// publicRobotsTextOnly is the only way a public page enters a search index.
+	//
+	// `noimageindex` is what keeps the photographs out while the words are findable. It is honoured by Google and
+	// unevenly elsewhere, which is why the media routes carry `X-Robots-Tag: noindex` of their own — one control
+	// covers "found through the page", the other covers "found by its URL", and neither covers both.
+	publicRobotsTextOnly = "index, follow, noimageindex"
+)
+
 // publicPageData is what every page in the public site needs.
 //
 // Embedded by each page's own data struct rather than passed alongside it, so a new page cannot forget
@@ -105,6 +130,32 @@ type publicPageData struct {
 	// Here rather than on the patrol page's struct for the same reason as ReportPath: the acknowledgement is
 	// rendered beside the form, and the form is in the shared footer.
 	Reported bool
+
+	// Robots is this page's crawling policy, or "" for the default (task 427).
+	//
+	// **Empty means not indexed.** Read through `RobotsPolicy` rather than directly, so a page that says nothing
+	// — including one somebody adds next year without reading this — stays out of the index. The alternative, a
+	// field every handler must remember to fill, fails in the direction that cannot be undone: a photograph in a
+	// search index is not recalled by fixing the header afterwards.
+	Robots string
+}
+
+// RobotsPolicy is what this page tells crawlers, in the meta tag and in the header.
+//
+// One method for both, so the two cannot disagree — and exported because the template calls it.
+func (d publicPageData) RobotsPolicy() string {
+	if d.Robots == "" {
+		return publicRobotsNone
+	}
+	return d.Robots
+}
+
+// robotsPolicyProvider is how the renderer asks a page for its policy.
+//
+// An interface rather than a field access, because `renderPublicPageStatus` takes `any`. A page whose data does
+// not implement it gets the default — which is the safe answer, and the reason the fallback exists at all.
+type robotsPolicyProvider interface {
+	RobotsPolicy() string
 }
 
 // publicFrontpageData is the frontpage.
@@ -151,6 +202,49 @@ type publicAlbumSummary struct {
 	Count        int
 }
 
+// robotsTxt is the origin's crawling rules (task 427, PRD 011 §0c).
+//
+// # There are no Disallow lines, and that is the decision
+//
+// `Disallow` blocks **crawling**, not indexing, and the two are routinely confused with expensive results: a
+// crawler that is not allowed to fetch a URL never sees the `noindex` on it, so a disallowed page that is linked
+// from anywhere can still be listed — as a bare URL, with no way to remove it. Everything here that must stay out
+// of the index says so in its own response instead, which is the control that actually works.
+//
+// So this file exists for two smaller reasons. It stops `/robots.txt` falling through to the SPA handler, which
+// answered a crawler's request for rules with `index.html` and a 200. And it says out loud that crawling is
+// welcome, because the frontpage is meant to be found.
+//
+// **No `Disallow: /admin` either.** The tool is behind a credential and sends `noindex` on every response, and a
+// public file naming it would advertise a door rather than lock one.
+const robotsTxt = `# Crawling is welcome. What may be *indexed* is decided per response, in X-Robots-Tag and
+# in each page's robots meta tag — not here: a Disallow would stop a crawler ever reading
+# those, which is how a page ends up listed with no way to unlist it.
+#
+# The short version: the frontpage is meant to be found. Individual photographs never are.
+User-agent: *
+Allow: /
+`
+
+// robotsHandler serves it.
+//
+// Registered bare like the public pages, and cached for a day: it changes about once a year, and a crawler asking
+// for it on every request is a cost with no benefit to either side.
+//
+// @Summary      The origin's crawling rules
+// @Description  A `robots.txt` with **no `Disallow` lines**, deliberately: `Disallow` prevents crawling rather than indexing, so a blocked URL is one a crawler cannot read a `noindex` from — and can still list as a bare URL. Indexing is decided per response instead (see the `X-Robots-Tag` on each public page and on every photograph). This route also stops `/robots.txt` falling through to the SPA handler, which used to answer it with the app shell and a 200.
+// @Tags         public-site
+// @Produce      plain
+// @Success      200  {string}  string  "the rules"
+// @Router       /robots.txt [get]
+func (app *application) robotsHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	if _, err := w.Write([]byte(robotsTxt)); err != nil {
+		app.Logger.Debug("writing robots.txt", "err", err)
+	}
+}
+
 // publicRoot is the base path every public page hangs off: `/2026`.
 //
 // Built from the configured event year rather than written down, so next year's deployment needs no code
@@ -176,9 +270,18 @@ func (app *application) publicFrontpageHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	data := publicFrontpageData{
-		publicPageData: publicPageData{Year: app.config.eventYear, Root: app.publicRoot(), AtRoot: true},
-		ShowAlbums:     app.config.publicAlbums,
-		SearchError:    patrolSearchError(r.URL.Query().Get("fejl")),
+		publicPageData: publicPageData{
+			Year:   app.config.eventYear,
+			Root:   app.publicRoot(),
+			AtRoot: true,
+			// **The one page in the index** (task 427). Somebody searching for "nathejk fotos" is meant to find
+			// us; that is what this site is for. `noimageindex` is what makes that compatible with the other
+			// half of the decision — the album covers and the glimt strip on this page are photographs of
+			// children, and they stay out of image search.
+			Robots: publicRobotsTextOnly,
+		},
+		ShowAlbums:  app.config.publicAlbums,
+		SearchError: patrolSearchError(r.URL.Query().Get("fejl")),
 	}
 	if data.ShowAlbums {
 		// Not read at all when the section is off: the cheapest correct behaviour, and it means a switched-off
@@ -427,7 +530,14 @@ func (app *application) renderPublicPageStatus(w http.ResponseWriter, name strin
 	} else {
 		w.Header().Set("Cache-Control", "no-store")
 	}
-	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	// The page's own policy, defaulting to noindex for anything that does not carry one (task 427). The header and
+	// the meta tag come from the same method, so a page cannot say one thing to a crawler reading headers and
+	// another to one reading markup.
+	robots := publicRobotsNone
+	if p, ok := data.(robotsPolicyProvider); ok {
+		robots = p.RobotsPolicy()
+	}
+	w.Header().Set("X-Robots-Tag", robots)
 	// After the headers and before the body, which is the only order that works: a Set after WriteHeader is
 	// silently dropped, and writing the body first sends an implicit 200.
 	w.WriteHeader(status)
@@ -490,7 +600,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{if .Title}}{{.Title}} · {{end}}` + publicSiteTitle + ` {{.Year}}</title>
-<meta name="robots" content="noindex, nofollow">
+<meta name="robots" content="{{.RobotsPolicy}}">
 <!-- The same favicon the app declares, at the same URL (task 426).
 
      **A reference, not a copy.** The file lives in vue/public/favicon.svg and is served from the origin's root by

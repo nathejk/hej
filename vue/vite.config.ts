@@ -373,6 +373,13 @@ export default defineConfig({
         target: 'http://api:4000',
         changeOrigin: true,
       },
+      // The origin's crawling rules, served by the BFF (task 427). Not strictly needed in dev — no crawler reads
+      // a local hostname — but without it Vite answers /robots.txt with the SPA shell, which is the production
+      // bug this route exists to fix, and a dev environment that cannot reproduce it is one nobody tests it in.
+      '/robots.txt': {
+        target: 'http://api:4000',
+        changeOrigin: true,
+      },
     },
   },
 })

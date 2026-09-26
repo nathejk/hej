@@ -415,6 +415,18 @@ type publicGlimtPageData struct {
 	Unavailable bool
 }
 
+// RobotsPolicy shadows the embedded one: **the glimt page is never indexable** (task 427).
+//
+// The maintainer's words, 2026-09-25: "glimt should never be indexable". Expressed as an override rather than as
+// an unset field, because those two look identical today and are not the same promise — an unset field is one
+// assignment away from being set, and this must survive somebody adding an `Robots:` line while wiring something
+// else. To index this page you would have to delete a method whose comment says not to.
+//
+// The reasoning is PRD 019's own, and it is the distinction that lets a photographer's curated album be treated
+// differently later: these are **participants' own** photographs, shared with the event, and sharing a photograph
+// publicly is not the same as asking to be findable in a search engine years afterwards.
+func (d publicGlimtPageData) RobotsPolicy() string { return publicRobotsNone }
+
 // publicHoldLabel is the attribution line, in Danish, matching the app's.
 //
 // Duplicated from the frontend's `attributionLine` rather than shared, because there is nothing to

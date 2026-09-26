@@ -168,6 +168,9 @@ func (app *application) streamGlimtMedia(
 	if match := r.Header.Get("If-None-Match"); match != "" && strings.Contains(match, string(ref)) {
 		w.Header().Set("ETag", etag)
 		w.Header().Set("Cache-Control", cacheControl)
+		// On the 304 too. A crawler that already has the bytes still reads the headers of this answer, and a
+		// policy that applied only to a cache miss would be a policy with a hole in it.
+		w.Header().Set("X-Robots-Tag", "noindex")
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
@@ -191,6 +194,16 @@ func (app *application) streamGlimtMedia(
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Cache-Control", cacheControl)
 	w.Header().Set("ETag", etag)
+	// **No photograph is ever indexed** (task 427, PRD 011 §0c).
+	//
+	// An image has no `<head>`, so a header is the only way to say this about the bytes themselves — and it is the
+	// half that matters most, because it covers a photograph reached by its own URL rather than through a page. The
+	// pages' `noimageindex` covers the other half; neither covers both.
+	//
+	// Set here rather than at the four call sites, because this function is the one thing every photograph on every
+	// surface goes through, and "the curator forgot one route" is exactly how the guarantee would be lost. Harmless
+	// on the authenticated route, which no crawler reaches anyway.
+	w.Header().Set("X-Robots-Tag", "noindex")
 
 	if _, err := io.Copy(w, reader); err != nil {
 		// The response has already begun; there is nothing to say to the client that it

@@ -194,6 +194,9 @@ func (app *application) routes() http.Handler {
 	// Two path segments rather than a query string for the version, so a shared cache keys on the path and
 	// cannot be configured to strip it. See viewer.go for why the version is not validated.
 	router.HandlerFunc(http.MethodGet, "/viewer/:version/:asset", app.serveViewerAssetHandler)
+	// The origin's crawling rules (task 427). At the root, because that is the only place a crawler looks, and
+	// registered here so it stops falling through to the SPA handler — which answered it with index.html and a 200.
+	router.HandlerFunc(http.MethodGet, "/robots.txt", app.robotsHandler)
 	router.HandlerFunc(http.MethodGet, publicRoot+"/patrulje", app.patrolSearchLookupHandler)
 	router.HandlerFunc(http.MethodGet, publicRoot+"/patrulje/:number", app.publicPatrolPageHandler)
 	// The takedown route (task 343). A **form POST**, not a JSON endpoint, because it has to work with
