@@ -13,6 +13,14 @@
 // movement threshold that tells a drag from a click, and a click swallowed after a drag so it does not also toggle
 // the cell it ended on.
 //
+// # Why the landing place is an empty frame and not a line
+//
+// The indicator used to be a bar drawn down one edge of the cell the photographs would land beside. It told the
+// curator *which side*, but not that anything was going to move — so a fifty-photograph move looked the same as a
+// one-photograph one until it had happened. Instead the grid opens a gap: dashed empty frames stand where the
+// photographs will land, and the cells after them shift along. What the drop will do is then visible before the
+// pointer is released.
+//
 // # Why the request names a neighbour, not an order
 //
 // The grid scrolls in pages, so it may hold 120 of 200. The request says "these, before (or after) that one" and
@@ -26,8 +34,14 @@ function initAlbumOrder(ctx) {
   const sheet = document.getElementById('sheet');
 
   const THRESHOLD = 6; // px of movement before a press becomes a drag
+  // How many frames a gap is ever opened with. A selection can be two hundred photographs — "vælg alle der matcher
+  // filteret" makes that one click — and two hundred frames would push the grid around so violently that the cell
+  // the curator is aiming at would leave the screen. Four is enough to read as "several", and the ghost under the
+  // pointer carries the true count.
+  const MAXSLOTS = 4;
   let press = null; // { id, x, y, pointerId }
   let drag = null; // { moving: [ids], ghost, target, after }
+  let slots = []; // the dashed frames currently standing in the grid
   let swallowClick = false;
 
   function cellAt(x, y) {
@@ -36,10 +50,39 @@ function initAlbumOrder(ctx) {
     return cell && sheet.contains(cell) ? cell : null;
   }
 
+  function onSlot(x, y) {
+    const el = document.elementFromPoint(x, y);
+    return !!(el && el.classList && el.classList.contains('dropslot'));
+  }
+
   function clearMarks() {
-    for (const c of sheet.querySelectorAll('.drop-before, .drop-after')) {
-      c.classList.remove('drop-before', 'drop-after');
+    for (const s of slots) s.remove();
+    slots = [];
+  }
+
+  // Whether the gap already open is the one this cell and side ask for. Without this the indicator oscillates: the
+  // frames take up room, which moves the cell under the pointer, which asks for a gap one place over, and so on
+  // every pointermove. The two ways of naming the same gap are "before the cell after the frames" and "after the
+  // cell before them".
+  function gapIsOpen(cell, after) {
+    if (!slots.length) return false;
+    if (!after && cell === slots[slots.length - 1].nextElementSibling) return true;
+    if (after && cell === slots[0].previousElementSibling) return true;
+    return false;
+  }
+
+  function openGap(cell, after, count) {
+    const frames = document.createDocumentFragment();
+    for (let i = 0; i < Math.min(count, MAXSLOTS); i++) {
+      const slot = document.createElement('div');
+      slot.className = 'dropslot';
+      // Not a cell, and not in the listbox: the grid's keyboard handling and the selection both walk `.cell`, and a
+      // hole in the order is not something a curator can select or focus.
+      slot.setAttribute('aria-hidden', 'true');
+      slots.push(slot);
+      frames.appendChild(slot);
     }
+    if (after) cell.after(frames); else cell.before(frames);
   }
 
   function start(e) {
@@ -65,14 +108,23 @@ function initAlbumOrder(ctx) {
     if (e.clientY < edge) window.scrollBy(0, -20);
     else if (e.clientY > window.innerHeight - edge) window.scrollBy(0, 20);
 
-    clearMarks();
-    drag.target = null;
+    // The pointer resting on the gap it just opened is not a reason to close it again — and it is where the pointer
+    // spends most of a drag, because the gap opens under it.
+    if (onSlot(e.clientX, e.clientY)) return;
+
     const cell = cellAt(e.clientX, e.clientY);
-    if (!cell || cell.classList.contains('dragging')) return;
+    if (!cell || cell.classList.contains('dragging')) {
+      clearMarks();
+      drag.target = null;
+      return;
+    }
     const r = cell.getBoundingClientRect();
-    drag.after = e.clientX > r.left + r.width / 2;
+    const after = e.clientX > r.left + r.width / 2;
     drag.target = cell.dataset.id;
-    cell.classList.add(drag.after ? 'drop-after' : 'drop-before');
+    drag.after = after;
+    if (gapIsOpen(cell, after)) return;
+    clearMarks();
+    openGap(cell, after, drag.moving.length);
   }
 
   function end() {

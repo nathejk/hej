@@ -374,13 +374,17 @@ nav.views a[aria-current="page"] { color: #fafafa; font-weight: 600; text-decora
 #albumeditor label { display: block; font-size: 0.875rem; color: #52525b; margin-top: 0.75rem; }
 #editnote { min-height: 1.5rem; color: #166534; }
 
-/* Drag-and-drop in the album view (task 396). The landing place is a bar on the side the photographs will land,
-   and what is being moved is dimmed in place, so the curator sees both ends of the move. */
+/* Drag-and-drop in the album view (task 396). The grid opens a gap where the photographs will land — empty dashed
+   frames, one per photograph being moved and at most four — and what is being moved is dimmed in place, so the
+   curator sees both ends of the move before releasing the pointer. The frames are the same shape as a thumbnail,
+   so the gap is the size of the hole the move will make rather than a hint next to it. */
 #albumeditor ~ #sheet .cell { touch-action: none; }
 #sheet .cell img { -webkit-user-drag: none; user-select: none; }
 #sheet .cell.dragging { opacity: 0.35; }
-#sheet .cell.drop-before { box-shadow: inset 4px 0 0 #2563eb; }
-#sheet .cell.drop-after { box-shadow: inset -4px 0 0 #2563eb; }
+#sheet .dropslot {
+  aspect-ratio: 4 / 3; border-radius: 0.375rem;
+  border: 3px dashed #2563eb; background: rgba(37, 99, 235, 0.08);
+}
 body.draggingcells { cursor: grabbing; user-select: none; }
 .dragghost {
   position: fixed; z-index: 50; pointer-events: none;

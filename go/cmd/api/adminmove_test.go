@@ -151,3 +151,50 @@ func TestTheMoveRequestNeedsExactlyOneTarget(t *testing.T) {
 		t.Errorf("a refused move must publish nothing, got %d", len(pub.Messages))
 	}
 }
+
+// The landing place is a gap in the grid, not a bar on a cell's edge (task 435).
+//
+// Source-read rather than behavioural, because there is no way to execute a pointer gesture from a Go test. What it
+// can pin is that the mechanism is still the one the decision chose — and in particular the two guards against the
+// indicator oscillating, which are the non-obvious part and the part a later simplification would remove first.
+func TestTheDropIndicatorOpensAGapInTheGrid(t *testing.T) {
+	// Comments stripped: this file's prose necessarily names `dropslot` and the classes it replaced, and a needle
+	// that matches the paragraph explaining a rule rather than the code implementing it is a mistake this package
+	// has made several times.
+	js := stripJSLineComments(adminAsset(t, "albumorder.js"))
+	css := stripCSSComments(adminAsset(t, "page.css"))
+
+	for _, want := range []struct{ needle, why string }{
+		{"slot.className = 'dropslot'", "the gap must be real elements in the grid, or the cells after it do not move"},
+		{"if (after) cell.after(frames); else cell.before(frames);", "the frames go where the photographs will land"},
+		{"Math.min(count, MAXSLOTS)", "a two-hundred-photograph selection must not open a two-hundred-frame gap: " +
+			"it would push the cell the curator is aiming at off the screen"},
+		{"if (gapIsOpen(cell, after)) return;", "without this the gap oscillates: it takes up room, which moves " +
+			"the cell under the pointer, which asks for the next gap over, every pointermove"},
+		{"if (onSlot(e.clientX, e.clientY)) return;", "the pointer spends most of a drag over the gap it opened, " +
+			"and that is not a reason to close it again"},
+	} {
+		if !strings.Contains(js, want.needle) {
+			t.Errorf("albumorder.js no longer has %q: %s", want.needle, want.why)
+		}
+	}
+
+	// The frames are a thumbnail's shape, so the gap is the size of the hole the move will make rather than a hint
+	// beside it, and dashed so an empty frame cannot be read as a photograph that failed to load.
+	rule := ruleFor(t, css, "#sheet .dropslot {")
+	for _, want := range []string{"aspect-ratio: 4 / 3", "dashed"} {
+		if !strings.Contains(rule, want) {
+			t.Errorf("#sheet .dropslot should declare %q, got %q", want, rule)
+		}
+	}
+
+	// And the edge bar is gone from both languages. A leftover rule would be dead CSS; a leftover class would be a
+	// second indicator drawn beside the first.
+	for name, src := range map[string]string{"albumorder.js": js, "page.css": css} {
+		for _, gone := range []string{"drop-before", "drop-after"} {
+			if strings.Contains(src, gone) {
+				t.Errorf("%s still carries %q, which the gap replaced", name, gone)
+			}
+		}
+	}
+}
