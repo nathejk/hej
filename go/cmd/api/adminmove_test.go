@@ -173,10 +173,23 @@ func TestTheDropIndicatorOpensAGapInTheGrid(t *testing.T) {
 			"the cell under the pointer, which asks for the next gap over, every pointermove"},
 		{"if (onSlot(e.clientX, e.clientY)) return;", "the pointer spends most of a drag over the gap it opened, " +
 			"and that is not a reason to close it again"},
+		// Task 436: the selection leaves the grid and rides the pointer.
+		{"const copy = img.cloneNode(false);", "the pointer carries the photographs themselves; clones, so the " +
+			"cells they came from cannot be disturbed"},
+		{"if (stack.childElementCount >= MAXCARRIED) break;", "the stack is a handful, not an inventory"},
+		{"const first = [press.id].concat(moving.filter((id) => id !== press.id));", "the photograph under the " +
+			"pointer must be the one the curator took hold of"},
 	} {
 		if !strings.Contains(js, want.needle) {
 			t.Errorf("albumorder.js no longer has %q: %s", want.needle, want.why)
 		}
+	}
+
+	// The moved photographs leave the layout rather than being dimmed in it (task 436). A dimmed cell still holds its
+	// place, so the grid grew by the gap while still showing everything and the arrangement under the pointer was one
+	// that could never exist.
+	if dragging := ruleFor(t, css, "#sheet .cell.dragging {"); !strings.Contains(dragging, "display: none") {
+		t.Errorf("#sheet .cell.dragging must take the cell out of the grid, got %q", dragging)
 	}
 
 	// The frames are a thumbnail's shape, so the gap is the size of the hole the move will make rather than a hint

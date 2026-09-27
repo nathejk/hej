@@ -375,21 +375,37 @@ nav.views a[aria-current="page"] { color: #fafafa; font-weight: 600; text-decora
 #editnote { min-height: 1.5rem; color: #166534; }
 
 /* Drag-and-drop in the album view (task 396). The grid opens a gap where the photographs will land — empty dashed
-   frames, one per photograph being moved and at most four — and what is being moved is dimmed in place, so the
-   curator sees both ends of the move before releasing the pointer. The frames are the same shape as a thumbnail,
-   so the gap is the size of the hole the move will make rather than a hint next to it. */
+   frames, one per photograph being moved and at most four — the frames are the same shape as a thumbnail, so the gap
+   is the size of the hole the move will make rather than a hint next to it, and what is being moved leaves the grid
+   and rides the pointer. So what is on screen during a drag is the album minus the selection, with one gap in it:
+   the result, rather than a diagram of it. */
 #albumeditor ~ #sheet .cell { touch-action: none; }
 #sheet .cell img { -webkit-user-drag: none; user-select: none; }
-#sheet .cell.dragging { opacity: 0.35; }
+/* `display: none` and not `opacity`, which is what this was: a dimmed cell still holds its place, so the grid grew
+   by the gap while still showing everything, and the arrangement under the pointer was one that could never exist.
+   The cells are only classed, never detached, so an Escape or a cancelled pointer puts them back untouched. */
+#sheet .cell.dragging { display: none; }
 #sheet .dropslot {
   aspect-ratio: 4 / 3; border-radius: 0.375rem;
   border: 3px dashed #2563eb; background: rgba(37, 99, 235, 0.08);
 }
 body.draggingcells { cursor: grabbing; user-select: none; }
-.dragghost {
-  position: fixed; z-index: 50; pointer-events: none;
+/* What the pointer carries: a stack of the photographs themselves, at most three, with the true count beneath. The
+   fan is why three are legible as three — squared up they would be one photograph with thick edges. */
+.dragghost { position: fixed; z-index: 50; pointer-events: none; }
+.dragstack { position: relative; width: 5.5rem; height: 4.125rem; }
+.dragstack img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  background: #e4e4e7; border: 2px solid #fff; border-radius: 0.25rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.dragstack img:nth-child(1) { transform: rotate(-5deg) translate(-0.2rem, -0.1rem); }
+.dragstack img:nth-child(2) { transform: rotate(4deg) translate(0.2rem, 0.05rem); }
+.dragstack img:only-child { transform: none; }
+.draglabel {
+  display: block; width: fit-content; margin: 0.3rem auto 0;
   background: #18181b; color: #fafafa; font-size: 0.8125rem;
-  padding: 0.25rem 0.5rem; border-radius: 0.375rem;
+  padding: 0.15rem 0.45rem; border-radius: 0.375rem;
 }
 
 /* The album's cover on the album view (task 396): the one mark in the grid that is about the album, not the photo. */

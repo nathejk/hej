@@ -21,6 +21,17 @@
 // photographs will land, and the cells after them shift along. What the drop will do is then visible before the
 // pointer is released.
 //
+// The photographs being moved **leave the grid** while they are in flight — `display: none`, not dimmed in place —
+// and ride the pointer as a small stack of themselves. Two reasons, and the second is the point:
+//
+//   - keeping them in the flow meant the grid grew by a gap while still holding everything, so the arrangement under
+//     the pointer was one that would never exist;
+//   - with them gone, what is left on screen *is* the album minus the selection, and the gap is the only space the
+//     selection occupies. The curator is looking at the result rather than at a diagram of it.
+//
+// The stack carries at most three thumbnails. It is a handful, not an inventory: the count underneath it is the
+// real number, and a selection may include photographs that are not loaded and have no thumbnail to carry.
+//
 // # Why the request names a neighbour, not an order
 //
 // The grid scrolls in pages, so it may hold 120 of 200. The request says "these, before (or after) that one" and
@@ -39,6 +50,8 @@ function initAlbumOrder(ctx) {
   // the curator is aiming at would leave the screen. Four is enough to read as "several", and the ghost under the
   // pointer carries the true count.
   const MAXSLOTS = 4;
+  // How many thumbnails the stack carries. See the header: a handful, and the label holds the truth.
+  const MAXCARRIED = 3;
   let press = null; // { id, x, y, pointerId }
   let drag = null; // { moving: [ids], ghost, target, after }
   let slots = []; // the dashed frames currently standing in the grid
@@ -85,14 +98,47 @@ function initAlbumOrder(ctx) {
     if (after) cell.after(frames); else cell.before(frames);
   }
 
-  function start(e) {
-    const moving = ctx.selected.has(press.id) ? Array.from(ctx.selected) : [press.id];
+  // carry builds what follows the pointer: a stack of the photographs themselves, with the count under it.
+  //
+  // The grabbed one is carried first so the photograph under the pointer is the one the curator took hold of. The
+  // thumbnails are clones, which costs nothing to decode — the browser already has these images — and cannot
+  // disturb the cells they came from.
+  function carry(moving) {
     const ghost = document.createElement('div');
     ghost.className = 'dragghost';
-    ghost.textContent = 'Flytter ' + ctx.photoCount(moving.length);
+    ghost.setAttribute('aria-hidden', 'true');
+
+    const stack = document.createElement('div');
+    stack.className = 'dragstack';
+    const first = [press.id].concat(moving.filter((id) => id !== press.id));
+    for (const id of first) {
+      if (stack.childElementCount >= MAXCARRIED) break;
+      // A photograph in the selection but not on the page has no thumbnail here. It still moves; it is just not
+      // one of the three being shown.
+      const img = sheet.querySelector('[data-id="' + id + '"] img');
+      if (!img) continue;
+      const copy = img.cloneNode(false);
+      copy.removeAttribute('class');
+      stack.appendChild(copy);
+    }
+    ghost.appendChild(stack);
+
+    const label = document.createElement('span');
+    label.className = 'draglabel';
+    label.textContent = 'Flytter ' + ctx.photoCount(moving.length);
+    ghost.appendChild(label);
+
     document.body.appendChild(ghost);
+    return ghost;
+  }
+
+  function start(e) {
+    const moving = ctx.selected.has(press.id) ? Array.from(ctx.selected) : [press.id];
+    const ghost = carry(moving);
     drag = { moving: moving, ghost: ghost, target: null, after: false };
     const set = new Set(moving);
+    // `dragging` takes them out of the grid entirely (page.css). Only a class, so the cells themselves — and the
+    // selection painted on them — are untouched and an Escape puts them straight back.
     for (const c of sheet.querySelectorAll('.cell')) c.classList.toggle('dragging', set.has(c.dataset.id));
     document.body.classList.add('draggingcells');
     move(e);
@@ -113,6 +159,9 @@ function initAlbumOrder(ctx) {
     if (onSlot(e.clientX, e.clientY)) return;
 
     const cell = cellAt(e.clientX, e.clientY);
+    // The `dragging` test is belt and braces: those cells are out of the layout, so `elementFromPoint` cannot
+    // return one. It stays because the server refuses a move whose target is one of the photographs moving, and
+    // this is the client side of that same rule.
     if (!cell || cell.classList.contains('dragging')) {
       clearMarks();
       drag.target = null;
