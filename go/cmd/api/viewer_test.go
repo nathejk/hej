@@ -868,3 +868,34 @@ func TestTheFilmstripObserverIsTornDown(t *testing.T) {
 			"call(s)", n)
 	}
 }
+
+// A sliding prefetch window must ask for each photograph once, not once per step (task 434).
+//
+// Walking 0→1→2→3 puts photograph 2 inside the ±2 window at every step, so without a record of what has
+// already been asked for, browsing an album re-requests most of it repeatedly. The responses are `immutable`
+// with a year's `max-age`, so a browser *normally* serves the repeats from cache and the waste is invisible —
+// which is exactly why it is worth fixing rather than assuming: it is not true with the cache disabled, not
+// true after an eviction, and on a phone looking at 900 kB photographs an eviction is ordinary.
+func TestPrefetchAsksForEachPhotographOnce(t *testing.T) {
+	code := withoutComments(viewerAsset(t, "viewer.js"))
+
+	body := jsFunctionBody(t, code, "prefetchAround")
+	if body == "" {
+		t.Fatal("no prefetchAround in viewer.js")
+	}
+	if !strings.Contains(body, "ui.prefetched[url]") {
+		t.Error("prefetchAround does not check what it has already prefetched, so a ±2 window re-requests " +
+			"most of the album as it slides")
+	}
+	// The guard has to come before the request, or it records without preventing anything.
+	if strings.Index(body, "ui.prefetched[url] = true") > strings.Index(body, "new Image()") {
+		t.Error("the URL is recorded after the request is issued; the check must short-circuit first")
+	}
+
+	// And it must be per album, or reopening a changed sheet would suppress a prefetch for a photograph that
+	// is no longer the one we fetched.
+	openBody := jsFunctionBody(t, code, "open")
+	if !strings.Contains(openBody, "ui.prefetched = {}") {
+		t.Error("opening the viewer must clear the prefetch record along with the items")
+	}
+}

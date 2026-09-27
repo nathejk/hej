@@ -147,6 +147,9 @@
       next: next,
       // The open album: its items, where we are in it, and what the host page asked for.
       items: [],
+      // URLs already handed to a prefetch, so a sliding window asks for each photograph once (task 434).
+      // Reset per album, where items are.
+      prefetched: {},
       index: 0,
       opener: null,
       config: {},
@@ -429,6 +432,17 @@
       var item = ui.items[at];
       var url = (medium && item.medium) || pictureFor(item);
       if (!url) continue;
+      // Asked for once per album, however many times the window slides over it (task 434).
+      //
+      // A ±2 window necessarily overlaps: walking 0→1→2→3 asks for photograph 2 at every step. Relying on
+      // the HTTP cache to make the repeats free is *nearly* right — the responses are `immutable` with a
+      // year's `max-age`, so a browser normally serves them without a request — but "nearly" is doing a lot
+      // of work there. It is not true with the cache disabled, not true after an eviction, and on a phone
+      // looking at 900 kB photographs an eviction is an ordinary event rather than a corner case. Keeping a
+      // set of what we have already asked for costs one string per photograph and removes the assumption.
+      if (ui.prefetched[url]) continue;
+      ui.prefetched[url] = true;
+
       var pre = new Image();
       pre.src = url;
     }
@@ -612,6 +626,11 @@
     ui.items = itemsIn(container);
     if (!ui.items.length) return;
     if (index < 0 || index >= ui.items.length) index = 0;
+
+    // Cleared with the items, not kept across opens. The admin tool reopens this overlay against a sheet that
+    // may have changed underneath it, and a stale entry would suppress a prefetch for a photograph that is no
+    // longer the one we fetched.
+    ui.prefetched = {};
 
     ui.config = {
       history: container.getAttribute('data-viewer-history') || '',
