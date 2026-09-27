@@ -57,6 +57,15 @@ type CuratorQueries interface {
 	// destructive one, and it is what an undelete would be built on (PRD 022 §11 Q6).
 	Photo(year, photoID string) (LibraryPhoto, bool, error)
 
+	// MissingMedium returns live photographs that have no 800px rendition, oldest first (task 433).
+	//
+	// Oldest first, deliberately: a backfill run in batches should converge on a stable frontier, and
+	// `uploadedAt DESC` would keep re-reading whatever arrived most recently while the tail never moved.
+	//
+	// Live only — a deleted photograph is not worth re-rendering, and PRD 022 §11 Q6's undelete would go
+	// through the upload path anyway.
+	MissingMedium(year string, limit int) ([]LibraryPhoto, error)
+
 	// Tags returns the patrols a photograph is attributed to.
 	//
 	// Returns the id and the number only. The patrol's **name** is deliberately not joined here: the
@@ -338,6 +347,39 @@ func (q curatorQuerier) Photo(year, photoID string) (LibraryPhoto, bool, error) 
 		return LibraryPhoto{}, false, err
 	}
 	return p, true, rows.Err()
+}
+
+// MissingMedium returns live photographs with no 800px rendition, oldest first. See CuratorQueries.
+//
+// `mediumRef = ""` rather than `IS NULL`: the column is `NOT NULL DEFAULT ""`, so empty is how "no rendition"
+// is spelled everywhere in this projection, and `medium_lookup` serves the lookup.
+//
+// A limit is required rather than optional. This read exists to feed a backfill that decodes and re-encodes
+// every row it returns, so an unbounded answer would be an unbounded amount of image work in one request.
+func (q curatorQuerier) MissingMedium(year string, limit int) ([]LibraryPhoto, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := q.db.Query(`
+		SELECT `+libraryColumns+`
+		FROM photo p
+		WHERE p.year = ? AND p.deleted = 0 AND p.mediumRef = "" AND p.blobRef <> ""
+		ORDER BY p.uploadedAt ASC
+		LIMIT ?`, year, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []LibraryPhoto{}
+	for rows.Next() {
+		p, serr := scanLibraryPhoto(rows)
+		if serr != nil {
+			return nil, serr
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 // scanLibraryPhoto reads one row of libraryColumns.

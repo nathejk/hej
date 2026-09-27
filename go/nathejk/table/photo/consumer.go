@@ -33,6 +33,7 @@ func (c consumer) Consumes() []cqrs.Subject {
 	return []cqrs.Subject{
 		cqrs.SubjectFromStr("NATHEJK.*.photo.*.uploaded"),
 		cqrs.SubjectFromStr("NATHEJK.*.photo.*.updated"),
+		cqrs.SubjectFromStr("NATHEJK.*.photo.*.mediumadded"),
 		cqrs.SubjectFromStr("NATHEJK.*.photo.*.locationcleared"),
 		cqrs.SubjectFromStr("NATHEJK.*.photo.*.patroltagged"),
 		cqrs.SubjectFromStr("NATHEJK.*.photo.*.patroluntagged"),
@@ -71,6 +72,8 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 		return c.handlePatrolTagged(msg, year)
 	case subject.Match("nathejk.*.photo.*.patroluntagged"):
 		return c.handlePatrolUntagged(msg, year)
+	case subject.Match("nathejk.*.photo.*.mediumadded"):
+		return c.handleMediumAdded(msg, year)
 	case subject.Match("nathejk.*.photo.*.deleted"):
 		return c.handleDeleted(msg, year)
 	}
@@ -203,6 +206,42 @@ func (c consumer) handleUpdated(msg cqrs.Message, year string) error {
 	return c.w.Consume(fmt.Sprintf(
 		"UPDATE photo SET %s WHERE photoId=%s AND year=%s",
 		strings.Join(sets, ", "), quote(photoID), quote(year),
+	))
+}
+
+// handleMediumAdded records an 800px rendition produced for a photograph that had none (task 433).
+//
+// An UPDATE, not an upsert, and that is the point: this event says something about a photograph that already
+// exists. If no row matches — a replay that has not reached the upload yet, or a photograph deleted
+// destructively upstream — the statement is a no-op, which is the correct outcome. Events arrive in order on
+// a replay, so the ordinary case cannot hit it.
+//
+// It writes **one column**. Nothing here touches the caption, the credit, the coordinate, the dimensions or
+// `deleted`, which is the whole reason this is not a republished `Uploaded` — see the event's doc comment.
+func (c consumer) handleMediumAdded(msg cqrs.Message, year string) error {
+	var body MediumAdded
+	if err := msg.Body(&body); err != nil {
+		return err
+	}
+
+	photoID := body.PhotoID
+	if photoID == "" {
+		photoID = subjectEntityID(msg.Subject())
+	}
+	if photoID == "" {
+		return fmt.Errorf("photo mediumadded with no photoId")
+	}
+	// Refused rather than blanked, unlike the upload fold's treatment of a bad thumbnail ref. There the
+	// photograph is the point and the rendition is a bonus, so losing the rendition is the cheap outcome; here
+	// the rendition **is** the entire message, so a malformed one has nothing left to say and writing "" would
+	// quietly claim the backfill had considered this photograph and found nothing.
+	if !validRef(body.MediumRef) {
+		return fmt.Errorf("photo mediumadded with an invalid mediumRef")
+	}
+
+	return c.w.Consume(fmt.Sprintf(
+		"UPDATE photo SET mediumRef=%s WHERE photoId=%s AND year=%s",
+		quote(body.MediumRef), quote(photoID), quote(year),
 	))
 }
 
@@ -489,6 +528,7 @@ func Subject(year, photoID, verb string) (cqrs.Subject, error) {
 const (
 	VerbUploaded        = "uploaded"
 	VerbUpdated         = "updated"
+	VerbMediumAdded     = "mediumadded"
 	VerbLocationCleared = "locationcleared"
 	VerbPatrolTagged    = "patroltagged"
 	VerbPatrolUntagged  = "patroluntagged"

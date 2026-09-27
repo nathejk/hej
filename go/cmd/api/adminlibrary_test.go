@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"nathejk.dk/nathejk/table/album"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"nathejk.dk/nathejk/table/album"
 
 	"nathejk.dk/nathejk/table/photo"
 )
@@ -50,6 +51,26 @@ func (c *libraryCurator) Counts(string) (photo.Counts, error) {
 		return photo.Counts{}, c.err
 	}
 	return c.counts, nil
+}
+
+// MissingMedium returns the seeded rows that have no 800px rendition, honouring the limit (task 433).
+//
+// Filtered here rather than returned wholesale so a test can seed a mix and assert the backfill only touches
+// the ones that need it — which is the property that keeps a re-run from re-rendering the whole library.
+func (c *libraryCurator) MissingMedium(_ string, limit int) ([]photo.LibraryPhoto, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	out := []photo.LibraryPhoto{}
+	for _, p := range c.rows {
+		if len(out) >= limit {
+			break
+		}
+		if p.MediumRef == "" && p.Ref != "" && !p.Deleted {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 func (c *libraryCurator) Photo(_, photoID string) (photo.LibraryPhoto, bool, error) {

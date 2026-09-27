@@ -542,3 +542,10 @@ func TestAdminUploadLogsEveryOutcome(t *testing.T) {
 	}
 	_ = time.Now
 }
+
+// MissingMedium is unused by the upload tests; this stub exists so the type still satisfies
+// photo.CuratorQueries after task 433 widened it. Returning nothing is the honest answer for a stub that
+// tracks presence rather than rows.
+func (c *stubPhotoCurator) MissingMedium(string, int) ([]photo.LibraryPhoto, error) {
+	return nil, c.err
+}

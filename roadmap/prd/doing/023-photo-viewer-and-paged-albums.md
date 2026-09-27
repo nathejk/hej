@@ -855,11 +855,19 @@ Still open:
 
    Glimt's viewer is the PWA's and has the same phone problem, so "both" now looks more likely to be right
    than it did. It still needs PRD 019's owner to say so.
-9. **Is an 800 px backfill worth running?** Not needed for correctness (§7.9's fallback), and **cheaper than
-   this question assumed**: since task 430 a missing derived rendition is rebuilt on the serve that misses
-   it, so "backfill" no longer has to mean a long offline pass over the library. What is *not* yet built is
-   producing a rendition for a photograph whose row has no ref for it at all — the repair path fills a ref
-   the projection already names. That is the remaining work, and it is smaller than it was.
+9. ~~**Is an 800 px backfill worth running?**~~ **Resolved (2026-09-26, task 433): yes, and it is built.**
+
+   `POST /api/admin/photos/renditions` produces the rendition for photographs that have none, in bounded
+   batches, idempotently. The rendition is stored in the blob store's **cache** class, so — unlike when this
+   question was written — a backfill adds nothing the backup has to hold (task 429) and is rebuildable on a
+   miss (task 430). That is what turned it from a cost into an obvious yes.
+
+   Measured on the dev volume: the derived share went from 1.7% to **8.5%**, and `?variant=medium` on a
+   backfilled photograph serves 105 KB where it served 920 KB. On a real hand-in the share will be higher,
+   since §6 puts a photograph at ~3 MB of display rendition against ~190 KB of medium.
+
+   **Still to do: run it on production.** The endpoint is idempotent and safe to call repeatedly; somebody has
+   to call it. Cheapest before the first real hand-in, which is what this question originally observed.
 5. **Does the credit follow the caption into the editor?** Same shape of field, same endpoint family
    (`creditaction.js`), arguably the same moment — you learn who took a photograph by looking at it. Left out
    because it was not asked for, and because a credit is the one public field that names a person, so putting

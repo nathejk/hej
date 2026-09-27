@@ -498,25 +498,14 @@ func TestAnUnknownVerbIsIgnored(t *testing.T) {
 // Every verb the consumer folds must also be subscribed, and vice versa. The two lists are written in
 // different places and drift silently: an unsubscribed verb is never delivered, which would leave a
 // photograph somebody took down still on display.
-func TestEverySubscribedVerbIsFolded(t *testing.T) {
-	subscribed := map[string]bool{}
-	for _, s := range (consumer{}).Consumes() {
-		parts := s.Parts()
-		subscribed[parts[len(parts)-1]] = true
-	}
-
-	for _, verb := range []string{
-		VerbUploaded, VerbUpdated, VerbLocationCleared,
-		VerbPatrolTagged, VerbPatrolUntagged, VerbDeleted,
-	} {
-		if !subscribed[verb] {
-			t.Errorf("verb %q is published by Subject but not subscribed by Consumes", verb)
-		}
-	}
-	if len(subscribed) != 6 {
-		t.Errorf("want 6 subscribed verbs, got %d: %v", len(subscribed), subscribed)
-	}
-}
+// Superseded by TestEveryVerbIsSubscribedAndDispatched in medium_test.go (task 433), which derives the verbs
+// from the const block instead of listing them here and also checks that each is dispatched.
+//
+// Removed rather than left alongside it: the hardcoded list was not merely redundant, it was the reason a
+// missing subscription shipped. A verb added to the consts, the fold and `Subject` but not to `Consumes()`
+// passed this test, because the list did not mention it and the count only moves when `Consumes()` grows.
+// Keeping a guard whose one blind spot is the bug it was meant to prevent would be worse than having none,
+// because the green tick reads as coverage.
 
 // An id with a dot publishes fine, still matches NATHEJK.>, and quietly stops matching the per-photo
 // patterns — which would make that photograph impossible to edit or take down.

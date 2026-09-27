@@ -289,6 +289,9 @@ func (app *application) routes() http.Handler {
 		// adminlibrary.go.
 		router.HandlerFunc(http.MethodGet, "/api/admin/photos", app.requireAdmin(app.requireAdminYear(app.listAdminPhotosHandler)))
 		router.HandlerFunc(http.MethodGet, "/api/admin/photos/:photoId/media", app.requireAdmin(app.requireAdminYear(app.showAdminPhotoMediaHandler)))
+		// The 800px rendition backfill (task 433). POST because it writes, and a bounded batch per call so it
+		// is resumable with no state — see adminbackfill.go.
+		router.HandlerFunc(http.MethodPost, "/api/admin/photos/renditions", app.requireAdmin(app.requireAdminYear(app.backfillAdminRenditionsHandler)))
 		// The album writes (task 375). An album is always created unpublished — there is no field for it on the
 		// request and none on the event, so publishing can only be a separate edit (task 378).
 		router.HandlerFunc(http.MethodGet, "/api/admin/albums", app.requireAdmin(app.requireAdminYear(app.listAdminAlbumsHandler)))

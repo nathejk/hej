@@ -46,6 +46,11 @@ var adminOwnedFiles = map[string]bool{
 	// including **removed** memberships, which a public read cannot see and which decide whether a re-add takes
 	// a new ordinal or reinstates the old one. Also `SlugTaken`, which must count deleted albums.
 	"adminalbum.go": true,
+	// The 800px rendition backfill (task 433). Reads `PhotoCurator.MissingMedium`, which returns library rows
+	// with no `mediumRef` — a read the public interface cannot express and should not: it enumerates the year's
+	// photographs irrespective of whether any album references them, which is precisely what a curator read is
+	// for and a public one must never do. Behind `requireAdmin`, so it does not exist without a password.
+	"adminbackfill.go": true,
 	// The bulk position. Reads `PhotoCurator` for availability, and `CheckpointCurator` — which can enumerate
 	// every sited position in the event, and is for that reason a separate interface from the one patrol-scoped
 	// handlers hold (PRD 002, checkpoint/curator.go).

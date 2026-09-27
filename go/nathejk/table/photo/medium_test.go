@@ -214,3 +214,142 @@ func TestEveryRefColumnIsIndexedOnBothPaths(t *testing.T) {
 			"on an existing database the purge check would scan the year's photographs")
 	}
 }
+
+// The backfill's event (task 433). One field in, one column out.
+//
+// The fold is an UPDATE rather than an upsert, which is the whole safety property: this event says something
+// about a photograph that already exists, and it must not be able to conjure a row or touch a neighbouring
+// column. A caption, a credit, a coordinate or `deleted` changed by a backfill would be silent data loss.
+func TestMediumAddedWritesOnlyTheMediumRef(t *testing.T) {
+	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".mediumadded", MediumAdded{
+		PhotoID: hash("a"), Year: "2026", MediumRef: ref("d"), AddedAt: at,
+	})
+
+	if len(stmts) != 1 {
+		t.Fatalf("want 1 statement, got %d", len(stmts))
+	}
+	s := stmts[0]
+
+	if !strings.HasPrefix(s, "UPDATE photo SET") {
+		t.Errorf("want an UPDATE — an upsert could create a row for a photograph that was never uploaded\n%s", s)
+	}
+	if !strings.Contains(s, `mediumRef="`+ref("d")+`"`) {
+		t.Errorf("the medium ref was not written\n%s", s)
+	}
+	// Scoped to the one photograph in the one year.
+	if !strings.Contains(s, `photoId="`+hash("a")+`"`) || !strings.Contains(s, `year="2026"`) {
+		t.Errorf("the update must be scoped to the photograph and the year\n%s", s)
+	}
+	// And nothing else.
+	for _, col := range []string{"caption", "credit", "deleted", "latitude", "longitude", "boundsVerdict",
+		"width", "height", "bytes", "uploadedAt", "blobRef", "thumbRef"} {
+		if strings.Contains(s, col+"=") {
+			t.Errorf("the fold writes %s, which a backfill has no business changing\n%s", col, s)
+		}
+	}
+}
+
+// Refused, not blanked — the opposite of the upload fold's treatment of a bad thumbnail ref.
+//
+// There the photograph is the point and the rendition is a bonus, so losing the rendition is the cheap outcome.
+// Here the rendition *is* the whole message, so a malformed one has nothing left to say, and writing "" would
+// quietly claim the backfill had considered this photograph and found nothing to do.
+func TestMediumAddedRefusesAnInvalidRef(t *testing.T) {
+	for name, bad := range map[string]string{
+		"a path":    "../../etc/passwd",
+		"empty":     "",
+		"too short": "abc",
+	} {
+		err := foldErr(t, "NATHEJK.2026.photo."+hash("a")+".mediumadded", MediumAdded{
+			PhotoID: hash("a"), Year: "2026", MediumRef: bad, AddedAt: at,
+		})
+		if err == nil {
+			t.Errorf("%s: an invalid mediumRef must be refused, not written", name)
+		}
+	}
+}
+
+// Every verb this package can publish must be **subscribed to** and **dispatched**, and this guard exists
+// because the failure mode is completely silent.
+//
+// Task 433 hit it: `MediumAdded` had an event type, a fold and a `Verb` constant, and `Subject` happily built
+// the subject — but the verb was missing from `Consumes()`, which is the subscription filter. The publish
+// succeeded, JetStream returned a PubAck, and the message was never delivered to anything. No error, no
+// dead letter, no log line: the rendition was stored, the event was on the log, and the column stayed empty.
+// It was found only by running the backfill against a real database and noticing the count had not moved.
+//
+// `consumer.go`'s own comment already warns that "an unmatched subject is simply never delivered to anything".
+// This turns that warning into something that fails a build.
+//
+// # This replaces TestEverySubscribedVerbIsFolded
+//
+// That test checked the same property against a **hardcoded list of six verbs and a count of six** — and it is
+// worth recording why that was not enough, because it looked sufficient. A new verb added to the const block,
+// to the fold, and to `Subject`, but *not* to `Consumes()`, passes it: the list does not mention the new verb,
+// so nothing checks it, and the count only moves when `Consumes()` grows. In other words the one shape of
+// mistake it could not catch is exactly the one that shipped. Deriving the verbs from the const block removes
+// the remembering.
+func TestEveryVerbIsSubscribedAndDispatched(t *testing.T) {
+	src := photoSource(t, "consumer.go")
+
+	// The verbs, read from the const block so a new one is covered the moment it is declared rather than when
+	// somebody remembers to add it here.
+	start := strings.Index(src, "VerbUploaded")
+	if start < 0 {
+		t.Fatal("consumer.go no longer declares VerbUploaded; this guard needs updating")
+	}
+	end := strings.Index(src[start:], ")")
+	if end < 0 {
+		t.Fatal("could not find the end of the verb const block")
+	}
+
+	verbs := map[string]string{} // constant name -> value
+	for _, line := range strings.Split(src[start:start+end], "\n") {
+		name, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		name = strings.TrimSpace(name)
+		value = strings.Trim(strings.TrimSpace(value), `"`)
+		if strings.HasPrefix(name, "Verb") && value != "" {
+			verbs[name] = value
+		}
+	}
+	if len(verbs) < 6 {
+		t.Fatalf("only parsed %d verbs (%v); the guard is not reading the const block correctly", len(verbs), verbs)
+	}
+
+	subscribed := map[string]bool{}
+	for _, s := range (consumer{}).Consumes() {
+		parts := strings.Split(s.Subject(), ".")
+		subscribed[strings.ToLower(parts[len(parts)-1])] = true
+	}
+
+	dispatch := funcBody(t, "consumer.go", "func (c consumer) handleMessage(")
+
+	for name, verb := range verbs {
+		if !subscribed[verb] {
+			t.Errorf("%s (%q) is not in Consumes(), so an event published with it is never delivered to "+
+				"anything: the publish succeeds, the broker acks it, and the fold never runs. No error and no "+
+				"dead letter — this is the silent failure task 433 hit", name, verb)
+		}
+		if !strings.Contains(dispatch, "."+verb+`"`) {
+			t.Errorf("%s (%q) has no branch in handleMessage, so a delivered event is silently ignored",
+				name, verb)
+		}
+	}
+
+	// And the reverse: a subscription to something no verb declares. Cheap to have and it is the half the
+	// superseded test covered with a hardcoded count — a stray pattern means the projection is woken by messages
+	// nothing folds, which is wasted work and a misleading `subjects` figure in the boot log.
+	declared := map[string]bool{}
+	for _, verb := range verbs {
+		declared[verb] = true
+	}
+	for verb := range subscribed {
+		if !declared[verb] {
+			t.Errorf("Consumes() subscribes to %q, which no Verb constant declares. Either the verb is "+
+				"missing from the const block or the subscription is stale", verb)
+		}
+	}
+}

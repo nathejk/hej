@@ -214,6 +214,40 @@ type PatrolUntagged struct {
 	UntaggedAt time.Time `json:"untaggedAt"`
 }
 
+// MediumAdded records that the 800px rendition was produced for a photograph that did not have one.
+//
+// # Why this is its own event rather than a republished Uploaded
+//
+// Republishing `Uploaded` would work — the fold upserts and does not touch `caption`, `credit` or `deleted`
+// — and it was the obvious move, because that is exactly what re-dragging a folder does. It is rejected for
+// two reasons.
+//
+// The first is blast radius. `Uploaded`'s fold writes `width`, `height`, `bytes`, the coordinate, the verdict
+// and `uploadedAt`, so a backfill would have to echo six existing values back faithfully and getting any one
+// of them wrong silently corrupts a row — a dropped coordinate takes a photograph off the map with nothing
+// to notice it. This event carries one field and the fold writes one column, so there is nothing to echo.
+//
+// The second is that the log should record *why* (see the package comment). A second `uploaded` for a
+// photograph uploaded weeks earlier says something untrue about what happened; "a rendition was produced"
+// is the fact, and a year from now it is the thing somebody auditing the library will want to find.
+//
+// # Deliberately not a general "rendition added"
+//
+// One field, named for the one rendition that needed backfilling (task 409's 800px). A generic
+// `{name, ref}` pair would need the fold to map a name onto a column, which is a lookup table that has to
+// agree with the schema — and the next rendition is a schema change anyway, so it can bring its own event or
+// widen this one deliberately.
+type MediumAdded struct {
+	PhotoID string `json:"photoId"`
+	Year    string `json:"year"`
+
+	// MediumRef is the content hash of the 800px rendition. Never empty: "no rendition" is the absence of
+	// this event, not an event carrying nothing.
+	MediumRef string `json:"mediumRef"`
+
+	AddedAt time.Time `json:"addedAt"`
+}
+
 // Deleted takes a photograph out of the library, and therefore out of every album.
 //
 // A soft delete. The reason is album's — a removal may honour somebody's objection and an accidental one
