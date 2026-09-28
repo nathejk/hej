@@ -63,6 +63,18 @@ type adminAlbumSummary struct {
 	// which declines to publish an event that would change nothing.
 	Resorted bool `json:"resorted,omitempty"`
 
+	// ResortedOrder is the order the re-sort published, when one happened.
+	//
+	// Sent because the tool cannot otherwise tell when the **fold** has caught up. `ctx.settled` waits for
+	// photographs to *exist*, and these already did — their presence says nothing about their positions, so a
+	// grid reloaded on that signal can still show the old order. Given the order it should be looking at, the
+	// tool can wait for the album read to agree with it, which is the same shape of wait as the uploader's
+	// (task 438) against the one signal that means something here.
+	//
+	// Only on the mode change, and only when something moved. The add endpoint returns the flag alone: a
+	// selection can be filed into several albums at once and the curator is not looking at all of them.
+	ResortedOrder []string `json:"resortedOrder,omitempty"`
+
 	Published bool `json:"published"`
 	Deleted   bool `json:"deleted,omitempty"`
 	ItemCount int  `json:"itemCount"`
@@ -262,10 +274,10 @@ func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.R
 	// After the update, so that a failure here leaves the album with the mode the curator chose and an order
 	// that is merely stale — which the next add corrects. The other way round, a failure would leave an album
 	// sorted by a rule it does not claim to follow, which nothing would ever correct.
-	resorted := false
+	var resortedOrder []string
 	if in.SortMode != nil {
 		var serr error
-		resorted, serr = app.applyAlbumSortMode(adminYear(r), albumID, *in.SortMode, items)
+		resortedOrder, serr = app.applyAlbumSortMode(adminYear(r), albumID, *in.SortMode, items)
 		if serr != nil {
 			app.writeAlbumPublishFailure(w, r, serr)
 			return
@@ -309,7 +321,8 @@ func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.R
 	if in.SortMode != nil {
 		out.SortMode = *in.SortMode
 	}
-	out.Resorted = resorted
+	out.Resorted = len(resortedOrder) > 0
+	out.ResortedOrder = resortedOrder
 
 	if err := app.WriteJSON(w, http.StatusOK, out, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
@@ -429,7 +442,7 @@ type moveAdminAlbumItemsRequest struct {
 // here from the projection. It publishes the same event as a full reorder, so the fold has one way to reorder.
 //
 // @Summary      Move photographs within an album
-// @Description  Moves the named photographs, together and keeping their current relative order, to just before or just after another photograph in the same album. The server builds the album's complete new order and publishes it as one reorder, so the client does not need to have loaded the whole album. Exactly one of `beforePhotoId` and `afterPhotoId` must be given, and it must not be one of the photographs being moved. Requires the admin credential.
+// @Description  Moves the named photographs, together and keeping their current relative order, to just before or just after another photograph in the same album. The server builds the album's complete new order and publishes it as one reorder, so the client does not need to have loaded the whole album. Exactly one of `beforePhotoId` and `afterPhotoId` must be given, and it must not be one of the photographs being moved. **Refused with 409 unless the album's `sortMode` is `manual`**: a hand arrangement in an album that sorts itself would be recomputed away by the next addition, so the album must be switched to manual first — which is a decision the curator makes, not one this endpoint makes for them. Requires the admin credential.
 // @Tags         admin
 // @Accept       json
 // @Produce      json
@@ -440,6 +453,7 @@ type moveAdminAlbumItemsRequest struct {
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "unknown album"
+// @Failure      409  {object}  map[string]string  "the album sorts itself; switch it to manual first"
 // @Failure      500  {object}  map[string]string
 // @Failure      503  {object}  map[string]string  "the albums or the event stream are unavailable"
 // @Router       /admin/albums/{albumId}/move [patch]
@@ -468,13 +482,30 @@ func (app *application) moveAdminAlbumItemsHandler(w http.ResponseWriter, r *htt
 	}
 	target := before + after
 
-	_, items, found, err := app.models.AlbumCurator.Album(adminYear(r), albumID)
+	a, items, found, err := app.models.AlbumCurator.Album(adminYear(r), albumID)
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
 	}
 	if !found {
 		app.NotFoundResponse(w, r)
+		return
+	}
+
+	// **A hand move is only meaningful in a manual album** (PRD 024 §6 R8).
+	//
+	// Refused here rather than trusted to the tool, which asks the curator first and then switches the mode:
+	// the confirmation is politeness, this is the rule. Without it, an arrangement made by hand would be
+	// recomputed away by the next addition — the curator's work lost to a rule they had forgotten was on, with
+	// nothing to indicate why.
+	//
+	// 409 rather than 400: the request is well-formed and would be correct a moment later, which is exactly
+	// what that status is for. The message names the mode, because "switch it to manual" is only actionable if
+	// you know what it is currently doing.
+	if mode := album.SortModeOr(a.SortMode); mode != album.SortModeManual {
+		app.ConflictResponse(w, r, fmt.Sprintf(
+			"albummet sorteres automatisk (%s); skift det til manuel rækkefølge, før du flytter billeder med hånden",
+			mode))
 		return
 	}
 
@@ -664,7 +695,8 @@ func albumSortKey(mode string) (func(album.CuratorItem) string, bool) {
 
 // applyAlbumSortMode re-derives an album's order from its sort mode and publishes it (PRD 024 §6 R2/R7).
 //
-// Returns whether it published anything, so a caller can tell a curator that the album was re-sorted.
+// Returns the order it published, or nil if it published nothing — which a caller can also read as "was the
+// album re-sorted".
 //
 // # When this runs, and why those two moments
 //
@@ -680,13 +712,13 @@ func albumSortKey(mode string) (func(album.CuratorItem) string, bool) {
 //     rewritten — and would make the "re-sorted" flag in the response a lie.
 //   - **Nothing for an empty album.** The fold treats an empty order as a no-op anyway; not publishing it
 //     keeps the log honest about what actually happened.
-func (app *application) applyAlbumSortMode(year, albumID, mode string, items []album.CuratorItem) (bool, error) {
+func (app *application) applyAlbumSortMode(year, albumID, mode string, items []album.CuratorItem) ([]string, error) {
 	if mode == album.SortModeManual {
-		return false, nil
+		return nil, nil
 	}
 	order := sortAlbumOrder(items, mode)
 	if len(order) == 0 {
-		return false, nil
+		return nil, nil
 	}
 
 	// Already in this order? `sortAlbumOrder` skips removed positions, so the comparison is against the live
@@ -704,7 +736,7 @@ func (app *application) applyAlbumSortMode(year, albumID, mode string, items []a
 		i++
 	}
 	if same && i == len(order) {
-		return false, nil
+		return nil, nil
 	}
 
 	if err := app.publishAlbum(year, album.VerbItemsReordered, albumID, album.ItemsReordered{
@@ -713,9 +745,13 @@ func (app *application) applyAlbumSortMode(year, albumID, mode string, items []a
 		PhotoIDs:    order,
 		ReorderedAt: time.Now().UTC(),
 	}); err != nil {
-		return false, err
+		return nil, err
 	}
-	return true, nil
+	// The order is answered, not just the fact. The tool has to know when the **fold** has caught up before it
+	// reloads the grid, and `ctx.settled` cannot tell it: the photographs were already there, so their presence
+	// proves nothing about their positions. The order it should be looking at is the only usable signal, and
+	// this is the one place that knows it.
+	return order, nil
 }
 
 // albumItemsForSort returns an album's live items **plus the photographs just added to it**, so that an order
@@ -1121,7 +1157,7 @@ func (app *application) addAdminAlbumItemsHandler(w http.ResponseWriter, r *http
 		// next add or mode change puts it right. Stale, not wrong — the degradation the counts read already
 		// chooses when it cannot answer (`readAdminLibraryPage`).
 		switch {
-		case a.SortMode == album.SortModeManual || len(addedIDs) == 0:
+		case album.SortModeOr(a.SortMode) == album.SortModeManual || len(addedIDs) == 0:
 			// Nothing to do: the arrangement is the order, or nothing arrived.
 		case app.models.PhotoCurator == nil:
 			app.Logger.Warn("added to a sorted album while the library was unreadable; the order is stale",
@@ -1132,12 +1168,12 @@ func (app *application) addAdminAlbumItemsHandler(w http.ResponseWriter, r *http
 				app.ServerErrorResponse(w, r, serr)
 				return
 			}
-			did, serr := app.applyAlbumSortMode(adminYear(r), albumID, a.SortMode, forSort)
+			order, serr := app.applyAlbumSortMode(adminYear(r), albumID, album.SortModeOr(a.SortMode), forSort)
 			if serr != nil {
 				app.writeAlbumPublishFailure(w, r, serr)
 				return
 			}
-			result.Resorted = did
+			result.Resorted = len(order) > 0
 		}
 
 		out.Albums = append(out.Albums, result)

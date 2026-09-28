@@ -1,11 +1,11 @@
 # PRD 024 — Album sort order
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (2026-09-28)
 **Created:** 2026-09-28
-**Last updated:** 2026-09-28 (tasks 439–444 and 448 done; 445 and 446 remain — the two that carry Danish copy)
+**Last updated:** 2026-09-28 (shipped; tasks 439–446 and 448 all done)
 **Approved:** 2026-09-28
-**Shipped:**
+**Shipped:** 2026-09-28
 **Target users:** organizer (the 2–3 photographers/curators who use `/admin`)
 
 ---
@@ -129,7 +129,7 @@ as it was — the drop is abandoned, not applied-then-reverted.
       `manual`, the album's whole live order is recomputed. (The maintainer's "applied when uploading new
       photos" — an upload lands in the *library*, and an album gains photographs through "Læg i album",
       which is the moment this has to happen. See §11 Q1.)
-- [ ] **R8 — A hand move switches the album to manual.** If the mode is not `manual`, the admin tool
+- [x] **R8 — A hand move switches the album to manual.** If the mode is not `manual`, the admin tool
       confirms first, and the server **refuses a move on a non-manual album** (409) rather than trusting
       the client to have asked. Declining changes nothing.
 - [x] **R9 — New albums are `time-asc`; albums that already exist stay `manual`.** The maintainer's answer
@@ -146,7 +146,7 @@ as it was — the drop is abandoned, not applied-then-reverted.
       `uploadedAt` fallback, i.e. shuffled a hand-arranged album into roughly upload order. That is the one
       irreversible thing this feature could do, and this is what makes it impossible rather than unlikely.
       No migration, and nobody has to think about old albums.
-- [ ] **R10 — The mode is visible** in the album editor card, and the grid reflects a change immediately
+- [x] **R10 — The mode is visible** in the album editor card, and the grid reflects a change immediately
       rather than on the next reload.
 
 ### Non-Functional
@@ -283,8 +283,8 @@ Created on the board 2026-09-28, in dependency order:
 - [x] Task 443: the sort itself — one function from (items, photographs, mode) to an order, ties on
       `photoId`, table-driven tests per mode including empty keys
 - [x] Task 444: apply the mode on `PATCH album` (mode change) and on add-to-album; OpenAPI updated
-- [ ] Task 445: refuse a move on a non-manual album (409) and the confirm-then-switch flow in the tool
-- [ ] Task 446: the sort control in the album editor card
+- [x] Task 445: refuse a move on a non-manual album (409) and the confirm-then-switch flow in the tool
+- [x] Task 446: the sort control in the album editor card
 - [x] Task 448: decide whether the library may store a filename — **decided: yes, with bounds** (PRD 022 §6)
 
 Out of scope, on the board because PRD 024 is what raised it:
@@ -313,3 +313,31 @@ what the requirements above rest on.
    for sorting on local computer and we want to be able to keep that sorting after upload. this interface is
    intended for photographers — name will never be used."* That last clause is the bound the exception rests
    on, and it is why the modes exist at all: the photographer's own ordering is the thing being preserved.
+
+---
+
+## 12. What shipping it taught us
+
+Added on completion, because four of these were found by building it and none of them were in the spec.
+
+1. **The privacy posture here is about the column, not the response.** §6's first draft said the filename must
+   never reach a *public read*. Both privacy guards refused the column anyway, and they were right: PRD 022 §6
+   forbids personal data in the projection, because a column is in every backup taken since it was added. The
+   decision (task 448) kept the field with bounds, and the bound that matters is **enforced by scoping the
+   exception** to the authenticated surface rather than by promising it.
+
+2. **An unrecognised sort mode must leave the album alone.** `sortMode` is a column, so a binary will meet a
+   value a newer one wrote. The first draft gave unknown modes an empty sort key, which made every photograph
+   compare equal and left the `photoId` tiebreak to reorder a curated album **by content hash** on rollback.
+
+3. **"Nothing stated" cannot mean "sorts itself".** `a.SortMode != SortModeManual` reads correctly and makes
+   `""` automatic, so an album with no mode would refuse a hand move and re-sort itself on every addition — the
+   safest input producing the least safe behaviour. `album.SortModeOr` is the single answer now.
+
+4. **Waiting for photographs is not waiting for an order.** `ctx.settled` (task 438) proves photographs exist;
+   after a re-sort they already did, so a grid reloaded on that signal shows the old order. The server had to
+   answer with the order it published (`resortedOrder`) before the tool could wait for anything meaningful.
+
+5. **A shared template makes a missing field a silent truncation.** The editor card is rendered from both the
+   album page's data and the list fragment's. Adding `SortMode` to one produced a page that stopped executing
+   mid-card and returned 200. Caught by an existing view test, not by any of the new ones.

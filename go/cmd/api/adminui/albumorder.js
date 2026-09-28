@@ -38,6 +38,22 @@
 // The grid scrolls in pages, so it may hold 120 of 200. The request says "these, before (or after) that one" and
 // `PATCH /api/admin/albums/{id}/move` builds the whole order — see moveAdminAlbumItemsHandler.
 //
+// # Dragging in an album that sorts itself (task 445)
+//
+// A hand arrangement in a non-manual album would be recomputed away by the next addition, so a drag there is a
+// **mode change**: the album switches to manual. Because that changes how the album behaves from then on, the
+// curator is asked first.
+//
+// Asked at the **end** of the gesture, not the start. Interrupting a pointer drag with a dialog is how a drag
+// gets abandoned by accident, and the curator may well drop the photograph back where it came from — in which
+// case there was nothing to ask about. So the gap and the carried stack behave exactly as they do in a manual
+// album, and the confirmation replaces the request that would otherwise have gone out on release.
+//
+// The order of the two writes matters and is not arbitrary: **the mode is switched first, and the move only
+// happens if that succeeded.** The other way round would leave an arrangement in an album that still claims to
+// sort itself — work that the next addition silently destroys. The server enforces the same rule with a 409, so
+// this is the polite path to a decision, not the decision itself.
+//
 // Does nothing outside the album view.
 function initAlbumOrder(ctx) {
   const editor = document.getElementById('albumeditor');
@@ -48,6 +64,10 @@ function initAlbumOrder(ctx) {
   const THRESHOLD = 6; // px of movement before a press becomes a drag
   // How many thumbnails the stack carries. See the header: a handful, and the label holds the truth.
   const MAXCARRIED = 3;
+  const manualPanel = document.getElementById('manualpanel');
+  // The drop waiting on a confirmation, or null. Held rather than re-derived because the gesture is over by then:
+  // the cells are back, the gap is gone, and this is the only record of what the curator asked for.
+  let pending = null;
   let press = null; // { id, x, y, pointerId }
   let drag = null; // { moving: [ids], ghost, target, after }
   let slots = []; // this drag's frames — one per cell it took out of the grid, in the DOM only while a gap is shown
@@ -257,7 +277,18 @@ function initAlbumOrder(ctx) {
     // Cleared once this pointerup's click has had its chance to fire: a drop outside the grid produces no click
     // there, and a flag left set would swallow the curator's next real one.
     setTimeout(() => { swallowClick = false; }, 0);
-    if (d.target) send(d);
+    if (!d.target) return;
+
+    // Read at the end of the gesture rather than cached at the start: the curator may have changed the mode in
+    // the editor card between one drag and the next, and the card updates this attribute when they do.
+    const mode = editor.dataset.sortMode || 'manual';
+    if (mode === 'manual') {
+      send(d);
+      return;
+    }
+    pending = d;
+    document.getElementById('manualmode').textContent = ctx.sortModeName(mode).toLowerCase();
+    ctx.openSheet(manualPanel);
   });
 
   window.addEventListener('pointercancel', () => { end(); });
@@ -270,6 +301,53 @@ function initAlbumOrder(ctx) {
   sheet.addEventListener('click', (e) => {
     if (swallowClick) { swallowClick = false; e.stopPropagation(); e.preventDefault(); }
   }, true);
+
+  // Confirmed: switch the album to manual, then move.
+  //
+  // Sequential and not parallel, and the failure path is the point. If the switch fails the move must not
+  // happen — an arrangement in an album that still sorts itself is work with a timer on it, and the curator
+  // would have been told the move succeeded.
+  document.getElementById('domanual').addEventListener('click', async () => {
+    const d = pending;
+    pending = null;
+    ctx.closeSheet();
+    if (!d) return;
+
+    ctx.actionNote.textContent = 'Skifter til manuel rækkefølge…';
+    try {
+      const res = await ctx.fetch('/api/admin/albums/' + encodeURIComponent(albumId), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sortMode: 'manual' }),
+      });
+      if (!res.ok) {
+        const out = await res.json().catch(() => null);
+        ctx.actionNote.textContent = (out && out.error) ||
+          'Kunne ikke skifte til manuel rækkefølge (fejl ' + res.status + '). Billederne blev ikke flyttet.';
+        return;
+      }
+    } catch (err) {
+      ctx.actionNote.textContent = 'Kunne ikke skifte til manuel rækkefølge. Billederne blev ikke flyttet.';
+      return;
+    }
+
+    // The card's attribute and its `<select>` both have to follow, or the next drag asks again and the control
+    // shows a mode the album no longer has. Two small writes rather than a page reload, which would cost the
+    // curator their scroll position in the middle of arranging an album.
+    editor.dataset.sortMode = 'manual';
+    const select = document.getElementById('sortmode');
+    if (select) select.value = 'manual';
+
+    send(d);
+  });
+
+  // Declined: nothing moves and the mode is untouched. **Not** applied-then-reverted — there is nothing to
+  // revert, because the request was never sent.
+  document.getElementById('closemanual').addEventListener('click', () => {
+    pending = null;
+    ctx.closeSheet();
+    ctx.actionNote.textContent = 'Rækkefølgen blev ikke ændret.';
+  });
 
   // The thumbnails' own native drag would otherwise start and fight this one.
   sheet.addEventListener('dragstart', (e) => { e.preventDefault(); });

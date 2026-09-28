@@ -43,6 +43,13 @@ type adminAlbumPageData struct {
 	Published   bool
 	Deleted     bool
 
+	// SortMode is the rule the album's photographs are arranged by (PRD 024 §6 R10).
+	//
+	// On the **page** data as well as the fragment's, because the editor card is one template shared by both and
+	// a field missing from one of them is a template that stops executing mid-card. That failure is silent — the
+	// page comes back truncated with a 200 — which is how it was found rather than reasoned about.
+	SortMode string
+
 	// ItemCount is the album's live items — neither removed nor deleted from the library — which is what the
 	// grid below shows.
 	ItemCount int
@@ -99,6 +106,7 @@ func (app *application) adminAlbumPageHandler(w http.ResponseWriter, r *http.Req
 			Title:        a.Title,
 			Description:  a.Description,
 			SortOrder:    a.SortOrder,
+			SortMode:     album.SortModeOr(a.SortMode),
 			Published:    a.Published,
 			Deleted:      a.Deleted,
 			ItemCount:    a.ItemCount,

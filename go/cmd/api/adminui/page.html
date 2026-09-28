@@ -305,6 +305,23 @@
 
        So this panel offers **both**, states plainly what each does, and makes the destructive one visually
        distinct. The safe one is offered first, because it is the one a curator usually wants. -->
+  <!-- Switching an album to manual, asked before a hand move takes effect (task 445, PRD 024 §6 R8).
+       The wording is the feature here, not decoration: the curator is about to change how the album will
+       behave from now on, and the sentence has to say so before they agree to it rather than after. -->
+  <div id="manualpanel" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Skift til manuel rækkefølge">
+    <h3>Skift til manuel rækkefølge?</h3>
+    <p>Albummet er sorteret efter <strong id="manualmode">tid</strong>.</p>
+    <p>Flytter du et billede med hånden, skifter albummet til <strong>manuel rækkefølge</strong>. Så er det dig
+    der bestemmer, og billeder du lægger i albummet bagefter bliver lagt til sidst i stedet for at falde på
+    plads af sig selv.</p>
+    <p>Du kan altid vælge sorteringen igen i albummets oplysninger — men så bliver den rækkefølge du har lavet
+    med hånden lagt om.</p>
+    <p>
+      <button type="button" id="domanual">Flyt og skift til manuel</button>
+      <button type="button" class="ghost" id="closemanual">Annuller</button>
+    </p>
+  </div>
+
   <div id="delpanel" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Fjern eller slet">
     <h3>Fjern eller slet</h3>
     <p id="delnote"></p>

@@ -23,9 +23,56 @@ function initAlbumEditor(ctx) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (res.status === 204) return;
+    if (res.status === 204) return null;
     const out = await res.json().catch(() => null);
     if (!res.ok) throw new Error((out && out.error) || 'Fejl ' + res.status);
+    // Answered, because the sort control needs what came back: whether the album was re-sorted, and the order it
+    // was re-sorted into. Every other caller ignores it.
+    return out;
+  }
+
+  // The photographs' own order (PRD 024 §6 R10, task 446).
+  //
+  // Saved on `change`, not by the card's save button: it takes effect immediately — the server re-sorts the album
+  // and the grid below reorders — and a control whose effect is visible while its value is still unsaved is the
+  // combination nobody can reason about.
+  //
+  // `sortModeName` is shared with albumorder.js through the context, because the confirmation before a hand move
+  // has to name the mode the curator chose here, in the same words they chose it in. Two lists of five labels
+  // would eventually disagree, and the one that disagreed would be the one in the warning.
+  const sortMode = document.getElementById('sortmode');
+  if (sortMode) {
+    sortMode.addEventListener('change', async () => {
+      const mode = sortMode.value;
+      say('Gemmer rækkefølgen…');
+      sortMode.disabled = true;
+      try {
+        const out = await send({ sortMode: mode });
+        // The card is the one place that knows the mode now, and albumorder.js reads it off the element before a
+        // drag. Updated here rather than on the next page load, or the first drag after a change would ask the
+        // wrong question — or none.
+        editor.dataset.sortMode = mode;
+        if (out && out.resorted) {
+          say('Albummet er lagt om: ' + ctx.sortModeName(mode).toLowerCase() + '. Opdaterer…');
+          // Waits for the **positions**, not for the photographs: they were already there. See ctx.settledOrder.
+          const settled = await ctx.settledOrder(albumId, out.resortedOrder);
+          ctx.reloadSheet();
+          say(settled
+            ? 'Albummet er nu sorteret efter ' + ctx.sortModeName(mode).toLowerCase() + '.'
+            : 'Rækkefølgen er gemt. Kontaktarket kan være et øjeblik bagud — genindlæs siden, hvis det ser forkert ud.');
+        } else if (mode === 'manual') {
+          // Nothing was reordered and nothing should have been: manual keeps the arrangement it was given, which
+          // is what makes switching to it safe.
+          say('Albummet er nu i manuel rækkefølge. Du bestemmer selv, og nye billeder lægges til sidst.');
+        } else {
+          say('Albummet lå allerede i den rækkefølge.');
+        }
+      } catch (err) {
+        say('Kunne ikke gemme rækkefølgen: ' + err.message, true);
+      } finally {
+        sortMode.disabled = false;
+      }
+    });
   }
 
   document.getElementById('save').addEventListener('click', async () => {

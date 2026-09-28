@@ -155,6 +155,62 @@ function initAdminTool() {
     }
   };
 
+  // settledOrder waits until the album read agrees with the order the server says it published.
+  //
+  // `ctx.settled` is the wrong tool for a reorder and it is worth saying why, because reaching for it is the
+  // obvious mistake: it waits for photographs to **exist**, and after a re-sort they already did. Their presence
+  // says nothing about their positions, so a grid reloaded on that signal can still show the old order — the
+  // exact complaint tasks 437 and 438 fixed for the uploader, in a new place.
+  //
+  // So this waits for the *positions*. The album read returns an album's photographs in ordinal order, which is
+  // the projection's own answer to "what order is this album in" — the same question the grid asks.
+  //
+  // Same bound and backoff as `ctx.settled`, and the same honesty on giving up: false means "reload anyway and
+  // say it may be behind", never "keep waiting".
+  // sortModeName renders a sort mode the way the curator chose it (PRD 024 §6 R1).
+  //
+  // On the context because **two** features say it: the editor card confirms what it saved, and the warning
+  // before a hand move names what the album is currently doing. Those two sentences have to agree, and the one
+  // that would drift is the warning — the place it matters most.
+  //
+  // The `<select>`'s own option text is the same five strings, and that duplication is deliberate rather than
+  // shared: the markup is what a curator reads when choosing, this is what they read afterwards, and a template
+  // cannot be called from JavaScript on a surface with no build step. `TestTheSortModeLabelsAgree` holds them
+  // equal.
+  ctx.sortModeName = (mode) => ({
+    'manual': 'Manuel',
+    'time-asc': 'Tid, ældste først',
+    'time-desc': 'Tid, nyeste først',
+    'filename-asc': 'Filnavn A–Å',
+    'filename-desc': 'Filnavn Å–A',
+  }[mode] || mode);
+
+  ctx.settledOrder = async (albumId, order) => {
+    if (!albumId || !order || !order.length) return true;
+    const deadline = Date.now() + SETTLE_MS;
+    // Capped at the endpoint's ceiling. A longer album is checked by its first page, which is where a reorder is
+    // visible anyway — the alternative is paging the whole album on every poll to answer a question the first
+    // screenful already answers.
+    const want = order.slice(0, IDS_PER_ASK);
+    for (let delay = 150; ; delay = Math.min(delay * 2, 1000)) {
+      let got = null;
+      try {
+        const res = await ctx.fetch('/api/admin/photos?limit=' + want.length +
+          '&album=' + encodeURIComponent(albumId));
+        if (res.ok) {
+          const out = await res.json();
+          if (out && out.photos) got = out.photos.map((p) => p.id);
+        }
+      } catch (err) {
+        return false; // a failed read is not a reason to keep asking
+      }
+      if (got === null) return false;
+      if (got.length === want.length && got.every((id, i) => id === want[i])) return true;
+      if (Date.now() + delay > deadline) return false;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  };
+
   initSheetShell(ctx);
   initContactSheet(ctx);
 

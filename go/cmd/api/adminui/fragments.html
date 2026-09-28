@@ -381,7 +381,9 @@ The photographs are not rendered here any more. They are the shared contact shee
 the album, so the album view has the same selection and actions as the library.
 */}}
 {{define "albumeditor"}}
-<section id="albumeditor" data-album="{{.AlbumID}}">
+{{/* `data-sort-mode` is read by albumorder.js, which has to know before a drag whether moving a photograph by
+     hand is a mode change (task 445). Rendered here rather than fetched, so it is right on first paint. */}}
+<section id="albumeditor" data-album="{{.AlbumID}}" data-sort-mode="{{.SortMode}}">
   <h2>{{.Title}}
     {{if .Deleted}}<span class="badge del">Slettet</span>
     {{else if .Published}}<span class="badge pub">Udgivet</span>
@@ -399,6 +401,25 @@ the album, so the album view has the same selection and actions as the library.
 
     <label for="sort">Rækkefølge på forsiden</label>
     <input type="number" id="sort" value="{{.SortOrder}}" step="10">
+
+    {{/* The photographs' own order (PRD 024 §6 R10). A native `<select>`: it needs no keyboard handling of its
+         own, and this surface has no components to build one from anyway. Saved on `change` rather than by the
+         card's "Gem ændringer" button, because it takes effect immediately — the grid below reorders — and a
+         control whose effect is visible but whose value is unsaved is the confusing combination. */}}
+    <label for="sortmode">Billedernes rækkefølge</label>
+    <select id="sortmode">
+      <option value="manual"{{if eq .SortMode "manual"}} selected{{end}}>Manuel</option>
+      <option value="time-asc"{{if eq .SortMode "time-asc"}} selected{{end}}>Tid, ældste først</option>
+      <option value="time-desc"{{if eq .SortMode "time-desc"}} selected{{end}}>Tid, nyeste først</option>
+      <option value="filename-asc"{{if eq .SortMode "filename-asc"}} selected{{end}}>Filnavn A–Å</option>
+      <option value="filename-desc"{{if eq .SortMode "filename-desc"}} selected{{end}}>Filnavn Å–A</option>
+    </select>
+    <p class="hint" id="sortmodehint">Billeder, du lægger i albummet, falder automatisk på plads i den
+    rækkefølge du vælger her. Vælger du <strong>Manuel</strong>, bestemmer du selv: nye billeder lægges til
+    sidst, og du flytter dem rundt ved at trække dem. Trækker du et billede i et album der sorterer sig selv,
+    skifter albummet til Manuel — du bliver spurgt først.</p>
+    <p class="hint">Tid er det tidspunkt kameraet har skrevet i filen. Mangler det, bruges tidspunktet
+    billedet blev lagt op.</p>
 
     {{/* The slug is shown but not editable, and the page says why. A field a curator cannot change is worth
          explaining, or it reads as a bug. */}}

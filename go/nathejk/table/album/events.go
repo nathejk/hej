@@ -195,6 +195,23 @@ func SortModes() []string {
 	return []string{SortModeManual, SortModeTimeAsc, SortModeTimeDesc, SortModeFilenameAsc, SortModeFilenameDesc}
 }
 
+// SortModeOr answers with a usable mode: the one given, or `manual` when it is empty or unrecognised.
+//
+// **Empty is not "sorts itself", and nor is unknown.** Both mean "nothing said so", and the only safe reading of
+// that is the inert value — the same conclusion `sortAlbumOrder` reaches when it cannot compute a mode, and the
+// same one the create fold reaches when it omits an empty mode so the column's default stands.
+//
+// It exists because the alternative is every caller writing `!= SortModeManual`, which reads correctly and is
+// wrong: it makes `""` mean "automatic", so an album with no stated mode would refuse a hand move and try to
+// re-sort itself on every addition. That is a failure of the safest possible direction, which is the worst place
+// to find one.
+func SortModeOr(mode string) string {
+	if ValidSortMode(mode) {
+		return mode
+	}
+	return SortModeManual
+}
+
 // ValidSortMode reports whether a mode is one this app implements.
 //
 // The empty string is **not** valid. An absent mode is expressed by not sending the field — on `Created` by
