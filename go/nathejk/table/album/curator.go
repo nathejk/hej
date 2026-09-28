@@ -112,6 +112,22 @@ type CuratorItem struct {
 	ThumbRef string
 	Caption  string
 
+	// SortShotAt, SortFileName and SortUploadedAt are what the album sort orders on (PRD 024 §6 R4/R6).
+	//
+	// Carried on the item rather than read separately, because the item read already joins the photograph for
+	// its thumbnail: a second read keyed by id would be a second place for "which photographs are in this
+	// album" to be decided, and the two disagreeing is how an album silently loses a position.
+	//
+	// The fallback is **not** applied here. `SortShotAt` is "" when the file did not say, and choosing what to
+	// do about that is the sort's job (`sortAlbumOrder`), where it is one table-driven test rather than a
+	// COALESCE nobody can exercise without a database.
+	//
+	// Strings in the projection's own `YYYY-MM-DD HH:MM:SS`, which is fixed-width — so comparing them as
+	// strings compares them chronologically, and the sort needs no parsing and has no parse error to handle.
+	SortShotAt     string
+	SortUploadedAt string
+	SortFileName   string
+
 	// Removed is whether this position was taken out of the album.
 	Removed bool
 	// PhotoDeleted is whether the photograph itself was deleted from the library.
@@ -224,6 +240,7 @@ func (q curatorQuerier) items(year, albumID string) ([]CuratorItem, error) {
 	rows, err := q.db.Query(`
 		SELECT i.ordinal, i.photoId, i.deleted,
 		       COALESCE(p.blobRef, ''), COALESCE(p.thumbRef, ''), COALESCE(p.caption, ''),
+		       COALESCE(p.shotAt, ''), COALESCE(p.uploadedAt, ''), COALESCE(p.fileName, ''),
 		       COALESCE(p.deleted, 1)
 		FROM album_item i
 		LEFT JOIN photo p ON p.photoId = i.photoId
@@ -239,7 +256,8 @@ func (q curatorQuerier) items(year, albumID string) ([]CuratorItem, error) {
 		var it CuratorItem
 		var removed, photoDeleted int
 		if err := rows.Scan(&it.Ordinal, &it.PhotoID, &removed,
-			&it.Ref, &it.ThumbRef, &it.Caption, &photoDeleted); err != nil {
+			&it.Ref, &it.ThumbRef, &it.Caption,
+			&it.SortShotAt, &it.SortUploadedAt, &it.SortFileName, &photoDeleted); err != nil {
 			return nil, err
 		}
 		it.Removed = removed != 0

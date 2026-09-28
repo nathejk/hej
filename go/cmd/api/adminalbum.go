@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/julienschmidt/httprouter"
 
 	"nathejk.dk/nathejk/table/album"
+	"nathejk.dk/nathejk/table/photo"
 )
 
 // The curator's album writes (PRD 022 §6, tasks 375 and 378).
@@ -53,6 +55,13 @@ type adminAlbumSummary struct {
 	// SortMode is the rule the album's photographs are arranged by (PRD 024 §6 R10), so the editor card can
 	// show the curator what is in force. Never on a public read — see `album.CuratorAlbum.SortMode`.
 	SortMode string `json:"sortMode,omitempty"`
+
+	// Resorted is whether this request also rewrote the album's order.
+	//
+	// Returned so the tool can say so rather than leave a curator wondering why the grid moved. Only ever true
+	// on a mode change, and not even then if the album was already in that order — see `applyAlbumSortMode`,
+	// which declines to publish an event that would change nothing.
+	Resorted bool `json:"resorted,omitempty"`
 
 	Published bool `json:"published"`
 	Deleted   bool `json:"deleted,omitempty"`
@@ -146,7 +155,7 @@ type updateAdminAlbumRequest struct {
 // updateAdminAlbumHandler edits an album.
 //
 // @Summary      Edit an album
-// @Description  Changes an album's title, description, sort order, cover, sort mode, or whether it is published. The cover is a photograph in the album chosen by `coverPhotoId`; an empty string clears the choice, and the first photograph is the cover whenever there is no live choice. `sortMode` is the rule the album's **photographs** are arranged by — one of `manual`, `time-asc`, `time-desc`, `filename-asc`, `filename-desc` — and is not the same thing as `sortOrder`, which is the album's place among the frontpage's albums; an unknown mode is refused with 400 rather than ignored. Every field is optional and only the ones sent are written, so editing one cannot wipe another. **The slug cannot be changed**: it is the album's public address and a retitled album answering 404 is a dead link in somebody's chat history. Publishing is only expressible here, never on create, because an album is assembled over several sittings. Unpublishing removes the album from the public frontpage within that page's 60-second cache window. Requires the admin credential. **The slug cannot be changed**: it is the album's public address and a retitled album answering 404 is a dead link in somebody's chat history. Publishing is only expressible here, never on create, because an album is assembled over several sittings. Unpublishing removes the album from the public frontpage within that page's 60-second cache window. Requires the admin credential.
+// @Description  Changes an album's title, description, sort order, cover, sort mode, or whether it is published. The cover is a photograph in the album chosen by `coverPhotoId`; an empty string clears the choice, and the first photograph is the cover whenever there is no live choice. `sortMode` is the rule the album's **photographs** are arranged by — one of `manual`, `time-asc`, `time-desc`, `filename-asc`, `filename-desc` — and is not the same thing as `sortOrder`, which is the album's place among the frontpage's albums; an unknown mode is refused with 400 rather than ignored. Every field is optional and only the ones sent are written, so editing one cannot wipe another. Setting a non-manual `sortMode` **re-sorts the album immediately**, as a separate items-reordered event: the mode and the order are two different facts, and the order is the one `album_item` holds. The response's `resorted` says whether that happened — it is false when the album was already in that order, since publishing an event that changes no position would be noise on a log that is never rewritten. **The slug cannot be changed**: it is the album's public address and a retitled album answering 404 is a dead link in somebody's chat history. Publishing is only expressible here, never on create, because an album is assembled over several sittings. Unpublishing removes the album from the public frontpage within that page's 60-second cache window. Requires the admin credential.
 // @Tags         admin
 // @Accept       json
 // @Produce      json
@@ -246,6 +255,23 @@ func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// A mode change re-sorts the album straight away (PRD 024 §6 R2). Published as a second event rather than
+	// folded into the update, because "how this album is arranged" and "here is its order" are two different
+	// facts and the order is the one `album_item` holds.
+	//
+	// After the update, so that a failure here leaves the album with the mode the curator chose and an order
+	// that is merely stale — which the next add corrects. The other way round, a failure would leave an album
+	// sorted by a rule it does not claim to follow, which nothing would ever correct.
+	resorted := false
+	if in.SortMode != nil {
+		var serr error
+		resorted, serr = app.applyAlbumSortMode(adminYear(r), albumID, *in.SortMode, items)
+		if serr != nil {
+			app.writeAlbumPublishFailure(w, r, serr)
+			return
+		}
+	}
+
 	// Publishing is the one edit with a public consequence, so it is logged as its own fact rather than folded
 	// into "updated": "when did this go live" is a question somebody will ask.
 	if in.Published != nil {
@@ -283,6 +309,7 @@ func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.R
 	if in.SortMode != nil {
 		out.SortMode = *in.SortMode
 	}
+	out.Resorted = resorted
 
 	if err := app.WriteJSON(w, http.StatusOK, out, nil); err != nil {
 		app.ServerErrorResponse(w, r, err)
@@ -523,6 +550,227 @@ func moveAlbumOrder(items []album.CuratorItem, moving []string, target string, p
 	return out, nil
 }
 
+// sortAlbumOrder returns the album's live items in the order `mode` asks for.
+//
+// # Why sorting produces an order rather than being one
+//
+// PRD 024 §8 D1: `album_item.ordinal` is already the order **both** surfaces read — the curator's grid and
+// the public album page — and `itemsreordered` already means "here is the album's whole order". So a sort is
+// that event with the list computed by a rule instead of by a pointer, and no read anywhere changes. It also
+// makes `manual` cost nothing: the mode is a rule for *when* to recompute, and manual means never.
+//
+// The same shape as `moveAlbumOrder` above, and for the same reason: a list in, a list out, no database, so
+// every mode is one table-driven test.
+//
+// # Three properties this must have, and the failure each one prevents
+//
+//  1. **Total order.** Every comparison ends in `photoId`, which is unique among an album's live items. Two
+//     photographs from a burst share a capture time to the second and two cards hold the same filename, so
+//     without the tiebreak the result would depend on the input order — and an *add* would then reshuffle
+//     photographs nobody touched, changing the public page for no reason a curator could explain.
+//  2. **Idempotence.** Sorting an already-sorted album returns the same order. That is what makes R7 safe to
+//     run on every add rather than only when something looks wrong.
+//  3. **Nothing is dropped.** Removed positions are skipped, as `moveAlbumOrder` skips them; everything else
+//     comes back, including an item whose photograph was deleted from the library. Those have no keys at all,
+//     so they sort as if empty — first ascending. Honest: the position exists and what was in it is gone, and
+//     the curator's own view says so (`CuratorItem.PhotoDeleted`).
+func sortAlbumOrder(items []album.CuratorItem, mode string) []string {
+	live := make([]album.CuratorItem, 0, len(items))
+	for _, it := range items {
+		if !it.Removed {
+			live = append(live, it)
+		}
+	}
+
+	out := make([]string, 0, len(live))
+	key, ok := albumSortKey(mode)
+	if !ok {
+		// **`manual`, and anything this binary does not recognise.** The arrangement *is* the order, so there
+		// is nothing to compute — handled here rather than by the callers, so that "apply the album's mode" is
+		// one call with no special case around it.
+		//
+		// The unknown case is not defensive noise. `sortMode` is a column, so a binary can meet a value a
+		// newer one wrote; the first draft of this gave those modes an empty key, which made every photograph
+		// compare equal and left the tiebreak to reorder the whole album **by content hash** — a rollback
+		// silently shuffling a curated album. Leaving it alone is the only answer that cannot destroy work.
+		for _, it := range live {
+			out = append(out, it.PhotoID)
+		}
+		return out
+	}
+	descending := mode == album.SortModeTimeDesc || mode == album.SortModeFilenameDesc
+
+	sorted := make([]album.CuratorItem, len(live))
+	copy(sorted, live)
+	sort.Slice(sorted, func(i, j int) bool {
+		a, b := sorted[i], sorted[j]
+		if descending {
+			a, b = b, a
+		}
+		// Descending is asc reversed **including the tiebreak**, rather than "key desc, id asc". Both are
+		// total orders; this one has the property a curator would assume, that reversing the mode reverses
+		// the album.
+		if ka, kb := key(a), key(b); ka != kb {
+			return ka < kb
+		}
+		return a.PhotoID < b.PhotoID
+	})
+
+	for _, it := range sorted {
+		out = append(out, it.PhotoID)
+	}
+	return out
+}
+
+// albumSortKey is what a mode compares, and whether this binary knows how to sort it at all.
+//
+// The second return is what keeps `manual` and an unrecognised mode on the same path: both mean "leave the
+// album as it is". `ValidSortMode` in the album package is the gate on what a *curator* may choose; this is
+// only "can I compute this", and the two are deliberately not the same question — a value already in the
+// column has passed the gate on some earlier binary and still has to be survivable here.
+func albumSortKey(mode string) (func(album.CuratorItem) string, bool) {
+	switch mode {
+	case album.SortModeTimeAsc, album.SortModeTimeDesc:
+		return func(it album.CuratorItem) string {
+			// **The fallback** (PRD 024 §6 R3). A large minority of files carry no capture time — no EXIF, a
+			// format without it, or a camera whose clock was never set — and upload time is the best thing
+			// left. Applied here rather than in SQL so that it is one testable rule.
+			//
+			// The two are comparable because both are the projection's fixed-width `YYYY-MM-DD HH:MM:SS`, so
+			// a photograph with a capture time and one without still sort against each other sensibly. For a
+			// card uploaded the day after the event that puts an EXIF-less photograph among its neighbours
+			// rather than at one end, which is the best available answer.
+			if it.SortShotAt != "" {
+				return it.SortShotAt
+			}
+			return it.SortUploadedAt
+		}, true
+	case album.SortModeFilenameAsc, album.SortModeFilenameDesc:
+		return func(it album.CuratorItem) string {
+			// Case-insensitively (PRD 024 §6 R6): `IMG_*.JPG` from one camera and `img_*.jpg` from another
+			// would otherwise separate into two blocks in an album that holds both, which is not what a
+			// photographer means by "in filename order".
+			//
+			// Not natural-order — `IMG_9.JPG` sorts before `IMG_10.JPG` here. A camera zero-pads its counter,
+			// so for the files this is for the two agree; a curator who has renamed files by hand and not
+			// padded them is the case where it would differ, and inventing a number parser for that would
+			// mean guessing which digits in a name are the sequence.
+			return strings.ToLower(it.SortFileName)
+		}, true
+	default:
+		return nil, false
+	}
+}
+
+// applyAlbumSortMode re-derives an album's order from its sort mode and publishes it (PRD 024 §6 R2/R7).
+//
+// Returns whether it published anything, so a caller can tell a curator that the album was re-sorted.
+//
+// # When this runs, and why those two moments
+//
+// A mode change, and an add. Nothing else can invalidate a sorted order: the keys it sorts on — capture time
+// and filename — are immutable once a photograph is in the library, and a *removal* does not change the
+// relative order of what is left. So there is no third moment, and no need to re-sort on read.
+//
+// # Three things it declines to do
+//
+//   - **Nothing for `manual`**, which is what makes that mode free.
+//   - **Nothing when the order is already right.** An add that lands at the end of a time-sorted album is the
+//     common case, and publishing an event that changes no position would be noise on a log that is never
+//     rewritten — and would make the "re-sorted" flag in the response a lie.
+//   - **Nothing for an empty album.** The fold treats an empty order as a no-op anyway; not publishing it
+//     keeps the log honest about what actually happened.
+func (app *application) applyAlbumSortMode(year, albumID, mode string, items []album.CuratorItem) (bool, error) {
+	if mode == album.SortModeManual {
+		return false, nil
+	}
+	order := sortAlbumOrder(items, mode)
+	if len(order) == 0 {
+		return false, nil
+	}
+
+	// Already in this order? `sortAlbumOrder` skips removed positions, so the comparison is against the live
+	// ones in their current sequence — which is what an order is.
+	same := true
+	i := 0
+	for _, it := range items {
+		if it.Removed {
+			continue
+		}
+		if i >= len(order) || order[i] != it.PhotoID {
+			same = false
+			break
+		}
+		i++
+	}
+	if same && i == len(order) {
+		return false, nil
+	}
+
+	if err := app.publishAlbum(year, album.VerbItemsReordered, albumID, album.ItemsReordered{
+		AlbumID:     albumID,
+		Year:        year,
+		PhotoIDs:    order,
+		ReorderedAt: time.Now().UTC(),
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// albumItemsForSort returns an album's live items **plus the photographs just added to it**, so that an order
+// can be computed before the projection has folded the additions.
+//
+// This is the awkward part of applying a sort on an add, and it is unavoidable: the adds have been published
+// but the projection is downstream of the log, so re-reading the album would return the album as it was. The
+// photographs' sort keys therefore have to be fetched from the library, which is the read that *does* know
+// them — `photo.Filter.PhotoIDs`, the presence filter task 438 added for the uploader.
+//
+// Chunked at 200, matching `maxAdminLibraryIDs`: a bulk add is bounded by `maxAdminSelection` (2000), so this
+// is several reads rather than one, and one statement with two thousand placeholders is not a thing to build.
+func (app *application) albumItemsForSort(year string, items []album.CuratorItem, added []string) ([]album.CuratorItem, error) {
+	if len(added) == 0 {
+		return items, nil
+	}
+
+	keys := make(map[string]photo.LibraryPhoto, len(added))
+	for start := 0; start < len(added); start += maxAdminLibraryIDs {
+		end := start + maxAdminLibraryIDs
+		if end > len(added) {
+			end = len(added)
+		}
+		chunk := added[start:end]
+		// `IncludeDeleted`, because a curator can file a photograph that is deleted from the library: the
+		// membership exists and the position has to be sorted into the album like any other. Without this the
+		// photograph would come back with no keys and sort as if it had none — a silently different answer
+		// depending on whether somebody had deleted it.
+		rows, err := app.models.PhotoCurator.Library(year,
+			photo.Filter{PhotoIDs: chunk, IncludeDeleted: true}, len(chunk), 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range rows {
+			keys[p.ID] = p
+		}
+	}
+
+	out := make([]album.CuratorItem, 0, len(items)+len(added))
+	out = append(out, items...)
+	for _, id := range added {
+		// The zero value when the library cannot name it, which sorts as if it had no keys. See below.
+		p := keys[id]
+		// A photograph the library cannot name is still appended, with no keys: the membership was just
+		// published, so dropping it here would sort the album as if the add had not happened.
+		out = append(out, album.CuratorItem{
+			PhotoID:        id,
+			SortShotAt:     p.ShotAt,
+			SortUploadedAt: p.UploadedAt,
+			SortFileName:   p.FileName,
+		})
+	}
+	return out, nil
+}
+
 // createAdminAlbumRequest creates an album.
 type createAdminAlbumRequest struct {
 	Title       string `json:"title"`
@@ -723,12 +971,18 @@ type addAdminAlbumItemsResult struct {
 	// through a filter over several sittings — and a tool that said "40 added" when it added three would be
 	// lying about the one thing the curator is tracking.
 	AlreadyThere int `json:"alreadyThere"`
+
+	// Resorted is whether the album's sort mode rewrote its order after the addition (PRD 024 §6 R7).
+	//
+	// Per album, because a selection can be filed into several at once and they need not share a mode: one may
+	// be in capture order and another hand-arranged, and the tool says what happened to each.
+	Resorted bool `json:"resorted,omitempty"`
 }
 
 // addAdminAlbumItemsHandler puts a selection of photographs into one or more albums.
 //
 // @Summary      Add photographs to albums
-// @Description  Adds a selection of library photographs to one or more albums in a single action, publishing one item-added event per (album, photograph) pair. A photograph the album already holds is a **no-op** — no duplicate row and no ordinal change — because re-selecting is routine when a curator works through a filter over several sittings. The response reports, per album, how many were added and how many were already there. Ordinals are appended after the album's current maximum, including positions previously removed, so a removed item's position is never reused. Requires the admin credential.
+// @Description  Adds a selection of library photographs to one or more albums in a single action, publishing one item-added event per (album, photograph) pair. A photograph the album already holds is a **no-op** — no duplicate row and no ordinal change — because re-selecting is routine when a curator works through a filter over several sittings. The response reports, per album, how many were added, how many were already there, and whether the album was re-sorted. Ordinals are appended after the album's current maximum, including positions previously removed, so a removed item's position is never reused. An album whose `sortMode` is not `manual` is then **re-sorted**, which is the point of the mode: the addition is placed in capture-time or filename order rather than at the end, and one items-reordered event carries the album's whole new order. A `manual` album appends, as before. If the library cannot be read the addition still succeeds and the re-sort is skipped — `resorted` is false and the order is stale until the next add or mode change. Requires the admin credential.
 // @Tags         admin
 // @Accept       json
 // @Produce      json
@@ -812,6 +1066,9 @@ func (app *application) addAdminAlbumItemsHandler(w http.ResponseWriter, r *http
 
 		result := addAdminAlbumItemsResult{AlbumID: albumID, Title: a.Title}
 		now := time.Now().UTC()
+		// The photographs this request actually added, in the order asked for, so the sort below can be given
+		// the album as it will be rather than as it was read.
+		addedIDs := make([]string, 0, len(photoIDs))
 
 		for _, photoID := range photoIDs {
 			if live[photoID] {
@@ -843,12 +1100,50 @@ func (app *application) addAdminAlbumItemsHandler(w http.ResponseWriter, r *http
 			}
 			result.Added++
 			totalAdded++
+			addedIDs = append(addedIDs, photoID)
+		}
+
+		// The album's own sort, applied to what it now holds (PRD 024 §6 R7 — the maintainer's "applied when
+		// added to album"). The newly added photographs are not in `items`, and cannot be: they were published
+		// a moment ago and the projection is downstream of the log, so their sort keys come from the library
+		// read instead.
+		//
+		// **Skipped entirely if the library cannot be read**, rather than sorted without those keys. Two wrong
+		// alternatives were available here and both are worse:
+		//
+		//   - sorting the list *without* the new photographs would publish an order that does not name them,
+		//     and the fold vacates every position before placing the named ones — so the additions would land
+		//     in the offset range, at the end of the album, in an order nobody chose;
+		//   - failing the request would tell the curator their selection was not filed, when it was: the
+		//     item-added events are already on the log.
+		//
+		// So the album keeps its previous order with the additions appended, `resorted` says false, and the
+		// next add or mode change puts it right. Stale, not wrong — the degradation the counts read already
+		// chooses when it cannot answer (`readAdminLibraryPage`).
+		switch {
+		case a.SortMode == album.SortModeManual || len(addedIDs) == 0:
+			// Nothing to do: the arrangement is the order, or nothing arrived.
+		case app.models.PhotoCurator == nil:
+			app.Logger.Warn("added to a sorted album while the library was unreadable; the order is stale",
+				"albumId", albumID, "sortMode", a.SortMode, "added", result.Added)
+		default:
+			forSort, serr := app.albumItemsForSort(adminYear(r), items, addedIDs)
+			if serr != nil {
+				app.ServerErrorResponse(w, r, serr)
+				return
+			}
+			did, serr := app.applyAlbumSortMode(adminYear(r), albumID, a.SortMode, forSort)
+			if serr != nil {
+				app.writeAlbumPublishFailure(w, r, serr)
+				return
+			}
+			result.Resorted = did
 		}
 
 		out.Albums = append(out.Albums, result)
 		app.Logger.Info("admin added photographs to an album",
 			"albumId", albumID, "added", result.Added, "already", result.AlreadyThere,
-			"ip", clientIP(r))
+			"resorted", result.Resorted, "ip", clientIP(r))
 	}
 
 	out.Message = adminAddedMessage(totalAdded, len(albumIDs))

@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (2026-09-28)
 **Created:** 2026-09-28
-**Last updated:** 2026-09-28 (task 448 decided: the filename is kept — §6 R5 unblocked)
+**Last updated:** 2026-09-28 (tasks 439–444 and 448 done; 445 and 446 remain — the two that carry Danish copy)
 **Approved:** 2026-09-28
 **Shipped:**
 **Target users:** organizer (the 2–3 photographers/curators who use `/admin`)
@@ -97,16 +97,16 @@ as it was — the drop is abandoned, not applied-then-reverted.
 
 ### Functional
 
-- [ ] **R1 — Five modes.** `manual`, `time-asc`, `time-desc`, `filename-asc`, `filename-desc`. Stored on
+- [x] **R1 — Five modes.** `manual`, `time-asc`, `time-desc`, `filename-asc`, `filename-desc`. Stored on
       the album. Danish labels: *Manuel*, *Tid, ældste først*, *Tid, nyeste først*, *Filnavn A–Å*,
       *Filnavn Å–A*.
-- [ ] **R2 — The sort produces ordinals; it is not a read-time order.** Choosing a mode, or adding to a
+- [x] **R2 — The sort produces ordinals; it is not a read-time order.** Choosing a mode, or adding to a
       non-manual album, recomputes `album_item.ordinal` for the album's live items and publishes one
       `itemsreordered` event — the mechanism the manual reorder already uses. See §8 D1 for why.
-- [ ] **R3 — Capture time.** A new `shotAt` on the photograph, read from EXIF `DateTimeOriginal` **before**
+- [x] **R3 — Capture time.** A new `shotAt` on the photograph, read from EXIF `DateTimeOriginal` **before**
       re-encoding, exactly as the GPS fix already is. Null when absent; the sort then falls back to
       `uploadedAt` for that photograph.
-- [ ] **R4 — `time-asc` / `time-desc`** sort on capture time (with the R3 fallback), ties on `photoId`.
+- [x] **R4 — `time-asc` / `time-desc`** sort on capture time (with the R3 fallback), ties on `photoId`.
 - [x] **R5 — Filename.** `photo.fileName`, taken from the multipart part's filename, which the upload used to
       read and discard. Empty on the raw-body path. Stored as given, never parsed for meaning, normalised by
       `photo.NormalizeFileName` (basename, valid UTF-8, printable, 255 runes) both at publication and in the
@@ -122,17 +122,17 @@ as it was — the drop is abandoned, not applied-then-reverted.
       The bound that is **enforced rather than promised**: `isPersonShaped` still flags the word, so any
       public response that grows a filename fails the public guard. The exception is scoped to the
       authenticated surface and `TestTheFilenameExceptionStopsAtTheAdminSurface` fails if it is widened.
-- [ ] **R6 — `filename-asc` / `filename-desc`** sort case-insensitively on the filename, ties on
+- [x] **R6 — `filename-asc` / `filename-desc`** sort case-insensitively on the filename, ties on
       `photoId`. Case-insensitive because `IMG_*.JPG` and `img_*.jpg` from two cameras in one album
       otherwise separate into two blocks.
-- [ ] **R7 — Adding photographs applies the mode.** When items are added to an album whose mode is not
+- [x] **R7 — Adding photographs applies the mode.** When items are added to an album whose mode is not
       `manual`, the album's whole live order is recomputed. (The maintainer's "applied when uploading new
       photos" — an upload lands in the *library*, and an album gains photographs through "Læg i album",
       which is the moment this has to happen. See §11 Q1.)
 - [ ] **R8 — A hand move switches the album to manual.** If the mode is not `manual`, the admin tool
       confirms first, and the server **refuses a move on a non-manual album** (409) rather than trusting
       the client to have asked. Declining changes nothing.
-- [ ] **R9 — New albums are `time-asc`; albums that already exist stay `manual`.** The maintainer's answer
+- [x] **R9 — New albums are `time-asc`; albums that already exist stay `manual`.** The maintainer's answer
       to §11 Q2 was "default to time-asc, do not think about old albums", and the cheapest way to make that
       true is to put the default in **two different places**, which is worth spelling out because it looks
       redundant:
@@ -280,9 +280,9 @@ Created on the board 2026-09-28, in dependency order:
 - [x] Task 441: capture `shotAt` on upload — event field, column, fold, curator read. The `fileName` half was
       refused by the privacy guards and became task 448, which **decided to keep it**; both fields now ship
 - [x] Task 442: `album.sortMode` — column, event fields, fold, and the curator read — **done**
-- [ ] Task 443: the sort itself — one function from (items, photographs, mode) to an order, ties on
+- [x] Task 443: the sort itself — one function from (items, photographs, mode) to an order, ties on
       `photoId`, table-driven tests per mode including empty keys
-- [ ] Task 444: apply the mode on `PATCH album` (mode change) and on add-to-album; OpenAPI updated
+- [x] Task 444: apply the mode on `PATCH album` (mode change) and on add-to-album; OpenAPI updated
 - [ ] Task 445: refuse a move on a non-manual album (409) and the confirm-then-switch flow in the tool
 - [ ] Task 446: the sort control in the album editor card
 - [x] Task 448: decide whether the library may store a filename — **decided: yes, with bounds** (PRD 022 §6)
