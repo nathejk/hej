@@ -103,6 +103,10 @@
   </section>
 
   <ul id="rows"></ul>
+  <!-- What the batch did, and whether the grid below is showing it yet (task 437). Separate from the progress
+       widget's label, which is about files going up; this is about the library having them. `aria-live`, because
+       a curator who has just dragged a card is watching the rows, not this line. -->
+  <p id="uploadnote" aria-live="polite"></p>
   <h2>Kontaktark</h2>
   <!-- Rendered from `adminFilters`, with the one in this page's URL already on (task 396), so a link from the
        album list — or a reload — lands on the filter it named. -->

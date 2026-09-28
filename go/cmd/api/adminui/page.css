@@ -132,6 +132,9 @@ h2 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
    the only place a curator reads what an action actually did — "42 billeder lagt i 2 album", or how many were
    already there. It was previously overwritten by the shown-count a moment after being written. */
 #actionnote { color: #18181b; font-weight: 500; min-height: 1.25rem; }
+/* The uploader's outcome line (task 437), weighted like the action bar's for the same reason: it is where a curator
+   reads that the card actually arrived. `min-height` so writing it does not shift the grid down. */
+#uploadnote { color: #18181b; font-weight: 500; min-height: 1.25rem; }
 /* PICO: the "more" button's wrapper is a `<p>`, and an empty one would otherwise hold a line of space open under
    the grid on the last page. */
 #morewrap:empty { margin: 0; }

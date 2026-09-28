@@ -549,3 +549,57 @@ func TestAdminUploadLogsEveryOutcome(t *testing.T) {
 func (c *stubPhotoCurator) MissingMedium(string, int) ([]photo.LibraryPhoto, error) {
 	return nil, c.err
 }
+
+// The end of a batch waits for the projection, then says what happened (task 437).
+//
+// # Why this is worth a guard at all
+//
+// The bug it fixes is invisible in both directions. The old code *did* reload the sheet — so reading it, nothing
+// looked wrong — and the reload raced a projection the browser cannot see, so on a fast machine it often won. What
+// makes it correct is the wait, and a wait is exactly the kind of thing a later reader deletes as "why is this
+// polling?". The reason is in upload.js and repeated here.
+//
+// Source-read, because there is no JavaScript runtime in this suite. The *count* it polls is real, though, and the
+// tests above cover the endpoint that answers it.
+func TestTheUploadWaitsForTheProjectionBeforeSayingItIsDone(t *testing.T) {
+	// Comments stripped: the paragraph above this in upload.js explains the polling, and a needle for the polling
+	// would otherwise match the explanation instead of the code.
+	js := stripJSLineComments(adminAsset(t, "upload.js"))
+
+	for _, want := range []struct{ needle, why string }{
+		{"const caught = before === null ? false : await waitForTotal(before + b.stored);",
+			"the grid is reloaded once the library actually holds what was uploaded — reloading the instant the " +
+				"last response lands races the consumer that folds the event into the projection"},
+		{"if (total >= target) return true;", "the wait ends when the count has grown by what was stored"},
+		{"if (Date.now() + delay > deadline) return false;", "the wait must be bounded: a broken consumer has to " +
+			"be reported, not waited out"},
+		{"if (total === null) return false;", "a failed count is not a reason to keep asking"},
+		{"'/api/admin/photos?limit=1'", "the counts travel with any library read and are about the whole year, " +
+			"so one row is all the page that is needed"},
+		{"ctx.reloadSheet();", "the sheet still refreshes itself; that was never the missing part"},
+		{"note.textContent = summary(b)", "and the curator is told what the batch did"},
+	} {
+		if !strings.Contains(js, want.needle) {
+			t.Errorf("upload.js no longer has %q: %s", want.needle, want.why)
+		}
+	}
+
+	// Every outcome the server distinguishes is counted, so the summary cannot quietly report a duplicate or a
+	// refused re-upload as a success. `adminUploadOutcome`'s three values are the contract; `failed` is the
+	// fourth case, which has no outcome because it has no response.
+	for _, tally := range []string{"tally('stored')", "tally('already')", "tally('gone')", "tally('failed')"} {
+		if !strings.Contains(js, tally) {
+			t.Errorf("upload.js must record %s: an outcome that is not counted is one the summary claims went up",
+				tally)
+		}
+	}
+
+	// The line has somewhere to be written, and it is not the progress widget's label — that one is about files
+	// going up, this one is about the library holding them.
+	if !strings.Contains(adminAsset(t, "page.html"), `id="uploadnote"`) {
+		t.Error("page.html must carry the uploader's outcome line")
+	}
+	if !strings.Contains(stripCSSComments(adminAsset(t, "page.css")), "#uploadnote {") {
+		t.Error("the outcome line needs its own rule, or it reads as a hint rather than as what happened")
+	}
+}

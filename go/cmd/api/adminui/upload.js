@@ -19,8 +19,24 @@
 // main.js builds it and calls these in order.
 //
 // The uploader's dependency is one line: when a batch finishes, the contact sheet is stale.
+//
+// # Why the end of a batch waits, and says so (task 437)
+//
+// An upload **publishes an event**; the grid reads a projection a consumer folds from it (see
+// `uploadAdminPhotoHandler`). Those are milliseconds apart in a healthy system and not ordered at all in
+// principle, so reloading the grid the instant the last response lands is a read that may legitimately not see
+// the photographs yet. That is what a curator reported: a list of uploaded files above a grid that does not have
+// them, and no way to act on any of them without reloading the page by hand.
+//
+// So the batch's end waits for the library's own count to grow by what was stored, then reloads once, then says
+// what happened — "12 billeder tilføjet". The wait is **bounded**: if the number never arrives the sheet is
+// reloaded anyway and the line says so, because a tool that waits forever is worse than a grid that is briefly
+// behind and admits it.
 function initUpload(ctx) {
   const CONCURRENCY = 3;
+  // How long the projection is given to catch up, and how the poll backs off. Ten seconds is far longer than the
+  // fold takes and short enough that a broken consumer is reported rather than waited out.
+  const SETTLE_MS = 10000;
 
   const drop = document.getElementById('drop');
   const input = document.getElementById('files');
@@ -28,13 +44,26 @@ function initUpload(ctx) {
   const prog = document.getElementById('prog');
   const bar = document.getElementById('bar');
   const progLabel = document.getElementById('proglabel');
+  const note = document.getElementById('uploadnote');
 
   let queued = 0, done = 0, running = 0;
   const queue = [];
+  // The batch in flight, or null between batches: what it has done so far, and the library's count before it
+  // started (a promise, because reading it is a request and enqueueing is not allowed to wait for one).
+  //
+  // Counted here rather than derived from the rows afterwards, because the rows are presentation — and because the
+  // outcome of a file is known exactly once, where the server said it.
+  let batch = null;
 
   // --- the queue ------------------------------------------------------------
 
   function enqueue(files) {
+    // A new batch is a drop onto an idle uploader. `queued`/`done` deliberately keep accumulating across a
+    // session, so "idle" is the two being equal rather than a counter reset.
+    if (done === queued) {
+      batch = { stored: 0, already: 0, gone: 0, failed: 0, before: libraryTotal() };
+      note.textContent = '';
+    }
     for (const file of files) {
       queued++;
       queue.push({ file, li: addRow(file) });
@@ -69,10 +98,77 @@ function initUpload(ctx) {
       ? done + ' af ' + queued + ' — ' + (queued - done) + ' tilbage'
       : (queued === 0 ? '' : 'Færdig: ' + done + ' af ' + queued);
 
-    // When a batch finishes, refresh the sheet so the new photographs are there to sort. Without this the
-    // curator uploads a card and then has to work out that the grid needs reloading, which is the kind of
-    // small friction that makes a tool feel broken.
-    if (!active && queued > 0 && done === queued) ctx.reloadSheet();
+    // The batch just ended. Taken out of `batch` before finishing it, because `render` runs on every file and
+    // this must happen once.
+    if (!active && queued > 0 && done === queued && batch) {
+      const b = batch;
+      batch = null;
+      finish(b);
+    }
+  }
+
+  // --- the end of a batch ---------------------------------------------------
+
+  // libraryTotal reads how many photographs the year's library holds.
+  //
+  // `limit=1` because the page of photographs is not wanted: the counts travel with every library read and are
+  // about the whole year rather than the page, which is what makes them usable as a progress signal here.
+  // Resolves to null if the read fails — a count we could not get is not a count that disagrees.
+  async function libraryTotal() {
+    try {
+      const res = await ctx.fetch('/api/admin/photos?limit=1');
+      if (!res.ok) return null;
+      const out = await res.json();
+      return out && out.counts ? out.counts.total : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // waitForTotal polls until the library holds at least `target` photographs, or the deadline passes.
+  //
+  // A second photographer uploading at the same time only makes the total *larger*, so the wait can end early but
+  // cannot hang on their account. Backs off, so a slow fold costs a few requests rather than a poll per frame.
+  async function waitForTotal(target) {
+    const deadline = Date.now() + SETTLE_MS;
+    for (let delay = 150; ; delay = Math.min(delay * 2, 1000)) {
+      const total = await libraryTotal();
+      if (total === null) return false; // a failed read is not a reason to keep asking
+      if (total >= target) return true;
+      if (Date.now() + delay > deadline) return false;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+
+  async function finish(b) {
+    // Nothing new in the library means nothing to wait for. The sheet is still reloaded: a re-upload of a card
+    // whose photographs a colleague has since filed should show their albums.
+    if (b.stored === 0) {
+      ctx.reloadSheet();
+      note.textContent = summary(b);
+      return;
+    }
+
+    note.textContent = 'Opdaterer kontaktarket…';
+    const before = await b.before;
+    const caught = before === null ? false : await waitForTotal(before + b.stored);
+    ctx.reloadSheet();
+    note.textContent = caught
+      ? summary(b)
+      : summary(b) + ' Kontaktarket kan være et øjeblik bagud — genindlæs siden, hvis nogle mangler.';
+  }
+
+  // summary is the sentence the curator reads when a batch is over.
+  //
+  // Every outcome that is not a plain success is named, because each one means something different to the person
+  // holding the card: a duplicate is nothing to do, a previously-deleted photograph is a decision somebody made,
+  // and a failure is a file to drag in again. Silence about any of them would read as "all of it went up".
+  function summary(b) {
+    const parts = [b.stored > 0 ? ctx.photoCount(b.stored) + ' tilføjet' : 'Ingen nye billeder'];
+    if (b.already) parts.push(ctx.photoCount(b.already) + ' var lagt op i forvejen');
+    if (b.gone) parts.push(ctx.photoCount(b.gone) + ' blev ikke lagt op igen, fordi de er slettet tidligere');
+    if (b.failed) parts.push(ctx.photoCount(b.failed) + ' kunne ikke lægges op — se listen');
+    return parts.join(' — ') + '.';
   }
 
   // --- one file -------------------------------------------------------------
@@ -89,6 +185,7 @@ function initUpload(ctx) {
       if (!res.ok) {
         // The server writes the reason, in Danish, because it is the side that knows why. The status is only
         // consulted for the cases that have no body — a proxy timing out, for instance.
+        tally('failed');
         finishRow(job.li, 'err', (payload && (payload.error || payload.message)) || httpReason(res.status));
         return;
       }
@@ -96,23 +193,33 @@ function initUpload(ctx) {
     } catch (err) {
       // A dropped connection, a closed laptop, a tunnel. Said plainly, and the row invites the one recovery
       // that actually works: drag it again.
+      tally('failed');
       finishRow(job.li, 'err', 'Forbindelsen blev afbrudt. Træk filen ind igen.');
     }
   }
 
+  // tally records one file's outcome against the batch, for the line at the end. `batch` can be null if a file
+  // somehow settles after its batch was finished, which is why this is a function and not four `batch.x++`.
+  function tally(what) {
+    if (batch) batch[what]++;
+  }
+
   function applyOutcome(li, out) {
-    if (!out) { finishRow(li, 'err', 'Uventet svar fra serveren.'); return; }
+    if (!out) { tally('failed'); finishRow(li, 'err', 'Uventet svar fra serveren.'); return; }
 
     // Three outcomes, three appearances. A duplicate reported as a plain success would make a duplicated card
     // impossible to notice, and a skipped deletion reported as success would be a lie (task 372).
     if (out.outcome === 'already') {
+      tally('already');
       finishRow(li, 'skip', '', out, 'Allerede lagt op');
       return;
     }
     if (out.outcome === 'deleted') {
+      tally('gone');
       finishRow(li, 'skip', out.message || '', out, 'Slettet tidligere');
       return;
     }
+    tally('stored');
     finishRow(li, 'ok', '', out, 'Lagt op');
   }
 
