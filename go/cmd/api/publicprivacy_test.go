@@ -39,7 +39,8 @@ import (
 //     capacity, as the author of a photograph. Nobody else: not a participant, not a minor, not a guardian,
 //     not a crew member, not a leader.
 //   - **A credit is typed, never derived.** It is free text a curator entered. Nothing joins it to the
-//     `person` projection, and `TestACreditIsOnlyEverTypedNeverDerived` is what keeps that true.
+//     `person` projection — since PRD 025, a credit may also be a **reference** to a crew member, resolved by
+//     one bounded read. `TestACreditNamesAPhotographerAndNobodyElse` holds what is still true of both forms.
 //
 // The second point is the one doing the work. What this file has always really defended is not the absence of
 // characters that spell a name — it is that **this service does not take names out of its person records and
@@ -361,16 +362,26 @@ func TestPublicPatrolTypeHasNowhereToPutAPerson(t *testing.T) {
 	}
 }
 
-// **A credit is only ever typed, never derived** (task 393).
+// **A credit names a photographer, and can name nobody else** (task 393, rewritten for PRD 025 in task 451).
 //
-// This is the property the credit-line exception rests on, and the only one worth a structural guard. A name on
-// a public page is a judgement somebody made; a name *looked up from our person records* and put on a public
-// page is a different thing entirely, and it is what every other assertion in this file exists to prevent.
+// # What this test used to say, and why it changed
 //
-// So: the write path for a credit must reach it from the request body and nowhere else. If a future edit
-// resolves a credit from `person`, from a session, or from a phone number, this fails — and it should, loudly,
-// because that is the change that would turn a consented attribution into a directory.
-func TestACreditIsOnlyEverTypedNeverDerived(t *testing.T) {
+// It was `TestACreditIsOnlyEverTypedNeverDerived`, and it asserted that a credit is never resolved from the
+// person projection — the property PRD 022 §6 admitted the whole credit line on. PRD 025 reversed that
+// deliberately, for a reason the old rule could not answer: a name **copied** into `photo.credit` is also on the
+// append-only event log, so a crew member asking to be deleted could never be fully honoured. A reference can be.
+//
+// A guard that asserts the opposite of the feature is worse than no guard, and deleting it would have thrown away
+// a property still worth holding. So it was rewritten rather than removed, and the claim is now narrower and
+// exact: **a credit resolves to a crew member's name, or to nothing.**
+//
+// The four bounds live in `person.CreditNames` and are tested there (`creditnames_test.go`), which is where the
+// SQL is. What is tested *here* is the part that belongs to this file's subject — that nothing on the way to a
+// public page widens them.
+func TestACreditNamesAPhotographerAndNobodyElse(t *testing.T) {
+	// The write path still takes the typed credit from the request body and nothing else. This half is unchanged
+	// by PRD 025: the *typed* credit is still a string a curator typed, and a future edit that resolved it from
+	// a session or a phone number would still be the change that turns an attribution into a directory.
 	src, err := os.ReadFile("adminposition.go")
 	if err != nil {
 		t.Fatalf("reading adminposition.go: %v", err)
@@ -382,15 +393,12 @@ func TestACreditIsOnlyEverTypedNeverDerived(t *testing.T) {
 	if setter == "" {
 		t.Fatal("could not find setAdminPhotoCredits; this guard needs updating")
 	}
-
-	// The value comes from the parameter the handler passed in from the request body. Nothing else.
 	if !strings.Contains(setter, "Credit:    &credit,") {
-		t.Error("the credit written to the event must be the one the request carried")
+		t.Error("the typed credit written to the event must be the one the request carried")
 	}
-
 	for _, forbidden := range []struct{ needle, why string }{
-		{"models.People", "a credit must never be looked up in the person projection"},
-		{"PersonID", "a credit must not be resolved from a person id"},
+		{"models.People", "the write path must not look a credit up: picking a crew member is the curator's " +
+			"act, and resolving one is the read's job (person.CreditNames)"},
 		{"contextGetSession", "a credit must not be taken from whoever is signed in — and on this surface " +
 			"there is nobody signed in anyway, which is the point of PRD 022 §8.2"},
 		{"Name", "a credit must not be assembled from anybody's name field"},
@@ -400,16 +408,32 @@ func TestACreditIsOnlyEverTypedNeverDerived(t *testing.T) {
 		}
 	}
 
-	// And the projection's fold writes it from the event, not from a join.
+	// The fold writes both forms straight from the event. **Still no join** — that is as true as it ever was:
+	// resolution happens in the read, where it can be bounded and where nothing is persisted.
 	fold, ferr := os.ReadFile("../../nathejk/table/photo/consumer.go")
 	if ferr != nil {
 		t.Fatalf("reading photo/consumer.go: %v", ferr)
 	}
 	if !strings.Contains(string(fold), `sets = append(sets, "credit="+quote(truncateRunes(*body.Credit, maxCreditRunes)))`) {
-		t.Error("the fold must write the credit straight from the event body")
+		t.Error("the fold must write the typed credit straight from the event body")
 	}
 	if strings.Contains(string(fold), "JOIN person") {
-		t.Error("the photo fold must not join the person projection for any reason")
+		t.Error("the photo fold must not join the person projection for any reason: a resolved name written " +
+			"into the projection would be a name that cannot be erased")
+	}
+
+	// And the resolver is the **only** path from the person projection to a credit. One caller-facing function,
+	// so "who may be published" is one thing to audit rather than a pattern to look for.
+	resolver, rerr := os.ReadFile("../../nathejk/table/person/querier.go")
+	if rerr != nil {
+		t.Fatalf("reading person/querier.go: %v", rerr)
+	}
+	if !strings.Contains(string(resolver), "func (q querier) CreditNames(year string, personIDs []string)") {
+		t.Fatal("person.CreditNames is gone or renamed; the credit's four bounds live in it and this guard " +
+			"needs to follow them")
+	}
+	if n := strings.Count(string(resolver), "func (q querier) CreditNames"); n != 1 {
+		t.Errorf("there must be exactly one credit resolver, found %d", n)
 	}
 }
 
@@ -465,9 +489,11 @@ func isPersonShaped(field string) bool {
 	//   - it names a **consenting adult volunteer in a professional capacity**, because they asked to be
 	//     credited. Not a participant, not a minor, not somebody who never agreed to be in this app.
 	//   - it is **free text a curator typed** — never derived, never looked up, never joined to the `person`
-	//     projection. `TestACreditIsOnlyEverTypedNeverDerived` holds that, and it is the property that matters:
-	//     the hazard was never that a name appears on a page, it is a system that starts deriving names from its
-	//     person records and publishing them. A string somebody typed cannot do that.
+	//     projection — **or** a reference to a crew member, resolved by `person.CreditNames` and by nothing else
+	//     (PRD 025, task 451). The hazard was never that a name appears on a page, it is a system that starts
+	//     deriving names from its person records and publishing them; what keeps that from happening now is not
+	//     the absence of a join but that the one join there is can only ever yield a crew member's name.
+	//     `TestACreditNamesAPhotographerAndNobodyElse` and `creditnames_test.go` hold that between them.
 	//
 	// Only the exact name is excepted. `CreditName`, `CreditedBy` and `CreditPersonID` all still fail — the
 	// first two because the needle and the "By" suffix catch them, the last because `person` does.

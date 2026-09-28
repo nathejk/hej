@@ -40,6 +40,10 @@ func (f fakeQueries) ExpiredPortraits(string, time.Time, int) ([]person.ExpiredP
 
 func (f fakeQueries) CrewRoster(string, string) ([]person.CrewMember, error) { return nil, nil }
 
+// CreditNames: the credit resolver (task 451). Nil here, because no test in this file credits a
+// photograph — a fake that invented a name would make the resolver's bounds untestable elsewhere.
+func (f fakeQueries) CreditNames(string, []string) (map[string]string, error) { return nil, nil }
+
 // Nor this — contacts listing has its own tests (contacts_test.go).
 func (f fakeQueries) ListByAppRoles(string, []string) ([]person.Person, error) {
 	return nil, nil
@@ -212,6 +216,10 @@ func (r yearRecorder) ExpiredPortraits(string, time.Time, int) ([]person.Expired
 }
 
 func (r yearRecorder) CrewRoster(string, string) ([]person.CrewMember, error) { return nil, nil }
+
+// CreditNames: the credit resolver (task 451). Nil here, because no test in this file credits a
+// photograph — a fake that invented a name would make the resolver's bounds untestable elsewhere.
+func (r yearRecorder) CreditNames(string, []string) (map[string]string, error) { return nil, nil }
 
 func (r yearRecorder) ListByAppRoles(year string, _ []string) ([]person.Person, error) {
 	*r.seen = append(*r.seen, year)

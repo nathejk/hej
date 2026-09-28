@@ -221,7 +221,7 @@ var libraryPersonShapedExceptions = map[string]bool{
 	//   - **A sort key, never an attribution.** Nothing renders it as anybody's name, and nothing derives a
 	//     person from it. The maintainer's decision (2026-09-28) is explicit: "name will never be used".
 	//   - **The photographer's own filing**, about their own work, chosen by them — not a value this service
-	//     assembled about a third party, which is the hazard `TestACreditIsOnlyEverTypedNeverDerived`
+	//     assembled about a third party, which is the hazard `TestACreditNamesAPhotographerAndNobodyElse`
 	//     guards and the one this codebase actually fears.
 	//   - **Never parsed for meaning.** It is not read for dates, patrol numbers or names; see
 	//     `photo.NormalizeFileName`, which bounds it and nothing more.

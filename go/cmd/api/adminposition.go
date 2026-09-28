@@ -406,10 +406,13 @@ const maxAdminCaption = 1000
 //
 // # The value is whatever the request carried, and nothing else
 //
-// No lookup, no session, no person projection. That is the property the whole credit-line exception rests on and
-// `TestACreditIsOnlyEverTypedNeverDerived` is what holds it: a name a curator typed is a judgement somebody
-// made, while a name resolved out of our person records and printed on a public page is a different feature
-// nobody agreed to.
+// No lookup, no session, no person projection — **on this path**. A curator may instead credit a crew member by
+// reference (PRD 025, `creditCrewId`), and that is resolved to a name in the *read*, by `person.CreditNames`,
+// which is bounded to crew, to the name column, to one year. Here nothing is resolved at all: a typed credit is
+// a name a curator typed, and a name assembled out of our person records at *write* time would be a name in the
+// projection and on the append-only log, where it could never be erased.
+//
+// `TestACreditNamesAPhotographerAndNobodyElse` holds both halves.
 func (app *application) setAdminPhotoCredits(w http.ResponseWriter, r *http.Request, photoIDs []string, credit string) {
 	credit = strings.TrimSpace(credit)
 	if len([]rune(credit)) > maxAdminCredit {

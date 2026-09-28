@@ -293,13 +293,17 @@ type Queries interface {
 	//
 	// # Who counts as crew
 	//
-	// `appRole = RoleCrew` exactly, which is the same rule the credit resolver applies (R3). A
-	// spejder or a bandit can never appear. Note what it also excludes: a section that grants a
-	// capability classifies as RolePostmandskab, RoleGuide or RoleSamarit (see classify.go), so a
-	// medic is not in this roster even though they are crew in the ordinary sense. That is the
-	// rule PRD 025 states twice and the narrow reading, and it must not drift here without
-	// drifting in the resolver too — the picker offering a name the resolver then refuses to
-	// publish is the failure this exactness prevents.
+	// `CrewRoles` — the union of four (see classify.go), which is the same rule the credit resolver
+	// applies. A spejder, a bandit or a gøgler can never appear.
+	//
+	// It was `RoleCrew` alone for one commit, which was the narrow reading of PRD 025 and the wrong
+	// one: a photographer registered under `guider` or `samarit` classifies to that role and would
+	// have been invisible to the picker, which is precisely the curator-types-it-by-hand case the
+	// feature exists to remove. The maintainer widened it (2026-09-28). The safety property is
+	// unchanged either way — participants are excluded by both readings.
+	//
+	// It must not drift from the resolver: a picker offering a name the resolver then refuses to
+	// publish is the failure this shared definition prevents.
 	//
 	// sectionSlug narrows to one section; "" is the whole year's crew. The caller defaults it to
 	// "pr", where the photographers are, and `pr` is the default filter rather than the boundary.
@@ -310,6 +314,35 @@ type Queries interface {
 	//
 	// Empty slice, not an error, when nothing matches.
 	CrewRoster(year, sectionSlug string) ([]CrewMember, error)
+
+	// CreditNames resolves photo credit references to names (PRD 025 §6 R3, task 451).
+	//
+	// **This is the only path from the person projection to a public page, and it is meant to stay
+	// the only one.** PRD 022 §6 originally forbade it outright — the credit line was admitted as
+	// the one field naming a human being *because* nothing derived it — and PRD 025 reversed that
+	// for one reason: erasure. A name copied into `photo.credit` is also on the append-only event
+	// log and could never be deleted; a reference can be, in one place. So the join exists, and
+	// everything about this method is an attempt to keep it the narrow thing that was agreed.
+	//
+	// Four bounds, each one load-bearing:
+	//
+	//   1. **`CrewRoles` only.** A spejder's, a bandit's or a gøgler's id resolves to nothing, so a
+	//      mistyped, stale or malicious reference cannot publish a participant's name. This is the
+	//      bound that matters; the others are hygiene around it.
+	//   2. **The name column only.** Nothing else on that row is read, ever. The row holds a phone
+	//      number, a guardian's number, an email, an address and a birthday.
+	//   3. **One year.** The photograph's own, with no fallback to another — the same rule every
+	//      read here follows. Somebody who was crew in 2026 and is not in 2027 still has their 2026
+	//      photographs credited, because those resolve against 2026.
+	//   4. **Absent means absent.** An id with no live crew row in that year is simply missing from
+	//      the result, and the caller renders no credit line (R5). That is the erasure path: delete
+	//      the person and the name is gone from every photograph, with nothing to rewrite.
+	//
+	// A map keyed by id, and batched, because the album page resolves a page of photographs at once
+	// — a query per photograph would be the obvious way to make this correct and unusable.
+	//
+	// Empty map, not an error, when nothing matches.
+	CreditNames(year string, personIDs []string) (map[string]string, error)
 
 	// ExpiredPortraits returns the portraits that are due to be deleted: captured
 	// before `before`, or with no capture time recorded at all.
@@ -583,6 +616,68 @@ func (q querier) TrackMembers(year, teamID string) ([]TrackMember, error) {
 	return out, rows.Err()
 }
 
+// CreditNames resolves credit references to crew names. See the interface for the four bounds.
+//
+// # Why this reads the same `appRole IN (…)` as the roster
+//
+// Because a picker that offers a name the reader then refuses to publish is worse than either behaviour on its
+// own: the curator credits a photograph, the tool says it worked, and the public page shows nothing. Both sides
+// go through `CrewRoles` so that cannot happen.
+func (q querier) CreditNames(year string, personIDs []string) (map[string]string, error) {
+	out := map[string]string{}
+	if year == "" || len(personIDs) == 0 {
+		// An empty year would match the column default rather than "every year". Nothing crosses a year here.
+		return out, nil
+	}
+
+	// One placeholder per id and one per role, all bound. The ids come from a projection this service wrote,
+	// but they reach here through an HTTP request's worth of indirection, and this statement is assembled by
+	// string concatenation like every other in this package.
+	idMarks := make([]string, 0, len(personIDs))
+	args := []any{year}
+	for _, id := range personIDs {
+		if id == "" {
+			continue
+		}
+		idMarks = append(idMarks, "?")
+		args = append(args, id)
+	}
+	if len(idMarks) == 0 {
+		return out, nil
+	}
+	roleMarks := make([]string, len(CrewRoles))
+	for i, role := range CrewRoles {
+		roleMarks[i] = "?"
+		args = append(args, role)
+	}
+
+	// `name` and nothing else. Worth stating at the SELECT as well as in the doc, because this is the line a
+	// future change would widen — the temptation being "while we are here, the section name would look nice
+	// under the photograph".
+	//
+	// `deleted = 0` is the erasure mechanism (PRD 025 §6 R4): a deleted crew member's photographs stop being
+	// credited, which is the whole reason the credit is a reference.
+	rows, err := q.db.Query(`
+		SELECT personId, name
+		FROM person
+		WHERE year = ? AND personId IN (`+strings.Join(idMarks, ", ")+`)
+		  AND appRole IN (`+strings.Join(roleMarks, ", ")+`)
+		  AND deleted = 0 AND name <> ""`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		out[id] = name
+	}
+	return out, rows.Err()
+}
+
 // CrewRoster returns the year's crew, optionally narrowed to one section.
 //
 // Selects two columns, for the reason given on the interface: the caller renders what it is handed.
@@ -593,11 +688,16 @@ func (q querier) CrewRoster(year, sectionSlug string) ([]CrewMember, error) {
 		return nil, nil
 	}
 
-	// `appRole = ?` rather than a slug-derived role computed in Go: appRole is what the classifier
-	// wrote at fold time and `KEY year_role` indexes, and re-deriving it from sectionSlug here would
-	// be a second opinion about who is crew.
-	where := `year = ? AND deleted = 0 AND appRole = ? AND name <> ""`
-	args := []any{year, RoleCrew}
+	// `appRole IN (…)` rather than a slug-derived role computed in Go: appRole is what the classifier wrote
+	// at fold time and `KEY year_role` indexes, and re-deriving it from sectionSlug here would be a second
+	// opinion about who is crew.
+	marks := make([]string, len(CrewRoles))
+	args := []any{year}
+	for i, role := range CrewRoles {
+		marks[i] = "?"
+		args = append(args, role)
+	}
+	where := `year = ? AND deleted = 0 AND appRole IN (` + strings.Join(marks, ", ") + `) AND name <> ""`
 
 	// Folded with the exported normalizer, not compared raw: sectionSlug is stored as the organizer
 	// typed it, and a caller writing `"PR"` must not silently get an empty roster. Case is then MySQL's

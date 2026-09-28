@@ -70,6 +70,10 @@ func (p *trackPeople) ExpiredPortraits(string, time.Time, int) ([]person.Expired
 
 func (p *trackPeople) CrewRoster(string, string) ([]person.CrewMember, error) { return nil, nil }
 
+// CreditNames: the credit resolver (task 451). Nil here, because no test in this file credits a
+// photograph — a fake that invented a name would make the resolver's bounds untestable elsewhere.
+func (p *trackPeople) CreditNames(string, []string) (map[string]string, error) { return nil, nil }
+
 // trackPoints answers ByPeople and records who it was asked about.
 //
 // Guarded like trackPeople, and for the same reason.

@@ -1,6 +1,7 @@
 package person
 
 import (
+	"database/sql/driver"
 	"regexp"
 	"strings"
 	"testing"
@@ -47,7 +48,7 @@ func TestCrewRosterSelectsOnlyAnIdAndAName(t *testing.T) {
 	q, mock, seen := crewMock(t)
 
 	mock.ExpectQuery(regexp.QuoteMeta("FROM person")).
-		WithArgs("2026", RoleCrew, "pr").
+		WithArgs(crewRosterArgs("2026", "pr")...).
 		WillReturnRows(sqlmock.NewRows([]string{"personId", "name"}).
 			AddRow("user-1", "Anne Sørensen"))
 
@@ -94,7 +95,7 @@ func TestCrewRosterAsksForCrewAndNothingElse(t *testing.T) {
 	q, mock, seen := crewMock(t)
 
 	mock.ExpectQuery(regexp.QuoteMeta("FROM person")).
-		WithArgs("2026", RoleCrew, "pr").
+		WithArgs(crewRosterArgs("2026", "pr")...).
 		WillReturnRows(sqlmock.NewRows([]string{"personId", "name"}))
 
 	if _, err := q.CrewRoster("2026", "pr"); err != nil {
@@ -104,11 +105,15 @@ func TestCrewRosterAsksForCrewAndNothingElse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The role is a bound parameter, so the expectation above already proved *which* role. This is the other
+	// The roles are bound parameters, so the expectation above already proved *which* ones. This is the other
 	// half: that the role is filtered at all, rather than the section standing in for it. A spejder with a
 	// `sectionSlug` — impossible today, and one upstream change away — would otherwise be in the picker.
-	if !strings.Contains(*seen, "appRole = ?") {
-		t.Errorf("the roster must filter on appRole:\n%s", *seen)
+	//
+	// One placeholder per role in `CrewRoles`, so widening or narrowing the union is visible here rather than
+	// silently accommodated.
+	want := "approle in (" + strings.TrimSuffix(strings.Repeat("?, ", len(CrewRoles)), ", ") + ")"
+	if !strings.Contains(strings.ToLower(*seen), want) {
+		t.Errorf("the roster must filter on appRole against every crew role (%q):\n%s", want, *seen)
 	}
 }
 
@@ -120,7 +125,7 @@ func TestCrewRosterWithNoSectionReturnsTheWholeYearsCrew(t *testing.T) {
 	// sectionSlug is the column default, so `sectionSlug = ""` would return the crew who have **no** section
 	// — the opposite of "all of them".
 	mock.ExpectQuery(regexp.QuoteMeta("FROM person")).
-		WithArgs("2026", RoleCrew).
+		WithArgs(crewRosterArgs("2026", "")...).
 		WillReturnRows(sqlmock.NewRows([]string{"personId", "name"}).AddRow("user-1", "Anne"))
 
 	got, err := q.CrewRoster("2026", "")
@@ -148,7 +153,7 @@ func TestCrewRosterFoldsTheSectionSlug(t *testing.T) {
 			q, mock, _ := crewMock(t)
 
 			mock.ExpectQuery(regexp.QuoteMeta("FROM person")).
-				WithArgs("2026", RoleCrew, "pr").
+				WithArgs(crewRosterArgs("2026", "pr")...).
 				WillReturnRows(sqlmock.NewRows([]string{"personId", "name"}))
 
 			if _, err := q.CrewRoster("2026", asked); err != nil {
@@ -170,7 +175,7 @@ func TestCrewRosterSkipsDeletedAndNamelessRows(t *testing.T) {
 	q, mock, seen := crewMock(t)
 
 	mock.ExpectQuery(regexp.QuoteMeta("FROM person")).
-		WithArgs("2026", RoleCrew, "pr").
+		WithArgs(crewRosterArgs("2026", "pr")...).
 		WillReturnRows(sqlmock.NewRows([]string{"personId", "name"}))
 
 	if _, err := q.CrewRoster("2026", "pr"); err != nil {
@@ -210,4 +215,21 @@ func TestCrewRosterRefusesAnEmptyYear(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// crewRosterArgs is the argument list CrewRoster binds: the year, then every role in `CrewRoles`, then the
+// section if one was asked for.
+//
+// Built from `CrewRoles` rather than written out, so that widening the union (task 451 widened it from
+// `RoleCrew` alone to all four) does not mean editing every expectation in this file — and so that a test
+// cannot accidentally pin a narrower set than the code uses.
+func crewRosterArgs(year, section string) []driver.Value {
+	args := []driver.Value{year}
+	for _, role := range CrewRoles {
+		args = append(args, role)
+	}
+	if section != "" {
+		args = append(args, section)
+	}
+	return args
 }

@@ -150,6 +150,10 @@ func (s *stubPeople) ExpiredPortraits(_ string, before time.Time, _ int) ([]pers
 
 func (s *stubPeople) CrewRoster(string, string) ([]person.CrewMember, error) { return nil, nil }
 
+// CreditNames: the credit resolver (task 451). Nil here, because no test in this file credits a
+// photograph — a fake that invented a name would make the resolver's bounds untestable elsewhere.
+func (s *stubPeople) CreditNames(string, []string) (map[string]string, error) { return nil, nil }
+
 // testImage builds a real JPEG, because the handler validates by decoding: a fixture of
 // arbitrary bytes would test nothing.
 func testImage(t *testing.T, w, h int) []byte {

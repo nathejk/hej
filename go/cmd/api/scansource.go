@@ -97,15 +97,18 @@ type banditter struct {
 	people person.Queries
 }
 
-// crewRoles are the roles whose presence proves a year separates staff from seniors.
+// The roles whose presence proves a year separates staff from seniors are `person.CrewRoles`.
 //
-// Any one of them is enough: they exist only where a crew signup with a recognised section slug happened,
-// which is precisely the condition under which "senior" narrows to "bandit".
-var crewRoles = []string{person.RoleCrew, person.RolePostmandskab, person.RoleGuide, person.RoleSamarit}
+// Any one of them is enough: they exist only where a crew signup with a recognised section slug happened, which
+// is precisely the condition under which "senior" narrows to "bandit".
+//
+// Shared with the photo credit's resolver rather than kept as a local copy (task 451). The two uses are
+// unrelated — one decides a year's population model, the other decides whose name may be published — and they
+// need the same set for the same underlying reason: these four roles are staff and the others are not.
 
 func (b banditter) BanditIDs(year string) (map[string]bool, error) {
 	// The capability check first, because its answer can make the second query pointless.
-	crew, err := b.people.ListByAppRoles(year, crewRoles)
+	crew, err := b.people.ListByAppRoles(year, person.CrewRoles)
 	if err != nil {
 		return nil, err
 	}

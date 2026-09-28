@@ -37,6 +37,10 @@ func (c *crewPeople) CrewRoster(year, sectionSlug string) ([]person.CrewMember, 
 	return c.roster, c.err
 }
 
+// CreditNames: the credit resolver (task 451). Nil here, because no test in this file credits a
+// photograph — a fake that invented a name would make the resolver's bounds untestable elsewhere.
+func (c *crewPeople) CreditNames(string, []string) (map[string]string, error) { return nil, nil }
+
 // The rest of person.Queries, unused here.
 func (c *crewPeople) Lookup(string, string) ([]person.Person, error) { return nil, nil }
 func (c *crewPeople) Get(string, string) (person.Person, bool, error) {

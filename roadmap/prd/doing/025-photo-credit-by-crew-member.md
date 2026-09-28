@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (2026-09-28)
 **Created:** 2026-09-28
-**Last updated:** 2026-09-28 (approved; §11 answered)
+**Last updated:** 2026-09-28 (449/450/451 done; the crew set widened from RoleCrew to the four-role union)
 **Approved:** 2026-09-28
 **Shipped:**
 **Target users:** organizer (the photographers and curators who use `/admin`)
@@ -67,22 +67,27 @@ be found, rewritten or re-published, and the photographs themselves are untouche
 
 ### Functional
 
-- [ ] **R1 — Two ways to credit, one in force.** `photo.creditPersonId` (nullable) alongside the existing
+- [x] **R1 — Two ways to credit, one in force.** `photo.creditPersonId` (nullable) alongside the existing
       `credit` text. Setting one **clears** the other: a photograph has one credit, and two fields that could
       both be set is a photograph with two answers about who took it.
-- [ ] **R2 — The picker.** An admin-only read of the year's crew, defaulting to section `pr` and able to show
+- [x] **R2 — The picker.** *(the read; the UI is task 453)* An admin-only read of the year's crew, defaulting to section `pr` and able to show
       all crew. Names only — no phone number, no email, no portrait, nothing else the person row holds.
-- [ ] **R3 — Resolution is narrow, and this is the load-bearing requirement.** A credit id resolves to a name
+- [x] **R3 — Resolution is narrow, and this is the load-bearing requirement.** A credit id resolves to a name
       **only** when the person classifies as `person.RoleCrew`. A spejder's or a bandit's id resolves to
       nothing, so a mistyped, stale or malicious id cannot publish a participant's name. Only the name field is
       ever read.
+
+**Widened on 2026-09-28**: `person.CrewRoles` — crew, guide, samarit and postmandskab — not `RoleCrew`
+      alone. A photographer registered under `guider` would otherwise have been invisible to the picker, which is
+      the case this feature exists to remove. Gøglere, banditter and spejdere stay out, so no participant's name
+      can be published under either reading.
 
       **Within the photograph's own year** (§11 Q1), with no fallback to another. That is the same rule every
       other read in this service follows — nothing crosses a year — and it makes the resolver a two-key lookup
       with no "which row wins" question in it. The consequence is worth stating: somebody who was crew in 2026
       and is not in 2027 still has their 2026 photographs credited, because those resolve against 2026; and an
       id that is not crew *in that year* renders no credit, by R5.
-- [ ] **R4 — Erasure works by deletion.** Deleting the person record removes the name from every photograph and
+- [x] **R4 — Erasure works by deletion.** Deleting the person record removes the name from every photograph and
       every public page. Nothing in the library or on the event log has to be rewritten — which is the whole
       reason this is a reference and not a copied string (§8 D1).
 - [ ] **R5 — Absence renders as no credit.** An id that resolves to nothing produces no credit line: no
@@ -171,9 +176,9 @@ tests, not a general-purpose lookup that later grows a second caller.
 
 Created on the board 2026-09-28:
 
-- [ ] Task 449: the crew roster read for the picker (`pr` default, all-crew option), OpenAPI
-- [ ] Task 450: `photo.creditPersonId` — column, event field, fold, and the one-in-force rule
-- [ ] Task 451: the resolver — crew-only, name-only, within the year, "" when absent — and the rewrite of
+- [x] Task 449: the crew roster read for the picker (`pr` default, all-crew option), OpenAPI
+- [x] Task 450: `photo.creditPersonId` — column, event field, fold, and the one-in-force rule
+- [x] Task 451: the resolver — crew-only, name-only, within the year, "" when absent — and the rewrite of
       `TestACreditIsOnlyEverTypedNeverDerived`. **The load-bearing one**
 - [ ] Task 452: the public and admin reads use it; the public response carries the name and never the id
 - [ ] Task 453: the picker in the "Fotokredit" sheet, with copy for the two paths

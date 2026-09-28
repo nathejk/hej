@@ -43,6 +43,41 @@ const (
 	SectionTeam = "team"
 )
 
+// CrewRoles are the app roles held by somebody who is **staff rather than a participant**.
+//
+// # Why this has to be named, and named here
+//
+// "Crew" means two things in this codebase and it has bitten a reader already. `RoleCrew` is **one** role — a
+// crew member whose section the app makes no decision about, which is most of them — while prose and code
+// elsewhere use "crew" for the union of four: `internal/users/contacts.go` says "Crew is one role, not three.
+// samarit, guide and postmandskab are all crew (PRD 007 §6)", and `cmd/api/scansource.go` had its own copy of
+// this list. Two copies of a set that decides who may be published is one too many, so this is the definition
+// and both use it.
+//
+// # Who is deliberately not in it
+//
+// **Gøglere, banditter and spejdere.** The first is the one worth stating: a gøgler is staff-adjacent and is
+// nonetheless participant-side here — `MayLookUpPatrol` refuses them for the stated reason that "the lookup
+// exists for a safety task, not a game one". The photo credit picker (PRD 025) inherits that: it may offer a
+// medic or a guide who took photographs, and it may never offer a gøgler, a bandit or a spejder.
+//
+// Order is not significant; it is used as a set.
+var CrewRoles = []string{RoleCrew, RolePostmandskab, RoleGuide, RoleSamarit}
+
+// IsCrew reports whether an app role is staff rather than a participant.
+//
+// The predicate the photo credit relies on (PRD 025 §6 R3): a name may be published for somebody this returns
+// true for, and for nobody else. A role this package does not know — a value from a newer binary, or a stub row
+// — is **false**, because the safe answer to "is this person staff" is no.
+func IsCrew(role string) bool {
+	for _, r := range CrewRoles {
+		if role == r {
+			return true
+		}
+	}
+	return false
+}
+
 // crewFunctionBySlug maps an organizer-authored section slug to a crew app role.
 //
 // Crew function is not modelled anywhere upstream. A crew member carries a

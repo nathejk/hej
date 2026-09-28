@@ -53,6 +53,10 @@ func (q *roleQueries) ExpiredPortraits(string, time.Time, int) ([]person.Expired
 
 func (q *roleQueries) CrewRoster(string, string) ([]person.CrewMember, error) { return nil, nil }
 
+// CreditNames: the credit resolver (task 451). Nil here, because no test in this file credits a
+// photograph — a fake that invented a name would make the resolver's bounds untestable elsewhere.
+func (q *roleQueries) CreditNames(string, []string) (map[string]string, error) { return nil, nil }
+
 // **The 2025 shape: no crew at all.** Every helper is a senior, so "senior" cannot narrow to "bandit" and
 // nothing may be called a catch.
 func TestAnUndifferentiatedYearIdentifiesNoBanditter(t *testing.T) {
@@ -73,7 +77,7 @@ func TestAnUndifferentiatedYearIdentifiesNoBanditter(t *testing.T) {
 	if len(q.asked) != 1 {
 		t.Errorf("want one query, got %v", q.asked)
 	}
-	if !reflect.DeepEqual(q.asked[0], crewRoles) {
+	if !reflect.DeepEqual(q.asked[0], person.CrewRoles) {
 		t.Errorf("the first query must be the capability check, got %v", q.asked[0])
 	}
 }
