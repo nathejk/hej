@@ -257,7 +257,7 @@ func TestTheDegradedAnswerServesTheSourceWithoutPoisoningCaches(t *testing.T) {
 
 // And the rebuild does happen, so the degradation is temporary rather than permanent.
 func TestAMissingThumbnailComesBackAfterARequest(t *testing.T) {
-	app, _, thumb, srv := albumAppWithRealImages(t)
+	app, full, thumb, srv := albumAppWithRealImages(t)
 
 	if err := app.blobs.Delete(context.Background(), thumb); err != nil {
 		t.Fatalf("removing the thumbnail: %v", err)
@@ -282,13 +282,16 @@ func TestAMissingThumbnailComesBackAfterARequest(t *testing.T) {
 
 	// The follow-up request gets the real rendition back: the thumbnail's own ETag, and a cacheable
 	// answer rather than the degraded one.
-	resp2, _ := getPublic(t, srv.URL+"/api/public/albums/al-1/media/0?variant=thumb", nil)
+	resp2, _ := getPublic(t, srv.URL+"/api/public/albums/al-1/media/"+string(full)+"?variant=thumb", nil)
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("want 200 after the rebuild, got %d", resp2.StatusCode)
 	}
 	if got := resp2.Header.Get("ETag"); !strings.Contains(got, string(thumb)) {
 		t.Errorf("after the rebuild the ETag should be the thumbnail's ref %q, got %q", thumb, got)
 	}
+	// **At a ref**, because only a content-addressed URL may claim `immutable` now (task 456). The distinction
+	// this test draws — a degraded answer is not cacheable, a repaired one is — is only expressible at an
+	// address whose meaning cannot change, which is exactly the argument for refs.
 	if got := resp2.Header.Get("Cache-Control"); !strings.Contains(got, "immutable") {
 		t.Errorf("after the rebuild the answer should be cacheable again, got %q", got)
 	}

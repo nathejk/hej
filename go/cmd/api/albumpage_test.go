@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -954,20 +955,54 @@ func TestAlbumMediaRefusesRubbish(t *testing.T) {
 	}
 }
 
-// Public and immutable, which is safe precisely because the answer does not depend on who asked.
+// Public and immutable **at a ref**, and short-lived at an ordinal (task 456).
+//
+// # Why the two differ, which is the whole of that task
+//
+// `immutable` tells every cache not to revalidate at all, for a year. That is safe for a content-addressed URL:
+// the bytes at a hash cannot become other bytes. It was **not** safe at an ordinal, and stopped being safe the
+// day PRD 024 made albums re-sort themselves — a re-sort moves what the position names, and no cache would ever
+// find out. The page updates within a minute and the images would not have, for a year.
+//
+// The ordinal form still answers, because those URLs are already in caches and shared links. It just may not
+// claim to be immutable.
 func TestAlbumMediaIsPubliclyCacheable(t *testing.T) {
-	app, _ := albumApp(t)
+	app, store := albumApp(t)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	resp, _ := getPublic(t, srv.URL+"/api/public/albums/al-1/media/0?variant=thumb", nil)
+	ref := firstItemRef(t, store)
+	resp, _ := getPublic(t, srv.URL+"/api/public/albums/al-1/media/"+ref+"?variant=thumb", nil)
 	cache := resp.Header.Get("Cache-Control")
 	if !strings.Contains(cache, "public") || !strings.Contains(cache, "immutable") {
-		t.Errorf("want a public immutable cache header, got %q", cache)
+		t.Errorf("at a ref, want a public immutable cache header, got %q", cache)
 	}
 	if resp.Header.Get("ETag") == "" {
 		t.Error("want an ETag so a revisit costs a 304 rather than a transfer")
 	}
+
+	// The same photograph by ordinal: still served, never immutable.
+	byOrdinal, _ := getPublic(t, srv.URL+"/api/public/albums/al-1/media/0?variant=thumb", nil)
+	if byOrdinal.StatusCode != http.StatusOK {
+		t.Fatalf("an ordinal URL must keep working, got %d — they are already cached and shared",
+			byOrdinal.StatusCode)
+	}
+	if cache := byOrdinal.Header.Get("Cache-Control"); strings.Contains(cache, "immutable") {
+		t.Errorf("an ordinal URL must not claim to be immutable: a re-sort moves what it names, and a cache "+
+			"told not to revalidate would serve the wrong photograph for a year. Got %q", cache)
+	}
+}
+
+// firstItemRef is the fixture's first photograph's ref, which is its address.
+//
+// Read off the store rather than written out, because it is the hash of bytes the fixture puts in the blob
+// store — a literal here would be a second opinion about what the hash of "full-1" is.
+func firstItemRef(t *testing.T, store *albumStore) string {
+	t.Helper()
+	if len(store.albums) == 0 || len(store.albums[0].items) == 0 {
+		t.Fatal("the fixture has no first item")
+	}
+	return store.albums[0].items[0].Ref
 }
 
 // The album pages must ignore the session like the rest of the surface.
@@ -1050,5 +1085,56 @@ func TestFrontpageAlbumsFollowCuratorOrder(t *testing.T) {
 	// page must not impose an order of its own.
 	if first > second {
 		t.Error("the page must render albums in the order the projection returned them")
+	}
+}
+
+// A ref addresses a photograph **within a published album**, and is not a bearer token (task 456).
+//
+// # Why this is the test that matters for the ref form
+//
+// Content addressing is what makes `immutable` honest, and it is also what would make a URL a capability: a
+// route that resolved a bare hash to bytes would hand the bytes to anybody holding the string, and unpublishing
+// could never take them back. `glimtmediaserve.go` explains that at length, and
+// `TestTheAlbumPageNeverPutsARenditionRefInItsHTML` keeps hashes out of public payloads for the same reason.
+//
+// This route resolves a ref the same way it resolves an ordinal: inside a named album, which must be published.
+// So the two addresses have exactly the same reach — which is the property that lets the ref form exist at all.
+func TestAlbumMediaByRefIsScopedToItsPublishedAlbum(t *testing.T) {
+	app, store := albumApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	ref := firstItemRef(t, store)
+
+	// The same photograph, both ways, same bytes.
+	byRef, refBody := getPublic(t, srv.URL+"/api/public/albums/al-1/media/"+ref, nil)
+	byOrdinal, ordBody := getPublic(t, srv.URL+"/api/public/albums/al-1/media/0", nil)
+	if byRef.StatusCode != http.StatusOK || byOrdinal.StatusCode != http.StatusOK {
+		t.Fatalf("both forms must resolve, got %d and %d", byRef.StatusCode, byOrdinal.StatusCode)
+	}
+	if !bytes.Equal(refBody, ordBody) {
+		t.Error("the two addresses must name the same photograph")
+	}
+
+	// **A ref from another album does not resolve there.** This is the anti-capability assertion: holding the
+	// hash is not enough, the album has to actually contain it.
+	if resp, _ := getPublic(t, srv.URL+"/api/public/albums/al-2/media/"+ref, nil); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("a ref must not resolve in an album that does not hold that photograph, got %d — a hash that "+
+			"worked anywhere would be a forwardable, unrevokable capability", resp.StatusCode)
+	}
+
+	// And not in an unpublished one. `al-3` is the fixture's draft.
+	for _, album := range []string{"al-3", "al-nope"} {
+		if resp, _ := getPublic(t, srv.URL+"/api/public/albums/"+album+"/media/"+ref, nil); resp.StatusCode != http.StatusNotFound {
+			t.Errorf("%s: a ref must not reach an unpublished or unknown album, got %d", album, resp.StatusCode)
+		}
+	}
+
+	// Rubbish in the selector is a 404, not a 500 and not the first photograph.
+	for _, selector := range []string{"", "nonsense", "-1", "0.5", strings.Repeat("f", 64)} {
+		resp, _ := getPublic(t, srv.URL+"/api/public/albums/al-1/media/"+selector, nil)
+		if resp.StatusCode == http.StatusOK {
+			t.Errorf("selector %q must not resolve", selector)
+		}
 	}
 }

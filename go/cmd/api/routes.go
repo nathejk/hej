@@ -206,7 +206,10 @@ func (app *application) routes() http.Handler {
 	// Album media (task 334). Under /api/public/ with the glimt media route rather than under
 	// /offentligt/, because it serves bytes rather than a page — and it shares `streamGlimtMedia`, so
 	// the ETag handling and the missing-object degradation cannot diverge between the two.
-	router.HandlerFunc(http.MethodGet, "/api/public/albums/:albumId/media/:ordinal", app.albumMediaHandler)
+	// `:selector` is a photograph's ref or its ordinal (task 456). One route rather than two, because
+	// httprouter cannot tell two patterns with a parameter in the same position apart — and because they are
+	// one question: which photograph in this album.
+	router.HandlerFunc(http.MethodGet, "/api/public/albums/:albumId/media/:selector", app.albumMediaHandler)
 	// The map's data (task 342). Two endpoints rather than one, because they answer to different gates: a
 	// patrol's route is gated on that patrol having finished, while the album photographs are published when
 	// a curator publishes them. One handler with two access rules is how the wrong one gets applied.

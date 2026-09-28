@@ -70,3 +70,83 @@ the ordinal's album today.
 - 2026-09-28 — Found while scoping task 447, by checking what the album page's image URLs are addressed by. The
   cache header and the ordinal are each defensible alone; together, after PRD 024, they are a promise the server
   cannot keep.
+
+## What was done, and what is waiting for you
+
+**The defect is fixed, conservatively.** `albumMediaCacheControl(selector)` sends `immutable, max-age=1y` only
+for a **content-addressed** URL and `public, max-age=60` for an ordinal — matching the album page that
+references it. The false promise is gone: no cache is told "never revalidate" about a URL whose meaning a
+re-sort can change. Mutation-checked by restoring the old header, which fails the test.
+
+The route also **accepts a ref** now (`:selector` is a ref or an ordinal, distinguished by `blob.Ref.Valid()`,
+which an ordinal can never satisfy). Ordinal URLs keep resolving, because they are already in caches and shared
+links.
+
+**The page still mints ordinals, and that is the part waiting for a decision.**
+
+## The invariant this ran into
+
+Putting refs in the page — the other half of the fix, and what task 447's permalink needs — breaks a rule that is
+stated twice and tested structurally:
+
+```go
+// No blob hash may appear in a public payload — content addressing would make it a forwardable, unrevokable
+// capability. So the view model carries a **boolean**, not the ref, and the page addresses photographs by
+// ordinal.  — TestTheAlbumPageNeverPutsARenditionRefInItsHTML
+```
+
+```go
+// Media is content-addressed, so `/api/.../<sha256>` would be a bearer token: forwardable, unrevokable, and
+// identical for every caller. […] That is precisely how a "min gruppe" photograph of a child becomes public —
+// not through a breach, but through a hash being pasted somewhere.  — glimtmediaserve.go
+```
+
+### What I can say about it, having implemented the route
+
+The direct hazard **does not apply here**, and the reason is in the code rather than in an argument:
+`albumItemRef` resolves a selector *inside a named album that must be in `Published(year)`*, so a ref has
+exactly the same reach as an ordinal — `TestAlbumMediaByRefIsScopedToItsPublishedAlbum` asserts that a ref from
+one album 404s in another, and 404s in the unpublished one. Unpublishing revokes it. It is not a bearer token,
+and the hash is not a secret in any case: it is the SHA of bytes the route already serves, so any visitor who
+downloads a photograph can compute it.
+
+What publishing it *does* cost is **defence in depth**. The rule's value is that no hash is ever in circulation,
+so no future route — an added convenience, a debug endpoint, a change to the glimt path that shares this blob
+store — can be exploited by a hash somebody already has. That is a real property and it is the one being traded.
+
+### So: three ways forward, and it is your call
+
+- **A — narrow the invariant.** Refs may appear in a public payload *where the route resolving them is
+  album-scoped and publication-checked*. Both guards get an exception by name, with the reasoning, and
+  `glimtpublic_test.go`'s structural rule keeps holding for glimt, where media is per-member scoped and the
+  argument is much stronger. Task 447's permalink then works as specified.
+- **B — keep the invariant and permalink by something else.** A per-album opaque token, or a short
+  album-scoped id minted for the purpose. It costs a column and a mapping, and buys back the defence-in-depth.
+  The address stops being derivable from the bytes, which is also a property: it cannot be computed by somebody
+  who only has the photograph.
+- **C — leave the page on ordinals.** The cache bug is already fixed, so this is a complete stopping point. It
+  costs task 447: there is no durable public address for a photograph, and a shared link keeps rotting when an
+  album is re-sorted.
+
+I have not chosen. The last two times I guessed at one of these rules you had information I did not.
+
+## Acceptance Criteria
+
+- [x] Public album media is addressable by ref, within a published album
+- [ ] The album page's own image URLs use it — **waiting on A/B/C**
+- [x] `immutable` is only sent for a content-addressed URL
+- [x] Ordinal URLs still resolve (they are what is already cached and shared)
+- [x] 404 for every failure reason, unchanged
+- [x] A test that a re-sort cannot change what a given media URL serves — by construction: the ref form's
+      meaning cannot change, and the ordinal form no longer claims it cannot
+
+## Progress Log
+
+- 2026-09-28 — Found while scoping task 447.
+- 2026-09-28 — Fixed the header, added the ref form to the route, and wrote the anti-capability test.
+- 2026-09-28 — Hit `TestTheAlbumPageNeverPutsARenditionRefInItsHTML` when minting refs into the page. Reverted
+  that half rather than excepting the guard: it is the third privacy invariant this work has met, and the
+  previous two both turned on something the maintainer knew and I did not.
+- 2026-09-28 — Also walked into the backtick trap in `publicsite.go` for the fifth recorded time, by writing
+  `immutable` in backticks inside a Go raw string. Comment now says so at the site.
+- 2026-09-28 — `gofmt`, `go vet`, `staticcheck`, `GOWORK=off go test ./...` clean. Mutation-checked the header.

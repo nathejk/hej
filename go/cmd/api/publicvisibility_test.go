@@ -555,7 +555,7 @@ func TestTheVisibilityWalkCoversEveryPublicPhotographRoute(t *testing.T) {
 		guardYear,
 		guardYear + "/album/:slug",
 		"/api/public/albums",
-		"/api/public/albums/:albumId/media/:ordinal",
+		"/api/public/albums/:albumId/media/:selector",
 	} {
 		if !found[want] {
 			t.Errorf("the enumeration missed %s, which this file's assertions depend on", want)
@@ -568,9 +568,11 @@ func TestTheVisibilityWalkCoversEveryPublicPhotographRoute(t *testing.T) {
 	for _, c := range visibilityMediaCases() {
 		url := strings.SplitN(c.url, "?", 2)[0]
 		parts := strings.Split(strings.Trim(url, "/"), "/")
-		// /api/public/albums/{id}/media/{ordinal} → the template with the parameters put back.
+		// /api/public/albums/{id}/media/{selector} → the template with the parameters put back. The last
+		// segment is `:selector` since task 456: the route takes a photograph's ref *or* its ordinal, and the
+		// cases below exercise it by ordinal because that is still what the page mints.
 		if len(parts) == 6 {
-			covered[fmt.Sprintf("/%s/%s/%s/:albumId/%s/:ordinal",
+			covered[fmt.Sprintf("/%s/%s/%s/:albumId/%s/:selector",
 				parts[0], parts[1], parts[2], parts[4])] = true
 		}
 	}

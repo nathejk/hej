@@ -214,6 +214,28 @@ func albumRequestedSide(items []album.Item, query url.Values) string {
 	return query.Get("side")
 }
 
+// albumItemIs reports whether an item is the one a selector names.
+//
+// **By ref first**, because that is the form the page mints and the one that survives a re-sort. The ordinal
+// comparison is second and exists for links made before task 456 — a shared address, a crawler's index, a
+// browser history.
+//
+// An empty selector matches nothing: it is a URL with no photograph in it, and matching the first item would
+// turn a malformed link into a confident wrong answer.
+func albumItemIs(it album.Item, selector string) bool {
+	if selector == "" {
+		return false
+	}
+	// A ref is the photograph's **display** ref, never a thumbnail's or an 800px rendition's. Those are
+	// derived and a curator never sees them; addressing by one would make the address depend on which
+	// rendition happened to exist, which is the opposite of durable.
+	if it.Ref == selector {
+		return true
+	}
+	ordinal, err := strconv.Atoi(selector)
+	return err == nil && it.Ordinal == ordinal
+}
+
 // albumSideHolding finds which 1-based side holds the item with this ordinal.
 //
 // # An ordinal is not an index, and this is the bug that division would have shipped
@@ -321,18 +343,18 @@ func albumPageWindow(items []album.Item, rawSide string) ([]album.Item, int, boo
 // publication filter rather than fetching the item directly.
 //
 // @Summary      One album photograph
-// @Description  Serves the stored bytes for item `ordinal` of a **published, non-deleted** album. `variant=thumb` serves the 320px thumbnail, which is what the grid requests; `variant=medium` serves the 800px rendition, which is what the viewer's `srcset` offers a phone; anything else serves the 1600px display image. A variant whose rendition was never produced — including every photograph uploaded before the 800px rendition existed — falls back to the display image rather than answering 404, so no page ever renders a gap. Unauthenticated and it ignores the session cookie; the album's publication state is re-checked here, so this route cannot be used to reach a draft album's photographs by id. Answers 404 when `PUBLIC_ALBUMS=false` hides the feature — the bytes go with the pages, or hiding the section would only unadvertise it. Cached `public` and `immutable`, which is safe precisely because the answer does not depend on who asked.
+// @Description  Serves the stored bytes for item `ordinal` of a **published, non-deleted** album. `variant=thumb` serves the 320px thumbnail, which is what the grid requests; `variant=medium` serves the 800px rendition, which is what the viewer's `srcset` offers a phone; anything else serves the 1600px display image. A variant whose rendition was never produced — including every photograph uploaded before the 800px rendition existed — falls back to the display image rather than answering 404, so no page ever renders a gap. Unauthenticated and it ignores the session cookie; the album's publication state is re-checked here, so this route cannot be used to reach a draft album's photographs by id. Answers 404 when `PUBLIC_ALBUMS=false` hides the feature — the bytes go with the pages, or hiding the section would only unadvertise it. Cached `public` and `immutable`, which is safe precisely because the answer does not depend on who asked. The photograph is named either by its **ref** — the content hash, which does not change when the album is re-sorted — or by its **ordinal**, which does. Only the ref form is served `immutable`: an ordinal's meaning moves under a re-sort (PRD 024), and a cache told not to revalidate would keep serving the wrong photograph for a year. Ordinal URLs keep working, with a short lifetime, because they are what links minted earlier carry.
 // @Tags         public-site
 // @Produce      jpeg
 // @Param        albumId  path      string  true   "album id"
-// @Param        ordinal  path      int     true   "position within the album"
+// @Param        selector  path      string  true   "the photograph: its ref (content hash), or its ordinal within the album"
 // @Param        variant  query     string  false  "full (default), medium (800px) or thumb (320px)"
 // @Success      200  {file}    binary
 // @Failure      304  "not modified"
 // @Failure      404  {object}  map[string]string  "unknown album, unpublished, deleted, gone, or the albums section is switched off"
 // @Failure      429  {object}  map[string]string  "read rate limit, by IP"
 // @Failure      503  {object}  map[string]string  "albums are unavailable"
-// @Router       /public/albums/{albumId}/media/{ordinal} [get]
+// @Router       /public/albums/{albumId}/media/{selector} [get]
 func (app *application) albumMediaHandler(w http.ResponseWriter, r *http.Request) {
 	// The media budget, not the page one (task 347): an album page asks for up to sixty of these, and a
 	// visitor scrolling two albums must not spend the allowance their next page load needs.
@@ -360,13 +382,9 @@ func (app *application) albumMediaHandler(w http.ResponseWriter, r *http.Request
 
 	params := httprouter.ParamsFromContext(r.Context())
 	albumID := params.ByName("albumId")
-	ordinal, err := strconv.Atoi(params.ByName("ordinal"))
-	if err != nil {
-		app.NotFoundResponse(w, r)
-		return
-	}
+	selector := params.ByName("selector")
 
-	ref, plan, ok, err := app.albumItemRef(albumID, ordinal, r.URL.Query().Get("variant"))
+	ref, plan, ok, err := app.albumItemRef(albumID, selector, r.URL.Query().Get("variant"))
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -379,7 +397,17 @@ func (app *application) albumMediaHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	app.streamGlimtMedia(w, r, ref, albumID, publicGlimtMediaCacheControl, plan)
+	// **`immutable` only for a content-addressed URL** (task 456), and this is the fix rather than a nicety.
+	//
+	// The route was addressed by ordinal and served `immutable, max-age=1y`. PRD 024 then made ordinals mutable:
+	// a non-manual album re-sorts itself whenever photographs are added. So the header was a promise the server
+	// could no longer keep — `immutable` tells caches **not to revalidate at all**, and after a re-sort every
+	// cache in the world would keep serving the old photograph at that URL for a year, under captions the page
+	// (`max-age=60`) had already updated.
+	//
+	// A ref is the hash of the bytes, so at a ref the promise is true again. An ordinal keeps working, because
+	// those URLs are already cached and shared — but it gets a short lifetime, because what it names can change.
+	app.streamGlimtMedia(w, r, ref, albumID, albumMediaCacheControl(selector), plan)
 }
 
 // albumItemRef resolves an album id and ordinal to the blob ref for the requested variant.
@@ -394,8 +422,26 @@ func (app *application) albumMediaHandler(w http.ResponseWriter, r *http.Request
 // That is deliberately the cheap, obviously-correct shape rather than a new `ByID` read. A second read
 // returning items would be a second place the publication filter has to be remembered, and this route
 // is precisely where forgetting it would matter.
+// albumMediaCacheControl decides how long a media URL may be trusted, from how it addresses the photograph.
+//
+// Content-addressed: a year, immutable, public — the bytes at a hash cannot become other bytes. Position-
+// addressed: a minute, matching the album page that references it, because a re-sort moves what the position
+// names and a cache that has been told not to revalidate would never find out.
+func albumMediaCacheControl(selector string) string {
+	if blob.Ref(selector).Valid() {
+		return publicGlimtMediaCacheControl
+	}
+	return "public, max-age=60"
+}
+
+// albumItemRef finds a published album's photograph and the rendition to serve for it.
+//
+// `selector` is a **ref or an ordinal** (task 456). The ref is the durable address — it is the hash of the
+// photograph's own bytes, so it does not move when the album is re-sorted — and the ordinal is what links
+// minted before that change carry. A ref is recognised by being a valid ref, which an ordinal can never be:
+// ordinals are short decimal numbers and a ref is a hash, so the two cannot be confused.
 func (app *application) albumItemRef(
-	albumID string, ordinal int, variant string,
+	albumID string, selector string, variant string,
 ) (blob.Ref, renditionRepair, bool, error) {
 	published, err := app.models.Albums.Published(app.config.eventYear)
 	if err != nil {
@@ -419,7 +465,7 @@ func (app *application) albumItemRef(
 	}
 
 	for _, it := range items {
-		if it.Ordinal != ordinal {
+		if !albumItemIs(it, selector) {
 			continue
 		}
 		// The requested rendition when present; otherwise the full image. Falling back rather than 404ing on

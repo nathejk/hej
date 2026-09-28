@@ -1079,6 +1079,11 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 
        (No backticks in this comment: the whole template is a Go raw string literal, so one would end it. Same
        warning the stylesheet carries.) -->
+  <!-- Still addressed by **ordinal**, and that is a decision waiting rather than an oversight (tasks 447, 456).
+       A content hash in a public payload is forbidden here — see TestTheAlbumPageNeverPutsARenditionRefInItsHTML
+       and glimtmediaserve.go — because a hash-addressed URL would be a forwardable, unrevokable capability. The
+       media route now accepts a ref as well, and only a ref may be served as immutable; minting one into this
+       page needs that invariant narrowed on purpose, which is task 456's open question. -->
   <a class="tile" href="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}"
      data-viewer-item data-viewer-ordinal="{{.Ordinal}}"
      data-full="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}"

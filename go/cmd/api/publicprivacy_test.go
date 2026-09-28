@@ -278,7 +278,7 @@ func TestPublicRouteEnumerationCoversTheKnownSurface(t *testing.T) {
 		guardYear + "/album/:slug",
 		guardYear + "/patrulje/:number",
 		"/api/public/glimt",
-		"/api/public/albums/:albumId/media/:ordinal",
+		"/api/public/albums/:albumId/media/:selector",
 	} {
 		if !found[want] {
 			t.Errorf("the enumeration missed %s; every public route must be covered", want)
