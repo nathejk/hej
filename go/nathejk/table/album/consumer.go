@@ -113,15 +113,33 @@ func (c consumer) handleCreated(msg cqrs.Message, year string) error {
 		return fmt.Errorf("album created with no createdAt")
 	}
 
+	sortMode := body.SortMode
+	if sortMode != "" && !ValidSortMode(sortMode) {
+		// Refused rather than coerced to `manual`: a mode this app does not implement means the publisher and
+		// this fold disagree about what the album is, and silently storing the inert value would present that
+		// as a curator's own choice.
+		return fmt.Errorf("album created with an unknown sortMode %q", body.SortMode)
+	}
+
+	// `sortMode` is set on insert and deliberately **absent from the update clause**, like `published` and
+	// `deleted` above: the mode is a curator's setting after creation, so a re-delivered create would
+	// otherwise reset an album a curator had switched to `manual` and re-sort it out from under them. An
+	// empty mode is left out of the insert too, so the column's default stands — which is what makes a log
+	// written before this field existed fold to `manual` (PRD 024 §6 R9).
+	sortModeSet := ""
+	if sortMode != "" {
+		sortModeSet = ", sortMode=" + quote(sortMode)
+	}
+
 	return c.w.Consume(fmt.Sprintf(
 		"INSERT INTO album SET albumId=%s, year=%s, slug=%s, title=%s, description=%s, "+
-			"sortOrder=%d, createdAt=%s "+
+			"sortOrder=%d, createdAt=%s%s "+
 			"ON DUPLICATE KEY UPDATE "+
 			"year=VALUES(year), slug=VALUES(slug), title=VALUES(title), "+
 			"description=VALUES(description), sortOrder=VALUES(sortOrder), "+
 			"createdAt=VALUES(createdAt)",
 		quote(albumID), quote(year), quote(slug), quote(body.Title), quote(body.Description),
-		body.SortOrder, quote(formatTime(createdAt)),
+		body.SortOrder, quote(formatTime(createdAt)), sortModeSet,
 	))
 }
 
@@ -167,6 +185,14 @@ func (c consumer) handleUpdated(msg cqrs.Message, year string) error {
 			return fmt.Errorf("album updated with an invalid coverPhotoId")
 		}
 		sets = append(sets, "coverPhotoId="+quote(*body.CoverPhotoID))
+	}
+	if body.SortMode != nil {
+		// Refused, not ignored. An unknown mode stored here would leave the album in a state nothing
+		// recomputes and nothing reports — and the empty string is unknown, because "not mentioned" is nil.
+		if !ValidSortMode(*body.SortMode) {
+			return fmt.Errorf("album updated with an unknown sortMode %q", *body.SortMode)
+		}
+		sets = append(sets, "sortMode="+quote(*body.SortMode))
 	}
 	if len(sets) == 0 {
 		return nil

@@ -62,6 +62,31 @@ CREATE TABLE IF NOT EXISTS album (
     -- ordering by creation time would put the one they finished last first.
     sortOrder INT NOT NULL DEFAULT 0,
 
+    -- The rule for how this album's *photographs* are arranged (PRD 024 §6 R1): manual | time-asc |
+    -- time-desc | filename-asc | filename-desc.
+    --
+    -- **Not `sortOrder` above, and the two are unrelated.** `sortOrder` sequences albums against each other
+    -- on the frontpage; this sequences photographs inside one album. They are adjacent because both are
+    -- editorial, which is exactly why a reader skimming for "the ordering column" can pick the wrong one.
+    --
+    --   * `manual`        — the ordinals are whatever a curator arranged by hand. **Never recomputed.**
+    --   * `time-asc` / `time-desc`     — capture time, falling back to upload time where the file did not say.
+    --   * `filename-asc` / `filename-desc` — the filename, compared case-insensitively.
+    --
+    -- A mode is a rule for *when* to recompute `album_item.ordinal`, not a read-time order: the ordinal is
+    -- what both the curator's grid and the public page read, and teaching them each to sort would let the
+    -- two disagree about what the album looks like (PRD 024 §8 D1).
+    --
+    -- **The default is `manual` even though a new album is created `time-asc`** (PRD 024 §6 R9). The create
+    -- handler sets the mode it wants; this default exists for the albums that were arranged before the
+    -- column did. Defaulting it to `time-asc` here would have been shorter and would have re-sorted every
+    -- one of them the first time anybody added a photograph — and, since nothing backfills capture time,
+    -- re-sorted them on the upload-time fallback, i.e. shuffled a hand-arranged album into roughly the
+    -- order the files happened to arrive in. That is the one irreversible thing this feature can do, and an
+    -- inert default is what makes it impossible rather than merely unlikely. No migration, and nobody has
+    -- to think about old albums.
+    sortMode VARCHAR(16) NOT NULL DEFAULT "manual",
+
     -- Unpublished albums are invisible to every public read. A staging state, so a curator can
     -- assemble an album over several sittings without it appearing half-finished on the open web.
     published TINYINT(1) NOT NULL DEFAULT 0,

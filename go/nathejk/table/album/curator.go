@@ -68,6 +68,15 @@ type CuratorAlbum struct {
 	Description string
 	SortOrder   int
 
+	// SortMode is the rule the album's photographs are arranged by — `album.SortMode*` (PRD 024 §6 R1).
+	//
+	// On the curator's type only. It is a setting for how the album is maintained rather than a property of
+	// the published album, so the public `Album` deliberately does not carry it: a reader sees the order, and
+	// whether a curator arranged it by hand or asked for capture time is none of the open web's business.
+	//
+	// Not to be confused with SortOrder above, which is this album's place among the frontpage's albums.
+	SortMode string
+
 	// Published is whether it is on the public frontpage.
 	Published bool
 	// Deleted is whether the curator took it down.
@@ -123,7 +132,7 @@ type curatorQuerier struct {
 // All returns every album in the year.
 func (q curatorQuerier) All(year string) ([]CuratorAlbum, error) {
 	rows, err := q.db.Query(`
-		SELECT a.albumId, a.slug, a.title, a.description, a.sortOrder,
+		SELECT a.albumId, a.slug, a.title, a.description, a.sortOrder, a.sortMode,
 		       a.published, a.deleted, a.createdAt,
 		       (SELECT COUNT(*) FROM album_item i
 		         JOIN photo p ON p.photoId = i.photoId
@@ -147,7 +156,7 @@ func (q curatorQuerier) All(year string) ([]CuratorAlbum, error) {
 		// NULL when the album has no live item, which is the normal state of a new album — so a nullable scan
 		// rather than a COALESCE, to keep "no cover" distinguishable from a photo id that is somehow empty.
 		var cover sql.NullString
-		if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Description, &a.SortOrder,
+		if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Description, &a.SortOrder, &a.SortMode,
 			&published, &deleted, &a.CreatedAt, &a.ItemCount, &cover); err != nil {
 			return nil, err
 		}
@@ -166,7 +175,7 @@ func (q curatorQuerier) Album(year, albumID string) (CuratorAlbum, []CuratorItem
 	}
 
 	rows, err := q.db.Query(`
-		SELECT a.albumId, a.slug, a.title, a.description, a.sortOrder,
+		SELECT a.albumId, a.slug, a.title, a.description, a.sortOrder, a.sortMode,
 		       a.published, a.deleted, a.createdAt,
 		       (SELECT COUNT(*) FROM album_item i
 		         JOIN photo p ON p.photoId = i.photoId
@@ -188,7 +197,7 @@ func (q curatorQuerier) Album(year, albumID string) (CuratorAlbum, []CuratorItem
 	var a CuratorAlbum
 	var published, deleted int
 	var cover sql.NullString
-	if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Description, &a.SortOrder,
+	if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Description, &a.SortOrder, &a.SortMode,
 		&published, &deleted, &a.CreatedAt, &a.ItemCount, &cover); err != nil {
 		return CuratorAlbum{}, nil, false, err
 	}

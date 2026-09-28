@@ -6,6 +6,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"testing"
+	"time"
 
 	"nathejk.dk/internal/imaging"
 )
@@ -42,6 +43,11 @@ func fuzzSeeds(f *testing.F) {
 	f.Add(pngBuf.Bytes())
 	f.Add(jpegWithOrientation(f, gradient(24, 16), 6, false))
 	f.Add(jpegWithOrientation(f, gradient(24, 16), 3, true))
+	// A file carrying each of the two sub-IFDs these readers walk into, so the corpus starts
+	// from shapes where the pointer arithmetic actually runs rather than bailing at the TIFF
+	// header.
+	f.Add(jpegWithGPS(f, coord(55, 43, 59.74, 'N'), coord(12, 15, 53.35, 'E'), gpsOptions{}))
+	f.Add(jpegWithShotAt(f, "2026:09:12 23:41:07", shotOptions{}))
 	// Structurally interesting nonsense: a bare SOI, a segment claiming a huge length,
 	// and a PNG signature with no chunks.
 	f.Add([]byte{0xFF, 0xD8})
@@ -61,6 +67,51 @@ func FuzzReadOrientation(f *testing.F) {
 		got := imaging.ReadOrientation(data)
 		if got < 1 || got > 8 {
 			t.Fatalf("orientation = %d, want 1-8", got)
+		}
+	})
+}
+
+// FuzzReadShotAt and FuzzReadGPS: never panic, and never return a value that is not sane.
+//
+// # Why these were missing
+//
+// The file's own comment above claimed to cover "these two functions" while naming the two that *were*
+// fuzzed — and `ReadGPS`, added later, walks strictly more structure than `ReadOrientation` does: a
+// sub-IFD pointer, then RATIONALs at a second offset. It had table-driven tests for every break somebody
+// thought of and no fuzzing for the ones nobody did. `ReadShotAt` (task 440) walks the same shape again,
+// which is what made the gap visible.
+//
+// The value assertions matter as much as the absence of a panic, and for the same reason as
+// FuzzReadOrientation's range check: a parser that survives but returns nonsense is the failure that gets
+// discovered months later. A coordinate outside the Earth is a pin nowhere; a capture time outside the
+// plausible range would sort an album by a camera's broken clock.
+func FuzzReadShotAt(f *testing.F) {
+	fuzzSeeds(f)
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		got, ok := imaging.ReadShotAt(data, time.UTC)
+		if !ok {
+			if !got.IsZero() {
+				t.Fatalf("ok=false must mean the zero time, got %s", got)
+			}
+			return
+		}
+		if y := got.Year(); y < 2000 || y > 2100 {
+			t.Fatalf("accepted year %d, which ReadShotAt documents as out of range", y)
+		}
+	})
+}
+
+func FuzzReadGPS(f *testing.F) {
+	fuzzSeeds(f)
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		lat, lng, ok := imaging.ReadGPS(data)
+		if !ok {
+			return
+		}
+		if lat < -90 || lat > 90 || lng < -180 || lng > 180 {
+			t.Fatalf("accepted a coordinate off the Earth: %f, %f", lat, lng)
 		}
 	})
 }

@@ -49,9 +49,14 @@ type adminAlbumSummary struct {
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
 	SortOrder   int    `json:"sortOrder"`
-	Published   bool   `json:"published"`
-	Deleted     bool   `json:"deleted,omitempty"`
-	ItemCount   int    `json:"itemCount"`
+
+	// SortMode is the rule the album's photographs are arranged by (PRD 024 §6 R10), so the editor card can
+	// show the curator what is in force. Never on a public read — see `album.CuratorAlbum.SortMode`.
+	SortMode string `json:"sortMode,omitempty"`
+
+	Published bool `json:"published"`
+	Deleted   bool `json:"deleted,omitempty"`
+	ItemCount int  `json:"itemCount"`
 
 	// CoverPhotoID is the photograph the album opens with, or absent when it has none (task 391).
 	//
@@ -65,7 +70,7 @@ type adminAlbumSummary struct {
 // listAdminAlbumsHandler returns every album in the year, drafts included.
 //
 // @Summary      List the year's albums
-// @Description  Returns every album in the configured event year, **including unpublished and deleted ones**, in curator order. That is the opposite of the public read, which shows only published albums and answers the same "not found" for unknown, unpublished and deleted so drafts cannot be enumerated — which is why this one is on the curator interface and behind the admin credential. Unpaged: a year holds three to five albums, or tens at most. Requires the admin credential.
+// @Description  Returns every album in the configured event year, **including unpublished and deleted ones**, in curator order. Each album carries its `sortMode`, the rule its photographs are arranged by, which no public read exposes. That is the opposite of the public read, which shows only published albums and answers the same "not found" for unknown, unpublished and deleted so drafts cannot be enumerated — which is why this one is on the curator interface and behind the admin credential. Unpaged: a year holds three to five albums, or tens at most. Requires the admin credential.
 // @Tags         admin
 // @Produce      json
 // @Success      200  {object}  listAdminAlbumsResponse
@@ -95,6 +100,7 @@ func (app *application) listAdminAlbumsHandler(w http.ResponseWriter, r *http.Re
 			Title:        a.Title,
 			Description:  a.Description,
 			SortOrder:    a.SortOrder,
+			SortMode:     a.SortMode,
 			Published:    a.Published,
 			Deleted:      a.Deleted,
 			ItemCount:    a.ItemCount,
@@ -130,19 +136,24 @@ type updateAdminAlbumRequest struct {
 	// CoverPhotoID chooses the photograph the album opens with (task 396); "" clears the choice, so the first
 	// photograph is the cover again. Must be a live photograph in this album.
 	CoverPhotoID *string `json:"coverPhotoId,omitempty"`
+
+	// SortMode changes how the album's photographs are arranged (PRD 024 §6 R1). One of `album.SortModes()`;
+	// anything else is refused rather than ignored, because a mode nothing implements would leave the album
+	// in a state no later recompute can explain.
+	SortMode *string `json:"sortMode,omitempty"`
 }
 
 // updateAdminAlbumHandler edits an album.
 //
 // @Summary      Edit an album
-// @Description  Changes an album's title, description, sort order, cover, or whether it is published. The cover is a photograph in the album chosen by `coverPhotoId`; an empty string clears the choice, and the first photograph is the cover whenever there is no live choice. Every field is optional and only the ones sent are written, so editing one cannot wipe another. **The slug cannot be changed**: it is the album's public address and a retitled album answering 404 is a dead link in somebody's chat history. Publishing is only expressible here, never on create, because an album is assembled over several sittings. Unpublishing removes the album from the public frontpage within that page's 60-second cache window. Requires the admin credential.
+// @Description  Changes an album's title, description, sort order, cover, sort mode, or whether it is published. The cover is a photograph in the album chosen by `coverPhotoId`; an empty string clears the choice, and the first photograph is the cover whenever there is no live choice. `sortMode` is the rule the album's **photographs** are arranged by — one of `manual`, `time-asc`, `time-desc`, `filename-asc`, `filename-desc` — and is not the same thing as `sortOrder`, which is the album's place among the frontpage's albums; an unknown mode is refused with 400 rather than ignored. Every field is optional and only the ones sent are written, so editing one cannot wipe another. **The slug cannot be changed**: it is the album's public address and a retitled album answering 404 is a dead link in somebody's chat history. Publishing is only expressible here, never on create, because an album is assembled over several sittings. Unpublishing removes the album from the public frontpage within that page's 60-second cache window. Requires the admin credential. **The slug cannot be changed**: it is the album's public address and a retitled album answering 404 is a dead link in somebody's chat history. Publishing is only expressible here, never on create, because an album is assembled over several sittings. Unpublishing removes the album from the public frontpage within that page's 60-second cache window. Requires the admin credential.
 // @Tags         admin
 // @Accept       json
 // @Produce      json
 // @Param        albumId  path      string                   true  "album id"
 // @Param        request  body      updateAdminAlbumRequest  true  "the fields to change"
 // @Success      200  {object}  adminAlbumSummary
-// @Failure      400  {object}  map[string]string  "nothing to change, or an unusable value"
+// @Failure      400  {object}  map[string]string  "nothing to change, an unusable value, or an unknown sort mode"
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
 // @Failure      404  {object}  map[string]string  "unknown album"
@@ -163,7 +174,7 @@ func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if in.Title == nil && in.Description == nil && in.SortOrder == nil && in.Published == nil && in.CoverPhotoID == nil {
+	if in.Title == nil && in.Description == nil && in.SortOrder == nil && in.Published == nil && in.CoverPhotoID == nil && in.SortMode == nil {
 		// Refused rather than treated as a no-op: a request that changes nothing is a broken client, and the fold
 		// would silently drop it.
 		app.BadRequestResponse(w, r, errors.New("der er ingen ændringer i forespørgslen"))
@@ -183,6 +194,14 @@ func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.R
 	}
 	if in.Description != nil && len([]rune(*in.Description)) > maxAdminAlbumDesc {
 		app.BadRequestResponse(w, r, errors.New("beskrivelsen er for lang"))
+		return
+	}
+	if in.SortMode != nil && !album.ValidSortMode(*in.SortMode) {
+		// 400 rather than silently dropping the field: a tool sending a mode this app does not implement has
+		// a bug, and a curator watching the select snap back with no explanation would assume the album was
+		// re-sorted anyway.
+		app.BadRequestResponse(w, r, fmt.Errorf("sorteringen “%s” kendes ikke — brug en af: %s",
+			*in.SortMode, strings.Join(album.SortModes(), ", ")))
 		return
 	}
 
@@ -220,6 +239,7 @@ func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.R
 		SortOrder:    in.SortOrder,
 		Published:    in.Published,
 		CoverPhotoID: in.CoverPhotoID,
+		SortMode:     in.SortMode,
 		UpdatedAt:    time.Now().UTC(),
 	}); perr != nil {
 		app.writeAlbumPublishFailure(w, r, perr)
@@ -243,6 +263,7 @@ func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.R
 		Title:       a.Title,
 		Description: a.Description,
 		SortOrder:   a.SortOrder,
+		SortMode:    a.SortMode,
 		Published:   a.Published,
 		Deleted:     a.Deleted,
 		ItemCount:   a.ItemCount,
@@ -258,6 +279,9 @@ func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.R
 	}
 	if in.Published != nil {
 		out.Published = *in.Published
+	}
+	if in.SortMode != nil {
+		out.SortMode = *in.SortMode
 	}
 
 	if err := app.WriteJSON(w, http.StatusOK, out, nil); err != nil {
@@ -519,7 +543,7 @@ type createAdminAlbumResponse struct {
 // createAdminAlbumHandler opens a new, unpublished album.
 //
 // @Summary      Create an album
-// @Description  Creates an empty album in the configured event year. **Always unpublished**: an album is assembled over several sittings, and a create that could publish would put the first photograph on the open web before the second was chosen. Publishing is a separate edit. The slug is derived from the title and frozen at creation, because it is the album's public address and a retitled album must not break a link somebody already shared. Requires the admin credential.
+// @Description  Creates an empty album in the configured event year. **Always unpublished**: an album is assembled over several sittings, and a create that could publish would put the first photograph on the open web before the second was chosen. Publishing is a separate edit. A new album's photographs are sorted `time-asc`, which the server chooses and the request cannot set; the mode is changed afterwards through the edit endpoint. The slug is derived from the title and frozen at creation, because it is the album's public address and a retitled album must not break a link somebody already shared. Requires the admin credential.
 // @Tags         admin
 // @Accept       json
 // @Produce      json
@@ -633,6 +657,12 @@ func (app *application) createAdminAlbum(year, title, description string, sortOr
 	// **Unpublished, unconditionally.** Not a default the caller may override: there is no parameter for it and
 	// no branch here. `album.Created` carries no `published` either (task 363), so publishing is expressible
 	// only as a separate update — which is what keeps a half-assembled album off the open web.
+	//
+	// **`time-asc`, also unconditionally**, and this is the half of PRD 024 §6 R9 that lives in code. A new
+	// album is time-ordered because this line chose it, not because the column defaults to it — the column
+	// defaults to `manual` so that every album which already exists keeps the arrangement a curator made by
+	// hand. No parameter for the same reason as `published`: a creator picking a mode is a setting, and
+	// settings belong on the update where they can be changed again.
 	if err := app.publishAlbum(year, album.VerbCreated, albumID, album.Created{
 		AlbumID:     albumID,
 		Year:        year,
@@ -640,6 +670,7 @@ func (app *application) createAdminAlbum(year, title, description string, sortOr
 		Title:       title,
 		Description: description,
 		SortOrder:   sortOrder,
+		SortMode:    album.SortModeTimeAsc,
 		CreatedAt:   time.Now().UTC(),
 	}); err != nil {
 		return "", "", &adminAlbumCreateError{Kind: adminAlbumCreatePublish, Err: err}

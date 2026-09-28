@@ -26,6 +26,8 @@ import (
 	"image"
 	"image/draw"
 	"image/jpeg"
+	"strings"
+	"time"
 
 	// Decoders only. Uploads may be PNG or GIF; everything is re-encoded to JPEG.
 	_ "image/gif"
@@ -594,6 +596,104 @@ func ReadGPS(raw []byte) (lat, lng float64, ok bool) {
 	return latVal, lngVal, true
 }
 
+// ReadShotAt returns when the photograph was taken, as its own EXIF says, in `loc`.
+//
+// # Why the library needs this and cannot use the upload time
+//
+// PRD 024 lets a curator put an album in capture order. Nothing else in the service knows when a
+// photograph was taken: the projection has `uploadedAt`, and that is **not** a usable substitute — the
+// admin uploader runs three requests at a time (PRD 022 §6), so arrival order is not even file order, let
+// alone exposure order. A card dumped into an album would come out shuffled by network timing.
+//
+// Read from the **original bytes, before re-encoding**, for the same reason and under the same rules as
+// ReadGPS: `Prepare` re-encodes from pixels and destroys all of this. The value then lives in a column a
+// curator can see, which is the distinction ReadGPS's comment draws — a timestamp in a column is a
+// decision somebody made, a timestamp inside a stored file is nobody's.
+//
+// Unlike a coordinate, a capture time is not sensitive: it says when, not where, and the event's dates are
+// published. It still reaches no public read, because nothing asks it to.
+//
+// # What it accepts, and what it refuses
+//
+// Only `DateTimeOriginal` (0x9003), in the Exif sub-IFD. Deliberately **not** `DateTime` (0x0132) in
+// IFD0, which is the *file's* timestamp rather than the exposure's: a card reader, a copy or an editing
+// tool rewrites it, so falling back to it would silently sort an album by "when this file was last
+// touched". Absent is a better answer than a plausible wrong one — the caller has `uploadedAt` to fall
+// back to, and knows that it is falling back.
+//
+// EXIF writes the timestamp as ASCII `YYYY:MM:DD HH:MM:SS` **with no timezone**, so `loc` supplies one. A
+// Nathejk photograph was taken at Nathejk; callers pass `eventtime.Location()`. nil means UTC.
+//
+// Every malformed case is "the file did not say", following ReadOrientation and ReadGPS. That includes two
+// that are structurally fine and semantically rubbish, both of which arrive from real cameras:
+//
+//   - the all-zero and all-space forms written when a camera's clock has never been set;
+//   - a year outside [shotYearFloor, shotYearCeiling]. A borrowed camera with a dead battery reports 1980,
+//     and at an event where half the cameras are borrowed that is not a corner case. Sorting on it would
+//     park those photographs at one end of the album, which reads as a broken sort rather than as a camera
+//     nobody set.
+func ReadShotAt(raw []byte, loc *time.Location) (time.Time, bool) {
+	if loc == nil {
+		loc = time.UTC
+	}
+
+	exif := findExifSegment(raw)
+	if len(exif) < 8 {
+		return time.Time{}, false
+	}
+
+	order, ifd, ok := tiffHeader(exif)
+	if !ok {
+		return time.Time{}, false
+	}
+
+	// IFD0 holds a pointer to the Exif sub-IFD; DateTimeOriginal lives in there, not in IFD0 itself. The
+	// same shape as the GPS pointer above, one tag along.
+	exifIFD, ok := ifdLongTag(exif, order, ifd, 0x8769)
+	if !ok {
+		return time.Time{}, false
+	}
+
+	value, ok := ifdASCIIAt(exif, order, exifIFD, 0x9003, 64)
+	if !ok {
+		return time.Time{}, false
+	}
+	return parseExifTime(value, loc)
+}
+
+// The years a Nathejk photograph can plausibly have been taken in. See ReadShotAt: outside this the
+// camera's clock is wrong rather than the photograph being old, and a wrong time is worse than none.
+const (
+	shotYearFloor   = 2000
+	shotYearCeiling = 2100
+)
+
+// parseExifTime reads EXIF's `YYYY:MM:DD HH:MM:SS`.
+//
+// Separate from ReadShotAt so the string rules can be tested without building a JPEG around them — which
+// is where the interesting cases are, since they come from cameras rather than from attackers.
+func parseExifTime(value string, loc *time.Location) (time.Time, bool) {
+	const layout = "2006:01:02 15:04:05"
+
+	// The stored value is NUL-terminated, and some writers pad with spaces. Trimmed rather than sliced to
+	// length, so that a value which is too short says so by failing the check below.
+	v := strings.TrimRight(value, "\x00 ")
+	if len(v) != len(layout) {
+		return time.Time{}, false
+	}
+
+	// ParseInLocation does the range checking: month 13 and day 32 are errors rather than wrap-arounds.
+	// That is what makes the all-zero form ("0000:00:00 00:00:00") a refusal with no special case for it.
+	t, err := time.ParseInLocation(layout, v, loc)
+	if err != nil {
+		return time.Time{}, false
+	}
+	if t.Year() < shotYearFloor || t.Year() > shotYearCeiling {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
 // tiffHeader parses the byte order and first-IFD offset shared by every EXIF reader here.
 //
 // Factored out of ReadOrientation when ReadGPS needed the same three checks. One parser for the header
@@ -657,6 +757,34 @@ func ifdLongTag(exif []byte, order binary.ByteOrder, offset int, tag uint16) (in
 		return 0, false
 	}
 	return int(order.Uint32(entry[8:12])), true
+}
+
+// ifdASCIIAt reads an ASCII tag whose value is held **at an offset** rather than inline.
+//
+// The mirror image of gpsRef, which refuses a value at an offset because a hemisphere ref never
+// legitimately has one. Here the opposite holds: a timestamp is 20 bytes and so can never be inline, and a
+// count of four or fewer means the value sits in the entry itself — a different shape from the one asked
+// for, so it is refused rather than read from the wrong place.
+//
+// `max` bounds what the caller is willing to read, because `count` is a number out of the file.
+func ifdASCIIAt(exif []byte, order binary.ByteOrder, ifd int, tag uint16, max int) (string, bool) {
+	entry, ok := ifdEntry(exif, order, ifd, tag)
+	if !ok {
+		return "", false
+	}
+	if order.Uint16(entry[2:4]) != 2 { // ASCII
+		return "", false
+	}
+	count := int(order.Uint32(entry[4:8]))
+	if count <= 4 || count > max {
+		return "", false
+	}
+	at := int(order.Uint32(entry[8:12]))
+	// Bounds-checked against the block, as everything here is: `at` and `count` both come from the file.
+	if at < 8 || at > len(exif) || at+count > len(exif) {
+		return "", false
+	}
+	return string(exif[at : at+count]), true
 }
 
 // gpsRef reads a one-character ASCII hemisphere tag (N/S/E/W).

@@ -43,6 +43,14 @@ type Created struct {
 	Description string `json:"description,omitempty"`
 	SortOrder   int    `json:"sortOrder,omitempty"`
 
+	// SortMode is how the album's photographs will be arranged (PRD 024 §6 R9). The create handler sets
+	// `time-asc`; empty means the fold leaves the column at its default, which is `manual`.
+	//
+	// That is the whole of R9's two-places default, and the asymmetry is deliberate: an album created today
+	// is time-ordered because code chose it, while a log replayed from before this field existed folds to
+	// `manual` and keeps the arrangement somebody made by hand.
+	SortMode string `json:"sortMode,omitempty"`
+
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -71,6 +79,13 @@ type Updated struct {
 	// back to the first live item — the rule before there was a choice, and still the rule when the chosen one
 	// leaves the album or the library.
 	CoverPhotoID *string `json:"coverPhotoId,omitempty"`
+
+	// SortMode changes how the album's photographs are arranged. See the constants below for the values.
+	//
+	// A pointer like the rest, and for the extra reason that the empty string is not a legal mode: nil is the
+	// only way to say "not mentioned", so the fold can refuse an empty string as the malformed message it is
+	// rather than guessing which mode was meant.
+	SortMode *string `json:"sortMode,omitempty"`
 
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -146,3 +161,49 @@ const (
 // not — we could not check it, and plotting an unchecked coordinate on a public page is the failure
 // this whole verdict exists to prevent.
 func Plottable(verdict string) bool { return verdict == BoundsInside }
+
+// The sort modes an album's photographs may be arranged by (PRD 024 §6 R1).
+//
+// A mode says **when the ordinals are recomputed**, not how a read orders rows: `album_item.ordinal` is what
+// the curator's grid and the public page both read, so a mode is applied by rewriting ordinals and
+// publishing one reorder (PRD 024 §8 D1). `manual` therefore costs nothing — it means never.
+//
+// Nothing here concerns `album.sortOrder`, which sequences albums against each other on the frontpage.
+//
+// Constants rather than free strings for the reason the verdicts above give, with one addition specific to
+// these: a mode that is neither `manual` nor a rule anything implements would not error, it would quietly
+// stop an album from being re-sorted with nothing to say why. `ValidSortMode` is the one gate, and the fold
+// and the handlers both go through it.
+const (
+	// SortModeManual is a hand arrangement, and the value that means "leave it alone". It is the column's
+	// default, so an album written before this existed is never re-sorted behind its curator's back — see
+	// table.sql for why that default is not `time-asc`.
+	SortModeManual = "manual"
+	// SortModeTimeAsc and SortModeTimeDesc order by capture time, falling back to upload time for a
+	// photograph whose file did not record one.
+	SortModeTimeAsc  = "time-asc"
+	SortModeTimeDesc = "time-desc"
+	// SortModeFilenameAsc and SortModeFilenameDesc order by filename, compared case-insensitively: two
+	// cameras in one album otherwise separate `IMG_*.JPG` from `img_*.jpg` into two blocks.
+	SortModeFilenameAsc  = "filename-asc"
+	SortModeFilenameDesc = "filename-desc"
+)
+
+// SortModes lists the modes in the order a curator is offered them, so that a caller reporting a refusal can
+// say what it would have accepted instead of carrying a second copy of the list that drifts from this one.
+func SortModes() []string {
+	return []string{SortModeManual, SortModeTimeAsc, SortModeTimeDesc, SortModeFilenameAsc, SortModeFilenameDesc}
+}
+
+// ValidSortMode reports whether a mode is one this app implements.
+//
+// The empty string is **not** valid. An absent mode is expressed by not sending the field — on `Created` by
+// leaving it empty so the column's default stands, on `Updated` by a nil pointer — and accepting "" here as a
+// synonym for `manual` would let a blank select silently un-sort an album.
+func ValidSortMode(mode string) bool {
+	switch mode {
+	case SortModeManual, SortModeTimeAsc, SortModeTimeDesc, SortModeFilenameAsc, SortModeFilenameDesc:
+		return true
+	}
+	return false
+}
