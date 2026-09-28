@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
+	"nathejk.dk/internal/eventtime"
 	"nathejk.dk/internal/imaging"
 	"nathejk.dk/nathejk/table/album"
 	"nathejk.dk/nathejk/table/checkpoint"
@@ -57,6 +59,13 @@ type albumMediaPrepared struct {
 	Height int
 	Bytes  int
 
+	// ShotAt is when the camera says the photograph was taken, or nil when the file did not say.
+	//
+	// Read here rather than by the caller for the same reason the coordinate is: after `imaging.Prepare`
+	// there is nothing left to read, so this is the only moment it exists. See ShotAt on `photo.Uploaded`
+	// for why nil is a normal answer rather than a failure.
+	ShotAt *time.Time
+
 	// Location is nil unless the file carried a usable coordinate, which is the common case.
 	//
 	// A `*photo.Location` rather than a lat, a lng and a verdict side by side, for the reason that type's
@@ -105,6 +114,9 @@ const mediumEdge = 800
 func (app *application) storeAlbumImage(ctx context.Context, year string, raw []byte) (albumMediaPrepared, error) {
 	// Read first. After Prepare there is nothing left to read — which is the whole design.
 	lat, lng, hasCoordinate := imaging.ReadGPS(raw)
+	// The event's own clock, not the server's: EXIF carries no timezone, and a Nathejk photograph was taken
+	// at Nathejk (task 440).
+	shotAt, hasShotAt := imaging.ReadShotAt(raw, eventtime.Location())
 
 	prepared, err := imaging.Prepare(raw, maxGlimtEdge, libraryThumbEdges, glimtJPEGQuality, false)
 	if err != nil {
@@ -140,6 +152,9 @@ func (app *application) storeAlbumImage(ctx context.Context, year string, raw []
 		Width:     prepared.Full.Width,
 		Height:    prepared.Full.Height,
 		Bytes:     len(prepared.Full.Bytes),
+	}
+	if hasShotAt {
+		out.ShotAt = &shotAt
 	}
 	if hasCoordinate {
 		// The verdict is decided here, at ingest, and travels with the coordinate. Never recomputed on

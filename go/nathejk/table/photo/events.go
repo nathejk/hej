@@ -71,6 +71,16 @@ type Uploaded struct {
 	// judgement made about it are one fact.
 	Location *Location `json:"location,omitempty"`
 
+	// ShotAt is when the camera says the photograph was taken, read from EXIF `DateTimeOriginal`
+	// **before** the bytes were re-encoded (which strips it) — see `imaging.ReadShotAt`.
+	//
+	// Nil when the file did not say, or said something a camera with an unset clock writes, which is a
+	// large minority of files. Readers fall back to `UploadedAt`; PRD 024 §6 R3 is that rule.
+	//
+	// A pointer rather than a zero time because "the file did not say" is a fact worth keeping distinct
+	// from any particular instant, and because the column it folds into is NULL-able for the same reason.
+	ShotAt *time.Time `json:"shotAt,omitempty"`
+
 	UploadedAt time.Time `json:"uploadedAt"`
 }
 

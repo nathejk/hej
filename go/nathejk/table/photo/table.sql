@@ -172,6 +172,17 @@ CREATE TABLE IF NOT EXISTS photo (
     -- photograph nobody touched.
     boundsVerdict VARCHAR(16) NOT NULL DEFAULT "none",
 
+    -- When the camera says the photograph was taken, from EXIF `DateTimeOriginal`, read before the bytes
+    -- were re-encoded (PRD 024 §6 R3, task 440).
+    --
+    -- NULL when the file did not say — no EXIF, a format that carries none, or a camera whose clock had
+    -- never been set. That is a large minority of files, so every reader needs the fallback rather than
+    -- treating NULL as exceptional: the album sort uses `uploadedAt` for those.
+    --
+    -- Not the same thing as `uploadedAt` and not derivable from it. The admin uploader runs three requests
+    -- at a time, so arrival order is not even file order, let alone exposure order.
+    shotAt DATETIME NULL DEFAULT NULL,
+
     uploadedAt DATETIME NOT NULL,
 
     -- Soft delete, as in `album`, `checkgroup`, `checkpoint` and `person`: the last event wins, and a

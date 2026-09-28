@@ -82,6 +82,79 @@ function initAdminTool() {
   // AndJavaScript` holds them equal.
   ctx.photoCount = (n) => (n === 1 ? '1 billede' : n + ' billeder');
 
+  // settled waits until the library can name every one of these ids, and says whether it got there (task 439).
+  //
+  // # Why every write in this tool needs this
+  //
+  // A write here **publishes an event**; every grid and sheet reads a projection a jetstream consumer folds from
+  // that event. The two are milliseconds apart in a healthy system and not ordered at all in principle, so
+  // reloading the instant a response lands is a read with nothing behind it. That is a real report, not a theory:
+  // a curator was left with a list of uploaded photographs above a grid that did not have them (task 437).
+  //
+  // The condition being waited for is not a proxy for anything. Getting an id back from a **read** is the fold
+  // having happened (task 438) — the id is in the write's response, so there is nothing to infer and nothing a
+  // second curator working at the same time can satisfy on our behalf.
+  //
+  // # Why it lives here
+  //
+  // The uploader is the first caller and PRD 024 §8 brings the next; the eight actions that reload after a write
+  // have the same race. Eight copies of a polling loop is the outcome this exists to prevent, so the loop is on
+  // the context and the callers pass ids.
+  //
+  // Deliberately **not** given to a caller that has no ids to wait for: `settled([])` is honest about a batch that
+  // stored nothing, but a caller that cannot name what it wrote needs its own answer to "which ids prove this
+  // landed" — and for the removals that answer is an id *disappearing*, which is a different read.
+  //
+  // Answers a plain boolean, because both ways of failing — the deadline passed, or the read itself broke — leave
+  // the caller with exactly one thing to do: refresh anyway and admit it may be behind. A caller that needs to
+  // name the stragglers should get that added here rather than polling on its own.
+
+  // How long the projection is given to catch up. Far longer than the fold takes, and short enough that a broken
+  // consumer is reported rather than waited out.
+  const SETTLE_MS = 10000;
+  // Ids per presence request. The endpoint refuses more than 200 (`maxAdminLibraryIDs`), and a card is routinely
+  // three hundred photographs, so asking is chunked. 100 keeps each answer prompt.
+  const IDS_PER_ASK = 100;
+
+  // seen asks which of these ids the library can see, and returns them as a Set.
+  //
+  // `ids=` is a presence read: the filter composes with the default "live only", so a photograph a curator
+  // deleted correctly comes back absent. Returns null if the read fails — an answer we could not get is not an
+  // answer that says "not yet".
+  const seen = async (ids) => {
+    try {
+      const url = '/api/admin/photos?limit=' + ids.length + '&ids=' + ids.map(encodeURIComponent).join(',');
+      const res = await ctx.fetch(url);
+      if (!res.ok) return null;
+      const out = await res.json();
+      if (!out || !out.photos) return null;
+      return new Set(out.photos.map((p) => p.id));
+    } catch (err) {
+      return null;
+    }
+  };
+
+  // Ids already accounted for are dropped from the next round, so a batch of three hundred converges instead of
+  // re-asking after the ones that arrived first. Backs off, so a slow fold costs a few requests rather than a poll
+  // per frame.
+  ctx.settled = async (ids) => {
+    const deadline = Date.now() + SETTLE_MS;
+    let waiting = ids.slice();
+    for (let delay = 150; ; delay = Math.min(delay * 2, 1000)) {
+      const still = [];
+      for (let i = 0; i < waiting.length; i += IDS_PER_ASK) {
+        const chunk = waiting.slice(i, i + IDS_PER_ASK);
+        const there = await seen(chunk);
+        if (there === null) return false; // a failed read is not a reason to keep asking
+        for (const id of chunk) if (!there.has(id)) still.push(id);
+      }
+      waiting = still;
+      if (!waiting.length) return true;
+      if (Date.now() + delay > deadline) return false;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  };
+
   initSheetShell(ctx);
   initContactSheet(ctx);
 

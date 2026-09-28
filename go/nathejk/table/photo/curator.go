@@ -205,6 +205,15 @@ type LibraryPhoto struct {
 	// Deleted is whether the curator removed it. Only ever true when Filter.IncludeDeleted was set.
 	Deleted bool
 
+	// ShotAt is when the camera says the photograph was taken, or "" when the file did not say.
+	//
+	// A string in the projection's own `YYYY-MM-DD HH:MM:SS`, like UploadedAt below, and that is useful
+	// rather than merely consistent: the format is fixed-width, so **comparing these as strings compares
+	// them chronologically**. The album sort therefore needs no parsing and has no parse error to handle —
+	// and "" sorts before every real timestamp, which is not the wanted behaviour and is exactly why the
+	// sort substitutes UploadedAt rather than comparing this field raw (PRD 024 §6 R3).
+	ShotAt string
+
 	// UploadedAt is when it entered the library, which is what the contact sheet orders by.
 	UploadedAt string
 }
@@ -233,7 +242,7 @@ type curatorQuerier struct {
 // and a column added to one and not the other is a silent zero value.
 const libraryColumns = `
 	p.photoId, p.blobRef, p.thumbRef, p.mediumRef, p.caption, p.credit, p.width, p.height, p.bytes,
-	p.latitude, p.longitude, p.boundsVerdict, p.deleted, p.uploadedAt,
+	p.latitude, p.longitude, p.boundsVerdict, p.deleted, p.shotAt, p.uploadedAt,
 	(SELECT COUNT(*) FROM album_item i
 	  WHERE i.photoId = p.photoId AND i.deleted = 0) AS albumCount,
 	(SELECT COUNT(*) FROM photo_patrol t
@@ -409,11 +418,14 @@ func scanLibraryPhoto(rows *sql.Rows) (LibraryPhoto, error) {
 	var p LibraryPhoto
 	var lat, lng sql.NullFloat64
 	var deleted int
+	var shotAt sql.NullString
 	if err := rows.Scan(&p.ID, &p.Ref, &p.ThumbRef, &p.MediumRef, &p.Caption, &p.Credit, &p.Width, &p.Height, &p.Bytes,
-		&lat, &lng, &p.BoundsVerdict, &deleted, &p.UploadedAt,
+		&lat, &lng, &p.BoundsVerdict, &deleted, &shotAt, &p.UploadedAt,
 		&p.AlbumCount, &p.TagCount); err != nil {
 		return LibraryPhoto{}, err
 	}
+	// NULL becomes "", which is how every reader here spells "the file did not say" — see ShotAt's doc.
+	p.ShotAt = shotAt.String
 	// Both halves or neither, as everywhere else: a row with one is not a position.
 	if lat.Valid && lng.Valid {
 		latVal, lngVal := lat.Float64, lng.Float64

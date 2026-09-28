@@ -137,19 +137,44 @@ func (c consumer) handleUploaded(msg cqrs.Message, year string) error {
 
 	lat, lng, verdict := locationColumns(body.Location)
 
+	// The file's own metadata (task 441). `shotAt` is NULL and `fileName` is "" when the file did not say.
+	shotAt := "NULL"
+	if body.ShotAt != nil && !body.ShotAt.IsZero() {
+		shotAt = quote(formatTime(*body.ShotAt))
+	}
+
+	// **Fill a gap, never open one**, which is why `shotAt` is not a plain `VALUES(...)` like the
+	// renditions above.
+	//
+	// A re-upload of the same photograph is the documented recovery procedure when a batch half-failed
+	// (task 372), and the id is the hash of the *stored rendition* — so the same photoId can legitimately
+	// arrive from a **different file**: the same pixels with the EXIF stripped, or re-saved by an editor. A
+	// plain upsert would let that second file blank a capture time the first one supplied, and an album
+	// sorted by time would reorder underneath the curator for a photograph nobody meant to touch.
+	//
+	// The other direction is worth having: a photograph first uploaded without EXIF and later re-uploaded
+	// from the original does gain its capture time. So the rule is exactly "a later file may add what the
+	// earlier one lacked, and may not take away".
+	//
+	// `caption` and `credit` are absent from the clause entirely rather than treated this way, because
+	// those are a curator's words: no file, however complete, has any business overwriting them.
 	return c.w.Consume(fmt.Sprintf(
 		"INSERT INTO photo SET photoId=%s, year=%s, blobRef=%s, thumbRef=%s, mediumRef=%s, "+
 			"caption=\"\", credit=\"\", "+
 			"width=%d, height=%d, bytes=%d, latitude=%s, longitude=%s, boundsVerdict=%s, "+
+			"shotAt=%s, "+
 			"uploadedAt=%s "+
 			"ON DUPLICATE KEY UPDATE "+
 			"year=VALUES(year), blobRef=VALUES(blobRef), thumbRef=VALUES(thumbRef), "+
 			"mediumRef=VALUES(mediumRef), "+
 			"width=VALUES(width), height=VALUES(height), bytes=VALUES(bytes), "+
 			"latitude=VALUES(latitude), longitude=VALUES(longitude), "+
-			"boundsVerdict=VALUES(boundsVerdict), uploadedAt=VALUES(uploadedAt)",
+			"boundsVerdict=VALUES(boundsVerdict), "+
+			"shotAt=COALESCE(VALUES(shotAt), shotAt), "+
+			"uploadedAt=VALUES(uploadedAt)",
 		quote(photoID), quote(year), quote(body.Ref), quote(thumbRef), quote(mediumRef),
 		body.Width, body.Height, body.Bytes, lat, lng, quote(verdict),
+		shotAt,
 		quote(formatTime(uploadedAt)),
 	))
 }

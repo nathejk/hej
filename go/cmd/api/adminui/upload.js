@@ -20,7 +20,7 @@
 //
 // The uploader's dependency is one line: when a batch finishes, the contact sheet is stale.
 //
-// # Why the end of a batch waits for its own ids (tasks 437, 438)
+// # Why the end of a batch waits for its own ids (tasks 437, 438, 439)
 //
 // An upload **publishes an event** and answers with the photograph's id; the grid reads a projection a consumer
 // folds from that event (see `uploadAdminPhotoHandler`). The two are milliseconds apart in a healthy system and
@@ -28,21 +28,12 @@
 // legitimately not see the photographs yet. That is what a curator reported: a list of uploaded files above a grid
 // that does not have them, and no way to act on any of them without reloading the page by hand.
 //
-// So the batch's end asks the library for **the ids it was just given**, and keeps asking until it can see them
-// all. When they come back, the photograph has been through the stream and into the projection, which is exactly
-// the condition for the grid being worth reloading — there is nothing to infer. Then the sheet reloads once and the
-// line says what happened: "12 billeder tilføjet".
-//
-// The wait is **bounded**: if the ids never arrive the sheet is reloaded anyway and the line says so, because a
-// tool that waits forever is worse than a grid that is briefly behind and admits it.
+// So the batch's end hands the ids it was given to `ctx.settled`, which asks the library for them until it can see
+// them all — and is bounded, so if they never arrive the sheet is reloaded anyway and the line says so. The wait
+// is on the context rather than here because every write in the tool has this race and PRD 024 brings the next
+// caller; the reasoning behind its shape is in main.js.
 function initUpload(ctx) {
   const CONCURRENCY = 3;
-  // How long the projection is given to catch up. Far longer than the fold takes, and short enough that a broken
-  // consumer is reported rather than waited out.
-  const SETTLE_MS = 10000;
-  // Ids per presence request. The endpoint refuses more than 200 (`maxAdminLibraryIDs`), and a card is routinely
-  // three hundred photographs, so asking is chunked. 100 keeps each answer prompt.
-  const IDS_PER_ASK = 100;
 
   const drop = document.getElementById('drop');
   const input = document.getElementById('files');
@@ -114,47 +105,6 @@ function initUpload(ctx) {
 
   // --- the end of a batch ---------------------------------------------------
 
-  // seen asks which of these ids the library can see, and returns them as a Set.
-  //
-  // `ids=` is a presence read: the filter composes with the default "live only", so a photograph a curator
-  // deleted correctly comes back absent. Returns null if the read fails — an answer we could not get is not an
-  // answer that says "not yet".
-  async function seen(ids) {
-    try {
-      const url = '/api/admin/photos?limit=' + ids.length + '&ids=' + ids.map(encodeURIComponent).join(',');
-      const res = await ctx.fetch(url);
-      if (!res.ok) return null;
-      const out = await res.json();
-      if (!out || !out.photos) return null;
-      return new Set(out.photos.map((p) => p.id));
-    } catch (err) {
-      return null;
-    }
-  }
-
-  // waitForPhotos polls until the library can name every id, or the deadline passes.
-  //
-  // Ids already accounted for are dropped from the next round, so a batch of three hundred converges instead of
-  // re-asking after the ones that arrived first. Backs off, so a slow fold costs a few requests rather than a poll
-  // per frame.
-  async function waitForPhotos(ids) {
-    const deadline = Date.now() + SETTLE_MS;
-    let waiting = ids.slice();
-    for (let delay = 150; ; delay = Math.min(delay * 2, 1000)) {
-      const still = [];
-      for (let i = 0; i < waiting.length; i += IDS_PER_ASK) {
-        const chunk = waiting.slice(i, i + IDS_PER_ASK);
-        const there = await seen(chunk);
-        if (there === null) return false; // a failed read is not a reason to keep asking
-        for (const id of chunk) if (!there.has(id)) still.push(id);
-      }
-      waiting = still;
-      if (!waiting.length) return true;
-      if (Date.now() + delay > deadline) return false;
-      await new Promise((r) => setTimeout(r, delay));
-    }
-  }
-
   async function finish(b) {
     // Nothing new in the library means nothing to wait for. The sheet is still reloaded: a re-upload of a card
     // whose photographs a colleague has since filed should show their albums.
@@ -165,7 +115,7 @@ function initUpload(ctx) {
     }
 
     note.textContent = 'Opdaterer kontaktarket…';
-    const caught = await waitForPhotos(b.stored);
+    const caught = await ctx.settled(b.stored);
     ctx.reloadSheet();
     note.textContent = caught
       ? summary(b)

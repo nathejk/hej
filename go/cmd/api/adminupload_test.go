@@ -552,54 +552,63 @@ func (c *stubPhotoCurator) MissingMedium(string, int) ([]photo.LibraryPhoto, err
 	return nil, c.err
 }
 
-// The end of a batch waits for the ids it was given, then says what happened (tasks 437, 438).
+// The end of a batch waits for the ids it was given, then says what happened (tasks 437, 438, 439).
 //
 // # Why this is worth a guard at all
 //
 // The bug it fixes is invisible in both directions. The old code *did* reload the sheet — so reading it, nothing
 // looked wrong — and the reload raced a projection the browser cannot see, so on a fast machine it often won. What
 // makes it correct is the wait, and a wait is exactly the kind of thing a later reader deletes as "why is this
-// polling?". The reason is in upload.js and repeated here.
+// polling?". The reason is in main.js and upload.js, and repeated here.
+//
+// Split across two assets since task 439: the wait itself is `ctx.settled` in main.js, because seven other writes
+// race the same projection and the next caller is PRD 024's. The uploader keeps only the decision to call it. Each
+// needle is therefore asserted against the file that owes it — a needle checked against the wrong asset would pass
+// on a tool where the wait had been dropped from one of them.
 //
 // Source-read, because there is no JavaScript runtime in this suite. The read it polls is real, though, and
 // `TestAdminLibraryFiltersByID` covers it.
 func TestTheUploadWaitsForTheProjectionBeforeSayingItIsDone(t *testing.T) {
-	// Comments stripped: the paragraph above this in upload.js explains the polling, and a needle for the polling
-	// would otherwise match the explanation instead of the code.
+	// Comments stripped: the paragraphs in both files explain the polling, and a needle for the polling would
+	// otherwise match the explanation instead of the code.
 	js := stripJSLineComments(adminAsset(t, "upload.js"))
+	main := stripJSLineComments(adminAsset(t, "main.js"))
 
-	for _, want := range []struct{ needle, why string }{
-		{"tally('stored', out.photoId);",
+	for _, want := range []struct{ file, src, needle, why string }{
+		{"upload.js", js, "tally('stored', out.photoId);",
 			"the id the upload answered with is what the wait is built on: getting it back from a read is what " +
 				"proves the event went through the stream and into the projection"},
-		{"const caught = await waitForPhotos(b.stored);",
+		{"upload.js", js, "const caught = await ctx.settled(b.stored);",
 			"the grid is reloaded once the library can name the photographs — reloading the instant the last " +
 				"response lands races the consumer that folds the event into the projection"},
-		{"for (const id of chunk) if (!there.has(id)) still.push(id);",
+		{"main.js", main, "ctx.settled = async (ids) => {",
+			"the wait is provided once on the context, so the seven other writes that race this projection get a " +
+				"call rather than a copy of the polling loop"},
+		{"main.js", main, "for (const id of chunk) if (!there.has(id)) still.push(id);",
 			"ids already seen are dropped, so a batch of three hundred converges instead of re-asking after the " +
 				"ones that arrived first"},
-		{"if (!waiting.length) return true;", "the wait ends when every id has come back"},
-		{"if (Date.now() + delay > deadline) return false;", "the wait must be bounded: a broken consumer has to " +
-			"be reported, not waited out"},
-		{"if (there === null) return false;", "a failed read is not a reason to keep asking"},
-		{"'/api/admin/photos?limit=' + ids.length + '&ids=' + ids.map(encodeURIComponent).join(',')",
+		{"main.js", main, "if (!waiting.length) return true;", "the wait ends when every id has come back"},
+		{"main.js", main, "if (Date.now() + delay > deadline) return false;", "the wait must be bounded: a broken " +
+			"consumer has to be reported, not waited out"},
+		{"main.js", main, "if (there === null) return false;", "a failed read is not a reason to keep asking"},
+		{"main.js", main, "'/api/admin/photos?limit=' + ids.length + '&ids=' + ids.map(encodeURIComponent).join(',')",
 			"the presence read is the library's own `ids` filter"},
-		{"ctx.reloadSheet();", "the sheet still refreshes itself; that was never the missing part"},
-		{"note.textContent = summary(b)", "and the curator is told what the batch did"},
+		{"upload.js", js, "ctx.reloadSheet();", "the sheet still refreshes itself; that was never the missing part"},
+		{"upload.js", js, "note.textContent = summary(b)", "and the curator is told what the batch did"},
 	} {
-		if !strings.Contains(js, want.needle) {
-			t.Errorf("upload.js no longer has %q: %s", want.needle, want.why)
+		if !strings.Contains(want.src, want.needle) {
+			t.Errorf("%s no longer has %q: %s", want.file, want.needle, want.why)
 		}
 	}
 
 	// The client chunks to something the endpoint will accept. A client asking for more than `maxAdminLibraryIDs`
 	// would get a 400 on every poll, which reads as "the photographs never arrived".
-	chunk := regexp.MustCompile(`const IDS_PER_ASK = (\d+);`).FindStringSubmatch(js)
+	chunk := regexp.MustCompile(`const IDS_PER_ASK = (\d+);`).FindStringSubmatch(main)
 	if chunk == nil {
-		t.Fatal("upload.js must state how many ids it asks about at a time")
+		t.Fatal("main.js must state how many ids it asks about at a time")
 	}
 	if n, err := strconv.Atoi(chunk[1]); err != nil || n <= 0 || n > maxAdminLibraryIDs {
-		t.Errorf("the uploader asks about %s ids at a time; the endpoint accepts at most %d",
+		t.Errorf("the wait asks about %s ids at a time; the endpoint accepts at most %d",
 			chunk[1], maxAdminLibraryIDs)
 	}
 

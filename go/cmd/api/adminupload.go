@@ -247,6 +247,7 @@ func (app *application) uploadAdminPhotoHandler(w http.ResponseWriter, r *http.R
 			Height:     stored.Height,
 			Bytes:      stored.Bytes,
 			Location:   stored.Location,
+			ShotAt:     stored.ShotAt,
 			UploadedAt: time.Now().UTC(),
 		}); perr != nil {
 			// The projection is downstream of the log, so a failed publish must not answer 200: the
@@ -298,6 +299,9 @@ func readAdminUpload(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxAdminUpload+1)
 
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		// The part's filename is deliberately **not** read. See task 448: a filename would be a person-shaped
+		// column in a projection that PRD 022 §6 says holds none, and the two privacy guards refuse it —
+		// which is them working. PRD 024's filename sort modes wait on that decision.
 		file, _, err := r.FormFile("photo")
 		if err != nil {
 			if isTooLarge(err) {
