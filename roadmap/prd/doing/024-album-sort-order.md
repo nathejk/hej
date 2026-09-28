@@ -1,10 +1,10 @@
 # PRD 024 — Album sort order
 
-**Status:** draft
+**Status:** doing
 **Author:** agent session (2026-09-28)
 **Created:** 2026-09-28
 **Last updated:** 2026-09-28
-**Approved:**
+**Approved:** 2026-09-28
 **Shipped:**
 **Target users:** organizer (the 2–3 photographers/curators who use `/admin`)
 
@@ -48,6 +48,10 @@ photographs arrive.
 - **Sorting by caption, credit, patrol, position or album membership.** No request, and each needs its own
   answer for what an empty value sorts as.
 - **A migration that re-sorts existing albums.** See §6 R9.
+- **A permalink to a photograph within an album.** A resort changes which photograph is at a position, and
+  the maintainer's judgement is that today's link is honest about that (§11 Q3) — a position link means "the
+  twelfth photograph", and after a resort that is a different photograph, truthfully. A durable link to *a
+  particular photograph* is a real want and a separate piece of work; tracked on the board rather than here.
 - **Backfilling capture time or filename for photographs already in the library.** They keep the fallback
   described in §6 R3/R5. A backfill is possible later (the originals are gone, but see §11 Q4) and is not
   needed for the feature to be useful on the next event.
@@ -116,9 +120,20 @@ as it was — the drop is abandoned, not applied-then-reverted.
 - [ ] **R8 — A hand move switches the album to manual.** If the mode is not `manual`, the admin tool
       confirms first, and the server **refuses a move on a non-manual album** (409) rather than trusting
       the client to have asked. Declining changes nothing.
-- [ ] **R9 — Existing albums are `manual`.** The column defaults to `manual`, so no album that exists
-      today changes. New albums are also created `manual` (§11 Q2), which keeps today's behaviour — items
-      appended in the order they were added — as the thing that happens when nobody chooses.
+- [ ] **R9 — New albums are `time-asc`; albums that already exist stay `manual`.** The maintainer's answer
+      to §11 Q2 was "default to time-asc, do not think about old albums", and the cheapest way to make that
+      true is to put the default in **two different places**, which is worth spelling out because it looks
+      redundant:
+      - the **column** defaults to `manual`, the value that means "never recompute";
+      - the **create handler** sets `time-asc` on the `Created` event.
+
+      So a new album is time-ordered because somebody's code chose that, and every album that exists today
+      keeps its arrangement because the column's default is the inert value. Defaulting the column itself to
+      `time-asc` would have been one line shorter and would have re-sorted every existing album the first
+      time anybody added a photograph to it — and, because there is no backfill (§11 Q4), re-sorted it on the
+      `uploadedAt` fallback, i.e. shuffled a hand-arranged album into roughly upload order. That is the one
+      irreversible thing this feature could do, and this is what makes it impossible rather than unlikely.
+      No migration, and nobody has to think about old albums.
 - [ ] **R10 — The mode is visible** in the album editor card, and the grid reflects a change immediately
       rather than on the next reload.
 
@@ -215,10 +230,10 @@ be updated**:
 
 **Dependencies & risks**
 
-- **Ordinals change under a resort, and something may be addressing them.** PRD 023's paged album reads by
-  offset, and a deep link to a position would point at a different photograph after a resort. Inherent to
-  re-sorting rather than a bug, but it needs checking that nothing *persists* an ordinal as an address
-  (§11 Q3).
+- **Ordinals change under a resort, and that is accepted** (§11 Q3): a position link means "the twelfth
+  photograph", and after a resort that is a different photograph — which is true rather than broken. What
+  must still be checked before this ships is that nothing *stores* an ordinal expecting it to be stable;
+  PRD 023's paging reads by offset, which is fine. A durable per-photograph permalink is separate work.
 - **A recompute is a publish**, so the tool must wait for the projection before reloading, exactly as the
   uploader now does (task 438). Adding a third caller makes the shared `ctx.settled(ids)` helper that
   tasks 437/438 both noted worth doing first.
@@ -241,33 +256,40 @@ This is a tool used by three people, so the honest metrics are observational rat
 Sequenced so that nothing user-visible ships before the data it needs exists. Tasks 1–3 are independently
 useful and carry no interaction change; a curator sees nothing until task 5.
 
-- [ ] Task: read `DateTimeOriginal` in `internal/imaging`, with fuzz coverage (`ReadShotAt`)
-- [ ] Task: capture `shotAt` and `fileName` on upload — event fields, columns, fold, and the
+Created on the board 2026-09-28, in dependency order:
+
+- [ ] Task 439: `ctx.settled(ids)` on the admin context, with the uploader moved onto it *(prerequisite for
+      444 — a resort's reload has the same race, and this stops it being a third copy)*
+- [ ] Task 440: read `DateTimeOriginal` in `internal/imaging`, with fuzz coverage (`ReadShotAt`)
+- [ ] Task 441: capture `shotAt` and `fileName` on upload — event fields, columns, fold, and the
       `isPersonShaped` needle for `filename`
-- [ ] Task: `album.sortMode` — column, event fields, fold, and the curator read
-- [ ] Task: the sort itself — one function from (items, photographs, mode) to an order, ties on `photoId`,
-      table-driven tests per mode including empty keys
-- [ ] Task: apply the mode on `PATCH album` (mode change) and on add-to-album; OpenAPI updated
-- [ ] Task: refuse a move on a non-manual album (409) and the confirm-then-switch flow in the admin tool
-- [ ] Task: the sort control in the album editor card
-- [ ] Task (prerequisite, from PRD 024's §8): `ctx.settled(ids)` on the admin context, with the uploader
-      moved onto it
+- [ ] Task 442: `album.sortMode` — column, event fields, fold, and the curator read
+- [ ] Task 443: the sort itself — one function from (items, photographs, mode) to an order, ties on
+      `photoId`, table-driven tests per mode including empty keys
+- [ ] Task 444: apply the mode on `PATCH album` (mode change) and on add-to-album; OpenAPI updated
+- [ ] Task 445: refuse a move on a non-manual album (409) and the confirm-then-switch flow in the tool
+- [ ] Task 446: the sort control in the album editor card
+
+Out of scope, on the board because PRD 024 is what raised it:
+
+- [ ] Task 447: a durable link to one photograph in an album (§4, §11 Q3) — needs a decision about what a
+      public photograph's address is before any code
 
 ## 11. Open Questions
 
-1. **"Sorting is applied when uploading new photos" — confirming the reading.** An upload goes to the
-   library, not to an album, so §6 R7 applies the mode when photographs are **added to an album**. Is that
-   what you meant, or is there also an expectation that uploading while an album is open files them into
-   that album? (That would be a separate feature — the album view has no uploader today.)
-2. **What should a *new* album default to?** R9 says `manual`, which preserves today's behaviour exactly.
-   `time-asc` would be a better default for most albums and would mean every album created after this
-   ships behaves differently from every album created before it. Which do you prefer?
-3. **Does anything persist an ordinal as an address?** A resort changes which photograph is at position 12.
-   I believe the public page and the viewer address photographs by id and use the ordinal only for
-   sequence, but PRD 023's paging needs checking before this is agreed.
-4. **Is a backfill wanted later?** Capture time and filename cannot be recovered for photographs already
-   uploaded — the EXIF was stripped at re-encode and the filename was never stored. So existing albums can
-   only ever sort on the `uploadedAt` fallback. Acceptable, or does that argue for keeping originals
-   (a much larger question, PRD 022 §11)?
-5. **Should `filename-*` be offered at all in year one**, given Q4 means it does nothing useful for
-   anything already uploaded? It costs little to include and the data starts accumulating immediately.
+All five were answered by the maintainer on 2026-09-28; kept with their answers, because the reasoning is
+what the requirements above rest on.
+
+1. **"Applied when uploading new photos" — confirming the reading.** ✅ *"I meant 'applied when added to
+   album'."* §6 R7 as written. No uploader on the album view.
+2. **What should a new album default to?** ✅ *"default to time-asc, do not think about old albums."* See R9
+   — new albums are created `time-asc`, and the column's default stays `manual` so that "do not think about
+   old albums" is safe rather than merely unexamined.
+3. **Does anything persist an ordinal as an address?** ✅ *"link today is honest. but we might need to think
+   about a permalink solution."* Accepted as-is; a per-photograph permalink is out of scope (§4) and on the
+   board as its own task.
+4. **Is a backfill wanted later?** ✅ *"don't care about backfill."* Photographs already in the library sort
+   on the `uploadedAt` fallback forever. No backfill task.
+5. **Should `filename-*` be offered in year one,** given Q4? Kept. It costs almost nothing once `fileName`
+   is captured, and the data starts accumulating from the first upload after this ships — so the mode is
+   useful on the next event rather than the one after.
