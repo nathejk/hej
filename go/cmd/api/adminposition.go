@@ -78,6 +78,21 @@ type patchAdminPhotosRequest struct {
 	// photographs must not blank forty credits as a side effect.
 	Credit *string `json:"credit,omitempty"`
 
+	// CreditCrewID credits a crew member by reference rather than by name (PRD 025, task 453).
+	//
+	// The **picked** path, where `Credit` is the typed one. A curator chooses a photographer from the year's crew
+	// and the name is resolved at read time, so it is spelled the same way on every photograph and a crew member
+	// who asks to be deleted is removed from all of them at once.
+	//
+	// Exactly one of the two may be sent, like every other action on this endpoint — and setting either clears
+	// the other in the fold, so a photograph never carries two answers about who took it.
+	//
+	// **Not validated against the roster here**, deliberately. This endpoint refuses an id it cannot make sense
+	// of no more than it refuses a misspelled typed name: what makes a reference safe is the *read*, where
+	// `person.CreditNames` resolves only a crew member of that year and yields nothing otherwise. Validating on
+	// the way in as well would be a second opinion about who is creditable, and the two would drift.
+	CreditCrewID *string `json:"creditCrewId,omitempty"`
+
 	// ClearLocation removes the coordinate.
 	ClearLocation bool `json:"clearLocation,omitempty"`
 
@@ -166,6 +181,9 @@ func (app *application) patchAdminPhotosHandler(w http.ResponseWriter, r *http.R
 	if in.Credit != nil {
 		given++
 	}
+	if in.CreditCrewID != nil {
+		given++
+	}
 	if given != 1 {
 		app.BadRequestResponse(w, r,
 			errors.New("angiv præcis én ting: en position, et postnummer, en billedtekst, et fotokredit, "+
@@ -175,6 +193,11 @@ func (app *application) patchAdminPhotosHandler(w http.ResponseWriter, r *http.R
 
 	if in.Caption != nil {
 		app.setAdminPhotoCaptions(w, r, photoIDs, *in.Caption)
+		return
+	}
+
+	if in.CreditCrewID != nil {
+		app.setAdminPhotoCrewCredits(w, r, photoIDs, *in.CreditCrewID)
 		return
 	}
 
@@ -457,6 +480,78 @@ func (app *application) setAdminPhotoCredits(w http.ResponseWriter, r *http.Requ
 		app.ServerErrorResponse(w, r, err)
 	}
 }
+
+// setAdminPhotoCrewCredits credits a crew member by reference on a selection (PRD 025, task 453).
+//
+// A near-twin of `setAdminPhotoCredits` above, kept separate for the reason that one is kept separate from the
+// caption's: the two differ in what they log and in their Danish, and a shared helper taking a field name would
+// be a write path that names its own column from a parameter.
+//
+// # What is logged, and why more than for the typed credit
+//
+// The id **and** nothing else — we do not resolve the name to log it. "Who was credited on which photographs,
+// and when" is exactly the question somebody may have to answer later (PRD 022 §8.2, and a photographer asking
+// to be uncredited), and an id answers it. Writing the resolved name into the log would put a name somewhere it
+// can never be erased, which is the whole reason this feature is a reference — the log is the one place that
+// argument has no answer.
+//
+// # No roster check
+//
+// An id this app cannot resolve is not refused here. `person.CreditNames` yields nothing for anybody who is not
+// a crew member of that year, so an unusable reference renders no credit line — the same outcome as a crew
+// member who has since been deleted, and the same code path. A check here would be a second opinion about who is
+// creditable, and the picker offering one answer while the reader gives another is the failure that arrangement
+// invites.
+func (app *application) setAdminPhotoCrewCredits(w http.ResponseWriter, r *http.Request, photoIDs []string, crewID string) {
+	crewID = strings.TrimSpace(crewID)
+	if len([]rune(crewID)) > maxAdminCreditCrewID {
+		app.BadRequestResponse(w, r, errors.New("ukendt fotograf"))
+		return
+	}
+
+	now := time.Now().UTC()
+	updated := 0
+	for _, photoID := range photoIDs {
+		subject, serr := photo.Subject(adminYear(r), photoID, photo.VerbUpdated)
+		if serr != nil {
+			app.BadRequestResponse(w, r, serr)
+			return
+		}
+		if perr := app.commands.Publish(subject, photo.Updated{
+			PhotoID:      photoID,
+			Year:         adminYear(r),
+			CreditCrewID: &crewID,
+			UpdatedAt:    now,
+		}); perr != nil {
+			app.Logger.Error("admin crew credit failed partway",
+				"updated", updated, "photoId", photoID, "err", perr)
+			app.writeAlbumPublishFailure(w, r, perr)
+			return
+		}
+		updated++
+	}
+
+	app.Logger.Info("admin credited a crew member on a selection",
+		"count", updated, "crewId", crewID, "cleared", crewID == "", "ip", clientIP(r))
+
+	message := fmt.Sprintf("Fotokredit sat på %s.", photoCount(updated))
+	if crewID == "" {
+		message = fmt.Sprintf("Fotokredit fjernet fra %s.", photoCount(updated))
+	}
+
+	if err := app.WriteJSON(w, http.StatusOK, patchAdminPhotosResponse{
+		Updated: updated,
+		Message: message,
+	}, nil); err != nil {
+		app.ServerErrorResponse(w, r, err)
+	}
+}
+
+// maxAdminCreditCrewID bounds the reference, matching `creditCrewId VARCHAR(99)` in photo/table.sql.
+//
+// Refused rather than truncated, unlike the typed credit: a shortened *name* is still recognisably a name, while
+// a shortened id is a different id — one that resolves to nobody, or to somebody else.
+const maxAdminCreditCrewID = 99
 
 // maxAdminCredit bounds a credit line, matching `credit VARCHAR(160)` in photo/table.sql.
 //

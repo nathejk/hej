@@ -427,16 +427,34 @@ func TestACreditNamesAPhotographerAndNobodyElse(t *testing.T) {
 	}
 	text := string(src)
 
+	// **Both** credit write paths, and comments stripped before searching.
+	//
+	// The slice runs from the typed setter to the constants below it, which now covers
+	// `setAdminPhotoCrewCredits` as well — and that is the stronger assertion: neither way of setting a credit
+	// may look anything up, and the picked one is the newer temptation.
+	//
+	// Comments are stripped because this guard matched its own explanation the moment the crew path was added:
+	// the needle "Name" found `person.CreditNames` in a doc comment saying where resolution belongs. That is
+	// hazard one in `go-server-rendered-pages`, and this package has now hit it five times.
 	setter := text[strings.Index(text, "func (app *application) setAdminPhotoCredits"):]
-	setter = setter[:strings.Index(setter, "\n// maxAdminCredit")]
+	setter = setter[:strings.Index(setter, "\n// maxAdminCreditCrewID")]
 	if setter == "" {
 		t.Fatal("could not find setAdminPhotoCredits; this guard needs updating")
 	}
+	setter = stripGoComments(setter)
 	if !strings.Contains(setter, "Credit:    &credit,") {
 		t.Error("the typed credit written to the event must be the one the request carried")
 	}
+	// The picked path writes the id it was given, and nothing more. Asserted separately from the typed one
+	// because "write the reference" is the whole of its job: a resolved name here would be a name on the
+	// append-only log, which is the one place erasure has no answer.
+	if !strings.Contains(setter, "CreditCrewID: &crewID,") {
+		t.Error("the crew credit written to the event must be the reference the request carried, never a name " +
+			"resolved from it")
+	}
+
 	for _, forbidden := range []struct{ needle, why string }{
-		{"models.People", "the write path must not look a credit up: picking a crew member is the curator's " +
+		{"models.People", "neither write path may look a credit up: picking a crew member is the curator's " +
 			"act, and resolving one is the read's job (person.CreditNames)"},
 		{"contextGetSession", "a credit must not be taken from whoever is signed in — and on this surface " +
 			"there is nobody signed in anyway, which is the point of PRD 022 §8.2"},

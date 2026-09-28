@@ -278,19 +278,54 @@
   <!-- The credit sheet (task 393). The only place in this tool that records a person's name, and the copy says
        so plainly — a curator typing a colleague's name onto a public page should know that is what they are
        doing, rather than filling in a field that looks like a caption. -->
+  <!-- Two routes to the same credit line (PRD 025, task 453), in the two-choice shape the delete sheet already
+       uses: a curator should be able to see at a glance that picking and typing are different acts with the same
+       outcome. Picking is the one that cannot be misspelled, so it comes first and is the wider block. -->
   <div id="creditpanel" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Fotokredit">
     <h3>Fotokredit</h3>
     <p id="creditnote"></p>
-    <p>
-      <label for="credittext">Hvem har taget billederne?</label>
-      <input type="text" id="credittext" maxlength="160" placeholder="Foto: Anne Sørensen" autocomplete="off">
-    </p>
-    <p class="hint">Teksten står under billedet på hjemmesiden, så den kan læses af alle. Skriv kun navne på
+    <p class="hint">Navnet står under billedet på hjemmesiden, hvor alle kan læse det. Sæt kun navne på
     fotografer, der selv har sagt ja til det.</p>
-    <p class="hint">Et helt kort er tit fra samme fotograf — vælg alle billederne og sæt kreditten én gang.
-    Browseren husker det du skrev sidst.</p>
+
+    <div class="choice">
+      <h4>Vælg fotografen</h4>
+      <p>Listen er dette års crew — PR først, for det er der fotograferne plejer at være. Vælger du herfra,
+      staves navnet altid ens, og beder fotografen sig selv slettet, forsvinder navnet fra alle billederne på
+      én gang.</p>
+      <p>
+        <label for="crewsearch">Søg</label>
+        <input type="search" id="crewsearch" placeholder="Skriv en del af navnet" autocomplete="off">
+      </p>
+      <p>
+        <label for="creditcrew">Fotograf</label>
+        <!-- A listbox rather than a dropdown: the search box above filters it, and a curator scanning for a
+             colleague wants to see several names at once. -->
+        <select id="creditcrew" size="8"></select>
+      </p>
+      <p>
+        <label><input type="checkbox" id="crewall"> Vis hele crewet, ikke kun PR</label>
+      </p>
+      <p>
+        <button type="button" id="docreditcrew">Sæt fotokredit</button>
+      </p>
+    </div>
+
+    <div class="choice">
+      <h4>Eller skriv et navn</h4>
+      <p>Til en gæstefotograf, eller en der ikke er i crewlisten. Skrevne navne bliver <strong>ikke</strong>
+      rettet automatisk, hvis fotografen senere beder om det — så vælg fra listen, når du kan.</p>
+      <p>
+        <label for="credittext">Navn</label>
+        <input type="text" id="credittext" maxlength="160" placeholder="Foto: Anne Sørensen" autocomplete="off">
+      </p>
+      <p class="hint">Et helt kort er tit fra samme fotograf — vælg alle billederne og sæt kreditten én gang.
+      Browseren husker det du skrev sidst.</p>
+      <p>
+        <button type="button" id="docredit">Sæt fotokredit</button>
+      </p>
+    </div>
+
     <p>
-      <button type="button" id="docredit">Sæt fotokredit</button>
       <button type="button" class="ghost" id="doclearcredit">Fjern fotokredit</button>
       <button type="button" class="ghost" id="closecredit">Annuller</button>
     </p>

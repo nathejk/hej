@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (2026-09-28)
 **Created:** 2026-09-28
-**Last updated:** 2026-09-28 (449–452 and 455 done; 453 the picker and 454 the filter remain)
+**Last updated:** 2026-09-28 (449–453 and 455 done; only 454, the credit filter, remains — low priority)
 **Approved:** 2026-09-28
 **Shipped:**
 **Target users:** organizer (the photographers and curators who use `/admin`)
@@ -70,7 +70,7 @@ be found, rewritten or re-published, and the photographs themselves are untouche
 - [x] **R1 — Two ways to credit, one in force.** `photo.creditPersonId` (nullable) alongside the existing
       `credit` text. Setting one **clears** the other: a photograph has one credit, and two fields that could
       both be set is a photograph with two answers about who took it.
-- [x] **R2 — The picker.** *(the read; the UI is task 453)* An admin-only read of the year's crew, defaulting to section `pr` and able to show
+- [x] **R2 — The picker.** An admin-only read of the year's crew, defaulting to section `pr` and able to show
       all crew. Names only — no phone number, no email, no portrait, nothing else the person row holds.
 - [x] **R3 — Resolution is narrow, and this is the load-bearing requirement.** A credit id resolves to a name
       **only** when the person classifies as `person.RoleCrew`. A spejder's or a bandit's id resolves to
@@ -181,7 +181,7 @@ Created on the board 2026-09-28:
 - [x] Task 451: the resolver — crew-only, name-only, within the year, "" when absent — and the rewrite of
       `TestACreditIsOnlyEverTypedNeverDerived`. **The load-bearing one**
 - [x] Task 452: the public and admin reads use it; the public response carries the name and never the id
-- [ ] Task 453: the picker in the "Fotokredit" sheet, with copy for the two paths
+- [x] Task 453: the picker in the "Fotokredit" sheet, with copy for the two paths
 - [x] Task 455: rewrite PRD 022 §6's credit bullet to record the reversal and its three reasons
 - [ ] Task 454: a credit filter in the library — **low priority**, since there is nothing to repair yet
 
@@ -196,3 +196,33 @@ All three answered by the maintainer on 2026-09-28.
    one outside `pr`, is credited by typing.
 3. **What about the credits already in the library?** ✅ *"we have not started using the feature yet, no names to
    recover."* No migration, no matching pass. R7 demoted accordingly.
+
+---
+
+## 12. What shipping it taught us
+
+Added on completion.
+
+1. **The rule written to protect people was the weaker option, in the case that mattered most to them.** PRD 022
+   §6 forbade a `creditPersonId` so that no name would be *derived*; it also meant every credit was a name copied
+   onto an append-only log, where an erasure request has no answer. The maintainer saw that and I did not. It is
+   worth remembering as a shape: a privacy rule phrased as "never do X" can be worse than a bounded X, and the
+   test for which is usually "what happens when somebody asks to be removed".
+
+2. **Scope an exception to the narrowest thing that makes it true.** `creditCrewId` is excepted for the library,
+   not for the word — so a public response carrying it still fails. `album.Item` is excepted, not the field name —
+   so `publicAlbumItem`, the type a template renders, still fails. Both exceptions left the guards *stronger* than
+   they were, because each one forced a boundary to be named and tested that had previously been implicit.
+
+3. **A guard that asserts the opposite of the feature must be rewritten, not deleted.**
+   `TestACreditIsOnlyEverTypedNeverDerived` became `TestACreditNamesAPhotographerAndNobodyElse`. Deleting it would
+   have discarded three things that are still true; leaving it would have blocked a decision the maintainer had
+   made. Neither is a good outcome, and rewriting it took ten minutes.
+
+4. **`RoleCrew` is not "crew".** It is one of four roles that all belong to crew members, and the picker was
+   initially built against the narrow reading — which would have made a photographer registered under `guider`
+   invisible to the very feature meant to stop names being typed by hand. `person.CrewRoles` and `IsCrew` now name
+   the union once, replacing a copy in `scansource.go` and a paragraph of prose in `internal/users`.
+
+5. **A dangling test name in a comment is a privacy claim nobody can verify.** Four comments named the old guard
+   after it was renamed. The next reader looks for the guarantee, cannot find it, and concludes there isn't one.

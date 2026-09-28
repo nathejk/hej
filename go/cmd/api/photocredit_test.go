@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -178,5 +179,118 @@ func TestTheLibraryReadShowsTheResolvedCredit(t *testing.T) {
 	body := adminBody(t, getAdmin(t, srv, "/api/admin/photos", testAdminUser, testAdminPass))
 	if strings.Contains(body, "user-7") || strings.Contains(body, "creditCrewId") {
 		t.Errorf("the library response must carry the resolved name and no reference\n%s", body)
+	}
+}
+
+// Crediting a crew member by reference (PRD 025 §6 R1, task 453).
+func TestAdminCreditsACrewMemberByReference(t *testing.T) {
+	_, srv, pub := positionApp(t)
+
+	body := `{"photoIds":["` + photoID("a") + `"],"creditCrewId":"user-7"}`
+	resp := patchAdmin(t, srv, body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", resp.StatusCode, adminBody(t, resp))
+	}
+	if len(pub.Messages) != 1 {
+		t.Fatalf("want one event, got %d", len(pub.Messages))
+	}
+
+	var out photo.Updated
+	if err := pub.Messages[0].Body(&out); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if out.CreditCrewID == nil || *out.CreditCrewID != "user-7" {
+		t.Errorf("the event must carry the reference, got %+v", out.CreditCrewID)
+	}
+	// **And no name.** The log is append-only, so a resolved name written here could never be erased — which is
+	// the one place the erasure argument for this whole feature has no answer.
+	if out.Credit != nil {
+		t.Errorf("the event must not carry a typed credit as well, got %q", *out.Credit)
+	}
+}
+
+// The two forms are mutually exclusive on the way in, like every other action on this endpoint.
+//
+// A request carrying both would be a curator saying two things at once, and the endpoint answering "I picked one
+// for you" is how a photograph ends up credited to somebody nobody chose.
+func TestAdminRefusesBothCreditFormsAtOnce(t *testing.T) {
+	_, srv, pub := positionApp(t)
+
+	body := `{"photoIds":["` + photoID("a") + `"],"credit":"Foto: En Gæst","creditCrewId":"user-7"}`
+	if resp := patchAdmin(t, srv, body); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("want 400, got %d", resp.StatusCode)
+	}
+	if len(pub.Messages) != 0 {
+		t.Errorf("a refused request must publish nothing, got %d", len(pub.Messages))
+	}
+}
+
+// An id longer than the column is refused rather than truncated.
+//
+// The opposite of the typed credit, which is truncated: a shortened *name* is still recognisably a name, while a
+// shortened id is a different id — one that resolves to nobody, or to somebody else.
+func TestAdminRefusesAnOverlongCrewReference(t *testing.T) {
+	_, srv, pub := positionApp(t)
+
+	body := `{"photoIds":["` + photoID("a") + `"],"creditCrewId":"` + strings.Repeat("x", 100) + `"}`
+	if resp := patchAdmin(t, srv, body); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("want 400, got %d", resp.StatusCode)
+	}
+	if len(pub.Messages) != 0 {
+		t.Errorf("a refused request must publish nothing, got %d", len(pub.Messages))
+	}
+}
+
+// The sheet offers both routes, and says what is different about them (PRD 025 §7).
+//
+// Source-read, because there is no JavaScript runtime here. What is worth pinning is not the markup's shape but
+// the two sentences a curator needs: that a picked name is spelled consistently and can be erased, and that a
+// typed one cannot be corrected later. Those are the reason the picker exists, and copy is the only place they
+// are said.
+func TestTheCreditSheetOffersBothRoutesAndSaysWhatDiffers(t *testing.T) {
+	page := adminPageSource(t)
+
+	for _, want := range []struct{ needle, why string }{
+		{`<select id="creditcrew"`, "the roster list"},
+		{`<input type="search" id="crewsearch"`, "searchable, because a curator knows the name and not the position"},
+		{`id="crewall"`, "and expandable: `pr` is the default, not the boundary"},
+		{`<input type="text" id="credittext"`, "the typed path stays, for a guest photographer"},
+		{"staves navnet altid ens", "the picker's first reason: consistent spelling"},
+		{"forsvinder navnet fra alle billederne", "and its second: erasure in one place"},
+		{"bliver <strong>ikke</strong>\n      rettet automatisk", "the typed path's consequence, said where the " +
+			"choice is made rather than discovered later"},
+		{"hvor alle kan læse det", "and that this is public, which was already here and must stay"},
+	} {
+		if !strings.Contains(page, want.needle) {
+			t.Errorf("the credit sheet is missing %q: %s", want.needle, want.why)
+		}
+	}
+
+	// Two buttons, so picking and typing are separate acts rather than one button guessing which was meant.
+	for _, id := range []string{"docreditcrew", "docredit", "doclearcredit"} {
+		if !strings.Contains(page, `id="`+id+`"`) {
+			t.Errorf("the sheet must have a %q button", id)
+		}
+	}
+}
+
+// The tool sends the reference and never a resolved name.
+func TestTheCreditSheetSendsTheReferenceNotTheName(t *testing.T) {
+	js := stripJSLineComments(adminAsset(t, "creditaction.js"))
+
+	if !strings.Contains(js, "sendCredit({ creditCrewId: id });") {
+		t.Error("picking a photographer must send the id: sending the name would put it on the append-only log, " +
+			"where it could not be erased")
+	}
+	// The roster's names are rendered into the list and nowhere else — in particular they are never put in the
+	// request body, and never remembered on this machine.
+	if strings.Contains(js, "CREDIT_KEY, id") || strings.Contains(js, "setItem(CREDIT_KEY, member") {
+		t.Error("a picked credit must not be remembered in localStorage: the list is the default, and an id in " +
+			"browser storage would be a person reference sitting there for no reason")
+	}
+	// The list is fetched when the sheet opens, not on page load: `/admin` is `no-store`, so a roster fetched on
+	// load would be a request nobody asked for on every page view.
+	if !strings.Contains(js, "loadCrew();") {
+		t.Error("the roster must be fetched when the sheet opens")
 	}
 }
