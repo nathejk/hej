@@ -8,6 +8,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -550,7 +552,7 @@ func (c *stubPhotoCurator) MissingMedium(string, int) ([]photo.LibraryPhoto, err
 	return nil, c.err
 }
 
-// The end of a batch waits for the projection, then says what happened (task 437).
+// The end of a batch waits for the ids it was given, then says what happened (tasks 437, 438).
 //
 // # Why this is worth a guard at all
 //
@@ -559,23 +561,29 @@ func (c *stubPhotoCurator) MissingMedium(string, int) ([]photo.LibraryPhoto, err
 // makes it correct is the wait, and a wait is exactly the kind of thing a later reader deletes as "why is this
 // polling?". The reason is in upload.js and repeated here.
 //
-// Source-read, because there is no JavaScript runtime in this suite. The *count* it polls is real, though, and the
-// tests above cover the endpoint that answers it.
+// Source-read, because there is no JavaScript runtime in this suite. The read it polls is real, though, and
+// `TestAdminLibraryFiltersByID` covers it.
 func TestTheUploadWaitsForTheProjectionBeforeSayingItIsDone(t *testing.T) {
 	// Comments stripped: the paragraph above this in upload.js explains the polling, and a needle for the polling
 	// would otherwise match the explanation instead of the code.
 	js := stripJSLineComments(adminAsset(t, "upload.js"))
 
 	for _, want := range []struct{ needle, why string }{
-		{"const caught = before === null ? false : await waitForTotal(before + b.stored);",
-			"the grid is reloaded once the library actually holds what was uploaded — reloading the instant the " +
-				"last response lands races the consumer that folds the event into the projection"},
-		{"if (total >= target) return true;", "the wait ends when the count has grown by what was stored"},
+		{"tally('stored', out.photoId);",
+			"the id the upload answered with is what the wait is built on: getting it back from a read is what " +
+				"proves the event went through the stream and into the projection"},
+		{"const caught = await waitForPhotos(b.stored);",
+			"the grid is reloaded once the library can name the photographs — reloading the instant the last " +
+				"response lands races the consumer that folds the event into the projection"},
+		{"for (const id of chunk) if (!there.has(id)) still.push(id);",
+			"ids already seen are dropped, so a batch of three hundred converges instead of re-asking after the " +
+				"ones that arrived first"},
+		{"if (!waiting.length) return true;", "the wait ends when every id has come back"},
 		{"if (Date.now() + delay > deadline) return false;", "the wait must be bounded: a broken consumer has to " +
 			"be reported, not waited out"},
-		{"if (total === null) return false;", "a failed count is not a reason to keep asking"},
-		{"'/api/admin/photos?limit=1'", "the counts travel with any library read and are about the whole year, " +
-			"so one row is all the page that is needed"},
+		{"if (there === null) return false;", "a failed read is not a reason to keep asking"},
+		{"'/api/admin/photos?limit=' + ids.length + '&ids=' + ids.map(encodeURIComponent).join(',')",
+			"the presence read is the library's own `ids` filter"},
 		{"ctx.reloadSheet();", "the sheet still refreshes itself; that was never the missing part"},
 		{"note.textContent = summary(b)", "and the curator is told what the batch did"},
 	} {
@@ -584,10 +592,21 @@ func TestTheUploadWaitsForTheProjectionBeforeSayingItIsDone(t *testing.T) {
 		}
 	}
 
+	// The client chunks to something the endpoint will accept. A client asking for more than `maxAdminLibraryIDs`
+	// would get a 400 on every poll, which reads as "the photographs never arrived".
+	chunk := regexp.MustCompile(`const IDS_PER_ASK = (\d+);`).FindStringSubmatch(js)
+	if chunk == nil {
+		t.Fatal("upload.js must state how many ids it asks about at a time")
+	}
+	if n, err := strconv.Atoi(chunk[1]); err != nil || n <= 0 || n > maxAdminLibraryIDs {
+		t.Errorf("the uploader asks about %s ids at a time; the endpoint accepts at most %d",
+			chunk[1], maxAdminLibraryIDs)
+	}
+
 	// Every outcome the server distinguishes is counted, so the summary cannot quietly report a duplicate or a
 	// refused re-upload as a success. `adminUploadOutcome`'s three values are the contract; `failed` is the
 	// fourth case, which has no outcome because it has no response.
-	for _, tally := range []string{"tally('stored')", "tally('already')", "tally('gone')", "tally('failed')"} {
+	for _, tally := range []string{"tally('stored'", "tally('already')", "tally('gone')", "tally('failed')"} {
 		if !strings.Contains(js, tally) {
 			t.Errorf("upload.js must record %s: an outcome that is not counted is one the summary claims went up",
 				tally)

@@ -126,6 +126,17 @@ type Filter struct {
 	// Off by default so the ordinary contact sheet shows what exists. On, it is how a curator finds
 	// something they removed by accident.
 	IncludeDeleted bool
+
+	// PhotoIDs limits the result to these photographs. Empty means any.
+	//
+	// **A presence read, not a way to fetch a list.** The uploader asks "which of the ids you just gave me can
+	// you see yet?", because an upload publishes an event and this table is folded from it downstream: the
+	// photograph exists to the browser before it exists to this projection (task 438). Answering that with the
+	// ids themselves is exact, where the year's total was only a proxy for it.
+	//
+	// Composes with the other filters like everything else here, which also means it inherits `deleted = 0`:
+	// asking after a photograph a curator removed correctly returns nothing.
+	PhotoIDs []string
 }
 
 // Counts is the header's summary of the year.
@@ -270,6 +281,17 @@ func (f Filter) where(year string) (string, []any) {
 		} else {
 			conds = append(conds, "NOT "+exists)
 		}
+	}
+	if len(f.PhotoIDs) > 0 {
+		// One placeholder per id, bound like every other value here. The list's length is bounded by the caller —
+		// `adminLibraryFilter` refuses an over-long one with a 400 rather than building a statement of unbounded
+		// width — and the ids themselves are never spliced into the SQL.
+		marks := make([]string, len(f.PhotoIDs))
+		for i, id := range f.PhotoIDs {
+			marks[i] = "?"
+			args = append(args, id)
+		}
+		conds = append(conds, "p.photoId IN ("+strings.Join(marks, ", ")+")")
 	}
 	return strings.Join(conds, " AND "), args
 }

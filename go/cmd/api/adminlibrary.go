@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -19,6 +20,13 @@ import (
 // `GET /api/admin/photos` is a list. `GET /api/admin/photos/{photoId}/media` serves **bytes**, and it is the
 // one route in this feature that could be turned into a general file server by a small mistake — see
 // `showAdminPhotoMediaHandler`.
+
+// maxAdminLibraryIDs bounds the `ids` filter.
+//
+// One placeholder per id goes into an `IN (…)`, so the statement's width is the caller's to keep sane. 200 is
+// well above the uploader's chunk of 100 and well below anything that would embarrass the driver; a batch larger
+// than this asks in several requests, which it has to do anyway to keep each answer prompt.
+const maxAdminLibraryIDs = 200
 
 // adminLibraryResponse is one page of the library plus the header's numbers.
 //
@@ -80,13 +88,14 @@ type adminLibraryPhoto struct {
 // listAdminPhotosHandler returns one page of the year's library.
 //
 // @Summary      List the year's photograph library
-// @Description  Returns one page of the configured event year's photographs, newest first, with the counts the tool's header shows. Filters compose: `album=none` limits to photographs no live album references, `album={albumId}` to one album's live members in the album's own order, `location=yes|no` to those with or without a coordinate, `verdict=inside|outside|unknown|none` to one bounds verdict, `tagged=yes|no` to those with or without a patrol attribution, and `deleted=1` includes ones the curator removed. This read is **draft-visible** — it returns photographs no album references and, on request, deleted ones — which is why it is on the curator interface and behind the admin credential rather than on any public read. Requires the admin credential.
+// @Description  Returns one page of the configured event year's photographs, newest first, with the counts the tool's header shows. Filters compose: `album=none` limits to photographs no live album references, `album={albumId}` to one album's live members in the album's own order, `location=yes|no` to those with or without a coordinate, `verdict=inside|outside|unknown|none` to one bounds verdict, `tagged=yes|no` to those with or without a patrol attribution, `ids=` a comma-separated list limits to those photographs, and `deleted=1` includes ones the curator removed. `ids` exists for a specific purpose: an upload answers with the photograph's id before the projection this read serves has folded the event, so the uploader polls with the ids it was given until they come back — which is how it knows the contact sheet is worth reloading. This read is **draft-visible** — it returns photographs no album references and, on request, deleted ones — which is why it is on the curator interface and behind the admin credential rather than on any public read. Requires the admin credential.
 // @Tags         admin
 // @Produce      json
 // @Param        album     query     string  false  "none: only photographs in no album; an album id: that album's members, in album order"
 // @Param        location  query     string  false  "yes or no: with or without a coordinate"
 // @Param        verdict   query     string  false  "inside, outside, unknown or none"
 // @Param        tagged    query     string  false  "yes or no: with or without a patrol tag"
+// @Param        ids       query     string  false  "comma-separated photograph ids, at most 200: which of these the projection can see"
 // @Param        deleted   query     int     false  "1 to include deleted photographs"
 // @Param        limit     query     int     false  "page size, default 120, max 500"
 // @Param        offset    query     int     false  "rows to skip"
@@ -282,6 +291,27 @@ func adminLibraryFilter(r *http.Request) (photo.Filter, error) {
 	}
 
 	f.IncludeDeleted = q.Get("deleted") == "1"
+
+	// `ids`: which of these photographs the projection can see (task 438).
+	//
+	// Refused rather than clamped, like every other filter value here and for the same reason: a silently
+	// shortened list answers a different question from the one asked, and the caller would read the answer as
+	// "those are not there yet" and wait for something that will never arrive.
+	if raw := q.Get("ids"); raw != "" {
+		for _, id := range strings.Split(raw, ",") {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			if len(id) > 99 || strings.ContainsAny(id, " \t\r\n") {
+				return f, errors.New(`ubrugeligt id i "ids"`)
+			}
+			f.PhotoIDs = append(f.PhotoIDs, id)
+		}
+		if len(f.PhotoIDs) > maxAdminLibraryIDs {
+			return f, fmt.Errorf(`for mange id'er i "ids" (højst %d)`, maxAdminLibraryIDs)
+		}
+	}
 
 	return f, nil
 }

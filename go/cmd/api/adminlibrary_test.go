@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -553,5 +554,69 @@ func TestAdminMediaRefusesAnUnknownID(t *testing.T) {
 		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMovedPermanently {
 			t.Errorf("id %q: want 404, got %d", id, resp.StatusCode)
 		}
+	}
+}
+
+// `ids=` is the uploader's presence read (task 438).
+//
+// # Why the endpoint grew a filter instead of the client polling the count
+//
+// An upload answers with the photograph's id before the projection this read serves has folded the event, so the
+// uploader needs to ask "can you see these yet?". Waiting on the year's *total* instead was the first attempt and
+// was only a proxy: it needed a before-reading, it could be satisfied by a colleague's upload, and it could not
+// say *which* photographs had landed. The ids the server itself generated are the exact question.
+func TestAdminLibraryFiltersByID(t *testing.T) {
+	curator := &libraryCurator{rows: []photo.LibraryPhoto{libRow("a"), libRow("b")}}
+	_, srv := libraryApp(t, curator)
+
+	out := decodeLibrary(t, getAdmin(t, srv, "/api/admin/photos?ids=a,b,%20c%20", testAdminUser, testAdminPass))
+	if len(out.Photos) == 0 {
+		t.Error("the page should still come back with the photographs the filter matched")
+	}
+	if len(curator.filters) != 1 {
+		t.Fatalf("want one read, got %d", len(curator.filters))
+	}
+	// Whitespace trimmed and the empty element dropped, so a trailing comma from a client that built the list in a
+	// loop does not become an id that can never be found.
+	got := curator.filters[0].PhotoIDs
+	want := []string{"a", "b", "c"}
+	if len(got) != len(want) {
+		t.Fatalf("ids = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("id %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// Refused rather than clamped, like every other filter value here. A silently shortened list answers a different
+// question from the one asked — and the caller would read the missing ids as "not there yet" and wait for
+// something that is never coming.
+func TestAdminLibraryRefusesAnUnusableIDList(t *testing.T) {
+	_, srv := libraryApp(t, &libraryCurator{})
+
+	tooMany := make([]string, maxAdminLibraryIDs+1)
+	for i := range tooMany {
+		tooMany[i] = "p-" + strconv.Itoa(i)
+	}
+
+	for name, query := range map[string]string{
+		"too many":        "ids=" + strings.Join(tooMany, ","),
+		"whitespace":      "ids=a%09b",
+		"absurdly long":   "ids=" + strings.Repeat("x", 100),
+		"and one of many": "ids=a," + strings.Repeat("x", 100),
+	} {
+		resp := getAdmin(t, srv, "/api/admin/photos?"+query, testAdminUser, testAdminPass)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: want 400, got %d", name, resp.StatusCode)
+		}
+	}
+
+	// And the boundary is usable: exactly the maximum is accepted, so a client that chunks to the documented limit
+	// is not one request away from a 400.
+	atLimit := strings.Join(tooMany[:maxAdminLibraryIDs], ",")
+	if resp := getAdmin(t, srv, "/api/admin/photos?ids="+atLimit, testAdminUser, testAdminPass); resp.StatusCode != http.StatusOK {
+		t.Errorf("exactly %d ids should be accepted, got %d", maxAdminLibraryIDs, resp.StatusCode)
 	}
 }

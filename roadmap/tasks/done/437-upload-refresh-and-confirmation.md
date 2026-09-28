@@ -78,6 +78,11 @@ widget's label: that one is about files going up, this one is about the library 
   the wait, its bound, the null-count case, the probe, the reload, the line, and all four tallies.
   Mutation-checked by short-circuiting the wait and by dropping one tally — both fail.
 - 2026-09-28 — `gofmt`, `go vet`, `staticcheck` and `go test ./cmd/api/ -count=1` all clean.
+- 2026-09-28 — Superseded in part by task 438: the wait is now for the **ids the upload returned**, not for
+  the year's total. The maintainer pointed out that the response already carries the id, so waiting for it
+  to come back from a read is the condition itself rather than a proxy for it. My reason for rejecting that
+  here — "under a filter the new photographs may not be in the grid at all" — is true of the grid and
+  irrelevant to a presence read, which is the conflation that produced the weaker design.
 
 ## Worth knowing
 

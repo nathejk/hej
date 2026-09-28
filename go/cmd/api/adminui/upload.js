@@ -20,23 +20,29 @@
 //
 // The uploader's dependency is one line: when a batch finishes, the contact sheet is stale.
 //
-// # Why the end of a batch waits, and says so (task 437)
+// # Why the end of a batch waits for its own ids (tasks 437, 438)
 //
-// An upload **publishes an event**; the grid reads a projection a consumer folds from it (see
-// `uploadAdminPhotoHandler`). Those are milliseconds apart in a healthy system and not ordered at all in
-// principle, so reloading the grid the instant the last response lands is a read that may legitimately not see
-// the photographs yet. That is what a curator reported: a list of uploaded files above a grid that does not have
-// them, and no way to act on any of them without reloading the page by hand.
+// An upload **publishes an event** and answers with the photograph's id; the grid reads a projection a consumer
+// folds from that event (see `uploadAdminPhotoHandler`). The two are milliseconds apart in a healthy system and
+// not ordered at all in principle, so reloading the grid the instant the last response lands is a read that may
+// legitimately not see the photographs yet. That is what a curator reported: a list of uploaded files above a grid
+// that does not have them, and no way to act on any of them without reloading the page by hand.
 //
-// So the batch's end waits for the library's own count to grow by what was stored, then reloads once, then says
-// what happened — "12 billeder tilføjet". The wait is **bounded**: if the number never arrives the sheet is
-// reloaded anyway and the line says so, because a tool that waits forever is worse than a grid that is briefly
-// behind and admits it.
+// So the batch's end asks the library for **the ids it was just given**, and keeps asking until it can see them
+// all. When they come back, the photograph has been through the stream and into the projection, which is exactly
+// the condition for the grid being worth reloading — there is nothing to infer. Then the sheet reloads once and the
+// line says what happened: "12 billeder tilføjet".
+//
+// The wait is **bounded**: if the ids never arrive the sheet is reloaded anyway and the line says so, because a
+// tool that waits forever is worse than a grid that is briefly behind and admits it.
 function initUpload(ctx) {
   const CONCURRENCY = 3;
-  // How long the projection is given to catch up, and how the poll backs off. Ten seconds is far longer than the
-  // fold takes and short enough that a broken consumer is reported rather than waited out.
+  // How long the projection is given to catch up. Far longer than the fold takes, and short enough that a broken
+  // consumer is reported rather than waited out.
   const SETTLE_MS = 10000;
+  // Ids per presence request. The endpoint refuses more than 200 (`maxAdminLibraryIDs`), and a card is routinely
+  // three hundred photographs, so asking is chunked. 100 keeps each answer prompt.
+  const IDS_PER_ASK = 100;
 
   const drop = document.getElementById('drop');
   const input = document.getElementById('files');
@@ -48,8 +54,7 @@ function initUpload(ctx) {
 
   let queued = 0, done = 0, running = 0;
   const queue = [];
-  // The batch in flight, or null between batches: what it has done so far, and the library's count before it
-  // started (a promise, because reading it is a request and enqueueing is not allowed to wait for one).
+  // The batch in flight, or null between batches: what it has done so far, and the ids the server gave it.
   //
   // Counted here rather than derived from the rows afterwards, because the rows are presentation — and because the
   // outcome of a file is known exactly once, where the server said it.
@@ -61,7 +66,7 @@ function initUpload(ctx) {
     // A new batch is a drop onto an idle uploader. `queued`/`done` deliberately keep accumulating across a
     // session, so "idle" is the two being equal rather than a counter reset.
     if (done === queued) {
-      batch = { stored: 0, already: 0, gone: 0, failed: 0, before: libraryTotal() };
+      batch = { stored: [], already: 0, gone: 0, failed: 0 };
       note.textContent = '';
     }
     for (const file of files) {
@@ -109,32 +114,42 @@ function initUpload(ctx) {
 
   // --- the end of a batch ---------------------------------------------------
 
-  // libraryTotal reads how many photographs the year's library holds.
+  // seen asks which of these ids the library can see, and returns them as a Set.
   //
-  // `limit=1` because the page of photographs is not wanted: the counts travel with every library read and are
-  // about the whole year rather than the page, which is what makes them usable as a progress signal here.
-  // Resolves to null if the read fails — a count we could not get is not a count that disagrees.
-  async function libraryTotal() {
+  // `ids=` is a presence read: the filter composes with the default "live only", so a photograph a curator
+  // deleted correctly comes back absent. Returns null if the read fails — an answer we could not get is not an
+  // answer that says "not yet".
+  async function seen(ids) {
     try {
-      const res = await ctx.fetch('/api/admin/photos?limit=1');
+      const url = '/api/admin/photos?limit=' + ids.length + '&ids=' + ids.map(encodeURIComponent).join(',');
+      const res = await ctx.fetch(url);
       if (!res.ok) return null;
       const out = await res.json();
-      return out && out.counts ? out.counts.total : null;
+      if (!out || !out.photos) return null;
+      return new Set(out.photos.map((p) => p.id));
     } catch (err) {
       return null;
     }
   }
 
-  // waitForTotal polls until the library holds at least `target` photographs, or the deadline passes.
+  // waitForPhotos polls until the library can name every id, or the deadline passes.
   //
-  // A second photographer uploading at the same time only makes the total *larger*, so the wait can end early but
-  // cannot hang on their account. Backs off, so a slow fold costs a few requests rather than a poll per frame.
-  async function waitForTotal(target) {
+  // Ids already accounted for are dropped from the next round, so a batch of three hundred converges instead of
+  // re-asking after the ones that arrived first. Backs off, so a slow fold costs a few requests rather than a poll
+  // per frame.
+  async function waitForPhotos(ids) {
     const deadline = Date.now() + SETTLE_MS;
+    let waiting = ids.slice();
     for (let delay = 150; ; delay = Math.min(delay * 2, 1000)) {
-      const total = await libraryTotal();
-      if (total === null) return false; // a failed read is not a reason to keep asking
-      if (total >= target) return true;
+      const still = [];
+      for (let i = 0; i < waiting.length; i += IDS_PER_ASK) {
+        const chunk = waiting.slice(i, i + IDS_PER_ASK);
+        const there = await seen(chunk);
+        if (there === null) return false; // a failed read is not a reason to keep asking
+        for (const id of chunk) if (!there.has(id)) still.push(id);
+      }
+      waiting = still;
+      if (!waiting.length) return true;
       if (Date.now() + delay > deadline) return false;
       await new Promise((r) => setTimeout(r, delay));
     }
@@ -143,15 +158,14 @@ function initUpload(ctx) {
   async function finish(b) {
     // Nothing new in the library means nothing to wait for. The sheet is still reloaded: a re-upload of a card
     // whose photographs a colleague has since filed should show their albums.
-    if (b.stored === 0) {
+    if (!b.stored.length) {
       ctx.reloadSheet();
       note.textContent = summary(b);
       return;
     }
 
     note.textContent = 'Opdaterer kontaktarket…';
-    const before = await b.before;
-    const caught = before === null ? false : await waitForTotal(before + b.stored);
+    const caught = await waitForPhotos(b.stored);
     ctx.reloadSheet();
     note.textContent = caught
       ? summary(b)
@@ -164,7 +178,7 @@ function initUpload(ctx) {
   // holding the card: a duplicate is nothing to do, a previously-deleted photograph is a decision somebody made,
   // and a failure is a file to drag in again. Silence about any of them would read as "all of it went up".
   function summary(b) {
-    const parts = [b.stored > 0 ? ctx.photoCount(b.stored) + ' tilføjet' : 'Ingen nye billeder'];
+    const parts = [b.stored.length > 0 ? ctx.photoCount(b.stored.length) + ' tilføjet' : 'Ingen nye billeder'];
     if (b.already) parts.push(ctx.photoCount(b.already) + ' var lagt op i forvejen');
     if (b.gone) parts.push(ctx.photoCount(b.gone) + ' blev ikke lagt op igen, fordi de er slettet tidligere');
     if (b.failed) parts.push(ctx.photoCount(b.failed) + ' kunne ikke lægges op — se listen');
@@ -198,14 +212,20 @@ function initUpload(ctx) {
     }
   }
 
-  // tally records one file's outcome against the batch, for the line at the end. `batch` can be null if a file
-  // somehow settles after its batch was finished, which is why this is a function and not four `batch.x++`.
-  function tally(what) {
-    if (batch) batch[what]++;
+  // tally records one file's outcome against the batch, for the line at the end and for the wait. `batch` can be
+  // null if a file somehow settles after its batch was finished, which is why this is a function and not four
+  // `batch.x++`.
+  function tally(what, id) {
+    if (!batch) return;
+    if (what === 'stored') batch.stored.push(id);
+    else batch[what]++;
   }
 
   function applyOutcome(li, out) {
-    if (!out) { tally('failed'); finishRow(li, 'err', 'Uventet svar fra serveren.'); return; }
+    // A response we cannot read is not a success we should claim. The id is required on every outcome, not only
+    // the stored one: it is the contract of this endpoint (`adminUploadResponse`) and it is what the wait at the
+    // end of the batch is built on.
+    if (!out || !out.photoId) { tally('failed'); finishRow(li, 'err', 'Uventet svar fra serveren.'); return; }
 
     // Three outcomes, three appearances. A duplicate reported as a plain success would make a duplicated card
     // impossible to notice, and a skipped deletion reported as success would be a lie (task 372).
@@ -219,7 +239,9 @@ function initUpload(ctx) {
       finishRow(li, 'skip', out.message || '', out, 'Slettet tidligere');
       return;
     }
-    tally('stored');
+    // The id the server just generated from the bytes. Waited for below, because getting it back from a *read* is
+    // what proves the event has been through the stream and into the projection.
+    tally('stored', out.photoId);
     finishRow(li, 'ok', '', out, 'Lagt op');
   }
 
