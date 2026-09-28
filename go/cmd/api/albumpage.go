@@ -83,6 +83,39 @@ type publicAlbumItem struct {
 	Ordinal int
 	Caption string
 
+	// Ref is the photograph's **display** content hash, and its public address (tasks 447, 456).
+	//
+	// # Why a hash may be here, when the rule was that it may not
+	//
+	// PRD 022's surrounding rule — no blob hash in a public payload, because content addressing would make a URL
+	// a forwardable, unrevokable capability — was narrowed on 2026-09-28 (maintainer, option A) to: **a ref may
+	// appear where the route resolving it is album-scoped and publication-checked.**
+	//
+	// What makes that safe here is in the code rather than in the argument. `albumItemRef` resolves a ref *inside
+	// a named album that must be in `Published(year)`*, so a ref reaches exactly what an ordinal reaches:
+	// `TestAlbumMediaByRefIsScopedToItsPublishedAlbum` holds that one album's ref 404s in another and in the
+	// unpublished one, and unpublishing revokes it. The hash is not a secret in any case — it is the SHA of bytes
+	// this page already serves, so any visitor who downloads a photograph can compute it.
+	//
+	// What was traded is defence in depth: a hash in circulation is a hash a *future* route could be exploited
+	// by. The glimt path keeps the unnarrowed rule, where media is per-member scoped and the argument is much
+	// stronger (`glimtmediaserve.go`).
+	//
+	// # Only the display ref
+	//
+	// Never the thumbnail's or the 800px rendition's. Those are derived, a curator never sees them, and the
+	// variant is a query parameter — so one ref addresses all three. `TestTheAlbumPageNeverPutsARenditionRefIn
+	// ItsHTML` still forbids the derived two, which is the part of that rule that lost no force.
+	Ref string
+
+	// Permalink is this photograph's durable public address: /{year}/album/{slug}/{ref} (task 447).
+	//
+	// Built by the server because the server is what knows the slug, and handed to the viewer so that **share**
+	// mints the durable form. The page's own state stays `?foto={ordinal}` — that is where the window and the
+	// scroll target come from — and the distinction is the point: an ordinal says where a photograph *is today*,
+	// a ref says which photograph it *is*.
+	Permalink string
+
 	// Credit is the photographer's credit line, or "" when there is none (task 393).
 	//
 	// **The only field on the public surface that names a human being**, and the one exception to the claim in
@@ -185,6 +218,8 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 			// The **name**, never the reference (PRD 025 §6 R6): the id is a handle to a person record, and
 			// `publicAlbumItem` is a type this page renders into HTML. An unresolvable reference is "" here,
 			// which the template already renders as no credit line at all.
+			Ref:       it.Ref,
+			Permalink: albumPhotoPermalink(app.publicRoot(), a.Slug, it.Ref),
 			Credit:    resolvedCredit(it.Credit, it.CreditCrewID, creditNames),
 			Width:     it.Width,
 			Height:    it.Height,
@@ -212,6 +247,103 @@ func albumRequestedSide(items []album.Item, query url.Values) string {
 		return strconv.Itoa(side)
 	}
 	return query.Get("side")
+}
+
+// albumPhotoPermalinkHandler resolves a photograph's durable address onto the album page (task 447).
+//
+// # Why this redirects rather than rendering
+//
+// The album page's state is `?foto={ordinal}` — the ordinal is what selects the window, what the fragment
+// scrolls to, and what the viewer reflects as a visitor moves through the album (task 401). A permalink that
+// rendered the page directly would either duplicate that machinery or leave the viewer rewriting the address
+// into a form the permalink was meant to replace.
+//
+// So the two have different jobs and this is the seam: **the ref is the address, the ordinal is the state.**
+// A permalink is resolved fresh on every visit, which is exactly what makes it durable — the album can be
+// re-sorted a dozen times and the same link keeps landing on the same photograph.
+//
+// # 302, never 301
+//
+// The mapping from ref to ordinal changes whenever the album is re-sorted. A permanent redirect would invite
+// every cache to pin one, and the link would then rot in precisely the way this feature exists to prevent.
+//
+// @Summary      A photograph's permalink (HTML redirect)
+// @Description  The durable public address of one photograph: `/{year}/album/{slug}/foto/{ref}`, where `ref` is the photograph's content hash. **302 onto the album page** with `?foto={ordinal}` and the matching fragment, resolved fresh on every visit — which is what makes the link durable: the ordinal moves whenever the album is re-sorted (PRD 024) and the ref does not. Never a permanent redirect, because a cache that pinned one would rot the link in exactly the way this route exists to prevent. A ref that is not in the album, or no longer is, redirects to the **album** rather than answering 404: a taken-down photograph must not make an album look deleted (PRD 023 §8). An unknown, unpublished or deleted album answers 404 identically, and so does everything here when the public album section is switched off. Unauthenticated; ignores the session cookie.
+// @Tags         public-site
+// @Produce      html
+// @Param        slug  path      string  true   "album slug"
+// @Param        ref   path      string  true   "the photograph's content hash"
+// @Success      302  "redirect to the album page, on the photograph"
+// @Failure      404  "unknown, unpublished or deleted album — or the section is switched off"
+// @Failure      503  {object}  map[string]string  "the albums are unavailable"
+// @Router       /{year}/album/{slug}/foto/{ref} [get]
+//
+// # A ref that is not there lands on the album
+//
+// PRD 023 §8's rule, and it is the better answer: "a link that has half-rotted — because the photograph it
+// pointed at was taken down — should land on the album rather than on an error page". A takedown must not make
+// an album look deleted. An unknown *album* is still a 404, because that address names nothing at all.
+func (app *application) albumPhotoPermalinkHandler(w http.ResponseWriter, r *http.Request) {
+	if !app.config.publicAlbums {
+		// The same refusal the album page makes when the section is switched off (task 359): every surface of a
+		// hidden feature has to be hidden, and a redirect that still worked would be a link that still worked.
+		app.NotFoundResponse(w, r)
+		return
+	}
+	if app.models.Albums == nil {
+		app.ServiceUnavailableResponse(w, r, "billederne er ikke tilgængelige lige nu")
+		return
+	}
+
+	params := httprouter.ParamsFromContext(r.Context())
+	slug := params.ByName("slug")
+	ref := params.ByName("ref")
+
+	_, items, found, err := app.models.Albums.BySlug(app.config.eventYear, slug)
+	if err != nil {
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+	if !found {
+		app.NotFoundResponse(w, r)
+		return
+	}
+
+	album := app.publicRoot() + "/album/" + slug
+	for _, it := range items {
+		if it.Ref != ref {
+			continue
+		}
+		// Query **and** fragment, for task 401's reason: the query is what lets the server render the page
+		// holding the item, the fragment is what scrolls the recipient to the tile, and neither can do the
+		// other's job.
+		ordinal := strconv.Itoa(it.Ordinal)
+		http.Redirect(w, r, album+"?foto="+ordinal+"#foto-"+ordinal, http.StatusFound)
+		return
+	}
+
+	// Not in this album, or no longer: the album itself, without a photograph named.
+	http.Redirect(w, r, album, http.StatusFound)
+}
+
+// albumPhotoPermalink builds a photograph's durable public address (task 447).
+//
+// `/{year}/album/{slug}/foto/{ref}`, which is the maintainer's shape with one segment added. The shape was
+// chosen for a reason worth keeping visible: **every public photograph is in an album**, so the album is part of
+// what a photograph is publicly, and the ref is the part that does not move when the album is re-sorted.
+//
+// The extra `foto` is not taste. `{year}/album/{slug}/edit` is the admin album editor, registered under the same
+// root, and httprouter refuses a wildcard sibling of a literal segment — `/album/{slug}/{ref}` panics at
+// registration. `foto` also matches the vocabulary of the `?foto=` parameter it resolves onto.
+//
+// One place, because the page renders it into an attribute and the route below parses it back, and a builder
+// and a parser that disagree about a URL shape produce links that resolve to the wrong photograph rather than
+// to none.
+func albumPhotoPermalink(root, slug, ref string) string {
+	if slug == "" || ref == "" {
+		return ""
+	}
+	return root + "/album/" + slug + "/foto/" + ref
 }
 
 // albumItemIs reports whether an item is the one a selector names.

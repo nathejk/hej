@@ -186,6 +186,13 @@ func (app *application) routes() http.Handler {
 	// here and a loop afterwards.
 	router.HandlerFunc(http.MethodGet, publicRoot+"/privatliv", app.publicPrivacyPageHandler)
 	router.HandlerFunc(http.MethodGet, publicRoot+"/album/:slug", app.albumPageHandler)
+	// A photograph's durable address (task 447). Redirects onto the album page's own state; see the handler.
+	//
+	// `/album/{slug}/foto/{ref}` rather than `/album/{slug}/{ref}`, which is what was asked for, and the reason
+	// is mechanical: the admin album editor is registered at `{year}/album/:slug/edit` under this same root, and
+	// httprouter cannot have a wildcard sibling of a literal segment — it panics at registration. A literal
+	// `foto` also matches the vocabulary the query parameter already uses.
+	router.HandlerFunc(http.MethodGet, publicRoot+"/album/:slug/foto/:ref", app.albumPhotoPermalinkHandler)
 	// The shared photo viewer's two assets (task 402). **Outside the year prefix and outside /admin**, because
 	// both surfaces load them and one of those surfaces answers `no-store` to everything under its own prefix
 	// (task 371). Registered bare like the public pages, so no session is read: it is code, not data, and a

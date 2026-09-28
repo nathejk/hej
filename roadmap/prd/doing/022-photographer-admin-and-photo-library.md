@@ -661,6 +661,29 @@ Consequences to handle deliberately:
 - **The public album page and frontpage render without JavaScript.**
 - **Blobs are never addressed by ref in a URL.** Always `(entity, ordinal[, variant])` → a
   projection read that applies the visibility filter → `blob.Ref` → `streamGlimtMedia`.
+
+  **Narrowed on 2026-09-28 (task 447/456, maintainer's decision, option A).** The rule as written was
+  too wide by one case, and PRD 024 forced the issue: an *ordinal* is not a durable name for a
+  photograph once an album re-sorts itself, so a URL built from one cannot be `immutable` and cannot be
+  a permalink. The rule is therefore now:
+
+  > A ref may appear in a public payload **only where the route that resolves it is album-scoped and
+  > publication-checked**. Everywhere else — glimt above all — the unnarrowed rule stands.
+
+  What makes that safe is in the code, not in the argument: `albumItemRef` resolves a selector *inside a
+  named album that must be in `Published(year)`*, so a ref has exactly the reach an ordinal has. A ref
+  from one album 404s in another and 404s once the album is unpublished — unpublishing revokes it. It is
+  not a bearer token. Nor is it a secret in the first place: it is the SHA of the bytes the route itself
+  serves, so any visitor who downloads a photograph can compute it.
+
+  What the narrowing does cost is **defence in depth** — the old rule's value was that no hash was ever
+  in circulation, so no future route could be exploited by one somebody already held. Two bounds keep
+  that cost small, and both are tested:
+
+  - only the **display** ref is published; the thumb and medium rendition refs remain forbidden in
+    public HTML (`TestTheAlbumPageNeverPutsADerivedRenditionRefInItsHTML`);
+  - **glimt is untouched.** Its media is per-member scoped, the argument there is much stronger, and
+    `glimtpublic_test.go`'s structural guard still holds unnarrowed.
 - **`storeAlbumImage`'s existing pipeline** — `ReadGPS`, then `Prepare`, then `blobs.Put`, with a
   failed thumbnail logged rather than fatal. The new upload handler wraps it; it does not replace it.
 

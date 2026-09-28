@@ -1079,16 +1079,26 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 
        (No backticks in this comment: the whole template is a Go raw string literal, so one would end it. Same
        warning the stylesheet carries.) -->
-  <!-- Still addressed by **ordinal**, and that is a decision waiting rather than an oversight (tasks 447, 456).
-       A content hash in a public payload is forbidden here — see TestTheAlbumPageNeverPutsARenditionRefInItsHTML
-       and glimtmediaserve.go — because a hash-addressed URL would be a forwardable, unrevokable capability. The
-       media route now accepts a ref as well, and only a ref may be served as immutable; minting one into this
-       page needs that invariant narrowed on purpose, which is task 456's open question. -->
-  <a class="tile" href="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}"
+  <!-- Addressed by the photograph's **display ref**, not by its ordinal (tasks 447, 456).
+       An ordinal stopped being a durable address when PRD 024 made albums re-sort themselves, and the media
+       route was promising caches immutable at one — so every cache in the world would have kept serving the old
+       photograph at that URL, under a caption this page had already updated. A ref is the hash of the bytes.
+
+       The rule against hashes in public payloads was narrowed for this on purpose: it holds wherever the route
+       resolving a ref is album-scoped and publication-checked, which this one is. See the Ref field's comment.
+       Only the display ref appears; the thumbnail's and the 800px rendition's never do, because the variant is
+       a query parameter on the same address.
+
+       data-viewer-ordinal stays alongside it: the ordinal is this page's own state, reflected into ?foto= by the
+       viewer (task 401), while data-viewer-permalink is the address share hands to somebody else.
+
+       (No backticks in here. The whole template is a Go raw string literal, so one would end it.) -->
+  <a class="tile" href="/api/public/albums/{{$album.ID}}/media/{{.Ref}}"
      data-viewer-item data-viewer-ordinal="{{.Ordinal}}"
-     data-full="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}"
-     {{if .HasMedium}}data-medium="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}?variant=medium"{{end}}
-     data-thumb="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}?variant=thumb"
+     {{if .Permalink}}data-viewer-permalink="{{.Permalink}}"{{end}}
+     data-full="/api/public/albums/{{$album.ID}}/media/{{.Ref}}"
+     {{if .HasMedium}}data-medium="/api/public/albums/{{$album.ID}}/media/{{.Ref}}?variant=medium"{{end}}
+     data-thumb="/api/public/albums/{{$album.ID}}/media/{{.Ref}}?variant=thumb"
      {{if .Caption}}data-caption="{{.Caption}}"{{end}}
      {{if .Credit}}data-credit="{{.Credit}}"{{end}}>
     <!-- The thumbnail, always: this page is read by a lot of people at once on whatever connection

@@ -207,6 +207,10 @@
         caption: node.getAttribute('data-caption') || '',
         credit: node.getAttribute('data-credit') || '',
         ordinal: node.getAttribute('data-viewer-ordinal') || '',
+        // The photograph's durable address, when the host page has one (task 447). The viewer knows nothing about
+        // albums or refs — it is handed a URL and prefers it when sharing, because the page that rendered it is
+        // the only thing that knows what a durable address looks like on that surface.
+        permalink: node.getAttribute('data-viewer-permalink') || '',
         id: node.getAttribute('data-viewer-id') || '',
         deleted: node.getAttribute('data-viewer-deleted') === 'true',
       });
@@ -948,6 +952,13 @@
   // holding the item, the fragment is what scrolls the recipient to the tile, and neither can do the other's
   // job.
   function shareURL(ctx) {
+    // A permalink when the page supplied one, because that is the address that still means this photograph after
+    // the album has been re-sorted (task 447). The ordinal form below is this page's own state — right now, and
+    // not necessarily next week — so it is the fallback rather than the answer.
+    if (ctx.item.permalink) {
+      return new URL(ctx.item.permalink, window.location.href).toString();
+    }
+
     var url = new URL(window.location.href);
     var param = ctx.config.history || 'foto';
     if (ctx.item.ordinal) {

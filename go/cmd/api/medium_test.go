@@ -129,11 +129,13 @@ func TestAMediumVariantWithNoRenditionFallsBackToTheDisplayImage(t *testing.T) {
 // under an `800w` label that is a lie, which is the one thing a `srcset` candidate must not be. The viewer
 // then emits no `srcset` at all for such a photograph (task 410).
 func TestTheAlbumTileOffersTheMediumRenditionOnlyWhenItExists(t *testing.T) {
-	_, _, srv := mediumAlbumApp(t)
+	_, item, srv := mediumAlbumApp(t)
 
 	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
 	page := string(body)
-	if !strings.Contains(page, `data-medium="/api/public/albums/al-1/media/0?variant=medium"`) {
+	// The **display** ref plus `?variant=medium`: one address, three renditions. That is why the 800px
+	// rendition's own hash never appears in the page — see TestTheAlbumPageNeverPutsADerivedRenditionRefInItsHTML.
+	if !strings.Contains(page, `data-medium="/api/public/albums/al-1/media/`+item.Ref+`?variant=medium"`) {
 		t.Errorf("the tile does not offer the medium rendition, so task 410's srcset has one candidate\n%s", page)
 	}
 }
@@ -158,25 +160,49 @@ func TestTheAlbumTileOmitsDataMediumWithoutARendition(t *testing.T) {
 	}
 }
 
-// No blob hash may appear in a public payload — content addressing would make it a forwardable, unrevokable
-// capability. So the view model carries a **boolean**, not the ref, and the page addresses photographs by
-// ordinal. This is the rule `glimtpublic_test.go` asserts structurally; restated here because adding a
-// rendition is exactly the moment somebody would pass the ref through to the template.
-func TestTheAlbumPageNeverPutsARenditionRefInItsHTML(t *testing.T) {
+// **No derived rendition's hash may appear in a public payload** — narrowed on 2026-09-28, and the narrowing is
+// the interesting part.
+//
+// The rule used to be "no blob hash at all", because content addressing would make a URL a forwardable,
+// unrevokable capability. The maintainer narrowed it (option A) so that a photograph could have a durable public
+// address at all — tasks 447 and 456 — to: a ref may appear **where the route resolving it is album-scoped and
+// publication-checked.** `albumItemRef` is, and `TestAlbumMediaByRefIsScopedToItsPublishedAlbum` is what holds
+// that: one album's ref 404s in another and in the unpublished one, so unpublishing revokes it and a hash on its
+// own reaches nothing.
+//
+// What did **not** change, and is what this test now guards: the **display** ref is the address, and the
+// thumbnail's and the 800px rendition's hashes still appear nowhere. They are derived, a visitor has no reason
+// to name one, and the variant is a query parameter on the same address — so there is no honest reason for a
+// second or third hash to be in the page, and "adding a rendition" remains exactly the moment somebody would
+// pass one through to the template.
+//
+// `glimtpublic_test.go` keeps the **unnarrowed** rule for glimt, where media is per-member scoped and a hash
+// really would be a bearer token. That is the same shape as every other exception in this codebase: narrowed
+// where it was argued, untouched everywhere else.
+func TestTheAlbumPageNeverPutsADerivedRenditionRefInItsHTML(t *testing.T) {
 	_, item, srv := mediumAlbumApp(t)
 
 	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
 	page := string(body)
+
 	for name, ref := range map[string]string{
-		"full":   item.Ref,
 		"medium": item.MediumRef,
 		"thumb":  item.ThumbRef,
 	} {
-		if strings.Contains(page, ref) {
-			t.Errorf("the %s rendition's content hash appears in the album page's HTML. A hash in a public "+
-				"response is a forwardable, unrevokable capability — the page addresses photographs by "+
-				"ordinal for exactly this reason", name)
+		if ref == "" {
+			t.Fatalf("the fixture has no %s rendition, so this test is asserting nothing", name)
 		}
+		if strings.Contains(page, ref) {
+			t.Errorf("the %s rendition's content hash appears in the album page's HTML. Only the display ref "+
+				"is an address; a derived rendition is reached by ?variant= on that same address, so a second "+
+				"hash in the page is a hash in circulation for no reason", name)
+		}
+	}
+
+	// And the display ref *is* there, which is what makes the two halves of this rule distinguishable rather
+	// than a matter of which one somebody remembered.
+	if !strings.Contains(page, item.Ref) {
+		t.Errorf("the display ref must be in the page: it is the photograph's address (task 447)\n%s", page)
 	}
 }
 

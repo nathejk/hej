@@ -1,11 +1,11 @@
 # 456 — Public album media is cached `immutable` at a URL that is no longer immutable
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-28
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent
+**Started:** 2026-09-28
+**Completed:** 2026-09-28
 
 ## Description
 
@@ -150,3 +150,36 @@ I have not chosen. The last two times I guessed at one of these rules you had in
 - 2026-09-28 — Also walked into the backtick trap in `publicsite.go` for the fifth recorded time, by writing
   `immutable` in backticks inside a Go raw string. Comment now says so at the site.
 - 2026-09-28 — `gofmt`, `go vet`, `staticcheck`, `GOWORK=off go test ./...` clean. Mutation-checked the header.
+
+## Resolved: the maintainer chose **option A**
+
+> option A
+
+So the invariant is narrowed rather than worked around, and the narrowing is recorded where the rule lives —
+**PRD 022 §8.4**, next to the bullet it amends, since `medium_test.go` and `glimtmediaserve.go` both cite it.
+
+The bound that keeps the cost small, and which was not obvious until the page was actually written: **only the
+display ref is published.** The album page addresses all three renditions by the *same* ref plus
+`?variant=thumb|medium`, so the derived renditions' own hashes never leave the server. The structural guard was
+renamed to say exactly that — `TestTheAlbumPageNeverPutsADerivedRenditionRefInItsHTML` — and it now asserts
+**both** directions: thumb and medium hashes forbidden, display ref required. A guard that only forbids things
+silently passes when the feature is deleted.
+
+Glimt is untouched. Its `glimtpublic_test.go` rule still holds unnarrowed, which is the point of narrowing by
+route rather than by repo.
+
+## Acceptance Criteria
+
+- [x] Public album media is addressable by ref, within a published album
+- [x] The album page's own image URLs use it
+- [x] `immutable` is only sent for a content-addressed URL
+- [x] Ordinal URLs still resolve
+- [x] 404 for every failure reason, unchanged
+- [x] A test that a re-sort cannot change what a given media URL serves
+
+## Progress Log (cont.)
+
+- 2026-09-28 — Option A taken. Page moved to refs, guard inverted to require the display ref and keep forbidding
+  the derived ones, invariant amended in PRD 022 §8.4 with its two bounds. `TestAlbumMediaByRefIsScopedToItsPublishedAlbum`
+  is the one that carries the safety argument: a ref from one album 404s in another, and 404s once unpublished.
+- 2026-09-28 — Full gate clean: `gofmt`, `go vet`, `staticcheck`, `GOWORK=off go test ./...`.

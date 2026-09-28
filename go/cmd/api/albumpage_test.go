@@ -441,7 +441,7 @@ func assertScriptsAreDeferredAndOurs(t *testing.T, page string) {
 // caption editor, and since no test can execute the viewer's JavaScript, this line of markup is where that gets
 // caught.
 func TestTheAlbumPageWiresTheViewer(t *testing.T) {
-	app, _ := albumApp(t)
+	app, store := albumApp(t)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
@@ -458,8 +458,12 @@ func TestTheAlbumPageWiresTheViewer(t *testing.T) {
 				"person's name could plausibly land"},
 		{`data-viewer-item`, "each tile announces itself to the viewer"},
 		{`data-viewer-ordinal="0"`, "and carries the ordinal the deep link names"},
-		{`data-full="/api/public/albums/al-1/media/0"`, "the display image, for the overlay"},
-		{`data-thumb="/api/public/albums/al-1/media/0?variant=thumb"`, "the thumbnail, for the filmstrip"},
+		{`data-full="/api/public/albums/al-1/media/` + firstItemRef(t, store) + `"`,
+			"the display image, addressed by ref so the media route's immutable header is honest (task 456)"},
+		{`data-thumb="/api/public/albums/al-1/media/` + firstItemRef(t, store) + `?variant=thumb"`,
+			"the thumbnail, for the filmstrip — the same address with a variant"},
+		{`data-viewer-permalink="/2026/album/loerdag-morgen/foto/` + firstItemRef(t, store) + `"`,
+			"and the durable address, which is what share hands to somebody else (task 447)"},
 		{`data-caption="Ved målstregen"`, "the caption reaches the viewer without a request"},
 		{`data-credit="` + fixtureCredit + `"`, "and so does the credit"},
 		{`id="foto-0"`, "the anchor half of the deep link"},
@@ -1135,6 +1139,86 @@ func TestAlbumMediaByRefIsScopedToItsPublishedAlbum(t *testing.T) {
 		resp, _ := getPublic(t, srv.URL+"/api/public/albums/al-1/media/"+selector, nil)
 		if resp.StatusCode == http.StatusOK {
 			t.Errorf("selector %q must not resolve", selector)
+		}
+	}
+}
+
+// A photograph's permalink (task 447): `/{year}/album/{slug}/foto/{ref}`.
+func TestAlbumPhotoPermalinkLandsOnThePhotograph(t *testing.T) {
+	app, store := albumApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	ref := firstItemRef(t, store)
+	// No redirect following: the redirect *is* the behaviour.
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Get(srv.URL + "/2026/album/loerdag-morgen/foto/" + ref)
+	if err != nil {
+		t.Fatalf("GET the permalink: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// **302, never 301.** The ref-to-ordinal mapping changes whenever the album is re-sorted, so a permanent
+	// redirect would invite caches to pin one — and the link would rot in exactly the way this route prevents.
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("want 302, got %d: a permanent redirect would pin a mapping that a re-sort changes",
+			resp.StatusCode)
+	}
+	if got, want := resp.Header.Get("Location"), "/2026/album/loerdag-morgen?foto=0#foto-0"; got != want {
+		t.Errorf("Location = %q, want %q — the query renders the window, the fragment scrolls to the tile, "+
+			"and neither can do the other's job (task 401)", got, want)
+	}
+}
+
+// A ref that is not in the album lands on the **album**, not on a 404.
+//
+// PRD 023 §8's rule: "a link that has half-rotted — because the photograph it pointed at was taken down —
+// should land on the album rather than on an error page". A takedown must not make an album look deleted, which
+// is what a 404 at this address would say to somebody who was sent the link.
+func TestAlbumPhotoPermalinkFallsBackToTheAlbum(t *testing.T) {
+	app, _ := albumApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for name, ref := range map[string]string{
+		"a taken-down photograph": strings.Repeat("a", 64),
+		"rubbish":                 "not-a-ref",
+	} {
+		resp, err := client.Get(srv.URL + "/2026/album/loerdag-morgen/foto/" + ref)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusFound {
+			t.Errorf("%s: want 302 to the album, got %d", name, resp.StatusCode)
+		}
+		if got, want := resp.Header.Get("Location"), "/2026/album/loerdag-morgen"; got != want {
+			t.Errorf("%s: Location = %q, want the album itself %q", name, got, want)
+		}
+	}
+}
+
+// An unknown, unpublished or deleted album is still a 404 — the address names nothing at all, and the open web
+// must not be able to tell those three apart.
+func TestAlbumPhotoPermalinkHidesUnpublishedAlbums(t *testing.T) {
+	app, store := albumApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	ref := firstItemRef(t, store)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for name, slug := range map[string]string{
+		"unknown":     "ikke-et-album",
+		"unpublished": "kladde",
+	} {
+		resp, err := client.Get(srv.URL + "/2026/album/" + slug + "/foto/" + ref)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("%s: want 404, got %d", name, resp.StatusCode)
 		}
 	}
 }
