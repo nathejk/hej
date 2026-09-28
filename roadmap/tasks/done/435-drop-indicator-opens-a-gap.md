@@ -78,11 +78,14 @@ that one", with `moveAlbumOrder` building the order server-side.
   `drop-after` are gone from both languages. Mutation-checked by removing the cap and the `gapIsOpen`
   check — both fail.
 - 2026-09-28 — `gofmt` clean, `go test ./cmd/api/ -count=1` green.
+- 2026-09-28 — Superseded in part by task 436: the four-frame cap is gone. It was right only while the
+  moving cells stayed in the flow and the gap was pure addition. Once they leave it, one frame per vacated
+  cell is what keeps the grid's length, and the cap was what made it shrink.
 
 ## Worth knowing
 
 The behaviour itself is **not** executed by any test: the suite has no JavaScript runtime, and the
 pointer gesture is the part where this could still be wrong. The anti-oscillation logic is reasoned and
 clicked through, not asserted. If the gap is ever seen to flicker or to drift away from the pointer, the
-two functions named above are where to look, and the cap is the knob that changes how violently the grid
-reflows.
+two functions named above are where to look. The cap that used to be the knob for how violently the grid
+reflows is gone — see task 436.

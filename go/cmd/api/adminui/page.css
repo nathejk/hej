@@ -375,10 +375,11 @@ nav.views a[aria-current="page"] { color: #fafafa; font-weight: 600; text-decora
 #editnote { min-height: 1.5rem; color: #166534; }
 
 /* Drag-and-drop in the album view (task 396). The grid opens a gap where the photographs will land — empty dashed
-   frames, one per photograph being moved and at most four — the frames are the same shape as a thumbnail, so the gap
-   is the size of the hole the move will make rather than a hint next to it, and what is being moved leaves the grid
-   and rides the pointer. So what is on screen during a drag is the album minus the selection, with one gap in it:
-   the result, rather than a diagram of it. */
+   frames, one for each cell the drag took out of the grid, so the album keeps its length: it is rearranged, not
+   resized. The frames are the same shape as a thumbnail, so the gap is the size of the hole the move will make
+   rather than a hint next to it, and what is being moved leaves the grid and rides the pointer. So what is on screen
+   during a drag is the album minus the selection with the selection's worth of space waiting in one place: the
+   result, rather than a diagram of it. */
 #albumeditor ~ #sheet .cell { touch-action: none; }
 #sheet .cell img { -webkit-user-drag: none; user-select: none; }
 /* `display: none` and not `opacity`, which is what this was: a dimmed cell still holds its place, so the grid grew

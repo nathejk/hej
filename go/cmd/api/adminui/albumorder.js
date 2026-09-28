@@ -22,12 +22,13 @@
 // pointer is released.
 //
 // The photographs being moved **leave the grid** while they are in flight — `display: none`, not dimmed in place —
-// and ride the pointer as a small stack of themselves. Two reasons, and the second is the point:
+// and ride the pointer as a small stack of themselves. One frame stands in the grid for each cell they vacated, so
+// the album **keeps its length**: the grid is rearranged, not resized, nothing below it moves, and the scroll
+// position keeps meaning what it meant. What is on screen during a drag is the album minus the selection, with the
+// selection's worth of space waiting in one place — which is exactly what releasing the pointer commits.
 //
-//   - keeping them in the flow meant the grid grew by a gap while still holding everything, so the arrangement under
-//     the pointer was one that would never exist;
-//   - with them gone, what is left on screen *is* the album minus the selection, and the gap is the only space the
-//     selection occupies. The curator is looking at the result rather than at a diagram of it.
+// Keeping the cells in the flow, as this did first, meant the grid held everything *and* a gap, so it was longer
+// than the album by the size of the gap and every cell after the gap sat a gap-width from where it would end up.
 //
 // The stack carries at most three thumbnails. It is a handful, not an inventory: the count underneath it is the
 // real number, and a selection may include photographs that are not loaded and have no thumbnail to carry.
@@ -45,16 +46,11 @@ function initAlbumOrder(ctx) {
   const sheet = document.getElementById('sheet');
 
   const THRESHOLD = 6; // px of movement before a press becomes a drag
-  // How many frames a gap is ever opened with. A selection can be two hundred photographs — "vælg alle der matcher
-  // filteret" makes that one click — and two hundred frames would push the grid around so violently that the cell
-  // the curator is aiming at would leave the screen. Four is enough to read as "several", and the ghost under the
-  // pointer carries the true count.
-  const MAXSLOTS = 4;
   // How many thumbnails the stack carries. See the header: a handful, and the label holds the truth.
   const MAXCARRIED = 3;
   let press = null; // { id, x, y, pointerId }
   let drag = null; // { moving: [ids], ghost, target, after }
-  let slots = []; // the dashed frames currently standing in the grid
+  let slots = []; // this drag's frames — one per cell it took out of the grid, in the DOM only while a gap is shown
   let swallowClick = false;
 
   function cellAt(x, y) {
@@ -68,33 +64,53 @@ function initAlbumOrder(ctx) {
     return !!(el && el.classList && el.classList.contains('dropslot'));
   }
 
-  function clearMarks() {
-    for (const s of slots) s.remove();
-    slots = [];
+  // A single frame: a hole in the order, and nothing else. Not a cell, and not in the listbox — the grid's keyboard
+  // handling and the selection both walk `.cell`, and a hole is not something a curator can select or focus.
+  function newSlot() {
+    const slot = document.createElement('div');
+    slot.className = 'dropslot';
+    slot.setAttribute('aria-hidden', 'true');
+    return slot;
   }
 
-  // Whether the gap already open is the one this cell and side ask for. Without this the indicator oscillates: the
+  // makeSlots builds one frame per cell the drag took out of the grid.
+  //
+  // **One per vacated cell is what keeps the album's length unchanged.** The frames stand in exactly the places the
+  // photographs left, so nothing below the grid moves and the scroll position keeps meaning what it meant — the grid
+  // is rearranged, not resized. Photographs in the selection that are not loaded get no frame, which is right:
+  // they took up no space to begin with.
+  //
+  // Built once per drag and then *moved* rather than rebuilt. A two-hundred-photograph move is two hundred
+  // elements, and recreating those on every gap change would be two hundred elements per pointermove.
+  function makeSlots(n) {
+    slots = [];
+    for (let i = 0; i < n; i++) slots.push(newSlot());
+  }
+
+  function gapShown() {
+    return slots.length > 0 && !!slots[0].parentNode;
+  }
+
+  function hideGap() {
+    for (const s of slots) s.remove();
+  }
+
+  // Whether the gap already shown is the one this cell and side ask for. Without this the indicator oscillates: the
   // frames take up room, which moves the cell under the pointer, which asks for a gap one place over, and so on
   // every pointermove. The two ways of naming the same gap are "before the cell after the frames" and "after the
   // cell before them".
   function gapIsOpen(cell, after) {
-    if (!slots.length) return false;
+    if (!gapShown()) return false;
     if (!after && cell === slots[slots.length - 1].nextElementSibling) return true;
     if (after && cell === slots[0].previousElementSibling) return true;
     return false;
   }
 
-  function openGap(cell, after, count) {
+  // Appending an element that is already in the document moves it, so this both places a fresh gap and relocates a
+  // shown one — there is no separate "move the gap" path to keep in step.
+  function showGap(cell, after) {
     const frames = document.createDocumentFragment();
-    for (let i = 0; i < Math.min(count, MAXSLOTS); i++) {
-      const slot = document.createElement('div');
-      slot.className = 'dropslot';
-      // Not a cell, and not in the listbox: the grid's keyboard handling and the selection both walk `.cell`, and a
-      // hole in the order is not something a curator can select or focus.
-      slot.setAttribute('aria-hidden', 'true');
-      slots.push(slot);
-      frames.appendChild(slot);
-    }
+    for (const s of slots) frames.appendChild(s);
     if (after) cell.after(frames); else cell.before(frames);
   }
 
@@ -140,6 +156,9 @@ function initAlbumOrder(ctx) {
     // `dragging` takes them out of the grid entirely (page.css). Only a class, so the cells themselves — and the
     // selection painted on them — are untouched and an Escape puts them straight back.
     for (const c of sheet.querySelectorAll('.cell')) c.classList.toggle('dragging', set.has(c.dataset.id));
+    // One frame per cell just taken out, counted from the grid rather than from the selection: the selection may name
+    // photographs that are not loaded, and those vacated nothing.
+    makeSlots(sheet.querySelectorAll('.cell.dragging').length);
     document.body.classList.add('draggingcells');
     move(e);
   }
@@ -163,7 +182,7 @@ function initAlbumOrder(ctx) {
     // return one. It stays because the server refuses a move whose target is one of the photographs moving, and
     // this is the client side of that same rule.
     if (!cell || cell.classList.contains('dragging')) {
-      clearMarks();
+      hideGap();
       drag.target = null;
       return;
     }
@@ -172,15 +191,15 @@ function initAlbumOrder(ctx) {
     drag.target = cell.dataset.id;
     drag.after = after;
     if (gapIsOpen(cell, after)) return;
-    clearMarks();
-    openGap(cell, after, drag.moving.length);
+    showGap(cell, after);
   }
 
   function end() {
     const d = drag;
     drag = null;
     press = null;
-    clearMarks();
+    hideGap();
+    slots = [];
     document.body.classList.remove('draggingcells');
     for (const c of sheet.querySelectorAll('.dragging')) c.classList.remove('dragging');
     if (d) d.ghost.remove();
@@ -254,4 +273,24 @@ function initAlbumOrder(ctx) {
 
   // The thumbnails' own native drag would otherwise start and fight this one.
   sheet.addEventListener('dragstart', (e) => { e.preventDefault(); });
+
+  // A page can arrive mid-drag: the auto-scroll above reaches the end of the grid, which is what the infinite scroll
+  // watches for. If that page contains photographs that are in flight, they would land in the grid as ordinary cells
+  // — droppable onto themselves, which the server refuses, and one more cell than the album has room for, which is
+  // what would make the grid grow after all. So they are taken out on arrival, and the gap gains a frame each.
+  sheet.addEventListener('htmx:afterSwap', () => {
+    if (!drag) return;
+    const set = new Set(drag.moving);
+    const arrived = [];
+    for (const c of sheet.querySelectorAll('.cell:not(.dragging)')) {
+      if (set.has(c.dataset.id)) { c.classList.add('dragging'); arrived.push(c); }
+    }
+    if (!arrived.length) return;
+    const shown = gapShown();
+    for (let i = 0; i < arrived.length; i++) slots.push(newSlot());
+    // Re-shown from the target, because the new frames are only in the array so far. `showGap` moves the whole set,
+    // so this puts the gap back where it was with the extra frames in it.
+    const target = shown && drag.target ? sheet.querySelector('[data-id="' + drag.target + '"]') : null;
+    if (target) showGap(target, drag.after);
+  });
 }

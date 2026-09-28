@@ -37,6 +37,13 @@ fan stops being legible, and a selection may include photographs that are not lo
 thumbnail to carry at all. The label underneath holds the true number, which is also why it is still
 there.
 
+**One frame per vacated cell** (corrected the same day — see the log). The gap is as big as the hole the
+selection left, so the album keeps its length: the grid is rearranged, not resized, nothing below it
+moves, and the scroll position keeps meaning what it meant. Task 435's cap of four was written while the
+cells were still dimmed in place, when the gap was pure addition and a two-hundred-frame gap really would
+have pushed the drop target off the screen. Once the cells leave the flow the arithmetic cancels, and the
+cap stopped being a safeguard and started being the thing that made the grid shrink.
+
 The fan (`rotate(-5deg)` / `rotate(4deg)`, straight on top) is what makes three read as three; squared up
 they would look like one photograph with a thick border. A single photograph is carried straight
 (`:only-child`).
@@ -52,6 +59,8 @@ refuses a move whose target is one of the photographs moving and this is the cli
 - [x] At most three are carried, with the true count shown
 - [x] The photograph under the pointer is the one that was grabbed
 - [x] A cancelled drag restores the cells and the selection exactly
+- [x] The grid keeps its length: one frame per cell taken out of it
+- [x] A page arriving mid-drag cannot put an in-flight photograph back in the grid
 - [x] Pinned by test, mutation-checked
 
 ## Progress Log
@@ -71,13 +80,32 @@ refuses a move whose target is one of the photographs moving and this is the cli
   and that `#sheet .cell.dragging` takes the cell out of the grid. Mutation-checked by putting
   `opacity: 0.35` back — it fails.
 - 2026-09-28 — `gofmt` clean, `go test ./cmd/api/ -count=1` green.
+- 2026-09-28 — Reopened immediately: shipped with 435's four-frame cap still in place, so the grid got
+  *shorter* by the selection minus four. I had even written that up as acceptable, on the grounds that the
+  jump was honest. The curator's point stands and mine did not: the frames exist to stand in the vacated
+  positions, and the whole intent was to keep the grid's length rather than change it in either direction.
+  The cap's original justification died when the cells left the flow — with them gone the arithmetic
+  cancels — and I carried it across without re-deriving it.
+- 2026-09-28 — Cap removed. `makeSlots(n)` builds one frame per cell now classed `dragging`, counted off
+  the grid rather than off the selection: "vælg alle der matcher filteret" names photographs that were
+  never loaded, and those vacated nothing.
+- 2026-09-28 — The frames are now built once per drag and *moved* between gaps (`showGap` appends them to
+  a fragment, which detaches them, then inserts). At two hundred frames, rebuilding on every pointermove
+  would have been two hundred elements per event. `gapShown()` reads the DOM (`slots[0].parentNode`)
+  instead of a second flag, so there is no "is it shown" state to fall out of step.
+- 2026-09-28 — Found a consequence while reasoning about the count: the auto-scroll can trigger the
+  infinite scroll, so a page can arrive mid-drag carrying photographs that are in flight. They would have
+  landed as ordinary cells — droppable onto themselves, refused by the server, and one cell more than the
+  album has room for, which would have made the grid grow after all. An `htmx:afterSwap` listener takes
+  them out on arrival and gives the gap a frame each.
+- 2026-09-28 — ✅ Guard updated to the count rather than the cap. Mutation-checked with `makeSlots(4)`.
+  `go test ./cmd/api/ -count=1` green again.
 
 ## Worth knowing
 
-The grid gets **shorter** the moment a drag starts, by the size of the selection minus the gap. On a
-fifty-photograph move that is a visible jump, and it is the honest one: those fifty are in flight. If it
-ever reads as disorienting rather than informative, the thing to reach for is not putting the cells back
-into the flow — that reintroduces the impossible layout this task removed — but holding the grid's
-height for the duration of the drag.
+The grid's length is now invariant across a drag, which is the property to protect if this code is
+touched: it holds only because every hidden cell has exactly one frame, and both the `htmx:afterSwap`
+listener and the count being read off `.cell.dragging` rather than off the selection exist to keep that
+true in the awkward cases.
 
 As with 435, the gesture itself is not executed by any test: the suite has no JavaScript runtime.

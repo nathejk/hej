@@ -167,8 +167,9 @@ func TestTheDropIndicatorOpensAGapInTheGrid(t *testing.T) {
 	for _, want := range []struct{ needle, why string }{
 		{"slot.className = 'dropslot'", "the gap must be real elements in the grid, or the cells after it do not move"},
 		{"if (after) cell.after(frames); else cell.before(frames);", "the frames go where the photographs will land"},
-		{"Math.min(count, MAXSLOTS)", "a two-hundred-photograph selection must not open a two-hundred-frame gap: " +
-			"it would push the cell the curator is aiming at off the screen"},
+		{"makeSlots(sheet.querySelectorAll('.cell.dragging').length)", "one frame per cell the drag took out of " +
+			"the grid is what keeps the album's length unchanged — counted from the grid, not from the selection, " +
+			"which may name photographs that are not loaded and so vacated nothing"},
 		{"if (gapIsOpen(cell, after)) return;", "without this the gap oscillates: it takes up room, which moves " +
 			"the cell under the pointer, which asks for the next gap over, every pointermove"},
 		{"if (onSlot(e.clientX, e.clientY)) return;", "the pointer spends most of a drag over the gap it opened, " +
