@@ -42,6 +42,22 @@
 <!-- The working year on every htmx request (task 392): the fragments have no year in their path and refuse a
      request without one. Scripted requests get it from ctx.fetch in main.js. -->
 <body hx-headers='{"X-Admin-Year": "{{.Year}}"}'>
+<!-- The icons the contact sheet's cells use, defined once and referenced with <use> (task 459).
+
+     A sprite rather than inline SVG per cell: a grid is 120 cells and every one of them would otherwise carry the
+     same two path definitions, which is ~25 kB of repeated markup on a page served `no-store`. The symbols live in
+     the page rather than in the fragment because the fragment is swapped — repeatedly, and appended to by "Hent
+     flere" — and a definition inside it would be replaced, or duplicated, on every swap.
+
+     Lucide, as everywhere in this project (.rules), inline because this surface has no build step to import a
+     component through. The two names match what the viewer's edit buttons use for the same two fields
+     (vieweredit.js), so the icon a curator clicks to write a caption is the icon that tells them one exists. -->
+<svg class="sprite" aria-hidden="true" hidden>
+  <!-- Lucide: pencil -->
+  <symbol id="i-caption" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol>
+  <!-- Lucide: user -->
+  <symbol id="i-credit" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+</svg>
 {{template "adminheader" .}}
 <main>
 {{if eq .View "album"}}

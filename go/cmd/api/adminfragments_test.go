@@ -911,6 +911,111 @@ func TestTheContactSheetMarksAlbumsTagsAndDeletion(t *testing.T) {
 	}
 }
 
+// Caption and credit are marked with an icon each (task 459).
+//
+// The question this answers is asked of a screenful at a time — "what still needs a caption" — so the two marks
+// that a curator *scans* for are icons while the rest stay words. Two different icons, because "has a caption" and
+// "has a credit" are the two different pieces of work left on a photograph and a single "has metadata" badge would
+// answer neither.
+func TestTheContactSheetMarksCaptionsAndCreditsWithIcons(t *testing.T) {
+	_, srv := libraryApp(t, &libraryCurator{
+		counts: photo.Counts{Total: 4},
+		rows: []photo.LibraryPhoto{
+			{ID: photoID("a"), Caption: "Natten falder på"},
+			{ID: photoID("b"), Credit: "Ida Fotograf"},
+			{ID: photoID("c"), Caption: "Begge", Credit: "Ida Fotograf"},
+			{ID: photoID("d")},
+		},
+	})
+
+	body := contactSheetFragment(t, srv, "")
+
+	cells := map[string]string{}
+	for _, id := range []string{"a", "b", "c", "d"} {
+		cell := body[strings.Index(body, photoID(id)):]
+		cells[id] = cell[:strings.Index(cell, "</button>")]
+	}
+
+	for _, want := range []struct{ cell, icon string }{
+		{"a", "#i-caption"}, {"b", "#i-credit"}, {"c", "#i-caption"}, {"c", "#i-credit"},
+	} {
+		if !strings.Contains(cells[want.cell], want.icon) {
+			t.Errorf("cell %s must carry %s\n%s", want.cell, want.icon, cells[want.cell])
+		}
+	}
+
+	// **The two icons are different.** One mark for "has something written on it" would tell a curator nothing
+	// about which half is missing, which is the whole question.
+	if strings.Contains(cells["a"], "#i-credit") {
+		t.Error("a photograph with a caption and no credit must not carry the credit icon")
+	}
+	if strings.Contains(cells["b"], "#i-caption") {
+		t.Error("a photograph with a credit and no caption must not carry the caption icon")
+	}
+
+	// And a photograph with neither gets neither, which is the state most of a fresh card is in.
+	if strings.Contains(cells["d"], "#i-caption") || strings.Contains(cells["d"], "#i-credit") {
+		t.Errorf("a photograph with no caption and no credit must carry neither icon\n%s", cells["d"])
+	}
+}
+
+// **The credit mark says that there is one, never who it is.**
+//
+// A credit is a person's name — the one PRD 011 §0b.1 exception this tool carries (task 393) — and a grid of 120
+// thumbnails is the wrong place to print it. The viewer shows it when a curator opens a single photograph.
+//
+// The name does reach the cell, in `data-credit`, because that is where the viewer reads it from. What must not
+// happen is it being *rendered*: a mark whose text was the credit would put a dozen photographers' names on screen
+// at 11px, and would be the kind of change nobody notices is a privacy decision.
+func TestTheCaptionAndCreditMarksNameNobody(t *testing.T) {
+	_, srv := libraryApp(t, &libraryCurator{
+		counts: photo.Counts{Total: 1},
+		rows:   []photo.LibraryPhoto{{ID: photoID("a"), Caption: "En sætning", Credit: "Ida Fotograf"}},
+	})
+
+	body := contactSheetFragment(t, srv, "")
+	marks := body[strings.Index(body, `class="marks"`):]
+	marks = marks[:strings.Index(marks, "</span>\n</button>")+len("</span>")]
+
+	if strings.Contains(marks, "Ida Fotograf") {
+		t.Errorf("the credit mark must not print the name\n%s", marks)
+	}
+	if strings.Contains(marks, "En sætning") {
+		t.Errorf("the caption mark must not print the caption — the cell's alt text already carries it\n%s", marks)
+	}
+	// The label is what a screen reader reads, so it has to say what the icon means without saying the value.
+	if !strings.Contains(marks, `aria-label="har fotokredit"`) || !strings.Contains(marks, `aria-label="har billedtekst"`) {
+		t.Errorf("both icon marks need a label: an unlabelled icon is silent, and the cell is an option whose "+
+			"name is computed from its contents\n%s", marks)
+	}
+}
+
+// The icons are defined once in the page, not once per cell.
+//
+// A sprite is not a micro-optimisation here: the fragment renders up to 120 cells and is re-requested on every
+// filter change and every action, so inlining two Lucide paths per cell would repeat ~25 kB of identical markup on
+// a surface served `no-store`. It also has to be the *page* that holds them — the fragment is swapped and appended
+// to, so a definition inside it would be replaced or duplicated on every swap.
+func TestTheContactSheetIconsAreDefinedOncePerPage(t *testing.T) {
+	page := adminPageSource(t)
+
+	for _, id := range []string{"i-caption", "i-credit"} {
+		if got := strings.Count(page, `<symbol id="`+id+`"`); got != 1 {
+			t.Errorf("the page must define %s exactly once, got %d", id, got)
+		}
+	}
+
+	// The fragment references them and defines neither.
+	fragments := mustReadAdminAsset("adminui/fragments.html")
+	if strings.Contains(fragments, "<symbol") {
+		t.Error("the cell fragment must not define a symbol: it is swapped on every filter change and every " +
+			"action, so the definition would be replaced or duplicated")
+	}
+	if !strings.Contains(fragments, `<use href="#i-caption"/>`) {
+		t.Error("the cell must reference the sprite")
+	}
+}
+
 // The thumbnail is addressed by **id and variant, never by a blob ref**.
 //
 // The server resolves it through the projection, which is what stops the media route being a file server for the

@@ -176,6 +176,14 @@ h2 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
 .mark.outside { background: #b91c1ccc; }
 .mark.unknown { background: #b45309cc; }
 .mark.inside { background: #15803dcc; }
+/* The two icon marks (task 459). Square rather than pill-shaped, and the icon is sized in absolute units rather
+   than the `em` the global svg rule uses: the mark's own font-size is 11px, which would leave a 12px glyph with
+   strokes too fine to tell a pencil from a person at a glance. */
+.mark.meta { display: inline-flex; padding: 0.125rem; border-radius: 0.25rem; }
+.mark.meta svg { width: 0.875rem; height: 0.875rem; }
+/* The sprite is a definition, not a picture. `hidden` alone is enough in every engine this tool supports, but a
+   stray stylesheet resetting `[hidden]` would drop a blank 300px box at the top of the page. */
+.sprite { display: none; }
 .cell.gone { opacity: 0.5; }
 .cell.gone img { filter: grayscale(1); }
 

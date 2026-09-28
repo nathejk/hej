@@ -312,6 +312,21 @@ Everything that is not a cell arrives as an out-of-band swap, which is how one r
     {{else if eq .BoundsVerdict "unknown"}}<span class="mark unknown">ikke vurderet</span>{{end}}
     {{if .AlbumCount}}<span class="mark">{{albums .AlbumCount}}</span>{{end}}
     {{if .TagCount}}<span class="mark">patrulje</span>{{end}}
+    {{/* Caption and credit, as icons rather than words (task 459).
+
+         Icons because these two are the marks a curator scans *for*: the question "what still needs a caption"
+         is asked of a whole screenful at once, and two more text pills in a row that already holds up to four
+         would make the answer slower to read rather than faster. The other marks stay words because they are
+         read one cell at a time, when a curator has stopped on it.
+
+         **The credit mark says that there is one, never who it is.** The name is a person's, and a grid of 120
+         is the last place it should be printed at 11px — the viewer shows it when a curator opens one
+         photograph, which is where it belongs (task 393, PRD 011 §0b.1's single documented exception).
+
+         `role="img"` with a label, so the mark is not silent to a screen reader: the cell is an `option` and its
+         accessible name is computed from its contents, so these two labels join the others. */}}
+    {{if .Caption}}<span class="mark meta" role="img" aria-label="har billedtekst" title="Har billedtekst"><svg><use href="#i-caption"/></svg></span>{{end}}
+    {{if .Credit}}<span class="mark meta" role="img" aria-label="har fotokredit" title="Har fotokredit"><svg><use href="#i-credit"/></svg></span>{{end}}
     {{if .Deleted}}<span class="mark outside">slettet</span>{{end}}
     {{if and $.CoverPhotoID (eq .ID $.CoverPhotoID)}}<span class="mark cover">forsidebillede</span>{{end}}
   </span>
