@@ -241,7 +241,17 @@ function initAlbumOrder(ctx) {
         ctx.actionNote.textContent = (out && out.error) || 'Kunne ikke flytte billederne (fejl ' + res.status + ').';
         return;
       }
-      ctx.actionNote.textContent = ctx.photoCount(d.moving.length) + ' flyttet.';
+      // **Waits for the order, not for the photographs** (task 457). They existed before the drag, so presence
+      // proves nothing; the reorder is the thing that has to have folded, and reloading the grid before it does
+      // shows the album in the order it was just dragged out of — the move visibly undone, which reads as the
+      // drag having failed.
+      //
+      // The order is the server's answer rather than the browser's arithmetic: it is built from the projection
+      // (see `moveAlbumOrder`) because the album may be longer than the page the browser holds.
+      const out = await res.json().catch(() => null);
+      const settled = out && out.order ? await ctx.settledOrder(albumId, out.order) : true;
+      ctx.actionNote.textContent = ctx.photoCount(d.moving.length) + ' flyttet.' +
+        (settled ? '' : ' ' + ctx.behindNote);
       // Reloaded so the grid shows the order the server now holds. The selection is kept: moving the same photographs
       // again is common, and it survives the reload by design (contactsheet.js).
       ctx.reloadSheet();

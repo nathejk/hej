@@ -442,13 +442,13 @@ type moveAdminAlbumItemsRequest struct {
 // here from the projection. It publishes the same event as a full reorder, so the fold has one way to reorder.
 //
 // @Summary      Move photographs within an album
-// @Description  Moves the named photographs, together and keeping their current relative order, to just before or just after another photograph in the same album. The server builds the album's complete new order and publishes it as one reorder, so the client does not need to have loaded the whole album. Exactly one of `beforePhotoId` and `afterPhotoId` must be given, and it must not be one of the photographs being moved. **Refused with 409 unless the album's `sortMode` is `manual`**: a hand arrangement in an album that sorts itself would be recomputed away by the next addition, so the album must be switched to manual first — which is a decision the curator makes, not one this endpoint makes for them. Requires the admin credential.
+// @Description  Moves the named photographs, together and keeping their current relative order, to just before or just after another photograph in the same album. The server builds the album's complete new order and publishes it as one reorder, so the client does not need to have loaded the whole album. Exactly one of `beforePhotoId` and `afterPhotoId` must be given, and it must not be one of the photographs being moved. **Refused with 409 unless the album's `sortMode` is `manual`**: a hand arrangement in an album that sorts itself would be recomputed away by the next addition, so the album must be switched to manual first — which is a decision the curator makes, not one this endpoint makes for them. The response carries `order`, the album's complete new sequence, for the same reason the sort-mode change carries `resortedOrder`: the client cannot otherwise tell when the projection has caught up, since the photographs it would look for already existed and only their positions changed. Requires the admin credential.
 // @Tags         admin
 // @Accept       json
 // @Produce      json
 // @Param        albumId  path      string                      true  "album id"
 // @Param        request  body      moveAdminAlbumItemsRequest  true  "what moves, and where to"
-// @Success      204  "moved"
+// @Success      200  {object}  moveAdminAlbumItemsResponse
 // @Failure      400  {object}  map[string]string  "nothing to move, no target or two, a target that is itself moving, or a photograph not in this album"
 // @Failure      401  "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
 // @Failure      421  "the tool was reached over plain HTTP, so the credential in the request is refused unread"
@@ -528,7 +528,26 @@ func (app *application) moveAdminAlbumItemsHandler(w http.ResponseWriter, r *htt
 	app.Logger.Info("admin moved photographs within an album",
 		"albumId", albumID, "moved", len(moving), "ip", clientIP(r))
 
-	w.WriteHeader(http.StatusNoContent)
+	if err := app.WriteJSON(w, http.StatusOK, moveAdminAlbumItemsResponse{Order: order}, nil); err != nil {
+		app.ServerErrorResponse(w, r, err)
+	}
+}
+
+// moveAdminAlbumItemsResponse answers a hand move with the order it published (task 457).
+//
+// **It used to be a 204, and that was the bug.** The grid reloads after a move, and reloading in the same tick as
+// the response reads a projection the reorder may not have reached — so the album comes back in the order it was
+// just dragged out of. The client cannot compute the order it should be waiting for: `moveAlbumOrder` builds it
+// here, from the projection, precisely because the browser may hold only the first page of a long album. So the
+// order is returned, and `ctx.settledOrder` waits for the album read to agree with it — the same shape the
+// sort-mode change has carried since PRD 024 (`resortedOrder`).
+//
+// Re-implementing `moveAlbumOrder` in JavaScript was the alternative and a worse one: two copies of an ordering
+// rule that must agree, on a surface with no build step to share them, for a wait that would then be checking the
+// client's arithmetic rather than the server's answer.
+type moveAdminAlbumItemsResponse struct {
+	// Order is the album's live photographs in their new sequence, as the reorder event published them.
+	Order []string `json:"order"`
 }
 
 // moveAlbumOrder returns the album's live order with `moving` taken out and put back next to `target`.

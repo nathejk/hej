@@ -33,11 +33,14 @@ function initCaptionAction(ctx) {
   document.getElementById('docaption').addEventListener('click', async () => {
     if (!ctx.selected.size) { note.textContent = 'Vælg mindst ét billede.'; return; }
     note.textContent = 'Gemmer…';
+    // Captured before the write, because the sentence below counts them and the wait needs the same list.
+    const ids = Array.from(ctx.selected);
+    const caption = text.value.trim();
     try {
       const res = await ctx.fetch('/api/admin/photos', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ photoIds: Array.from(ctx.selected), caption: text.value.trim() }),
+        body: JSON.stringify({ photoIds: ids, caption: caption }),
       });
       const payload = await res.json().catch(() => null);
       if (!res.ok) {
@@ -45,7 +48,16 @@ function initCaptionAction(ctx) {
         return;
       }
       ctx.closeSheet();
-      ctx.actionNote.textContent = 'Billedtekst gemt på ' + ctx.photoCount(ctx.selected.size) + '.';
+      // **Waits for the caption itself, not for the photographs** (task 457). They already existed, so
+      // `ctx.settled` would return on the first ask and prove nothing — the race this loses is the one where the
+      // grid is re-read before the fold, and then the sheet prefills from the *old* caption the next time it is
+      // opened. That is worse than a stale thumbnail: the curator retypes a caption they already wrote.
+      //
+      // The row is compared to the string we sent, which we know exactly. `|| ''` because the field is
+      // `omitempty` — a cleared caption is an absent key, and clearing is the case that must settle too.
+      const caught = await ctx.settledRows(ids, (row) => row && (row.caption || '') === caption);
+      ctx.actionNote.textContent = 'Billedtekst gemt på ' + ctx.photoCount(ids.length) + '.' +
+        (caught ? '' : ' ' + ctx.behindNote);
       // Reloaded so the cells' alt text — which is what this sheet prefills from — is what was actually written.
       ctx.reloadSheet();
     } catch (err) {

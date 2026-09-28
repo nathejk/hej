@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -58,11 +60,24 @@ func TestAdminMoveStillWorksInAManualAlbum(t *testing.T) {
 	_, srv, pub := albumWriteApp(t, curator)
 
 	body := `{"photoIds":["` + photoID("b") + `"],"beforePhotoId":"` + photoID("a") + `"}`
-	if resp := moveAdmin(t, srv, "/api/admin/albums/al-1/move", body); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("want 204, got %d: %s", resp.StatusCode, adminBody(t, resp))
+	resp := moveAdmin(t, srv, "/api/admin/albums/al-1/move", body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", resp.StatusCode, adminBody(t, resp))
 	}
 	if n := reorderCount(pub); n != 1 {
 		t.Errorf("want one reorder, got %d", n)
+	}
+
+	// **The new order comes back** (task 457), because the tool has to wait for the projection to agree with it
+	// before reloading the grid — and cannot work out what to wait for on its own, since the server builds the
+	// order from the projection rather than from what the browser happens to have loaded.
+	var out struct{ Order []string }
+	if err := json.Unmarshal([]byte(adminBody(t, resp)), &out); err != nil {
+		t.Fatalf("decode the move response: %v", err)
+	}
+	if want := []string{photoID("b"), photoID("a")}; !slices.Equal(out.Order, want) {
+		t.Errorf("order = %v, want %v — the response must name the sequence the reorder published, which is what "+
+			"the grid then waits for", out.Order, want)
 	}
 }
 
@@ -239,7 +254,7 @@ func TestAnAlbumWithNoStatedModeIsManual(t *testing.T) {
 	_, srv, _ := albumWriteApp(t, curator)
 
 	body := `{"photoIds":["` + photoID("b") + `"],"beforePhotoId":"` + photoID("a") + `"}`
-	if resp := moveAdmin(t, srv, "/api/admin/albums/al-1/move", body); resp.StatusCode != http.StatusNoContent {
-		t.Errorf("want 204, got %d: %s", resp.StatusCode, adminBody(t, resp))
+	if resp := moveAdmin(t, srv, "/api/admin/albums/al-1/move", body); resp.StatusCode != http.StatusOK {
+		t.Errorf("want 200, got %d: %s", resp.StatusCode, adminBody(t, resp))
 	}
 }

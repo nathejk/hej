@@ -115,8 +115,8 @@ func TestMovingFromTheEndOfALargeAlbumPublishesTheWholeOrder(t *testing.T) {
 
 	moving := `"` + strings.Join(ids[180:], `","`) + `"`
 	resp := moveAdmin(t, srv, "/api/admin/albums/al-1/move", `{"photoIds":[`+moving+`],"beforePhotoId":"p000"}`)
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("want 204, got %d: %s", resp.StatusCode, adminBody(t, resp))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", resp.StatusCode, adminBody(t, resp))
 	}
 	if len(pub.Messages) != 1 || !strings.Contains(pub.Subjects()[0], ".album.al-1.itemsreordered") {
 		t.Fatalf("want one reorder event, got %v", pub.Subjects())

@@ -581,16 +581,19 @@ func TestTheUploadWaitsForTheProjectionBeforeSayingItIsDone(t *testing.T) {
 		{"upload.js", js, "const caught = await ctx.settled(b.stored);",
 			"the grid is reloaded once the library can name the photographs — reloading the instant the last " +
 				"response lands races the consumer that folds the event into the projection"},
-		{"main.js", main, "ctx.settled = async (ids) => {",
-			"the wait is provided once on the context, so the seven other writes that race this projection get a " +
-				"call rather than a copy of the polling loop"},
-		{"main.js", main, "for (const id of chunk) if (!there.has(id)) still.push(id);",
-			"ids already seen are dropped, so a batch of three hundred converges instead of re-asking after the " +
+		// The loop itself moved to `waitFor` in task 457, when the seven other writes finally got their waits and
+		// turned out to need three questions rather than one. So these needles name the shared loop, not the
+		// uploader's copy of it — there is no longer a copy, which is the point.
+		{"main.js", main, "ctx.settled = async (ids) => ctx.settledFilter(ids, '', true);",
+			"the uploader's question is presence in the **live-only** read: asking with deleted=1 would report a " +
+				"re-uploaded photograph the curator had deleted as present in the grid (PRD 022 §8.5)"},
+		{"main.js", main, "waiting = still;",
+			"ids already settled are dropped, so a batch of three hundred converges instead of re-asking after the " +
 				"ones that arrived first"},
 		{"main.js", main, "if (!waiting.length) return true;", "the wait ends when every id has come back"},
 		{"main.js", main, "if (Date.now() + delay > deadline) return false;", "the wait must be bounded: a broken " +
 			"consumer has to be reported, not waited out"},
-		{"main.js", main, "if (there === null) return false;", "a failed read is not a reason to keep asking"},
+		{"main.js", main, "if (still === null) return false;", "a failed read is not a reason to keep asking"},
 		{"main.js", main, "'/api/admin/photos?limit=' + ids.length + '&ids=' + ids.map(encodeURIComponent).join(',')",
 			"the presence read is the library's own `ids` filter"},
 		{"upload.js", js, "ctx.reloadSheet();", "the sheet still refreshes itself; that was never the missing part"},

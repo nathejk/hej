@@ -124,11 +124,24 @@ function initCreditAction(ctx) {
   document.getElementById('closecredit').addEventListener('click', () => { ctx.closeSheet(); });
 
   // sendCredit writes one of the two forms. `remember` is the typed value to keep on this machine, or undefined.
-  async function sendCredit(fields, remember) {
+  //
+  // `proof` is the value the library's `credit=` filter should agree on afterwards — a crew id, an exact line, or
+  // `none` for a clearing (task 457). Using the filter rather than comparing the row's `credit` is deliberate: a
+  // crew credit is stored as an id and rendered as a name, so a browser comparing strings would be guessing at the
+  // server's formatting. `credit=<crew id>` asks the projection the question in its own terms, and the same filter
+  // expression answers all three forms.
+  //
+  // Two credit lines cannot be proved this way, because the filter spends those words on something else: a typed
+  // credit of exactly "none" or "any" asks "no credit" and "either kind" instead. The wait then ends in a
+  // "may be behind" note on a write that in fact landed, which is the harmless direction, and neither word is a
+  // plausible credit line.
+  async function sendCredit(fields, remember, proof) {
     if (!ctx.selected.size) { creditNote.textContent = 'Vælg mindst ét billede.'; return; }
     creditNote.textContent = 'Gemmer…';
+    // Captured before the write: this sheet leaves the selection alone, but the wait must not depend on that.
+    const ids = Array.from(ctx.selected);
     try {
-      const body = Object.assign({ photoIds: Array.from(ctx.selected) }, fields);
+      const body = Object.assign({ photoIds: ids }, fields);
       const res = await ctx.fetch('/api/admin/photos', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -145,6 +158,11 @@ function initCreditAction(ctx) {
         try { window.localStorage.setItem(CREDIT_KEY, remember); } catch (err) { /* nothing to recover */ }
       }
       ctx.closeSheet();
+      const caught = await ctx.settledFilter(ids, '&credit=' + encodeURIComponent(proof), true);
+      // A credit is the one field on this page that a stranger reads, so a grid that still shows the old one is
+      // worth a sentence rather than a silent reload.
+      ctx.actionNote.textContent = 'Fotokredit gemt på ' + ctx.photoCount(ids.length) + '.' +
+        (caught ? '' : ' ' + ctx.behindNote);
       // Reloaded so the sheet shows what was actually written, not what the browser hoped.
       ctx.reloadSheet();
     } catch (err) {
@@ -157,20 +175,23 @@ function initCreditAction(ctx) {
     if (!id) { creditNote.textContent = 'Vælg en fotograf i listen, eller skriv et navn nedenfor.'; return; }
     // The id, never the name. Sending the name would put it on the append-only log, where it could not be
     // erased — which is the whole reason this path exists (PRD 025 §8 D1).
-    sendCredit({ creditCrewId: id });
+    sendCredit({ creditCrewId: id }, undefined, id);
   });
 
   document.getElementById('docredit').addEventListener('click', () => {
     const credit = creditText.value.trim();
     if (!credit) { creditNote.textContent = 'Skriv en fotokredit, eller brug “Fjern fotokredit”.'; return; }
-    sendCredit({ credit: credit }, credit);
+    sendCredit({ credit: credit }, credit, credit);
   });
 
   // Clearing is its own button rather than "save an empty field", so removing an attribution is a deliberate act
   // and not something a stray select-all-and-delete does on its way past.
   // Clearing sends an empty **typed** credit, which the fold writes over both fields — so one button removes
   // either kind of credit and a curator does not have to know which kind is on the photograph.
-  document.getElementById('doclearcredit').addEventListener('click', () => sendCredit({ credit: '' }, ''));
+  // `none` rather than an empty `credit=`: the filter reads an empty value as "no filter", so asking with one
+  // would wait for nothing at all and always succeed. `credit=none` is the projection's way of saying "neither
+  // kind", which is exactly what clearing produces.
+  document.getElementById('doclearcredit').addEventListener('click', () => sendCredit({ credit: '' }, '', 'none'));
 
   ctx.openers.credit = openCreditPanel;
 }

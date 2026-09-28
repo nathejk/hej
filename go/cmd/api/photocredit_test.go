@@ -278,9 +278,14 @@ func TestTheCreditSheetOffersBothRoutesAndSaysWhatDiffers(t *testing.T) {
 func TestTheCreditSheetSendsTheReferenceNotTheName(t *testing.T) {
 	js := stripJSLineComments(adminAsset(t, "creditaction.js"))
 
-	if !strings.Contains(js, "sendCredit({ creditCrewId: id });") {
+	// The third argument is the value the projection is asked about afterwards (task 457) — the id again, never
+	// the name: the wait must not be the back door through which a name reaches a request.
+	if !strings.Contains(js, "sendCredit({ creditCrewId: id }, undefined, id);") {
 		t.Error("picking a photographer must send the id: sending the name would put it on the append-only log, " +
 			"where it could not be erased")
+	}
+	if strings.Contains(js, "member.name") && !strings.Contains(js, "option.textContent = member.name") {
+		t.Error("a crew member's name may be rendered into the list and used nowhere else")
 	}
 	// The roster's names are rendered into the list and nowhere else — in particular they are never put in the
 	// request body, and never remembered on this machine.

@@ -59,7 +59,7 @@ function initAlbumEditor(ctx) {
           ctx.reloadSheet();
           say(settled
             ? 'Albummet er nu sorteret efter ' + ctx.sortModeName(mode).toLowerCase() + '.'
-            : 'Rækkefølgen er gemt. Kontaktarket kan være et øjeblik bagud — genindlæs siden, hvis det ser forkert ud.');
+            : 'Rækkefølgen er gemt. ' + ctx.behindNote);
         } else if (mode === 'manual') {
           // Nothing was reordered and nothing should have been: manual keeps the arrangement it was given, which
           // is what makes switching to it safe.

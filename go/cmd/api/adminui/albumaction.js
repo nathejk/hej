@@ -37,11 +37,13 @@ function initAlbumAction(ctx) {
     if (!ctx.selected.size) { panelNote.textContent = 'Vælg mindst ét billede.'; return; }
 
     panelNote.textContent = 'Tilføjer…';
+    // Captured before the selection is cleared below; the wait needs the same list the write was given.
+    const ids = Array.from(ctx.selected);
     try {
       const res = await ctx.fetch('/api/admin/albums/items', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ photoIds: Array.from(ctx.selected), albumIds }),
+        body: JSON.stringify({ photoIds: ids, albumIds }),
       });
       const payload = await res.json().catch(() => null);
       if (!res.ok) {
@@ -51,8 +53,19 @@ function initAlbumAction(ctx) {
         return;
       }
 
+      // **Membership, per album** (task 457). `ctx.settled` is the wrong question again: these photographs
+      // existed before the write. `albumCount` would be the wrong one too — a photograph already in another album
+      // has a non-zero count either way — so what is waited for is the album read itself, which is also the read
+      // whose marks the grid draws from.
+      //
+      // Each chosen album is asked separately and in order. Two or three is the normal case, they are independent
+      // writes, and one that has not folded is the one the curator needs told about.
+      let caught = true;
+      for (const albumId of albumIds) {
+        if (!await ctx.settledFilter(ids, '&album=' + encodeURIComponent(albumId), true)) caught = false;
+      }
       // The server writes the sentence, because it is the side that knows how many were already there.
-      ctx.actionNote.textContent = payload.message || 'Tilføjet.';
+      ctx.actionNote.textContent = (payload.message || 'Tilføjet.') + (caught ? '' : ' ' + ctx.behindNote);
       ctx.closeSheet();
       ctx.selected.clear();
       // Reloaded so the album marks on the thumbnails are right, which is how the curator sees what is left

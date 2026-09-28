@@ -63,6 +63,15 @@ function initViewerEdit(ctx) {
   // honest.
   let dirty = false;
 
+  // What was written while the viewer was open, keyed by photograph and field, so the reload on close can wait for
+  // it (task 457).
+  //
+  // The race here is smaller than the action sheets' — the reload is deferred to `hv:close`, which is usually a
+  // human moment later — but it is the same race, and it closes on the one sequence a curator actually performs:
+  // caption a photograph, press Escape. Keyed rather than appended so that captioning the same photograph three
+  // times waits for the last value, not for two that are already overwritten.
+  const written = new Map();
+
   const FIELDS = {
     caption: {
       icon: 'pencil',
@@ -162,10 +171,27 @@ function initViewerEdit(ctx) {
       open.vctx.item = e.detail.item;
       fill();
     });
-    dialog.addEventListener('hv:close', () => {
+    dialog.addEventListener('hv:close', async () => {
       close();
       if (dirty) {
         dirty = false;
+        // Waited for before the refresh, for the reason every other write in this tool now waits: the grid reads a
+        // projection, and re-reading it before the fold shows the text that was just replaced. Here that is
+        // particularly confusing, because the cell was updated in place while the viewer was open — so the reload
+        // would visibly *undo* what the curator watched themselves save.
+        //
+        // Each field is proved the way its own sheet proves it: a caption by comparing the row, a credit through
+        // the library's `credit=` filter, since a credit may be stored as a crew id and rendered as a name. This
+        // panel only ever writes the typed form, but the proof is the same expression either way.
+        const pending = Array.from(written.values());
+        written.clear();
+        for (const w of pending) {
+          if (w.field === 'caption') {
+            await ctx.settledRows([w.id], (row) => row && (row.caption || '') === w.value);
+          } else {
+            await ctx.settledFilter([w.id], '&credit=' + encodeURIComponent(w.value || 'none'), true);
+          }
+        }
         // The sheet's own refresh, not a second path to the same place.
         ctx.reloadSheet();
       }
@@ -254,6 +280,7 @@ function initViewerEdit(ctx) {
         }
       }
       dirty = true;
+      written.set(item.id + '\u0000' + open.name, { id: item.id, field: open.name, value: value });
       els.note.textContent = value ? 'Gemt.' : 'Fjernet.';
       // Re-read the item from the DOM so the info panel above shows what was just saved.
       open.vctx.refresh();

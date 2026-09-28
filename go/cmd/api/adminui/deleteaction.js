@@ -79,6 +79,9 @@ function initDeleteAction(ctx) {
     if (!albumId) return;
 
     delNote.textContent = 'Fjerner…';
+    // Captured before `ctx.selected.clear()` below: the wait is about the photographs that were just removed, and
+    // the selection is gone by the time it runs.
+    const ids = Array.from(ctx.selected);
     const r = await runOverSelection((id) =>
       ctx.fetch('/api/admin/albums/' + encodeURIComponent(albumId) + '/items/' + encodeURIComponent(id),
         { method: 'DELETE' }));
@@ -88,6 +91,11 @@ function initDeleteAction(ctx) {
     const bits = [ctx.photoCount(r.ok) + ' fjernet'];
     if (r.missing) bits.push(r.missing + ' lå ikke i albummet');
     if (r.failed) bits.push(r.failed + ' fejlede');
+    // **The proof is absence** (task 457), and this is the case that could not reuse `ctx.settled` at all: every
+    // one of these photographs still exists — that is the whole difference between removing and deleting — so the
+    // only thing that says the removal folded is the id no longer coming back from *that album's* read.
+    const caught = await ctx.settledFilter(ids, '&album=' + encodeURIComponent(albumId), false);
+    if (!caught) bits.push('kontaktarket kan være et øjeblik bagud');
     ctx.actionNote.textContent = bits.join(' · ') + '.';
 
     ctx.closeSheet();
@@ -111,13 +119,21 @@ function initDeleteAction(ctx) {
       'Det kan ikke fortrydes herfra.')) return;
 
     delNote.textContent = 'Sletter…';
+    // Captured before `ctx.selected.clear()` below, as for the removal above.
+    const ids = Array.from(ctx.selected);
     const body = JSON.stringify({ reason: delReason.value });
     const r = await runOverSelection((id) =>
       ctx.fetch('/api/admin/photos/' + encodeURIComponent(id),
         { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body }));
 
+    // **`deleted` on the row, read with `deleted=1`** (task 457). Absence from the default live-only read would
+    // say the same thing, and is the weaker test: a photograph the library cannot see at all — a wrong year, a
+    // mistyped id — is absent too, and would read as a successful delete. Asking for the row and finding
+    // `deleted: true` is the projection actually confirming the act.
+    const caught = await ctx.settledRows(ids, (row) => row && row.deleted === true);
     const bits = [ctx.photoCount(r.ok) + ' slettet'];
     if (r.failed) bits.push(r.failed + ' fejlede');
+    if (!caught) bits.push('kontaktarket kan være et øjeblik bagud');
     ctx.actionNote.textContent = bits.join(' · ') + '.';
 
     ctx.closeSheet();

@@ -60,20 +60,31 @@ function initPatrolAction(ctx) {
     if (!number) { tagNote.textContent = 'Find patruljen først.'; return; }
 
     tagNote.textContent = 'Tagger…';
+    // Captured before the selection is cleared below.
+    const ids = Array.from(ctx.selected);
     try {
       // The **number** is sent, not a team id: the server re-resolves it, so a client cannot tag a patrol other
       // than the one the curator confirmed.
       const res = await ctx.fetch('/api/admin/photos/tags', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ photoIds: Array.from(ctx.selected), number: number }),
+        body: JSON.stringify({ photoIds: ids, number: number }),
       });
       const out = await res.json().catch(() => null);
       if (!res.ok) {
         tagNote.textContent = (out && out.error) || 'Kunne ikke tagge billederne.';
         return;
       }
-      ctx.actionNote.textContent = out.message || 'Tagget.';
+      // **Tagged-ness, through the library's own filter** (task 457). `tagCount` is a count and a photograph may
+      // already carry a tag, so a count cannot say whether *this* tag landed; `tagged=yes` at least says the
+      // projection has a tag for it, which is what the grid's mark draws from and what this write produced.
+      //
+      // It cannot prove the tag names *this* patrol: the library exposes no tag ids, deliberately — there is no
+      // patrol list anywhere in the service (PRD 022 §8.6) and a tag-id read would be one. A curator tagging an
+      // already-tagged photograph therefore gets a wait that can end early. That is a weaker proof than the
+      // others here and it is the honest ceiling of the reads that exist.
+      const caught = await ctx.settledFilter(ids, '&tagged=yes', true);
+      ctx.actionNote.textContent = (out.message || 'Tagget.') + (caught ? '' : ' ' + ctx.behindNote);
       ctx.closeSheet();
       ctx.selected.clear();
       ctx.reloadSheet();

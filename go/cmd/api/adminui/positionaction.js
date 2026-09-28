@@ -181,13 +181,16 @@ function initPositionAction(ctx) {
 
   document.getElementById('closepos').addEventListener('click', () => { ctx.closeSheet(); });
 
-  async function sendPosition(payload) {
+  // `payload` is the write; `wantLocation` is whether the photographs should end up with a coordinate.
+  async function sendPosition(payload, wantLocation) {
     posNote.textContent = 'Gemmer…';
+    // Captured before the selection is cleared below.
+    const ids = Array.from(ctx.selected);
     try {
       const res = await ctx.fetch('/api/admin/photos', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(Object.assign({ photoIds: Array.from(ctx.selected) }, payload)),
+        body: JSON.stringify(Object.assign({ photoIds: ids }, payload)),
       });
       const out = await res.json().catch(() => null);
       if (!res.ok) {
@@ -197,7 +200,20 @@ function initPositionAction(ctx) {
       // The server writes the sentence, because it is the side that ran the bounds check and knows which of the
       // three verdicts happened — and two of them are refusals the curator must not mistake for a fault at
       // their end.
-      ctx.actionNote.textContent = out.message || 'Gemt.';
+      // **Whether there is a coordinate, and which verdict it got** (task 457).
+      //
+      // The coordinate itself cannot be compared: a checkpoint's position is resolved server-side, so the browser
+      // does not know the numbers it asked for. What it does know is the answer — the bounds verdict is in the
+      // response — and `location=yes|no` plus `verdict=` is a proof in the projection's own terms.
+      //
+      // Its limit, stated plainly: **re-positioning a photograph that already had a coordinate inside the bounds
+      // can settle early**, because the filter it must satisfy was already true. Distinguishing that would need a
+      // per-photograph revision the read does not carry, and the failure it leaves is a stale marker rather than a
+      // wrong caption — so it is a ceiling rather than a bug to work around here.
+      let filter = wantLocation ? '&location=yes' : '&location=no';
+      if (out && out.boundsVerdict) filter += '&verdict=' + encodeURIComponent(out.boundsVerdict);
+      const caught = await ctx.settledFilter(ids, filter, true);
+      ctx.actionNote.textContent = (out.message || 'Gemt.') + (caught ? '' : ' ' + ctx.behindNote);
       ctx.closeSheet();
       ctx.selected.clear();
       ctx.reloadSheet();
@@ -208,13 +224,16 @@ function initPositionAction(ctx) {
 
   doPosition.addEventListener('click', () => {
     const sel = cpPick();
-    if (sel && sel.value) { sendPosition({ checkpointId: sel.value }); return; }
-    if (clicked) { sendPosition({ location: { lat: clicked.lat, lng: clicked.lng } }); return; }
+    if (sel && sel.value) { sendPosition({ checkpointId: sel.value }, true); return; }
+    if (clicked) { sendPosition({ location: { lat: clicked.lat, lng: clicked.lng } }, true); return; }
     posNote.textContent = 'Vælg en post eller klik på kortet.';
   });
 
   document.getElementById('doclear').addEventListener('click', () => {
-    sendPosition({ clearLocation: true });
+    // Cleared, so the proof is `location=no`: a coordinate **gone** from the projection. This is the one
+    // position case with an exact answer, and it is the one where being wrong would put a photograph on the
+    // public map after a curator took it off.
+    sendPosition({ clearLocation: true }, false);
   });
 
   ctx.openers.position = openPositionPanel;

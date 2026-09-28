@@ -108,6 +108,23 @@ function initAdminTool() {
   // Answers a plain boolean, because both ways of failing — the deadline passed, or the read itself broke — leave
   // the caller with exactly one thing to do: refresh anyway and admit it may be behind. A caller that needs to
   // name the stragglers should get that added here rather than polling on its own.
+  //
+  // # Task 457: nine callers, three shapes
+  //
+  // `settled` turned out to be one of three questions, and which one a write needs follows from what the write
+  // changed:
+  //
+  //   - **Did these photographs appear?** Presence. Upload, and nothing else — every other write acts on
+  //     photographs that already existed, so their presence proves nothing and a wait on it returns immediately.
+  //   - **Does a filtered read agree?** `settledFilter`. The library's own filters answer "is this credited to
+  //     her", "is this in that album", "is this tagged", "does this have a coordinate" — server-side, in the
+  //     projection's own words, with no client-side guess at how a value is stored or rendered.
+  //   - **Does the row say what we wrote?** `settledRows`. For a value we sent verbatim and can compare — a
+  //     caption — and for `deleted`, which is the one state a filter cannot ask about in the affirmative.
+  //
+  // All three are the same bounded, backing-off loop over the same read, so the loop is written once below and the
+  // three are a few lines each. That is the whole reason this is on the context: before task 457 the tool had one
+  // copy of it and eight writes that needed one.
 
   // How long the projection is given to catch up. Far longer than the fold takes, and short enough that a broken
   // consumer is reported rather than waited out.
@@ -116,44 +133,91 @@ function initAdminTool() {
   // three hundred photographs, so asking is chunked. 100 keeps each answer prompt.
   const IDS_PER_ASK = 100;
 
-  // seen asks which of these ids the library can see, and returns them as a Set.
+  // askLibrary asks the library about these ids, with an optional extra filter, and returns the rows.
   //
-  // `ids=` is a presence read: the filter composes with the default "live only", so a photograph a curator
-  // deleted correctly comes back absent. Returns null if the read fails — an answer we could not get is not an
-  // answer that says "not yet".
-  const seen = async (ids) => {
+  // Returns null if the read fails — an answer we could not get is not an answer that says "not yet".
+  //
+  // `extra` composes with `ids`: `Filter.where` ANDs every condition, so `&album=x` asks "which of these ids are in
+  // x" rather than "what is in x". That composition is what lets one read answer all three questions above.
+  const askLibrary = async (ids, extra) => {
     try {
-      const url = '/api/admin/photos?limit=' + ids.length + '&ids=' + ids.map(encodeURIComponent).join(',');
+      const url = '/api/admin/photos?limit=' + ids.length + '&ids=' + ids.map(encodeURIComponent).join(',') + extra;
       const res = await ctx.fetch(url);
       if (!res.ok) return null;
       const out = await res.json();
       if (!out || !out.photos) return null;
-      return new Set(out.photos.map((p) => p.id));
+      return out.photos;
     } catch (err) {
       return null;
     }
   };
 
-  // Ids already accounted for are dropped from the next round, so a batch of three hundred converges instead of
-  // re-asking after the ones that arrived first. Backs off, so a slow fold costs a few requests rather than a poll
-  // per frame.
-  ctx.settled = async (ids) => {
+  // rowsFor asks about every id, chunked, and returns them by id. null if any chunk failed.
+  const rowsFor = async (ids, extra) => {
+    const rows = new Map();
+    for (let i = 0; i < ids.length; i += IDS_PER_ASK) {
+      const got = await askLibrary(ids.slice(i, i + IDS_PER_ASK), extra);
+      if (got === null) return null;
+      for (const row of got) rows.set(row.id, row);
+    }
+    return rows;
+  };
+
+  // waitFor polls until no id is still waiting, and says whether it got there.
+  //
+  // `remaining(waiting)` answers with the ids that have not settled yet, or null if it could not tell. Ids already
+  // accounted for are dropped from the next round, so a batch of three hundred converges instead of re-asking
+  // after the ones that arrived first. Backs off, so a slow fold costs a few requests rather than a poll per frame.
+  const waitFor = async (ids, remaining) => {
+    if (!ids || !ids.length) return true;
     const deadline = Date.now() + SETTLE_MS;
     let waiting = ids.slice();
     for (let delay = 150; ; delay = Math.min(delay * 2, 1000)) {
-      const still = [];
-      for (let i = 0; i < waiting.length; i += IDS_PER_ASK) {
-        const chunk = waiting.slice(i, i + IDS_PER_ASK);
-        const there = await seen(chunk);
-        if (there === null) return false; // a failed read is not a reason to keep asking
-        for (const id of chunk) if (!there.has(id)) still.push(id);
-      }
+      const still = await remaining(waiting);
+      if (still === null) return false; // a failed read is not a reason to keep asking
       waiting = still;
       if (!waiting.length) return true;
       if (Date.now() + delay > deadline) return false;
       await new Promise((r) => setTimeout(r, delay));
     }
   };
+
+  // settledFilter waits until a filtered library read does — or does not — return each of these ids.
+  //
+  // `want` is which of the two: true for a write that puts photographs into something (an album, a credit, a
+  // patrol tag, a coordinate), false for one that takes them out. **The negative case is the reason this exists
+  // separately from `settled`**: an id disappearing from a filtered read is the only proof a removal has landed,
+  // and presence cannot express it.
+  ctx.settledFilter = async (ids, filter, want) => waitFor(ids, async (waiting) => {
+    const rows = await rowsFor(waiting, filter);
+    if (rows === null) return null;
+    return waiting.filter((id) => rows.has(id) !== want);
+  });
+
+  // settledRows waits until the library's row for each id satisfies `ok(row)`.
+  //
+  // Read **with `deleted=1`**, so a row comes back for every id and `ok` is asked about the photograph rather than
+  // about whether the read happened to include it. `ok` is given null for an id the library cannot see at all.
+  ctx.settledRows = async (ids, ok) => waitFor(ids, async (waiting) => {
+    const rows = await rowsFor(waiting, '&deleted=1');
+    if (rows === null) return null;
+    return waiting.filter((id) => !ok(rows.get(id) || null));
+  });
+
+  // settled waits until the library can name every one of these ids.
+  //
+  // The empty filter matters: the library is **live-only** unless asked otherwise, and the uploader must not ask
+  // otherwise. Re-uploading a photograph a curator deleted publishes the same id and the fold deliberately leaves
+  // `deleted` alone (PRD 022 §8.5), so a read including deleted rows would tell the uploader the photograph is in
+  // the grid when it is not there and should not be.
+  ctx.settled = async (ids) => ctx.settledFilter(ids, '', true);
+
+  // behindNote is what an action says when it gave up waiting.
+  //
+  // One sentence, shared, because seven writes now say it and seven wordings of "this view may be stale" is how a
+  // curator learns to ignore all of them. The uploader keeps its own, more specific tail ("hvis nogle mangler"),
+  // which is the one case where the reader can actually check.
+  ctx.behindNote = 'Kontaktarket kan være et øjeblik bagud — genindlæs siden, hvis det ser forkert ud.';
 
   // settledOrder waits until the album read agrees with the order the server says it published.
   //
