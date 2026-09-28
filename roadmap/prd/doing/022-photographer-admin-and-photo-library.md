@@ -320,11 +320,11 @@ for that somebody to stand.
   access (§8.2), so it is not worth carrying machinery for. **The consequence is that the password's entropy
   is the only control on this surface**, which promotes §11 Q4 from operational tidiness to the one thing
   standing there. The comparison itself is still constant-time.
-- **No personal data in the new projection — with one written-down exception.** The library row has no
+- **No personal data in the new projection — with two written-down exceptions.** The library row has no
   uploader, no curator, no person id, no phone number, and emphatically no `phoneParent`. The structural
   privacy test (task 337) must walk the new types too.
 
-  The exception is the **photographer's credit line** (task 393): a `credit` column, rendered under the
+  The first exception is the **photographer's credit line** (task 393): a `credit` column, rendered under the
   photograph on the public album page. It is the only field in this service that is *meant* to name a human
   being, and the bounds are what make it acceptable rather than its size:
 
@@ -345,6 +345,32 @@ for that somebody to stand.
 
   This narrows PRD 011's claim that the public site names no human being, and that narrowing is recorded in
   `publicprivacy_test.go`'s header rather than left to be discovered in a diff.
+
+  The second exception is the **filename** (task 448, added 2026-09-28 for PRD 024 §6 R5): a `fileName`
+  column holding the name the photographer's file had. It exists because a photographer sorts a card on their
+  own computer and wants the album to keep that order after the upload — the filename *is* that ordering, and
+  capture time is not a substitute for it (it is a different order, and absent from a large minority of
+  files).
+
+  A filename usually reads `IMG_0123.JPG` and could read `mor-og-far.jpg`, so this exception rests on
+  **bounds**, not on the value being harmless — the same shape of argument as the credit line's, with a
+  different justification:
+
+  - **behind the credential.** It is on the curator's projection and its reads, and on no public response.
+    Enforced rather than promised: `isPersonShaped` keeps flagging the word, so the public walk refuses it,
+    and the exception lives in `libraryPersonShapedExceptions` — scoped to the authenticated surface, with
+    `TestTheFilenameExceptionStopsAtTheAdminSurface` failing if anybody widens it;
+  - **a sort key, never an attribution.** Nothing renders it as a name and nothing derives a person from it.
+    The maintainer's decision is explicit: "name will never be used";
+  - **the photographer's own filing of their own work**, chosen by them — not a value this service assembled
+    about a third party, which is the hazard this bullet is actually arranged against;
+  - **never parsed for meaning** — not for dates, patrol numbers or names. `photo.NormalizeFileName` bounds
+    it (basename, valid UTF-8, printable, 255 runes) and does nothing else to it.
+
+  The residue is real and is recorded rather than hidden: a name a photographer chose privately is now in the
+  projection and in every backup taken since. That is the cost the decision accepted, and the bounds above
+  are what it bought. Unlike the credit line, this exception does **not** narrow PRD 011's public claim — it
+  is the first field admitted to the library that is explicitly *not* publishable.
 - **Upload limits.** A per-file ceiling (larger than glimt's 12 MB, since these are camera JPEGs —
   §8.9 proposes 32 MB) enforced with `http.MaxBytesReader`, plus a read deadline generous enough for
   a large file on a hotel connection.

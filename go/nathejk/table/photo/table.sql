@@ -183,6 +183,23 @@ CREATE TABLE IF NOT EXISTS photo (
     -- at a time, so arrival order is not even file order, let alone exposure order.
     shotAt DATETIME NULL DEFAULT NULL,
 
+    -- The name the photographer's file had, so an album can be sorted the way the card was sorted on their
+    -- own computer (PRD 024 §6 R5, task 448).
+    --
+    -- **The second written-down exception to PRD 022 §6's "no personal data in this projection"**, after
+    -- `credit`. A filename is usually `IMG_0123.JPG` and could in principle be `mor-og-far.jpg`, so the
+    -- exception rests on bounds rather than on the value being harmless: the field lives behind the admin
+    -- credential, never appears on a public read, and is never rendered as an attribution or used as
+    -- anybody's name. It is a photographer's own filing, kept so that filing survives the upload.
+    -- `isPersonShaped` still flags the word, and `libraryprivacy_test.go` excepts it here by name with that
+    -- reasoning; a public response that grows a filename still fails the guard.
+    --
+    -- Capped at 255 characters **by the writer, before it is published**, not here. A value longer than the
+    -- column is a write MariaDB either truncates or refuses depending on its mode, and a projection that
+    -- quietly stores less than it was told is the failure task 352 shipped and task 350 exists to prevent.
+    -- The basename only: a path component would be storing somebody's directory layout.
+    fileName VARCHAR(255) NOT NULL DEFAULT "",
+
     uploadedAt DATETIME NOT NULL,
 
     -- Soft delete, as in `album`, `checkgroup`, `checkpoint` and `person`: the last event wins, and a

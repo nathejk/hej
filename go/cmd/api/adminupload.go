@@ -153,7 +153,7 @@ func (app *application) uploadAdminPhotoHandler(w http.ResponseWriter, r *http.R
 		}
 	}
 
-	raw, err := readAdminUpload(w, r)
+	raw, fileName, err := readAdminUpload(w, r)
 	if err != nil {
 		switch {
 		case errors.Is(err, errAdminUploadTooLarge):
@@ -238,16 +238,20 @@ func (app *application) uploadAdminPhotoHandler(w http.ResponseWriter, r *http.R
 			return
 		}
 		if perr := app.commands.Publish(subject, photo.Uploaded{
-			PhotoID:    photoID,
-			Year:       adminYear(r),
-			Ref:        stored.Ref,
-			ThumbRef:   stored.ThumbRef,
-			MediumRef:  stored.MediumRef,
-			Width:      stored.Width,
-			Height:     stored.Height,
-			Bytes:      stored.Bytes,
-			Location:   stored.Location,
-			ShotAt:     stored.ShotAt,
+			PhotoID:   photoID,
+			Year:      adminYear(r),
+			Ref:       stored.Ref,
+			ThumbRef:  stored.ThumbRef,
+			MediumRef: stored.MediumRef,
+			Width:     stored.Width,
+			Height:    stored.Height,
+			Bytes:     stored.Bytes,
+			Location:  stored.Location,
+			ShotAt:    stored.ShotAt,
+			// Normalised at the point of publication, so the log never carries a value the column cannot
+			// hold — the log is permanent and a projection cannot fix it later. The fold applies it again,
+			// because it does not get to assume the publisher was this version of the publisher.
+			FileName:   photo.NormalizeFileName(fileName),
 			UploadedAt: time.Now().UTC(),
 		}); perr != nil {
 			// The projection is downstream of the log, so a failed publish must not answer 200: the
@@ -293,27 +297,35 @@ func verdictOf(loc *photo.Location) string {
 // The field is named `photo` rather than glimt's `media`, because this endpoint accepts photographs and
 // nothing else: there is no video path here (PRD 020 is a separate draft), and a field called `media` would
 // invite one.
-func readAdminUpload(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+// It answers with the **name the file had** as well as its bytes (PRD 024 §6 R5): a photographer sorts a
+// card on their own computer, and the album sort exists so that filing survives the upload. Only the
+// multipart path has a name; a raw body carries none and answers "". Normalised by
+// `photo.NormalizeFileName` at the point of publication, not here — this function reads, and the bounding
+// rules belong next to the column they bound.
+func readAdminUpload(w http.ResponseWriter, r *http.Request) ([]byte, string, error) {
 	// Applied to the reader, so a lying Content-Length cannot get past it. +1 byte so hitting the limit
 	// exactly is distinguishable from exceeding it.
 	r.Body = http.MaxBytesReader(w, r.Body, maxAdminUpload+1)
 
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
-		// The part's filename is deliberately **not** read. See task 448: a filename would be a person-shaped
-		// column in a projection that PRD 022 §6 says holds none, and the two privacy guards refuse it —
-		// which is them working. PRD 024's filename sort modes wait on that decision.
-		file, _, err := r.FormFile("photo")
+		file, header, err := r.FormFile("photo")
 		if err != nil {
 			if isTooLarge(err) {
-				return nil, errAdminUploadTooLarge
+				return nil, "", errAdminUploadTooLarge
 			}
-			return nil, fmt.Errorf("forventede en fil i feltet \"photo\": %w", err)
+			return nil, "", fmt.Errorf("forventede en fil i feltet \"photo\": %w", err)
 		}
 		defer file.Close()
-		return readCappedAdminUpload(file)
+		name := ""
+		if header != nil {
+			name = header.Filename
+		}
+		raw, err := readCappedAdminUpload(file)
+		return raw, name, err
 	}
 
-	return readCappedAdminUpload(r.Body)
+	raw, err := readCappedAdminUpload(r.Body)
+	return raw, "", err
 }
 
 func readCappedAdminUpload(src io.Reader) ([]byte, error) {

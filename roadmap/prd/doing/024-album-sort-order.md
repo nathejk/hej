@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (2026-09-28)
 **Created:** 2026-09-28
-**Last updated:** 2026-09-28 (task 441: the `filename-*` modes are blocked on task 448 — see §6 R5)
+**Last updated:** 2026-09-28 (task 448 decided: the filename is kept — §6 R5 unblocked)
 **Approved:** 2026-09-28
 **Shipped:**
 **Target users:** organizer (the 2–3 photographers/curators who use `/admin`)
@@ -107,21 +107,24 @@ as it was — the drop is abandoned, not applied-then-reverted.
       re-encoding, exactly as the GPS fix already is. Null when absent; the sort then falls back to
       `uploadedAt` for that photograph.
 - [ ] **R4 — `time-asc` / `time-desc`** sort on capture time (with the R3 fallback), ties on `photoId`.
-- [ ] **R5 — Filename. BLOCKED on task 448, and may not ship.** A new `fileName` on the photograph, taken
-      from the multipart part's filename, which the upload currently reads and discards.
+- [x] **R5 — Filename.** `photo.fileName`, taken from the multipart part's filename, which the upload used to
+      read and discard. Empty on the raw-body path. Stored as given, never parsed for meaning, normalised by
+      `photo.NormalizeFileName` (basename, valid UTF-8, printable, 255 runes) both at publication and in the
+      fold.
 
-      **This was implemented in task 441 and refused by two existing privacy guards**, correctly. PRD 022 §6
-      says the library projection holds no personal data bar one written-down exception, and a filename is
-      not covered by it: the `credit` exception rests on a consenting adult's name typed *in order to be
-      published*, while a filename is typed on a laptop for a private reason and may name a child
-      (`mor-og-far.jpg`). The guards cannot tell `IMG_0123.JPG` from that, and neither can we at upload time.
+      **It required a decision, taken in task 448.** PRD 022 §6 admits no personal data to the library
+      projection, and two privacy guards refused the column when task 441 first wrote it — correctly, since a
+      filename can carry a name. The maintainer's decision (2026-09-28): keep it. A photographer sorts a card
+      on their own computer and the album should keep that order; the field is behind the admin credential, it
+      is a sort key, and "name will never be used". PRD 022 §6 now records this as its second written-down
+      exception, with the bounds it rests on.
 
-      Task 448 holds the decision — except it and narrow PRD 022 §6, drop the modes, or store a derived
-      camera counter instead of the name. **R6 waits with it.** The rest of this PRD does not: `manual`,
-      `time-asc` and `time-desc` are unaffected, and the `shotAt` half of the data work shipped.
+      The bound that is **enforced rather than promised**: `isPersonShaped` still flags the word, so any
+      public response that grows a filename fails the public guard. The exception is scoped to the
+      authenticated surface and `TestTheFilenameExceptionStopsAtTheAdminSurface` fails if it is widened.
 - [ ] **R6 — `filename-asc` / `filename-desc`** sort case-insensitively on the filename, ties on
       `photoId`. Case-insensitive because `IMG_*.JPG` and `img_*.jpg` from two cameras in one album
-      otherwise separate into two blocks. **Blocked with R5 on task 448.**
+      otherwise separate into two blocks.
 - [ ] **R7 — Adding photographs applies the mode.** When items are added to an album whose mode is not
       `manual`, the album's whole live order is recomputed. (The maintainer's "applied when uploading new
       photos" — an upload lands in the *library*, and an album gains photographs through "Læg i album",
@@ -148,16 +151,16 @@ as it was — the drop is abandoned, not applied-then-reverted.
 
 ### Non-Functional
 
-- **Privacy — a filename cannot simply be stored, and this was discovered the hard way.** A camera filename
-  is usually `IMG_0123.JPG`, but it is free text from somebody's computer and *can* name a person
-  (`mor-og-far.jpg`). This PRD originally noted only that it must never reach a **public** read, and that
-  `isPersonShaped` would not catch a field called `fileName` today. Both true, and both an understatement:
-  PRD 022 §6 forbids personal data **in the projection at all**, enforced by
+- **Privacy — the filename needed a decision, and got one.** A camera filename is usually `IMG_0123.JPG`, but
+  it is free text from somebody's computer and *can* name a person (`mor-og-far.jpg`). This PRD originally
+  noted only that it must never reach a **public** read; that was an understatement, because PRD 022 §6
+  forbids personal data **in the projection at all** — enforced by
   `TestNoStructInTheLibraryOrTheAdminToolNamesAPerson` and
-  `TestTheLibraryTablesDeclareNoPersonShapedColumn`, which is where task 441's attempt stopped. `filename`
-  is now a needle in `isPersonShaped` as a trap for a field that does not exist, and task 448 holds the
-  decision. The lesson worth keeping: the privacy posture here is about the **column**, not the response,
-  because a column is in every backup taken since it was added.
+  `TestTheLibraryTablesDeclareNoPersonShapedColumn`, which is where task 441's first attempt stopped.
+  Task 448 decided to keep it, PRD 022 §6 now records it as a second written-down exception with its bounds,
+  and the exception is **scoped to the authenticated surface** so that the public guard still refuses it. The
+  lesson worth keeping: the privacy posture here is about the **column**, not the response, because a column
+  is in every backup taken since it was added.
 - **Order stability is part of the contract.** Every mode must be a total order, ties included, so that two
   recomputations of an unchanged album produce an unchanged sequence. Without that, an add would reshuffle
   unrelated photographs and the public page would change for no reason a curator could explain.
@@ -274,18 +277,15 @@ Created on the board 2026-09-28, in dependency order:
 - [ ] Task 439: `ctx.settled(ids)` on the admin context, with the uploader moved onto it *(prerequisite for
       444 — a resort's reload has the same race, and this stops it being a third copy)*
 - [x] Task 440: read `DateTimeOriginal` in `internal/imaging`, with fuzz coverage (`ReadShotAt`) — **done**
-- [x] Task 441: capture `shotAt` on upload — event field, column, fold, curator read. **The `fileName` half
-      was removed and became task 448**; see R5
+- [x] Task 441: capture `shotAt` on upload — event field, column, fold, curator read. The `fileName` half was
+      refused by the privacy guards and became task 448, which **decided to keep it**; both fields now ship
 - [x] Task 442: `album.sortMode` — column, event fields, fold, and the curator read — **done**
 - [ ] Task 443: the sort itself — one function from (items, photographs, mode) to an order, ties on
-      `photoId`, table-driven tests per mode including empty keys. **Time modes only until task 448**
+      `photoId`, table-driven tests per mode including empty keys
 - [ ] Task 444: apply the mode on `PATCH album` (mode change) and on add-to-album; OpenAPI updated
 - [ ] Task 445: refuse a move on a non-manual album (409) and the confirm-then-switch flow in the tool
-- [ ] Task 446: the sort control in the album editor card — **three options until task 448**
-
-Blocking, and the reason R5/R6 are on hold:
-
-- [ ] Task 448: decide whether the library may store a filename at all (PRD 022 §6 vs. PRD 024 §6 R5)
+- [ ] Task 446: the sort control in the album editor card
+- [x] Task 448: decide whether the library may store a filename — **decided: yes, with bounds** (PRD 022 §6)
 
 Out of scope, on the board because PRD 024 is what raised it:
 
@@ -307,7 +307,9 @@ what the requirements above rest on.
    board as its own task.
 4. **Is a backfill wanted later?** ✅ *"don't care about backfill."* Photographs already in the library sort
    on the `uploadedAt` fallback forever. No backfill task.
-5. **Should `filename-*` be offered in year one,** given Q4? Kept — **and then reopened by task 441.** It
-   costs almost nothing once `fileName` is captured, *if* it may be captured at all, which turns out to be
-   the question. PRD 022 §6 forbids personal data in the library projection and a filename can carry a
-   name, so this is now task 448's decision rather than a matter of whether the mode is worth the code.
+5. **Should `filename-*` be offered in year one,** given Q4? Kept — reopened by task 441 as a privacy
+   question and settled by task 448: the library may hold the filename, behind the credential and as a sort
+   key only. ✅ *"do persist filename, path is not public, it's protected by authentication — filename is used
+   for sorting on local computer and we want to be able to keep that sorting after upload. this interface is
+   intended for photographers — name will never be used."* That last clause is the bound the exception rests
+   on, and it is why the modes exist at all: the photographer's own ordering is the thing being preserved.

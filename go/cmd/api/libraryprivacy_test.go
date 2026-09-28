@@ -95,7 +95,7 @@ func personShapedPaths(t reflect.Type, prefix string, visited map[reflect.Type]b
 			// Embedded. The field name is the type name, which is not something a reader chose, so the
 			// path skips it — a person-shaped field one level down is just as exposed.
 			path = prefix
-		} else if isPersonShaped(f.Name) {
+		} else if isPersonShapedInTheLibrary(f.Name) {
 			out = append(out, path)
 		}
 
@@ -131,6 +131,92 @@ func walkForPeople(t *testing.T, name string, v any) {
 			"337's structural walk rather than by review. If this field is genuinely not about a human "+
 			"being, except it by name in isPersonShaped with the reasoning, next to photoId",
 			name, path)
+	}
+}
+
+// isPersonShapedInTheLibrary is isPersonShaped, minus what PRD 022 §6 has excepted **for this surface only**.
+//
+// # Why the exception lives here and not in isPersonShaped
+//
+// `isPersonShaped` answers "could a field with this name carry a person's name?". For a filename the answer
+// is yes and must stay yes, because that function is also what guards the **public** responses
+// (`publicprivacy_test.go`). Excepting `filename` there would permit it everywhere, including on the open
+// web, which is exactly what it may not do.
+//
+// So the two questions are separated: what *could* name somebody, and what this authenticated projection is
+// allowed to hold anyway. `TestTheFilenameExceptionStopsAtTheAdminSurface` below holds the boundary, because
+// a scoped exception whose scope is not tested is an unscoped exception.
+func isPersonShapedInTheLibrary(field string) bool {
+	if !isPersonShaped(field) {
+		return false
+	}
+	return !libraryPersonShapedExceptions[strings.ToLower(field)]
+}
+
+// The fields PRD 022 §6 admits into the library projection despite naming, or being able to name, a person.
+//
+// **Two, and each one is a sentence somebody had to write here.** That is the mechanism: the guard cannot
+// judge a field, so it fails, and whoever wants the field has to state the bounds it is safe within.
+var libraryPersonShapedExceptions = map[string]bool{
+	// The photographer's credit line (task 393) — the original exception, argued at length in
+	// `isPersonShaped` itself. A consenting adult volunteer's name, typed **in order to be published**.
+	"credit": true,
+
+	// The name the photographer's file had (task 448, PRD 024 §6 R5).
+	//
+	// # What it is for
+	//
+	// A photographer sorts a card on their own computer — renaming, numbering, ordering — and then wants the
+	// album to keep that order after the upload. The filename *is* that ordering. Without it the sort can
+	// only offer capture time, which is not the same thing and is absent from a large minority of files.
+	//
+	// # Why it is allowed, given PRD 022 §6
+	//
+	// Not because a filename is harmless: it usually reads `IMG_0123.JPG` and could read `mor-og-far.jpg`.
+	// The exception rests on **bounds**, which is the same shape as the credit line's argument and a
+	// different justification:
+	//
+	//   - **Behind the credential.** The field exists on the curator's projection and its reads. It is on no
+	//     public response, and that is enforced rather than promised: `isPersonShaped` still flags the word,
+	//     so the public walk refuses it, and the test below refuses any attempt to widen this exception out
+	//     of here.
+	//   - **A sort key, never an attribution.** Nothing renders it as anybody's name, and nothing derives a
+	//     person from it. The maintainer's decision (2026-09-28) is explicit: "name will never be used".
+	//   - **The photographer's own filing**, about their own work, chosen by them — not a value this service
+	//     assembled about a third party, which is the hazard `TestACreditIsOnlyEverTypedNeverDerived`
+	//     guards and the one this codebase actually fears.
+	//   - **Never parsed for meaning.** It is not read for dates, patrol numbers or names; see
+	//     `photo.NormalizeFileName`, which bounds it and nothing more.
+	//
+	// The residue is real and worth naming rather than hiding: a filename a photographer chose privately is
+	// now in the projection and in every backup taken since. That is the cost the decision accepted, and the
+	// bounds above are what it bought.
+	"filename": true,
+}
+
+// The exception is **scoped**, and a scope that is not tested is not a scope.
+//
+// This is the assertion that keeps "it is protected by authentication" true. If somebody later moves
+// `filename` into `isPersonShaped` itself — the shorter change, and the tempting one when a public template
+// wants it — the public guard stops flagging it and a filename can reach the open web. This fails first.
+func TestTheFilenameExceptionStopsAtTheAdminSurface(t *testing.T) {
+	for _, field := range []string{"fileName", "FileName", "filename", "OriginalFileName"} {
+		if !isPersonShaped(field) {
+			t.Errorf("%q must still be person-shaped in general: that is what keeps it off the public "+
+				"surface, where publicprivacy_test.go uses the same function", field)
+		}
+	}
+	if isPersonShapedInTheLibrary("fileName") {
+		t.Error("the library must be allowed to hold a filename: PRD 022 §6's second exception (task 448)")
+	}
+
+	// And the exception is exact. A field that *derives* something about a person from a filename, or attaches
+	// a person to it, is a different thing and is not covered.
+	for _, field := range []string{"fileNamePersonId", "uploaderFileName", "fileNameOf"} {
+		if !isPersonShapedInTheLibrary(field) {
+			t.Errorf("%q is not the excepted field and must still fail: the exception is one name, not a "+
+				"prefix", field)
+		}
 	}
 }
 
@@ -207,7 +293,7 @@ func TestNoStructInTheLibraryOrTheAdminToolNamesAPerson(t *testing.T) {
 		}
 		for owner, names := range fields {
 			for _, field := range names {
-				if isPersonShaped(field) {
+				if isPersonShapedInTheLibrary(field) {
 					t.Errorf("%s.%s in %s is person-shaped (PRD 022 §6). Nothing in the library or the "+
 						"curator's tool may carry a person: the credential is shared, so there is no "+
 						"person to attribute anything to", owner, field, target.what)
@@ -240,7 +326,7 @@ func TestTheLibraryTablesDeclareNoPersonShapedColumn(t *testing.T) {
 	}
 
 	for _, column := range columns {
-		if isPersonShaped(column) {
+		if isPersonShapedInTheLibrary(column) {
 			t.Errorf("the library schema declares a person-shaped column %q. PRD 022 §6: no uploader, no "+
 				"curator, no person id, no name, no phone number, no phoneParent. A column outlives the "+
 				"commit that added it \u2014 the values are in every backup taken since", column)

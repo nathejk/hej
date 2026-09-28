@@ -81,6 +81,20 @@ type Uploaded struct {
 	// from any particular instant, and because the column it folds into is NULL-able for the same reason.
 	ShotAt *time.Time `json:"shotAt,omitempty"`
 
+	// FileName is the name the photographer's file had, kept so an album can be sorted the way the card was
+	// sorted on their own computer (PRD 024 §6 R5, task 448).
+	//
+	// **A sort key, not a name.** That is the whole basis on which it is allowed to exist: PRD 022 §6 says
+	// the library projection holds no personal data, and this is the second written-down exception to that,
+	// after the credit line. The bounds are recorded in PRD 022 §6 and enforced in
+	// `libraryprivacy_test.go` — behind the admin credential, never on a public read, and never rendered as
+	// an attribution. `isPersonShaped` still flags the word, so a public response that grows one fails.
+	//
+	// Stored as given and **never parsed for meaning**: not a source of dates, patrol numbers or anything
+	// else, however tempting `IMG_20260912_234107.jpg` looks. Normalised by `NormalizeFileName` at the point
+	// of publication and again in the fold. Empty for the raw-body upload path, which carries no name.
+	FileName string `json:"fileName,omitempty"`
+
 	UploadedAt time.Time `json:"uploadedAt"`
 }
 

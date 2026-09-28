@@ -143,18 +143,19 @@ func (c consumer) handleUploaded(msg cqrs.Message, year string) error {
 		shotAt = quote(formatTime(*body.ShotAt))
 	}
 
-	// **Fill a gap, never open one**, which is why `shotAt` is not a plain `VALUES(...)` like the
+	// **Fill a gap, never open one**, which is why these two are not a plain `VALUES(...)` like the
 	// renditions above.
 	//
 	// A re-upload of the same photograph is the documented recovery procedure when a batch half-failed
 	// (task 372), and the id is the hash of the *stored rendition* — so the same photoId can legitimately
 	// arrive from a **different file**: the same pixels with the EXIF stripped, or re-saved by an editor. A
-	// plain upsert would let that second file blank a capture time the first one supplied, and an album
-	// sorted by time would reorder underneath the curator for a photograph nobody meant to touch.
+	// plain upsert would let that second file blank a capture time or a filename the first one supplied, and
+	// an album sorted on either would reorder underneath the curator for a photograph nobody meant to touch.
+	// The raw-body upload path makes that concrete: it carries no filename at all.
 	//
-	// The other direction is worth having: a photograph first uploaded without EXIF and later re-uploaded
-	// from the original does gain its capture time. So the rule is exactly "a later file may add what the
-	// earlier one lacked, and may not take away".
+	// The other direction is worth having: a photograph first uploaded without EXIF, or through the raw-body
+	// path, and later re-uploaded from the original does gain both. So the rule is exactly "a later file may
+	// add what the earlier one lacked, and may not take away".
 	//
 	// `caption` and `credit` are absent from the clause entirely rather than treated this way, because
 	// those are a curator's words: no file, however complete, has any business overwriting them.
@@ -162,7 +163,7 @@ func (c consumer) handleUploaded(msg cqrs.Message, year string) error {
 		"INSERT INTO photo SET photoId=%s, year=%s, blobRef=%s, thumbRef=%s, mediumRef=%s, "+
 			"caption=\"\", credit=\"\", "+
 			"width=%d, height=%d, bytes=%d, latitude=%s, longitude=%s, boundsVerdict=%s, "+
-			"shotAt=%s, "+
+			"shotAt=%s, fileName=%s, "+
 			"uploadedAt=%s "+
 			"ON DUPLICATE KEY UPDATE "+
 			"year=VALUES(year), blobRef=VALUES(blobRef), thumbRef=VALUES(thumbRef), "+
@@ -171,10 +172,11 @@ func (c consumer) handleUploaded(msg cqrs.Message, year string) error {
 			"latitude=VALUES(latitude), longitude=VALUES(longitude), "+
 			"boundsVerdict=VALUES(boundsVerdict), "+
 			"shotAt=COALESCE(VALUES(shotAt), shotAt), "+
+			"fileName=IF(VALUES(fileName)=\"\", fileName, VALUES(fileName)), "+
 			"uploadedAt=VALUES(uploadedAt)",
 		quote(photoID), quote(year), quote(body.Ref), quote(thumbRef), quote(mediumRef),
 		body.Width, body.Height, body.Bytes, lat, lng, quote(verdict),
-		shotAt,
+		shotAt, quote(NormalizeFileName(body.FileName)),
 		quote(formatTime(uploadedAt)),
 	))
 }
@@ -484,6 +486,43 @@ func formatTime(t time.Time) string {
 // Same reasoning as the person, checkpoint, glimt, album and maphandout packages: cqrs.Writer takes a
 // finished statement rather than a statement plus arguments, so escaping is this file's responsibility.
 func quote(s string) string { return fmt.Sprintf("%q", s) }
+
+// maxFileNameRunes bounds the filename, matching `fileName VARCHAR(255)` in table.sql.
+const maxFileNameRunes = 255
+
+// NormalizeFileName bounds a filename to what the column can hold, and to what a filename is.
+//
+// Applied by the **publisher, before the event goes on the log**, and again here. Not redundancy for its own
+// sake: a value longer than the column is a write MariaDB either truncates or refuses depending on its mode,
+// and a projection that quietly stores less than it was told is the bug task 352 shipped and task 350 exists
+// to prevent. The fold is the last place that can still refuse a bad value, and it does not get to assume the
+// publisher was this version of the publisher.
+//
+// Four things happen, and each is something a real browser has been known to send:
+//
+//   - the **basename**, splitting on both separators. Some browsers send `C:\fakepath\IMG_0001.JPG`, and a
+//     folder drop can carry a relative path. Storing either would be storing somebody's directory layout —
+//     which is also the one part of a filename most likely to name a person (`Billeder/Mormors 80 års/`).
+//   - **invalid UTF-8 dropped.** A filename is bytes from a foreign filesystem, not necessarily text; an
+//     invalid sequence in a utf8mb4 column renders as a replacement glyph everywhere thereafter.
+//   - **control characters dropped**, including the newlines that would otherwise turn one log line into two.
+//   - capped at 255 **runes**, never mid-rune, by the helper below and for the reason it gives.
+//
+// It deliberately does *not* make the name pretty, strip an extension, or read anything out of it. PRD 024
+// §6 R5: stored as given, never parsed for meaning.
+func NormalizeFileName(name string) string {
+	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
+		name = name[i+1:]
+	}
+	name = strings.ToValidUTF8(name, "")
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7F {
+			return -1
+		}
+		return r
+	}, name)
+	return truncateRunes(strings.TrimSpace(name), maxFileNameRunes)
+}
 
 // maxCreditRunes bounds the credit line, matching `credit VARCHAR(160)` in table.sql.
 //

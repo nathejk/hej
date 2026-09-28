@@ -33,10 +33,10 @@ Event fields are additive and optional, so replaying an older log folds to the d
 ## Acceptance Criteria
 
 - [x] `photo.Uploaded.ShotAt`; column and fold to match
-- [ ] ~~`.FileName`~~ — refused by the privacy guards; task 448 holds the decision
+- [x] `.FileName` — refused by the privacy guards at first; task 448 decided to keep it, and it now ships
 - [x] Read before re-encoding, alongside the GPS fix
-- [ ] ~~The multipart filename is captured~~ — see task 448
-- [x] `filename` is in `isPersonShaped`'s needles — as a **trap**, not an exception (task 448)
+- [x] The multipart filename is captured; the raw-body path stores ""
+- [x] `filename` is in `isPersonShaped`'s needles, and excepted **by name for the library only** (task 448)
 - [x] No public response carries either field
 - [x] Replaying a log without the field folds to null
 
@@ -113,3 +113,11 @@ PRD 024's `time-*` and `manual` modes are unaffected. R5 and R6 wait on task 448
   than excepted; opened task 448 for the decision and reverted that half. Updated PRD 024 §6 R5/R6, its
   privacy note and §11 Q5 to say so.
 - 2026-09-28 — `gofmt`, `go vet`, `staticcheck`, `GOWORK=off go test ./...` all clean.
+
+## Addendum, 2026-09-28: the filename half shipped after all
+
+Task 448 decided to keep it — a photographer's filing is the thing being preserved, the field is behind the
+credential, and it is a sort key that is never used as a name. Both fields now ship. See task 448 for the
+decision, its bounds and the one judgement made beyond it: the exception is **scoped to the authenticated
+surface**, because `isPersonShaped` also guards the public responses and excepting it there would have
+permitted a filename on the open web.

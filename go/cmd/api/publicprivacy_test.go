@@ -475,20 +475,20 @@ func isPersonShaped(field string) bool {
 		return false
 	}
 
-	// **A filename** (task 448). Flagged and **not** excepted, unlike the credit line above, and the
-	// difference between the two cases is the reason this needle exists.
+	// **A filename** (task 448). Flagged here and excepted **only for the authenticated library**, which is
+	// the difference between this and the credit line above.
 	//
-	// PRD 024 wants to sort an album by the name a photographer's file had, which means a `fileName` column.
-	// A filename is usually `IMG_0123.JPG` and is occasionally `mor-og-far.jpg` — a name chosen on somebody's
-	// laptop, for a private reason, by somebody who never agreed to publish it, about a person who may well be
-	// a child. The credit line's safety rests on being typed **in order to be published**; a filename has no
-	// such property, so PRD 022 §6's "no personal data in the library projection" reaches it and the exception
-	// that covers `credit` does not.
+	// PRD 024 sorts an album by the name a photographer's file had, so `photo.fileName` exists. A filename is
+	// usually `IMG_0123.JPG` and could be `mor-og-far.jpg` — a name chosen on somebody's laptop, privately.
+	// The maintainer's decision (2026-09-28) is that the library may keep it, because it is a photographer's
+	// own filing of their own work, it sits behind the admin credential, and it is a sort key that is never
+	// used as anybody's name.
 	//
-	// So this is a **trap for a field that does not exist**. It was added when the field was attempted
-	// (task 441) and both privacy guards refused it, which is the guards working as designed. Task 448 holds
-	// the decision. Anybody who does add the column has to come here and write down why it is allowed — which
-	// is the whole mechanism, and is how `credit` came to be excepted above.
+	// **None of that makes it publishable**, which is why the exception is not here. It lives in
+	// `libraryPersonShapedExceptions` in libraryprivacy_test.go, and this function — which is also what guards
+	// every public response — keeps flagging the word. So a public read that grows a filename still fails, and
+	// `TestTheFilenameExceptionStopsAtTheAdminSurface` fails if anybody moves the exception in here to make a
+	// public template compile.
 	//
 	// A needle rather than trusted to the rules below because **none of them catches it**: no `person`, no
 	// `name` the walk looks for, no `By` suffix. Exactly how `credit` would have slipped through.

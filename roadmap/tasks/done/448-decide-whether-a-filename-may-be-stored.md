@@ -1,11 +1,11 @@
 # 448 — Decide whether the library may store a filename
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-28
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent
+**Started:** 2026-09-28
+**Completed:** 2026-09-28
 
 ## Description
 
@@ -88,3 +88,67 @@ long after the upload, so the value has to persist to be usable. Recorded so it 
 - 2026-09-28 — Created while implementing task 441. The column was written, both privacy guards failed, and
   the right response to a guard like that is to stop rather than to except it — the whole point of
   `isPersonShaped` is that an exception has to be a sentence somebody wrote on purpose.
+
+## The decision
+
+**A — persist it.** Maintainer, 2026-09-28:
+
+> do persist filename, path is not public, it's protected by authentication - filename is used for sorting on
+> local computer and we want to be able to keep that sorting after upload. this interface is intended for
+> photographers - name will never be used
+
+Three things in that answer, and each one became a bound rather than a hope:
+
+1. **"filename is used for sorting on local computer... keep that sorting after upload"** — this is the
+   *purpose*, and it is why capture time is not a substitute. A photographer's filing is deliberate work; the
+   filename is where it lives. Recorded in PRD 022 §6 as what the exception is for.
+2. **"protected by authentication"** — the bound. Made structural rather than trusted: `isPersonShaped` keeps
+   flagging `filename`, so every **public** response still fails the public guard, and the exception was put
+   in `libraryPersonShapedExceptions` — scoped to the library and admin walk only.
+3. **"name will never be used"** — the other bound. Nothing renders it as an attribution and nothing derives
+   a person from it; `TestTheUploadKeepsTheFilenameBounded` holds that the value is normalised and otherwise
+   untouched.
+
+## What changed
+
+- `photo.Uploaded.FileName`, `photo.fileName VARCHAR(255)`, folded with
+  `fileName=IF(VALUES(fileName)="", fileName, VALUES(fileName))` — fill a gap, never open one, because the
+  raw-body path carries no name and re-dragging a card is the documented recovery procedure (task 372).
+- `photo.NormalizeFileName`: basename, valid UTF-8, printable, 255 runes, applied at publication **and** in
+  the fold. Four bounds, each one something a real browser has sent — `C:\fakepath\`, a folder-drop path,
+  bytes that are not text, a name longer than the column. A projection that quietly stores less than it was
+  told is the bug task 352 shipped and task 350 exists to prevent.
+- `libraryPersonShapedExceptions` — the exception list, now two entries, each a written argument. Split out
+  of `isPersonShaped` precisely so the credit line's "publishable" and the filename's "not publishable" do
+  not collapse into one answer.
+- **`TestTheFilenameExceptionStopsAtTheAdminSurface`** — the test that makes the scope real. If somebody later
+  moves `filename` into `isPersonShaped` itself (the shorter change, and the tempting one the day a public
+  template wants it) the public guard stops flagging it and a filename can reach the open web. This fails
+  first, and says why.
+- PRD 022 §6 rewritten from "one written-down exception" to two, with the bounds and the accepted residue.
+
+## The residue, recorded rather than hidden
+
+A name a photographer chose privately is now in the projection and in every backup taken since. That is the
+cost the decision accepted. The bounds above are what it bought, and the reason they are tests rather than
+prose is that this is the kind of cost that only stays acceptable while the bounds hold.
+
+## Acceptance Criteria
+
+- [x] A decision recorded here, with reasoning
+- [x] PRD 022 §6 narrowed in writing; the guard excepted **by name**, never by loosening a needle
+- [x] The exception is scoped to the authenticated surface, and the scope is tested
+- [x] PRD 024 §11 Q5 answered
+- [x] ~~If B / If C~~ — not taken
+
+## Progress Log
+
+- 2026-09-28 — Created while implementing task 441. The column was written, both privacy guards failed, and
+  the right response to a guard like that is to stop rather than to except it — the whole point of
+  `isPersonShaped` is that an exception has to be a sentence somebody wrote on purpose.
+- 2026-09-28 — Decision A from the maintainer, with the purpose and two bounds quoted above.
+- 2026-09-28 — Implemented. The one judgement I made beyond the decision: the exception went into a
+  **library-scoped** list rather than into `isPersonShaped`, because that function also guards the public
+  responses and excepting it there would have permitted a filename on the open web — the opposite of
+  "protected by authentication". Tested, so the distinction cannot quietly collapse later.
+- 2026-09-28 — `gofmt`, `go vet`, `staticcheck`, `GOWORK=off go test ./...` all clean.

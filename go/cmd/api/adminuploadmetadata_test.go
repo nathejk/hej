@@ -79,28 +79,60 @@ func TestTheUploadFoldNeverClearsACaptureTimeItAlreadyHas(t *testing.T) {
 	if strings.Contains(src, "shotAt=VALUES(shotAt)") {
 		t.Error("shotAt is written with a plain VALUES(), which lets a stripped re-upload clear it")
 	}
-	// The insert still lists it, or a first arrival would never store one.
-	if !strings.Contains(src, `"shotAt=%s, "`) {
-		t.Error("the insert must set shotAt, or the value only ever arrives on a duplicate")
+	// The insert still lists both, or a first arrival would never store either.
+	if !strings.Contains(src, `"shotAt=%s, fileName=%s, "`) {
+		t.Error("the insert must set shotAt and fileName, or the values only ever arrive on a duplicate")
 	}
 }
 
-// PRD 022 §6 and task 448: the library projection holds no filename, and the upload does not read one.
+// PRD 022 §6's second exception, decided in task 448: the library keeps the name the photographer's file
+// had, so an album can keep the order the card was in on their own computer.
 //
-// This is the negative half of what task 441 attempted. It is worth a test rather than a comment because the
-// filename is *available* — `r.FormFile` hands it over for free — so the way this rule gets broken is not a
-// decision, it is a convenience. `isPersonShaped` covers the field name; this covers the read.
-func TestTheUploadDoesNotReadTheFilename(t *testing.T) {
+// # What is worth testing about it
+//
+// Not that the field exists — the compiler covers that. What the exception **rests on** is worth testing,
+// because those are the parts a later change can quietly remove while the feature keeps working:
+//
+//   - it is normalised before it is published, because the log is permanent and a projection cannot fix it;
+//   - it goes onto the event and no further; nothing derives a person from it.
+//
+// The other bound — that it never reaches a public read — is held by `isPersonShaped` still flagging the
+// word, and by `TestTheFilenameExceptionStopsAtTheAdminSurface`. It is deliberately not re-asserted here:
+// one place per rule.
+func TestTheUploadKeepsTheFilenameBounded(t *testing.T) {
 	src := stripGoComments(adminSource(t, "adminupload.go"))
 
+	if !strings.Contains(src, "FileName:   photo.NormalizeFileName(fileName),") {
+		t.Error("the filename must be normalised at the point of publication: a value longer than the column " +
+			"is a write MariaDB truncates or refuses depending on its mode, and the log cannot be corrected")
+	}
+
+	// `NormalizeFileName` is where every bound lives, so it must be the only thing that touches the value.
+	// A second treatment here would be a second place for the rules to drift.
 	for _, forbidden := range []struct{ needle, why string }{
-		{"header.Filename", "the multipart part's filename is a name somebody chose on their laptop, about " +
-			"a person who may be a child and who never agreed to publish it"},
-		{"FileName:", "no filename may go onto the event log, which is permanent"},
+		{"strings.Split(fileName", "a filename is never parsed for meaning (PRD 024 §6 R5)"},
+		{"filepath.Ext(fileName", "nor read for an extension"},
+		{"models.People", "and emphatically never joined to the person projection"},
 	} {
 		if strings.Contains(src, forbidden.needle) {
-			t.Errorf("adminupload.go reads or publishes a filename (%q): %s. See task 448 — this is a "+
-				"decision to be taken, not a convenience to be taken advantage of", forbidden.needle, forbidden.why)
+			t.Errorf("adminupload.go does something with the filename beyond storing it (%q): %s",
+				forbidden.needle, forbidden.why)
 		}
+	}
+}
+
+// The fold applies the same bounding again, and that is not belt-and-braces for its own sake: it does not get
+// to assume the publisher was this version of the publisher. An event written by an older binary, or by a
+// future one with a bug, is still folded by this code.
+func TestTheUploadFoldBoundsTheFilenameItself(t *testing.T) {
+	src := stripGoComments(adminSource(t, "../../nathejk/table/photo/consumer.go"))
+
+	if !strings.Contains(src, "quote(NormalizeFileName(body.FileName))") {
+		t.Error("the fold must normalise the filename rather than trusting the event: a 300-character value " +
+			"is the class of bug task 352 shipped and task 350 exists to prevent")
+	}
+	if !strings.Contains(src, `"fileName=IF(VALUES(fileName)=\"\", fileName, VALUES(fileName)), "`) {
+		t.Error("a re-upload that carries no name must not blank the one already stored: the raw-body path " +
+			"has no filename at all, and re-dragging a card is the documented recovery procedure (task 372)")
 	}
 }

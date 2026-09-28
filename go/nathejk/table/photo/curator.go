@@ -214,6 +214,13 @@ type LibraryPhoto struct {
 	// sort substitutes UploadedAt rather than comparing this field raw (PRD 024 §6 R3).
 	ShotAt string
 
+	// FileName is the name the photographer's file had, or "" for an upload that carried none.
+	//
+	// A **sort key** (PRD 024 §6 R5): it exists so an album can keep the order the photographer had the card
+	// in on their own laptop. Never an attribution, never anybody's name, and never on a public read — the
+	// bounds PRD 022 §6's second exception rests on. See the column comment in table.sql.
+	FileName string
+
 	// UploadedAt is when it entered the library, which is what the contact sheet orders by.
 	UploadedAt string
 }
@@ -242,7 +249,7 @@ type curatorQuerier struct {
 // and a column added to one and not the other is a silent zero value.
 const libraryColumns = `
 	p.photoId, p.blobRef, p.thumbRef, p.mediumRef, p.caption, p.credit, p.width, p.height, p.bytes,
-	p.latitude, p.longitude, p.boundsVerdict, p.deleted, p.shotAt, p.uploadedAt,
+	p.latitude, p.longitude, p.boundsVerdict, p.deleted, p.shotAt, p.fileName, p.uploadedAt,
 	(SELECT COUNT(*) FROM album_item i
 	  WHERE i.photoId = p.photoId AND i.deleted = 0) AS albumCount,
 	(SELECT COUNT(*) FROM photo_patrol t
@@ -420,7 +427,7 @@ func scanLibraryPhoto(rows *sql.Rows) (LibraryPhoto, error) {
 	var deleted int
 	var shotAt sql.NullString
 	if err := rows.Scan(&p.ID, &p.Ref, &p.ThumbRef, &p.MediumRef, &p.Caption, &p.Credit, &p.Width, &p.Height, &p.Bytes,
-		&lat, &lng, &p.BoundsVerdict, &deleted, &shotAt, &p.UploadedAt,
+		&lat, &lng, &p.BoundsVerdict, &deleted, &shotAt, &p.FileName, &p.UploadedAt,
 		&p.AlbumCount, &p.TagCount); err != nil {
 		return LibraryPhoto{}, err
 	}
