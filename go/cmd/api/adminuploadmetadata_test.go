@@ -136,3 +136,42 @@ func TestTheUploadFoldBoundsTheFilenameItself(t *testing.T) {
 			"has no filename at all, and re-dragging a card is the documented recovery procedure (task 372)")
 	}
 }
+
+// One credit in force (PRD 025 §6 R1, task 450).
+//
+// A photograph carrying both a typed name and a crew reference would be a photograph with two answers about who
+// took it, and the read would have to choose between them — a decision belonging to the curator, not to a
+// COALESCE. So each write clears the other, and it is enforced in the **fold** as well as at the handler: the
+// fold is what the projection actually believes, and an event from an older publisher or a future buggy one must
+// not be able to leave such a row behind.
+func TestTheCreditFoldKeepsExactlyOneCreditInForce(t *testing.T) {
+	src := stripGoComments(adminSource(t, "../../nathejk/table/photo/consumer.go"))
+
+	credit := strings.Index(src, `sets = append(sets, "credit="+quote(truncateRunes(*body.Credit, maxCreditRunes)))`)
+	clearsRef := strings.Index(src, "sets = append(sets, `creditCrewId=\"\"`)")
+	ref := strings.Index(src, `sets = append(sets, "creditCrewId="+quote(truncateRunes(*body.CreditCrewID, maxCreditCrewIDRunes)))`)
+	clearsName := strings.Index(src, "sets = append(sets, `credit=\"\"`)")
+
+	for name, at := range map[string]int{
+		"the typed credit":        credit,
+		"clearing the reference":  clearsRef,
+		"the crew reference":      ref,
+		"clearing the typed name": clearsName,
+	} {
+		if at < 0 {
+			t.Fatalf("could not find %s in the fold; this guard needs updating", name)
+		}
+	}
+	// Each clear belongs to the branch that sets the other field, which is what makes it unconditional rather
+	// than a tidy-up somewhere later.
+	if !(credit < clearsRef && clearsRef < ref && ref < clearsName) {
+		t.Error("each credit write must clear the other in its own branch: a row with both set is a photograph " +
+			"with two photographers")
+	}
+
+	// And the reference is bounded, for the reason `credit` is: an over-long value is a 1406 that deadletters
+	// the message on every replay (task 352).
+	if !strings.Contains(src, "const maxCreditCrewIDRunes = 99") {
+		t.Error("the crew reference must be bounded to its column's width")
+	}
+}

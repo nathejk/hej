@@ -51,6 +51,8 @@ func (q *roleQueries) ExpiredPortraits(string, time.Time, int) ([]person.Expired
 	return nil, nil
 }
 
+func (q *roleQueries) CrewRoster(string, string) ([]person.CrewMember, error) { return nil, nil }
+
 // **The 2025 shape: no crew at all.** Every helper is a senior, so "senior" cannot narrow to "bandit" and
 // nothing may be called a catch.
 func TestAnUndifferentiatedYearIdentifiesNoBanditter(t *testing.T) {

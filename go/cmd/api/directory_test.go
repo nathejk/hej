@@ -38,6 +38,8 @@ func (f fakeQueries) ExpiredPortraits(string, time.Time, int) ([]person.ExpiredP
 	return nil, nil
 }
 
+func (f fakeQueries) CrewRoster(string, string) ([]person.CrewMember, error) { return nil, nil }
+
 // Nor this — contacts listing has its own tests (contacts_test.go).
 func (f fakeQueries) ListByAppRoles(string, []string) ([]person.Person, error) {
 	return nil, nil
@@ -208,6 +210,8 @@ func (r yearRecorder) Get(year, _ string) (person.Person, bool, error) {
 func (r yearRecorder) ExpiredPortraits(string, time.Time, int) ([]person.ExpiredPortrait, error) {
 	return nil, nil
 }
+
+func (r yearRecorder) CrewRoster(string, string) ([]person.CrewMember, error) { return nil, nil }
 
 func (r yearRecorder) ListByAppRoles(year string, _ []string) ([]person.Person, error) {
 	*r.seen = append(*r.seen, year)

@@ -68,6 +68,8 @@ func (p *trackPeople) ExpiredPortraits(string, time.Time, int) ([]person.Expired
 	return nil, nil
 }
 
+func (p *trackPeople) CrewRoster(string, string) ([]person.CrewMember, error) { return nil, nil }
+
 // trackPoints answers ByPeople and records who it was asked about.
 //
 // Guarded like trackPeople, and for the same reason.

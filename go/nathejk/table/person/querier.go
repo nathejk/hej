@@ -280,6 +280,37 @@ type Queries interface {
 	// roles need.
 	TrackMembers(year, teamID string) ([]TrackMember, error)
 
+	// CrewRoster returns the year's crew as an id and a name, for the photo credit picker
+	// (PRD 025 §6 R2, task 449).
+	//
+	// # Why it is not a Person
+	//
+	// The same discipline as TrackMembers and ExpiredPortraits, and for a sharper reason: the
+	// caller is a list the curator's tool renders, so every field this returns is a field
+	// something is about to draw. A `Person` would hand a photograph-credit picker a phone
+	// number, an email, an address, a birthday and — for anyone who is also on a spejder row —
+	// a guardian's number. Two fields is what the picker needs, so two fields is what exists.
+	//
+	// # Who counts as crew
+	//
+	// `appRole = RoleCrew` exactly, which is the same rule the credit resolver applies (R3). A
+	// spejder or a bandit can never appear. Note what it also excludes: a section that grants a
+	// capability classifies as RolePostmandskab, RoleGuide or RoleSamarit (see classify.go), so a
+	// medic is not in this roster even though they are crew in the ordinary sense. That is the
+	// rule PRD 025 states twice and the narrow reading, and it must not drift here without
+	// drifting in the resolver too — the picker offering a name the resolver then refuses to
+	// publish is the failure this exactness prevents.
+	//
+	// sectionSlug narrows to one section; "" is the whole year's crew. The caller defaults it to
+	// "pr", where the photographers are, and `pr` is the default filter rather than the boundary.
+	//
+	// A row with no name is skipped: the assignment event can land before the member's details
+	// (see handleSectionAssigned's stub row), and a blank entry in a picker is an option that
+	// credits a photograph to nobody.
+	//
+	// Empty slice, not an error, when nothing matches.
+	CrewRoster(year, sectionSlug string) ([]CrewMember, error)
+
 	// ExpiredPortraits returns the portraits that are due to be deleted: captured
 	// before `before`, or with no capture time recorded at all.
 	//
@@ -322,6 +353,17 @@ type TrackMember struct {
 	// the caller unable to say *when* a withdrawal happened, which is why PRD 011 §0b.6 has it exclude that
 	// member's points entirely rather than guess a cutoff.
 	StatusAt *time.Time
+}
+
+// CrewMember is one crew member as the credit picker needs them: an id to store and a name to show.
+//
+// **Two fields, and a third is a decision rather than a convenience.** Everything else on the person
+// row — phone, phoneParent, email, address, birthday, the portrait refs — is something a photo-credit
+// picker has no use for and a rendered list would expose. `cmd/api`'s adminCrewMember mirrors this
+// shape, and its test fails if either one grows.
+type CrewMember struct {
+	PersonID string
+	Name     string
 }
 
 // ExpiredPortrait is one portrait the retention job should remove.
@@ -535,6 +577,54 @@ func (q querier) TrackMembers(year, teamID string) ([]TrackMember, error) {
 		if at.Valid {
 			t := at.Time
 			m.StatusAt = &t
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// CrewRoster returns the year's crew, optionally narrowed to one section.
+//
+// Selects two columns, for the reason given on the interface: the caller renders what it is handed.
+func (q querier) CrewRoster(year, sectionSlug string) ([]CrewMember, error) {
+	if year == "" {
+		// An empty year would match the column default rather than "every year", the same trap the
+		// other reads guard their key against. Nothing crosses a year in this service.
+		return nil, nil
+	}
+
+	// `appRole = ?` rather than a slug-derived role computed in Go: appRole is what the classifier
+	// wrote at fold time and `KEY year_role` indexes, and re-deriving it from sectionSlug here would
+	// be a second opinion about who is crew.
+	where := `year = ? AND deleted = 0 AND appRole = ? AND name <> ""`
+	args := []any{year, RoleCrew}
+
+	// Folded with the exported normalizer, not compared raw: sectionSlug is stored as the organizer
+	// typed it, and a caller writing `"PR"` must not silently get an empty roster. Case is then MySQL's
+	// to ignore under the table's collation — the same exact match handleSectionAdded's back-fill makes.
+	if slug := NormalizeSectionSlug(sectionSlug); slug != "" {
+		where += ` AND sectionSlug = ?`
+		args = append(args, slug)
+	}
+
+	// By name, because this is read as a list a person scans. personId breaks ties, since duplicate
+	// names are ordinary in this data (task 078) and an unstable order in a picker moves the entry
+	// under the cursor between requests.
+	rows, err := q.db.Query(`
+		SELECT personId, name
+		FROM person
+		WHERE `+where+`
+		ORDER BY name, personId`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []CrewMember
+	for rows.Next() {
+		var m CrewMember
+		if err := rows.Scan(&m.PersonID, &m.Name); err != nil {
+			return nil, err
 		}
 		out = append(out, m)
 	}

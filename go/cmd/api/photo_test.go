@@ -148,6 +148,8 @@ func (s *stubPeople) ExpiredPortraits(_ string, before time.Time, _ int) ([]pers
 	return out, nil
 }
 
+func (s *stubPeople) CrewRoster(string, string) ([]person.CrewMember, error) { return nil, nil }
+
 // testImage builds a real JPEG, because the handler validates by decoding: a fixture of
 // arbitrary bytes would test nothing.
 func testImage(t *testing.T, w, h int) []byte {

@@ -140,6 +140,8 @@ func (p *loadPeople) ExpiredPortraits(string, time.Time, int) ([]person.ExpiredP
 	return nil, nil
 }
 
+func (p *loadPeople) CrewRoster(string, string) ([]person.CrewMember, error) { return nil, nil }
+
 // loadMaps answers the map projections with a plausible amount of data per patrol.
 type loadMaps struct {
 	revealed []checkpoint.Checkpoint

@@ -366,6 +366,11 @@ func (app *application) routes() http.Handler {
 		router.HandlerFunc(http.MethodGet, "/api/admin/patrols/:number", app.requireAdmin(app.requireAdminYear(app.resolveAdminPatrolHandler)))
 		router.HandlerFunc(http.MethodPost, "/api/admin/photos/tags", app.requireAdmin(app.requireAdminYear(app.tagAdminPhotosHandler)))
 		router.HandlerFunc(http.MethodDelete, "/api/admin/photos/:photoId/tags/:teamId", app.requireAdmin(app.requireAdminYear(app.untagAdminPhotoHandler)))
+		// The credit picker's roster (task 449, PRD 025 §6 R2). Note this **is** a list read of people, which
+		// adminpatrol.go above refuses to be — and the difference is who is listed: consenting adult crew,
+		// behind the credential, carrying an id and a name and nothing else. A patrol list would enumerate the
+		// event's children. See admincrew.go.
+		router.HandlerFunc(http.MethodGet, "/api/admin/crew", app.requireAdmin(app.requireAdminYear(app.listAdminCrewHandler)))
 	}
 
 	// Development-only routes (PRD 014 §8). Registered rather than guarded, so outside

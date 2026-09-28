@@ -162,6 +162,44 @@ var libraryPersonShapedExceptions = map[string]bool{
 	// `isPersonShaped` itself. A consenting adult volunteer's name, typed **in order to be published**.
 	"credit": true,
 
+	// The crew member credited for a photograph (task 450, PRD 025).
+	//
+	// # What it is
+	//
+	// A reference to a person row, not a name. It exists so that a curator **picks** the photographer from the
+	// crew roster instead of typing their name onto three hundred photographs, which is how the same person ends
+	// up spelled two ways on one public page.
+	//
+	// # Why it is allowed, given that this file's whole purpose is to forbid exactly this
+	//
+	// PRD 022 §6 said "emphatically not a `creditPersonId`", and the reasoning was that a typed name is a
+	// judgement somebody made while a name resolved out of our person records is a different feature nobody
+	// agreed to. Three of that argument's premises turned out to be wrong, and the maintainer corrected them
+	// (2026-09-28, task 455):
+	//
+	//   - **Erasure, which is the decisive one.** A name copied into `credit` is also on the append-only event
+	//     log, so "delete me" could never be fully honoured. A reference can be: the name lives in one
+	//     projection, and deleting that row removes it from every photograph and every public page at once.
+	//     Storing the *name* — which is what I argued for — is the option that cannot be undone.
+	//   - **Consent.** Crew are adults who consented to be registered. §6's own phrase, "a consenting adult
+	//     volunteer in a professional capacity", already covers them.
+	//   - **Retention.** Crew names are not purged after the event; the same id is reissued the following year.
+	//     The purge argument applied to participants.
+	//
+	// # What still holds, and where
+	//
+	// This exception is **narrower than it looks**, and the bounds are elsewhere by design:
+	//
+	//   - `isPersonShaped` still flags the word, so a **public** response carrying this id fails (PRD 025 §6
+	//     R6). The id is a handle to a person record; the open web has no business holding one.
+	//   - it resolves to a name through **one function** (task 451): the name column and nothing else, a person
+	//     who classifies as `RoleCrew` and nobody else, within the photograph's own year, and "" when it finds
+	//     nothing. A participant's id — mistyped, stale or malicious — cannot publish a participant's name.
+	//
+	// Named `creditCrewId` rather than `creditPersonId` deliberately: the narrower word is the true one, and it
+	// keeps `person` meaning what it means everywhere else in this file.
+	"creditcrewid": true,
+
 	// The name the photographer's file had (task 448, PRD 024 §6 R5).
 	//
 	// # What it is for
@@ -199,6 +237,29 @@ var libraryPersonShapedExceptions = map[string]bool{
 // This is the assertion that keeps "it is protected by authentication" true. If somebody later moves
 // `filename` into `isPersonShaped` itself — the shorter change, and the tempting one when a public template
 // wants it — the public guard stops flagging it and a filename can reach the open web. This fails first.
+func TestTheCreditReferenceStaysOffThePublicSurface(t *testing.T) {
+	// Still person-shaped in general: that is what keeps it out of a public response (PRD 025 §6 R6), since
+	// publicprivacy_test.go walks those types with the same function.
+	for _, field := range []string{"creditCrewId", "CreditCrewID", "creditcrewid"} {
+		if !isPersonShaped(field) {
+			t.Errorf("%q must still be person-shaped in general, or a public response could carry a handle "+
+				"to a person record", field)
+		}
+	}
+	if isPersonShapedInTheLibrary("creditCrewId") {
+		t.Error("the library must be allowed to hold the reference: PRD 022 §6's third exception (task 450)")
+	}
+
+	// The exception is one name, not a family. Anything that pairs the credit with a *person* — or resolves one
+	// — is a different thing and is not covered.
+	for _, field := range []string{"creditPersonId", "creditCrewName", "creditCrewPhone", "creditedBy"} {
+		if !isPersonShapedInTheLibrary(field) {
+			t.Errorf("%q is not the excepted field and must still fail: the exception is exactly "+
+				"`creditCrewId`, and a name or a person id alongside it is what §6 still forbids", field)
+		}
+	}
+}
+
 func TestTheFilenameExceptionStopsAtTheAdminSurface(t *testing.T) {
 	for _, field := range []string{"fileName", "FileName", "filename", "OriginalFileName"} {
 		if !isPersonShaped(field) {

@@ -181,6 +181,13 @@ type LibraryPhoto struct {
 	// table.sql. Free text a curator typed; never derived from the `person` projection.
 	Credit string
 
+	// CreditCrewID is the crew member credited instead of a typed name, or "" (PRD 025).
+	//
+	// Never rendered as-is. It resolves to a name through the one function task 451 owns, and it must not reach
+	// a public response even though it names nobody by itself — PRD 025 §6 R6: it is a handle to a person
+	// record, and the open web has no business holding one.
+	CreditCrewID string
+
 	Width  int
 	Height int
 	Bytes  int
@@ -248,7 +255,7 @@ type curatorQuerier struct {
 // Shared so the two cannot disagree about what a LibraryPhoto contains — they scan into the same struct,
 // and a column added to one and not the other is a silent zero value.
 const libraryColumns = `
-	p.photoId, p.blobRef, p.thumbRef, p.mediumRef, p.caption, p.credit, p.width, p.height, p.bytes,
+	p.photoId, p.blobRef, p.thumbRef, p.mediumRef, p.caption, p.credit, p.creditCrewId, p.width, p.height, p.bytes,
 	p.latitude, p.longitude, p.boundsVerdict, p.deleted, p.shotAt, p.fileName, p.uploadedAt,
 	(SELECT COUNT(*) FROM album_item i
 	  WHERE i.photoId = p.photoId AND i.deleted = 0) AS albumCount,
@@ -426,7 +433,8 @@ func scanLibraryPhoto(rows *sql.Rows) (LibraryPhoto, error) {
 	var lat, lng sql.NullFloat64
 	var deleted int
 	var shotAt sql.NullString
-	if err := rows.Scan(&p.ID, &p.Ref, &p.ThumbRef, &p.MediumRef, &p.Caption, &p.Credit, &p.Width, &p.Height, &p.Bytes,
+	if err := rows.Scan(&p.ID, &p.Ref, &p.ThumbRef, &p.MediumRef, &p.Caption, &p.Credit, &p.CreditCrewID,
+		&p.Width, &p.Height, &p.Bytes,
 		&lat, &lng, &p.BoundsVerdict, &deleted, &shotAt, &p.FileName, &p.UploadedAt,
 		&p.AlbumCount, &p.TagCount); err != nil {
 		return LibraryPhoto{}, err

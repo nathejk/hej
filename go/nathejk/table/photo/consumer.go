@@ -215,6 +215,19 @@ func (c consumer) handleUpdated(msg cqrs.Message, year string) error {
 		// validates the length on the way in (`maxAdminCredit`), so this is the belt to that braces: a credit
 		// that somehow got past it loses its tail instead of costing the whole event.
 		sets = append(sets, "credit="+quote(truncateRunes(*body.Credit, maxCreditRunes)))
+		// **One credit in force.** A typed name arriving clears any crew reference, and the mirror below clears
+		// the name. Enforced here and not only in the handler, because the fold is what the projection actually
+		// believes: an event from an older publisher, or a future one with a bug, must not be able to leave a row
+		// claiming two photographers. The read would then have to choose between them, which is the curator's
+		// decision and not a COALESCE's.
+		sets = append(sets, `creditCrewId=""`)
+	}
+	if body.CreditCrewID != nil {
+		// Bounded like every other id this fold writes. `validSubjectToken` is the wrong check — this is not a
+		// subject token — so the length is what stands between an upstream value and a 1406 that deadletters the
+		// message on every replay (task 352).
+		sets = append(sets, "creditCrewId="+quote(truncateRunes(*body.CreditCrewID, maxCreditCrewIDRunes)))
+		sets = append(sets, `credit=""`)
 	}
 	if body.Location != nil {
 		// The coordinate and its verdict are written together, always. The Location type exists to make
@@ -523,6 +536,9 @@ func NormalizeFileName(name string) string {
 	}, name)
 	return truncateRunes(strings.TrimSpace(name), maxFileNameRunes)
 }
+
+// maxCreditCrewIDRunes bounds the crew reference, matching `creditCrewId VARCHAR(99)` in table.sql.
+const maxCreditCrewIDRunes = 99
 
 // maxCreditRunes bounds the credit line, matching `credit VARCHAR(160)` in table.sql.
 //

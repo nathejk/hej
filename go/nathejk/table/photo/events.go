@@ -163,6 +163,25 @@ type Updated struct {
 	// column comment for the bounds. Never derived from the `person` projection; only ever what somebody typed.
 	Credit *string `json:"credit,omitempty"`
 
+	// CreditCrewID credits a crew member by reference instead of by name (PRD 025, task 450).
+	//
+	// # Why a reference and not the name
+	//
+	// The name is then in exactly one place — the person projection — so a crew member who asks to be removed
+	// is removed once and is gone from every photograph and every public page. A name *copied* here could not
+	// be: this log is append-only and is never rewritten, so an erasure request could never be fully honoured
+	// (PRD 025 §8 D1). That is the whole argument, and it reverses what PRD 022 §6 originally decided — see
+	// task 455.
+	//
+	// # Exactly one credit is in force
+	//
+	// Setting this clears `Credit`, and setting `Credit` clears this. A photograph carrying both would be a
+	// photograph with two answers about who took it, and the fold enforces that as well as the handler.
+	//
+	// Resolved to a name only by the one function task 451 owns: crew only, the name column only, within the
+	// photograph's own year, and "" when it finds nothing. Nothing else may read it.
+	CreditCrewID *string `json:"creditCrewId,omitempty"`
+
 	// Location, when present, replaces the coordinate and its verdict together.
 	Location *Location `json:"location,omitempty"`
 

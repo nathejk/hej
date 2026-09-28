@@ -124,6 +124,24 @@ CREATE TABLE IF NOT EXISTS photo (
     -- and the caption is where prose goes.
     credit VARCHAR(160) NOT NULL DEFAULT "",
 
+    -- The crew member credited for the photograph, or "" (PRD 025, task 450).
+    --
+    -- **A reference, where `credit` above is a name.** Either one may be set and never both: the writer clears
+    -- the other, and the fold does too. A row with both would be a photograph with two answers about who took
+    -- it, and the read would have to pick one — which is a decision belonging to the curator, not to a
+    -- COALESCE.
+    --
+    -- Stored as a reference so that erasure works by deletion: the name lives in the person projection, so a
+    -- crew member who asks to be removed is removed in one place and is gone from every photograph. A name
+    -- copied into this table would also be on the append-only log, where it could never be erased — which is
+    -- why PRD 022 §6's original "never a creditPersonId" was reversed rather than worked around (task 455).
+    --
+    -- Not person-shaped by the guard's reckoning only because it is excepted by name for this surface, exactly
+    -- as `fileName` is; a **public** response carrying it still fails. It resolves to a name through one
+    -- function (task 451) which reads the name column and nothing else, for crew and nobody else, within this
+    -- photograph's own year.
+    creditCrewId VARCHAR(99) NOT NULL DEFAULT "",
+
     width INT NOT NULL DEFAULT 0,
     height INT NOT NULL DEFAULT 0,
     bytes INT NOT NULL DEFAULT 0,
