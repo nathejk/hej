@@ -294,3 +294,100 @@ func TestTheCreditSheetSendsTheReferenceNotTheName(t *testing.T) {
 		t.Error("the roster must be fetched when the sheet opens")
 	}
 }
+
+// The credit filter, end to end through the query string (task 454).
+func TestAdminLibraryFiltersByCredit(t *testing.T) {
+	for name, tc := range map[string]struct {
+		query    string
+		hasSet   bool
+		hasValue bool
+		creditIs string
+	}{
+		"none": {query: "credit=none", hasSet: true, hasValue: false},
+		"any":  {query: "credit=any", hasSet: true, hasValue: true},
+		// A crew id and an exact line both land in the same field: the read compares it to both columns, so a
+		// curator does not have to know how the credit was recorded.
+		"a crew id":     {query: "credit=user-7", creditIs: "user-7"},
+		"an exact line": {query: "credit=Foto%3A+Anne+S%C3%B8rensen", creditIs: "Foto: Anne Sørensen"},
+	} {
+		curator := &libraryCurator{}
+		_, srv := libraryApp(t, curator)
+
+		if resp := getAdmin(t, srv, "/api/admin/photos?"+tc.query, testAdminUser, testAdminPass); resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: want 200, got %d", name, resp.StatusCode)
+		}
+		if len(curator.filters) != 1 {
+			t.Fatalf("%s: want one read, got %d", name, len(curator.filters))
+		}
+		f := curator.filters[0]
+		if tc.hasSet {
+			if f.HasCredit == nil || *f.HasCredit != tc.hasValue {
+				t.Errorf("%s: HasCredit = %v, want %v", name, f.HasCredit, tc.hasValue)
+			}
+		} else if f.HasCredit != nil {
+			t.Errorf("%s: HasCredit should be unset, got %v", name, *f.HasCredit)
+		}
+		if f.CreditIs != tc.creditIs {
+			t.Errorf("%s: CreditIs = %q, want %q", name, f.CreditIs, tc.creditIs)
+		}
+	}
+}
+
+// An unusable credit value is refused, like every other filter value on this endpoint.
+//
+// The asymmetry with `location=yes|no` is deliberate and is why the sentinels are words: this parameter also
+// carries *values*, so `credit=no` would be ambiguous the day somebody is credited as "no".
+func TestAdminLibraryRefusesAnUnusableCreditFilter(t *testing.T) {
+	_, srv := libraryApp(t, &libraryCurator{})
+
+	for name, query := range map[string]string{
+		"a newline":     "credit=a%0Ab",
+		"absurdly long": "credit=" + strings.Repeat("x", 200),
+	} {
+		if resp := getAdmin(t, srv, "/api/admin/photos?"+query, testAdminUser, testAdminPass); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: want 400, got %d", name, resp.StatusCode)
+		}
+	}
+}
+
+// The filter row offers the question a curator asks before publishing, and not the one that cannot be a button.
+func TestTheFilterRowOffersUncreditedPhotographs(t *testing.T) {
+	// Asserted against `adminFilters` rather than the assembled page: the presets are Go data rendered through
+	// `{{range .Filters}}`, so the labels are not in the template's text. Reading the value is also the stronger
+	// check — it is what the page renders *from*, and what `adminFiltersFor` matches a URL against.
+	found := ""
+	for _, f := range adminFilters {
+		if f.Q == "credit=none" {
+			found = f.Label
+		}
+		if f.Q == "credit=any" {
+			t.Error("a `credit=any` button would be noise: the useful preset is the negative one, and " +
+				"\"credited to X\" cannot be a button at all — free text does not enumerate, and a button per " +
+				"photographer would be a roster in the filter row")
+		}
+	}
+	if found == "" {
+		t.Fatal(`the contact sheet must offer a "credit=none" preset: "which of these has nobody credited" is ` +
+			"a checklist item before an album is published, and until task 454 the library could not answer it")
+	}
+	if found != "Uden fotokredit" {
+		t.Errorf("the preset reads %q; it should match the register of its neighbours (\"Uden album\", "+
+			"\"Uden patrulje\")", found)
+	}
+
+	// And the preset must be one `adminFiltersFor` recognises, or choosing it would land the page back on
+	// "Alle" while the grid showed a narrowed set — which is the failure that function exists to prevent.
+	filters, query := adminFiltersFor("credit=none")
+	if query != "credit=none" {
+		t.Errorf("the preset must survive a reload, got query %q", query)
+	}
+	on := ""
+	for _, f := range filters {
+		if f.On {
+			on = f.Q
+		}
+	}
+	if on != "credit=none" {
+		t.Errorf("the chosen preset must be the one shown as on, got %q", on)
+	}
+}

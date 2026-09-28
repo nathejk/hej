@@ -123,6 +123,10 @@ var adminFilters = []adminFilterView{
 	{Label: "Med position", Q: "location=yes"},
 	{Label: "Uden for området", Q: "verdict=outside"},
 	{Label: "Ikke vurderet", Q: "verdict=unknown"},
+	// Only the negative one is offered as a button. "Which of these has nobody credited" is a checklist item
+	// before publishing an album; "which are credited to Anne" is a question about a *value*, and free text
+	// cannot be enumerated into buttons — that one is reached by URL (task 454).
+	{Label: "Uden fotokredit", Q: "credit=none"},
 	{Label: "Med patrulje", Q: "tagged=yes"},
 	{Label: "Uden patrulje", Q: "tagged=no"},
 	{Label: "Inkl. slettede", Q: "deleted=1"},

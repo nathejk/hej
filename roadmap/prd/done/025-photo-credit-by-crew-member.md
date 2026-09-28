@@ -1,11 +1,11 @@
 # PRD 025 — Photo credit by crew member
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (2026-09-28)
 **Created:** 2026-09-28
-**Last updated:** 2026-09-28 (449–453 and 455 done; only 454, the credit filter, remains — low priority)
+**Last updated:** 2026-09-28 (shipped; tasks 449–455 all done)
 **Approved:** 2026-09-28
-**Shipped:**
+**Shipped:** 2026-09-28
 **Target users:** organizer (the photographers and curators who use `/admin`)
 
 ---
@@ -94,7 +94,7 @@ be found, rewritten or re-published, and the photographs themselves are untouche
       placeholder, no empty label, no gap. A photograph with no credit already renders that way.
 - [x] **R6 — The public response carries the name, never the id.** The id is a handle to a person record and
       has no business on the open web, even though it names nobody by itself.
-- [ ] **R7 — A credit filter in the library** (lower priority; §11 Q3). Its original justification is gone: the
+- [x] **R7 — A credit filter in the library** (lower priority; §11 Q3). Its original justification is gone: the
       feature has not been used yet, so there are no misspelled credits to repair. It stays because "which
       photographs are credited to X" is a question that will be asked — to re-credit a batch, or to check a
       photographer's own request — and today there is no way to ask it. Not a blocker for the rest.
@@ -183,7 +183,7 @@ Created on the board 2026-09-28:
 - [x] Task 452: the public and admin reads use it; the public response carries the name and never the id
 - [x] Task 453: the picker in the "Fotokredit" sheet, with copy for the two paths
 - [x] Task 455: rewrite PRD 022 §6's credit bullet to record the reversal and its three reasons
-- [ ] Task 454: a credit filter in the library — **low priority**, since there is nothing to repair yet
+- [x] Task 454: a credit filter in the library — **low priority**, since there is nothing to repair yet
 
 ## 11. Open Questions
 

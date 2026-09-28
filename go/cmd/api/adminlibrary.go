@@ -88,13 +88,14 @@ type adminLibraryPhoto struct {
 // listAdminPhotosHandler returns one page of the year's library.
 //
 // @Summary      List the year's photograph library
-// @Description  Returns one page of the configured event year's photographs, newest first, with the counts the tool's header shows. Filters compose: `album=none` limits to photographs no live album references, `album={albumId}` to one album's live members in the album's own order, `location=yes|no` to those with or without a coordinate, `verdict=inside|outside|unknown|none` to one bounds verdict, `tagged=yes|no` to those with or without a patrol attribution, `ids=` a comma-separated list limits to those photographs, and `deleted=1` includes ones the curator removed. `ids` exists for a specific purpose: an upload answers with the photograph's id before the projection this read serves has folded the event, so the uploader polls with the ids it was given until they come back — which is how it knows the contact sheet is worth reloading. This read is **draft-visible** — it returns photographs no album references and, on request, deleted ones — which is why it is on the curator interface and behind the admin credential rather than on any public read. Requires the admin credential.
+// @Description  Returns one page of the configured event year's photographs, newest first, with the counts the tool's header shows. Filters compose: `album=none` limits to photographs no live album references, `album={albumId}` to one album's live members in the album's own order, `location=yes|no` to those with or without a coordinate, `verdict=inside|outside|unknown|none` to one bounds verdict, `tagged=yes|no` to those with or without a patrol attribution, `credit=none|any` to those without or with a credit of either kind and `credit=<crew id or exact credit line>` to one photographer's (exact, not a search — this library has no search, and a substring filter would be one by the back door), `ids=` a comma-separated list limits to those photographs, and `deleted=1` includes ones the curator removed. `ids` exists for a specific purpose: an upload answers with the photograph's id before the projection this read serves has folded the event, so the uploader polls with the ids it was given until they come back — which is how it knows the contact sheet is worth reloading. This read is **draft-visible** — it returns photographs no album references and, on request, deleted ones — which is why it is on the curator interface and behind the admin credential rather than on any public read. Requires the admin credential.
 // @Tags         admin
 // @Produce      json
 // @Param        album     query     string  false  "none: only photographs in no album; an album id: that album's members, in album order"
 // @Param        location  query     string  false  "yes or no: with or without a coordinate"
 // @Param        verdict   query     string  false  "inside, outside, unknown or none"
 // @Param        tagged    query     string  false  "yes or no: with or without a patrol tag"
+// @Param        credit    query     string  false  "none: no credit at all; any: either kind; or a crew id or an exact credit line"
 // @Param        ids       query     string  false  "comma-separated photograph ids, at most 200: which of these the projection can see"
 // @Param        deleted   query     int     false  "1 to include deleted photographs"
 // @Param        limit     query     int     false  "page size, default 120, max 500"
@@ -303,6 +304,25 @@ func adminLibraryFilter(r *http.Request) (photo.Filter, error) {
 		f.Tagged = &no
 	default:
 		return f, errors.New(`ukendt værdi for "tagged" (kun "yes" eller "no")`)
+	}
+
+	// `credit`: none, any, or one specific credit — a crew id or an exact line (task 454).
+	//
+	// `none` and `any` are words rather than `no`/`yes` like `location` above, and the inconsistency is
+	// deliberate: this parameter also carries *values*, so `credit=no` would be ambiguous the day somebody is
+	// credited as "no". `album` already spells its sentinel `none` for the same reason.
+	switch v := q.Get("credit"); {
+	case v == "":
+	case v == "none":
+		no := false
+		f.HasCredit = &no
+	case v == "any":
+		yes := true
+		f.HasCredit = &yes
+	case len(v) <= maxAdminCredit && !strings.ContainsAny(v, "\t\r\n"):
+		f.CreditIs = v
+	default:
+		return f, errors.New(`ubrugelig værdi for "credit"`)
 	}
 
 	f.IncludeDeleted = q.Get("deleted") == "1"

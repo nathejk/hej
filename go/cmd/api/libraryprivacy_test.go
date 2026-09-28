@@ -200,6 +200,21 @@ var libraryPersonShapedExceptions = map[string]bool{
 	// keeps `person` meaning what it means everywhere else in this file.
 	"creditcrewid": true,
 
+	// **Asking about a credit**, rather than holding one (task 454). `photo.Filter.HasCredit` and
+	// `photo.Filter.CreditIs`.
+	//
+	// A filter is a question, and these two are "does this photograph have a credit at all" and "is it credited
+	// to this photographer". `HasCredit` is a bool: it carries no name and could not. `CreditIs` carries whatever
+	// the curator is looking for — a crew id, or a credit line they copied off a photograph they were already
+	// looking at. Neither adds a name to this service; they narrow a list of photographs that already had one.
+	//
+	// The bound that makes it uninteresting: `photo.Filter` is the **curator's** read model and reaches no public
+	// surface. The public album page reads `album.Item`, which is walked separately in publicprivacy_test.go with
+	// its own single exception. So a filter value's only journey is into an `/admin` URL and back, which is why
+	// this is two lines of reasoning rather than the argument `credit` itself needed.
+	"hascredit": true,
+	"creditis":  true,
+
 	// The name the photographer's file had (task 448, PRD 024 §6 R5).
 	//
 	// # What it is for

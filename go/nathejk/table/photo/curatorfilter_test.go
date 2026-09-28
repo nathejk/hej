@@ -56,3 +56,47 @@ func TestNoIDFilterAddsNoCondition(t *testing.T) {
 		t.Errorf("an empty id list must add nothing, got %q", where)
 	}
 }
+
+// The credit filter (task 454, PRD 025 §6 R7).
+//
+// Two questions, one parameter: "does this photograph have a credit at all" and "is it credited to this
+// photographer". The second has to cover **both** forms — a crew reference and a typed line are the same credit by
+// two routes, and a curator asking "which photographs are credited to Anne" should not have to know which way it
+// was recorded.
+func TestTheCreditFilterCoversBothFormsOfCredit(t *testing.T) {
+	no, yes := false, true
+
+	without, _ := Filter{HasCredit: &no}.where("2026")
+	with, _ := Filter{HasCredit: &yes}.where("2026")
+	for name, clause := range map[string]string{"without": without, "with": with} {
+		// Both columns, or "uden fotokredit" would list photographs that are credited by picker — the exact
+		// question the filter exists to answer, answered wrongly.
+		if !strings.Contains(clause, "p.credit") || !strings.Contains(clause, "p.creditCrewId") {
+			t.Errorf("%s a credit must test both columns, got %q", name, clause)
+		}
+	}
+	if !strings.Contains(without, "NOT (") {
+		t.Errorf("`credit=none` must be the negation of the same condition, got %q", without)
+	}
+	if strings.Contains(with, "NOT (") {
+		t.Errorf("`credit=any` must not be negated, got %q", with)
+	}
+
+	// A specific credit is bound twice — once per column — and never spliced.
+	nasty := `x") OR 1=1 --`
+	clause, args := Filter{CreditIs: nasty}.where("2026")
+	if strings.Contains(clause, nasty) {
+		t.Errorf("the credit reached the SQL text: %q", clause)
+	}
+	if len(args) != 3 || args[1] != nasty || args[2] != nasty {
+		t.Errorf("the credit must be bound to both columns, got %v", args)
+	}
+}
+
+// No credit filter, no condition: the ordinary contact sheet read must not acquire one.
+func TestNoCreditFilterAddsNoCondition(t *testing.T) {
+	clause, _ := Filter{}.where("2026")
+	if strings.Contains(clause, "credit") {
+		t.Errorf("an absent credit filter must add nothing, got %q", clause)
+	}
+}

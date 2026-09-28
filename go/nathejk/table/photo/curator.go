@@ -127,6 +127,26 @@ type Filter struct {
 	// something they removed by accident.
 	IncludeDeleted bool
 
+	// HasCredit selects photographs with, or without, a credit of **either** kind. Nil means either.
+	//
+	// "Without" is the operationally useful one and the reason this exists (task 454): before an album is
+	// published, "which of these has nobody credited" is a checklist item, and until now the library could not
+	// answer it.
+	HasCredit *bool
+
+	// CreditIs limits the result to one credit: a crew member's id, **or** an exact credit line.
+	//
+	// One parameter for both forms, because the question a curator asks is "which photographs are credited to
+	// this photographer" and they should not have to know which way it was recorded. A crew reference and a
+	// typed name are the same credit by two routes (PRD 025 §6 R1), and this is the read that treats them so.
+	//
+	// **Exact, not a search.** `credit=Anne` finds nothing if the line reads "Foto: Anne Sørensen". A substring
+	// match would be a search box, and this library has no search — adding one by the back door of a filter
+	// would mean deciding what a search means here without anybody having asked for it. The filter row offers
+	// only the two states above, because free text cannot be enumerated into buttons; an exact credit is
+	// something a curator reaches by URL, having copied it from a photograph.
+	CreditIs string
+
 	// PhotoIDs limits the result to these photographs. Empty means any.
 	//
 	// **A presence read, not a way to fetch a list.** The uploader asks "which of the ids you just gave me can
@@ -304,6 +324,21 @@ func (f Filter) where(year string) (string, []any) {
 		} else {
 			conds = append(conds, "NOT "+exists)
 		}
+	}
+	if f.HasCredit != nil {
+		// Either kind counts, which is what makes "uden fotokredit" mean what a curator means by it.
+		has := `(p.credit <> "" OR p.creditCrewId <> "")`
+		if *f.HasCredit {
+			conds = append(conds, has)
+		} else {
+			conds = append(conds, "NOT "+has)
+		}
+	}
+	if f.CreditIs != "" {
+		// A crew id or an exact line, bound once and compared to both columns. One of them is always "" for a
+		// given photograph (the writer clears the other), so this cannot match on the wrong field by accident.
+		conds = append(conds, `(p.creditCrewId = ? OR p.credit = ?)`)
+		args = append(args, f.CreditIs, f.CreditIs)
 	}
 	if len(f.PhotoIDs) > 0 {
 		// One placeholder per id, bound like every other value here. The list's length is bounded by the caller —
