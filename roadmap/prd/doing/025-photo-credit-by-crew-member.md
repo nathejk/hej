@@ -1,10 +1,10 @@
 # PRD 025 — Photo credit by crew member
 
-**Status:** draft
+**Status:** doing
 **Author:** agent session (2026-09-28)
 **Created:** 2026-09-28
-**Last updated:** 2026-09-28
-**Approved:**
+**Last updated:** 2026-09-28 (approved; §11 answered)
+**Approved:** 2026-09-28
 **Shipped:**
 **Target users:** organizer (the photographers and curators who use `/admin`)
 
@@ -76,6 +76,12 @@ be found, rewritten or re-published, and the photographs themselves are untouche
       **only** when the person classifies as `person.RoleCrew`. A spejder's or a bandit's id resolves to
       nothing, so a mistyped, stale or malicious id cannot publish a participant's name. Only the name field is
       ever read.
+
+      **Within the photograph's own year** (§11 Q1), with no fallback to another. That is the same rule every
+      other read in this service follows — nothing crosses a year — and it makes the resolver a two-key lookup
+      with no "which row wins" question in it. The consequence is worth stating: somebody who was crew in 2026
+      and is not in 2027 still has their 2026 photographs credited, because those resolve against 2026; and an
+      id that is not crew *in that year* renders no credit, by R5.
 - [ ] **R4 — Erasure works by deletion.** Deleting the person record removes the name from every photograph and
       every public page. Nothing in the library or on the event log has to be rewritten — which is the whole
       reason this is a reference and not a copied string (§8 D1).
@@ -83,9 +89,10 @@ be found, rewritten or re-published, and the photographs themselves are untouche
       placeholder, no empty label, no gap. A photograph with no credit already renders that way.
 - [ ] **R6 — The public response carries the name, never the id.** The id is a handle to a person record and
       has no business on the open web, even though it names nobody by itself.
-- [ ] **R7 — Repair what is already there.** A **credit filter** in the library, so the spellings already in the
-      2026 data can be found, selected and re-credited with the picker. Without this the feature improves the
-      future and leaves the present broken.
+- [ ] **R7 — A credit filter in the library** (lower priority; §11 Q3). Its original justification is gone: the
+      feature has not been used yet, so there are no misspelled credits to repair. It stays because "which
+      photographs are credited to X" is a question that will be asked — to re-credit a batch, or to check a
+      photographer's own request — and today there is no way to ask it. Not a blocker for the rest.
 
 ### Non-Functional
 
@@ -162,24 +169,25 @@ tests, not a general-purpose lookup that later grows a second caller.
 
 ## 10. Rollout / Task Breakdown
 
-- [ ] Task: the crew roster read for the picker (`pr` default, all-crew option), OpenAPI
-- [ ] Task: `photo.creditPersonId` — column, event field, fold, and the one-in-force rule
-- [ ] Task: the resolver — crew-only, name-only, "" when absent — and the guard that replaces
-      `TestACreditIsOnlyEverTypedNeverDerived`
-- [ ] Task: the public and admin reads use it; the public response carries the name and never the id
-- [ ] Task: the picker in the "Fotokredit" sheet, with copy for the two paths
-- [ ] Task: a credit filter in the library, so existing spellings can be found and re-credited
-- [ ] Task: rewrite PRD 022 §6's credit bullet to record the reversal and its reasoning
+Created on the board 2026-09-28:
+
+- [ ] Task 449: the crew roster read for the picker (`pr` default, all-crew option), OpenAPI
+- [ ] Task 450: `photo.creditPersonId` — column, event field, fold, and the one-in-force rule
+- [ ] Task 451: the resolver — crew-only, name-only, within the year, "" when absent — and the rewrite of
+      `TestACreditIsOnlyEverTypedNeverDerived`. **The load-bearing one**
+- [ ] Task 452: the public and admin reads use it; the public response carries the name and never the id
+- [ ] Task 453: the picker in the "Fotokredit" sheet, with copy for the two paths
+- [ ] Task 455: rewrite PRD 022 §6's credit bullet to record the reversal and its three reasons
+- [ ] Task 454: a credit filter in the library — **low priority**, since there is nothing to repair yet
 
 ## 11. Open Questions
 
-1. **Which year's person row resolves a credit?** The person projection is year-scoped (`year` column) and the
-   same `crewMemberId` is reissued the following year. A photograph from 2026 credited to somebody who is not
-   crew in 2027 must still show their name, so resolution cannot be "this year's crew only". Is it "the
-   photograph's year", falling back to any year the id appears in — or is the id stable enough to resolve
-   without a year at all?
-2. **Should the typed path stay, or be a fallback only?** §6 R1 keeps both. If a typed credit is meant to be
-   rare, the sheet should make the picker the obvious path and typing the deliberate one.
-3. **What happens to the credits already in the 2026 library?** R7 makes them findable and re-creditable by
-   hand. Is a one-off matching pass (typed name → crew member, where it matches exactly) worth it, or is
-   by-hand enough for the volume you have?
+All three answered by the maintainer on 2026-09-28.
+
+1. **Which year's person row resolves a credit?** ✅ *"the year of the photo resolves the year."* No cross-year
+   fallback — see R3. Tighter than the alternatives, and consistent with everything else here being
+   year-scoped.
+2. **Should the typed path stay, or be a fallback only?** ✅ Stays a peer of the picker. A guest photographer, or
+   one outside `pr`, is credited by typing.
+3. **What about the credits already in the library?** ✅ *"we have not started using the feature yet, no names to
+   recover."* No migration, no matching pass. R7 demoted accordingly.
