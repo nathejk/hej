@@ -1,11 +1,11 @@
 # 455 — Rewrite PRD 022 §6's credit bullet
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-28
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent
+**Started:** 2026-09-28
+**Completed:** 2026-09-28
 
 ## Description
 
@@ -46,3 +46,37 @@ photographer and nobody else, and PRD 025 §6 R3 is the new bound — crew only,
 ## Progress Log
 
 - 2026-09-28 — Task created from PRD 025 §10.
+
+## What changed
+
+PRD 022 §6's credit bullet rewritten. The structure is deliberate: the **old wording is quoted** before it is
+overturned, because the original reasoning was sound and is still instructive — somebody reading the new rule
+should see what it replaced and why that was not enough, rather than finding a clean sentence with no history.
+
+Three sections now: the bounds that still hold; "the reference was forbidden here until 2026-09-28, and why that
+changed" with the three corrected premises; and what is guaranteed instead, naming the four bounds and where they
+live.
+
+The **residue is stated rather than hidden**: the public site now renders something derived from the person
+projection, which it did not before. What keeps that from becoming "the public site can render any person's name"
+is one narrow function with its own tests, and the discipline of not giving it a second caller.
+
+`publicprivacy_test.go`'s header had the same problem in the same way — its second bullet was "**a credit is
+typed, never derived**", described in its own prose as "the one doing the work". Rewritten to the two-route claim,
+with the erasure argument, and with the part that survives restated: this service does not take names out of its
+person records and put them on public pages *except* through one function whose bounds make "any person"
+impossible.
+
+## Acceptance Criteria
+
+- [x] §6's credit bullet rewritten, with the reversal and its three reasons
+- [x] The narrower claim stated, so the next reader knows what is still guaranteed
+- [x] `publicprivacy_test.go`'s header updated to match
+- [x] No claim left in either PRD that the code contradicts
+
+## Progress Log
+
+- 2026-09-28 — Done with task 452, because a PRD that tells the reader the opposite of the code is worse the
+  longer it sits — and §6 is the document the privacy guards cite by number.
+- 2026-09-28 — Quoted the old wording rather than replacing it silently. A reversal without its history reads as
+  though nobody had thought about it the first time.

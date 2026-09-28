@@ -162,11 +162,30 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 	window, side, hasMore := albumPageWindow(items, albumRequestedSide(items, r.URL.Query()))
 	data.HasMore = hasMore
 	data.NextSide = side + 1
+
+	// Credits resolved for **this window only** (PRD 025, task 452). The album may hold hundreds of
+	// photographs and the page shows a side of them, so resolving the whole album would read names nobody
+	// is about to see — and this is the one read in the service that touches the person projection on a
+	// public path. It does as little of it as the page needs.
+	//
+	// `app.config.eventYear` rather than the album's: the public site serves one year, and the photograph's
+	// year is that year. See `person.CreditNames` for why resolution is year-scoped at all.
+	var creditIDs []string
+	for _, it := range window {
+		if it.CreditCrewID != "" {
+			creditIDs = append(creditIDs, it.CreditCrewID)
+		}
+	}
+	creditNames := app.creditNames(app.config.eventYear, creditIDs)
+
 	for _, it := range window {
 		data.Items = append(data.Items, publicAlbumItem{
-			Ordinal:   it.Ordinal,
-			Caption:   it.Caption,
-			Credit:    it.Credit,
+			Ordinal: it.Ordinal,
+			Caption: it.Caption,
+			// The **name**, never the reference (PRD 025 §6 R6): the id is a handle to a person record, and
+			// `publicAlbumItem` is a type this page renders into HTML. An unresolvable reference is "" here,
+			// which the template already renders as no credit line at all.
+			Credit:    resolvedCredit(it.Credit, it.CreditCrewID, creditNames),
 			Width:     it.Width,
 			Height:    it.Height,
 			HasMedium: it.MediumRef != "",

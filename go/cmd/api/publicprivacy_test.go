@@ -38,14 +38,22 @@ import (
 //   - **The only person the public surface may name is somebody who asked to be named**, in a professional
 //     capacity, as the author of a photograph. Nobody else: not a participant, not a minor, not a guardian,
 //     not a crew member, not a leader.
-//   - **A credit is typed, never derived.** It is free text a curator entered. Nothing joins it to the
-//     `person` projection — since PRD 025, a credit may also be a **reference** to a crew member, resolved by
-//     one bounded read. `TestACreditNamesAPhotographerAndNobodyElse` holds what is still true of both forms.
+//   - **A credit is a photographer's name, and reaches the page by one of exactly two routes**: free text a
+//     curator typed, or a reference to a crew member resolved by `person.CreditNames` — crew roles only, the
+//     name column only, the photograph's own year, and nothing at all when it finds nothing.
+//     `TestACreditNamesAPhotographerAndNobodyElse` holds what is true of both forms.
 //
-// The second point is the one doing the work. What this file has always really defended is not the absence of
-// characters that spell a name — it is that **this service does not take names out of its person records and
-// put them on public pages.** A curator typing an attribution does not do that. A lookup would, and is the
-// thing to keep failing.
+// The second point used to read "**a credit is typed, never derived**", and that was the load-bearing claim of
+// this whole file until 2026-09-28. It is worth knowing why it changed, because the change looks like a
+// loosening and is not: a name *typed* into the projection is also copied onto the append-only event log, so a
+// photographer asking to be removed could never be fully honoured. A reference can be — one row to delete, and
+// the name is gone from every photograph. The rule written to protect people was, in the case that matters most
+// to them, the weaker option. PRD 022 §6 records the reversal in full; PRD 025 is the feature.
+//
+// What this file has always really defended survives that, restated: **this service does not take names out of
+// its person records and put them on public pages** — *except* through one function, whose bounds make "any
+// person" impossible and which has no second caller. A curator typing an attribution does not do it either. A
+// general-purpose lookup would, and is still the thing to keep failing.
 //
 // So `isPersonShaped` now flags `credit` and immediately excepts the exact field, which is deliberate: the
 // exception is written down in the guard rather than being invisible to it.
@@ -295,10 +303,41 @@ func TestPublicAlbumReadModelHasNowhereToPutAPerson(t *testing.T) {
 				field)
 		}
 	}
+	// `album.Item` has **one** excepted field, and the exception is scoped to this type rather than to the
+	// field name (PRD 025, task 452).
+	//
+	// `CreditCrewID` is a reference to a crew member, not a name. The handler resolves it through
+	// `person.CreditNames` — crew only, name only, one year — and puts the *name* into `publicAlbumItem`, which
+	// is the type this page actually renders. The reference never reaches a template or a response.
+	//
+	// Excepting the type and not the name is the whole point. `publicAlbumItem` is checked below with no
+	// exception at all, so the moment somebody carries the reference one step further — into the rendered type,
+	// where a template could print it — this file fails. That is the step worth guarding: a read model holding
+	// an id the handler consumes is ordinary, and a rendered type holding a handle to a person record is not.
 	for _, field := range structFieldNames(album.Item{}) {
+		if field == "CreditCrewID" {
+			continue
+		}
 		if isPersonShaped(field) {
 			t.Errorf("album.Item gained a person-shaped field %q: the public surface must name no person",
 				field)
+		}
+	}
+
+	// **The rendered type, with no exceptions.** This is where the guarantee lives now: whatever the read model
+	// carries, what the album template can see is a caption, a credit *line* and a photograph's dimensions.
+	for _, field := range structFieldNames(publicAlbumItem{}) {
+		switch field {
+		case "Credit":
+			// The credit line itself — a name, and the one documented exception on this surface (task 393).
+			// Whether it was typed or resolved, it is a string by the time it gets here, which is the property
+			// that makes it safe to render.
+			continue
+		}
+		if isPersonShaped(field) {
+			t.Errorf("publicAlbumItem gained a person-shaped field %q. This is the type the album template "+
+				"renders: a reference to a person record must be resolved to a name before it reaches here, "+
+				"never carried into it", field)
 		}
 	}
 	for _, field := range structFieldNames(album.PlottableItem{}) {

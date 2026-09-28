@@ -103,6 +103,14 @@ type Item struct {
 	// never derived from the `person` projection. See the column comment in photo/table.sql for the bounds.
 	Credit string
 
+	// CreditCrewID is the crew member credited instead of a typed name, or "" (PRD 025).
+	//
+	// **Not for rendering.** It is resolved to a name by `person.CreditNames` — in the *handler*, not here: this
+	// package folds one stream and the person projection folds another, and a SQL join across the two would put
+	// the credit's four bounds in a statement rather than in the one function that owns them. The handler merges
+	// the resolved name into `Credit` before the page sees either.
+	CreditCrewID string
+
 	Width  int
 	Height int
 
@@ -245,7 +253,7 @@ func (q querier) BySlug(year, slug string) (Album, []Item, bool, error) {
 // order of two messages is not something a page should be able to notice.
 func (q querier) items(albumID string) ([]Item, error) {
 	rows, err := q.db.Query(`
-		SELECT i.ordinal, i.photoId, p.blobRef, p.thumbRef, p.mediumRef, p.caption, p.credit,
+		SELECT i.ordinal, i.photoId, p.blobRef, p.thumbRef, p.mediumRef, p.caption, p.credit, p.creditCrewId,
 		       p.width, p.height, p.latitude, p.longitude, p.boundsVerdict
 		FROM album_item i
 		JOIN photo p ON p.photoId = i.photoId
@@ -261,7 +269,7 @@ func (q querier) items(albumID string) ([]Item, error) {
 		var it Item
 		var lat, lng sql.NullFloat64
 		if err := rows.Scan(&it.Ordinal, &it.PhotoID, &it.Ref, &it.ThumbRef, &it.MediumRef,
-			&it.Caption, &it.Credit,
+			&it.Caption, &it.Credit, &it.CreditCrewID,
 			&it.Width, &it.Height, &lat, &lng, &it.BoundsVerdict); err != nil {
 			return nil, err
 		}

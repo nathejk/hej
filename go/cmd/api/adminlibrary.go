@@ -209,11 +209,26 @@ func (app *application) readAdminLibraryPage(w http.ResponseWriter, r *http.Requ
 		HasMore:      hasMore,
 		CoverPhotoID: cover,
 	}
+	// Credits resolved for the page, so **the tool shows what the public will show** (PRD 025, task 452).
+	// A curator checking their work has to see the resolved name — not the reference, which is meaningless to
+	// read, and not the typed field, which is empty on a photograph credited by picker. It is also how a curator
+	// discovers that a credit has stopped resolving because the crew member asked to be deleted.
+	var creditIDs []string
+	for _, p := range rows {
+		if p.CreditCrewID != "" {
+			creditIDs = append(creditIDs, p.CreditCrewID)
+		}
+	}
+	creditNames := app.creditNames(adminYear(r), creditIDs)
+
 	for _, p := range rows {
 		page.Photos = append(page.Photos, adminLibraryPhoto{
-			ID:            p.ID,
-			Caption:       p.Caption,
-			Credit:        p.Credit,
+			ID:      p.ID,
+			Caption: p.Caption,
+			// The resolved name. The reference itself stays out of the response: it is person-shaped, and
+			// `isPersonShaped` flags it precisely so that a *response* type cannot quietly acquire one —
+			// `libraryPersonShapedExceptions` admits the column, not the wire (PRD 025 §6 R6).
+			Credit:        resolvedCredit(p.Credit, p.CreditCrewID, creditNames),
 			Width:         p.Width,
 			Height:        p.Height,
 			Lat:           p.Lat,

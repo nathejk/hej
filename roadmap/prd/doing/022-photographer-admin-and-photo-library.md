@@ -330,18 +330,67 @@ for that somebody to stand.
 
   - it names a **consenting adult volunteer in a professional capacity**, because they asked to be credited —
     not a participant, not a minor, not somebody who never agreed to be in this app;
-  - it is **free text a curator typed**. Never derived, never looked up, never joined to the `person`
-    projection. `TestACreditIsOnlyEverTypedNeverDerived` holds that, and it is the property doing the work:
-    the hazard was never that a name appears on a page, it is a system that starts taking names out of its
-    person records and publishing them. A string somebody typed cannot do that.
+  - it is either **free text a curator typed** or **a reference to a crew member** (`creditCrewId`), and the
+    reference is resolved to a name by exactly one function.
 
-  So it is a `credit`, not a `photographer`, and emphatically not a `creditPersonId`. `isPersonShaped` **flags
-  `credit`** and then excepts that exact field, which is deliberate: without the needle the one
-  person-naming field in the projection would have passed the walk in silence, and `CreditName` or
-  `CreditedBy` would too. There is no photographer roster and no picker — that would mean holding a list of
-  volunteers' names in this service, which is what this bullet is arranged against. A remembered default lives
-  in the **browser**, because a server-side "my credit" would be an attribution the shared credential cannot
-  honestly make (§8.2).
+  So it is a `credit`, not a `photographer`. `isPersonShaped` **flags `credit`** and then excepts that exact
+  field, which is deliberate: without the needle the one person-naming field in the projection would have
+  passed the walk in silence, and `CreditName` or `CreditedBy` would too. A remembered default for the typed
+  path lives in the **browser**, because a server-side "my credit" would be an attribution the shared
+  credential cannot honestly make (§8.2).
+
+  ### The reference was forbidden here until 2026-09-28, and why that changed
+
+  This bullet used to end differently, and the previous wording is worth quoting because the reasoning was
+  sound and is still instructive:
+
+  > it is **free text a curator typed**. Never derived, never looked up, never joined to the `person`
+  > projection. […] the hazard was never that a name appears on a page, it is a system that starts taking names
+  > out of its person records and publishing them. A string somebody typed cannot do that.
+  >
+  > […] emphatically not a `creditPersonId`. There is no photographer roster and no picker — that would mean
+  > holding a list of volunteers' names in this service, which is what this bullet is arranged against.
+
+  PRD 025 reversed it, and **three of that argument's premises turned out to be wrong** (the maintainer,
+  2026-09-28):
+
+  1. **Erasure — the decisive one, and it points the opposite way.** A name typed into `credit` is also copied
+     onto the **append-only event log**, which is never rewritten. So a photographer asking to be removed could
+     never be fully honoured: the projection could be corrected and the log could not. A *reference* can be —
+     the name lives in one place, and deleting that row removes it from every photograph and every public page.
+     The rule written to protect people was, in the one case that matters most to them, the weaker option.
+  2. **Consent.** Crew are adults who consented to be registered. This bullet's own phrase — "a consenting
+     adult volunteer in a professional capacity" — already covers them; the ban on a roster did not follow from
+     it.
+  3. **Retention.** Crew names are not purged after the event, and the same crew id is reissued the following
+     year. The purge argument that made a reference look fragile applies to participants, not to staff.
+
+  And "no roster in this service" was simply overstated: the person projection already holds crew names. The
+  tool now *reads* that list; it does not hold a second copy of it.
+
+  ### What is guaranteed instead
+
+  The old guarantee was structural and blunt — *nothing derives a name* — and it is gone. The new one is
+  narrower and is enforced in `person.CreditNames`, which is **the only path from the person projection to a
+  public page** (PRD 025 §6 R3, task 451):
+
+  - **crew roles only** — `person.CrewRoles`, so a spejder's, bandit's or gøgler's id resolves to nothing. This
+    is the bound that matters: ids are reissued between years, so last year's crew id can be this year's
+    participant, and that must not be publishable;
+  - **the `name` column only.** The row beside it holds a phone number, a guardian's phone number, an email, an
+    address and a birthday;
+  - **the photograph's own year**, with no fallback to another;
+  - **absent is absent.** An id that resolves to nothing renders no credit line — no placeholder, no empty
+    element. That is the erasure path working, not an error path.
+
+  `TestACreditIsOnlyEverTypedNeverDerived` was **rewritten, not deleted**, into
+  `TestACreditNamesAPhotographerAndNobodyElse`: a guard asserting the opposite of the feature is worse than no
+  guard, while deleting it would have discarded what is still true — the typed path still takes its value from
+  the request body, the fold still never joins `person`, and there is exactly one resolver.
+
+  The residue, stated rather than hidden: the public site now renders something derived from the person
+  projection, which it did not before. What keeps that from becoming "the public site can render any person's
+  name" is a single narrow function with its own tests, and the discipline of not giving it a second caller.
 
   This narrows PRD 011's claim that the public site names no human being, and that narrowing is recorded in
   `publicprivacy_test.go`'s header rather than left to be discovered in a diff.

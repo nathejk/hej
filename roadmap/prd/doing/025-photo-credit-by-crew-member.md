@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session (2026-09-28)
 **Created:** 2026-09-28
-**Last updated:** 2026-09-28 (449/450/451 done; the crew set widened from RoleCrew to the four-role union)
+**Last updated:** 2026-09-28 (449–452 and 455 done; 453 the picker and 454 the filter remain)
 **Approved:** 2026-09-28
 **Shipped:**
 **Target users:** organizer (the photographers and curators who use `/admin`)
@@ -90,9 +90,9 @@ be found, rewritten or re-published, and the photographs themselves are untouche
 - [x] **R4 — Erasure works by deletion.** Deleting the person record removes the name from every photograph and
       every public page. Nothing in the library or on the event log has to be rewritten — which is the whole
       reason this is a reference and not a copied string (§8 D1).
-- [ ] **R5 — Absence renders as no credit.** An id that resolves to nothing produces no credit line: no
+- [x] **R5 — Absence renders as no credit.** An id that resolves to nothing produces no credit line: no
       placeholder, no empty label, no gap. A photograph with no credit already renders that way.
-- [ ] **R6 — The public response carries the name, never the id.** The id is a handle to a person record and
+- [x] **R6 — The public response carries the name, never the id.** The id is a handle to a person record and
       has no business on the open web, even though it names nobody by itself.
 - [ ] **R7 — A credit filter in the library** (lower priority; §11 Q3). Its original justification is gone: the
       feature has not been used yet, so there are no misspelled credits to repair. It stays because "which
@@ -180,9 +180,9 @@ Created on the board 2026-09-28:
 - [x] Task 450: `photo.creditPersonId` — column, event field, fold, and the one-in-force rule
 - [x] Task 451: the resolver — crew-only, name-only, within the year, "" when absent — and the rewrite of
       `TestACreditIsOnlyEverTypedNeverDerived`. **The load-bearing one**
-- [ ] Task 452: the public and admin reads use it; the public response carries the name and never the id
+- [x] Task 452: the public and admin reads use it; the public response carries the name and never the id
 - [ ] Task 453: the picker in the "Fotokredit" sheet, with copy for the two paths
-- [ ] Task 455: rewrite PRD 022 §6's credit bullet to record the reversal and its three reasons
+- [x] Task 455: rewrite PRD 022 §6's credit bullet to record the reversal and its three reasons
 - [ ] Task 454: a credit filter in the library — **low priority**, since there is nothing to repair yet
 
 ## 11. Open Questions
