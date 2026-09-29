@@ -104,7 +104,7 @@ func TestAlbumPageRendersNoCreditWhenTheCrewMemberIsGone(t *testing.T) {
 		t.Errorf("a credit that resolved to nothing must render no element at all\n%s", page)
 	}
 	// The photograph itself is untouched: erasure removes a name, not somebody's work.
-	if !strings.Contains(page, "/api/public/albums/al-1/media/1?variant=thumb") {
+	if !strings.Contains(page, "/api/public/albums/al-1/media/"+itemRef(t, store, 1)+"?variant=thumb") {
 		t.Errorf("the photograph must still be on the page\n%s", page)
 	}
 }
@@ -140,7 +140,7 @@ func TestAlbumPageSurvivesAnUnavailablePersonProjection(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("the album page must still render, got %d", resp.StatusCode)
 	}
-	if page := string(body); !strings.Contains(page, "/api/public/albums/al-1/media/1?variant=thumb") {
+	if page := string(body); !strings.Contains(page, "/api/public/albums/al-1/media/"+itemRef(t, store, 1)+"?variant=thumb") {
 		t.Errorf("the photographs must still be there\n%s", page)
 	}
 }

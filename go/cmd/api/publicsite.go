@@ -1153,9 +1153,19 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
          when the bytes have not arrived, so a half-loaded grid would jump as each photograph landed — which
          is the thing width/height were added to prevent. Those attributes stay: they are the image's real
          proportions, they are what a reader saving the page gets, and this grid simply does not use them for
-         layout. -->
+         layout.
+
+         Addressed by **ref, like everything else on this tile** (task 462). It was the ordinal until then, while
+         the anchor beside it already carried refs — and the two disagreeing is a bug you can see: after a
+         re-sort, the grid showed one set of photographs and opening the viewer showed another. The tile image is
+         fetched from the ordinal URL, whose meaning moves; the viewer reads data-thumb, whose meaning cannot.
+         Every cache that had already stored the ordinal form as immutable-for-a-year — which is what this route
+         promised until task 456 — kept answering with the photograph that used to be in that position.
+
+         So this is one line that had to match the four above it, and the cost of it not matching was invisible
+         locally: a browser with a cold cache renders the right thing either way. -->
     <span class="frame">
-      <img src="/api/public/albums/{{$album.ID}}/media/{{.Ordinal}}?variant=thumb"
+      <img src="/api/public/albums/{{$album.ID}}/media/{{.Ref}}?variant=thumb"
            alt="{{if .Caption}}{{.Caption}}{{else}}Billede fra {{$album.Title}}{{end}}"
            loading="lazy" decoding="async"
            {{if and .Width .Height}}width="{{.Width}}" height="{{.Height}}"{{end}}>

@@ -260,7 +260,7 @@ func TestFrontpageHidesUnpublishedAlbums(t *testing.T) {
 }
 
 func TestAlbumPageRendersItsPhotographs(t *testing.T) {
-	app, _ := albumApp(t)
+	app, store := albumApp(t)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
@@ -270,10 +270,13 @@ func TestAlbumPageRendersItsPhotographs(t *testing.T) {
 	}
 	page := string(body)
 
+	// **By ref, not by ordinal** (task 462). These two needles pinned the ordinal form, which is how the tile
+	// image and the viewer came to disagree without a test noticing: the anchor carried refs from task 447 and
+	// this one line still carried the position.
 	for _, want := range []string{
 		"<h1>Lørdag morgen</h1>", "Da solen kom",
-		"/api/public/albums/al-1/media/0?variant=thumb",
-		"/api/public/albums/al-1/media/1?variant=thumb",
+		"/api/public/albums/al-1/media/" + itemRef(t, store, 0) + "?variant=thumb",
+		"/api/public/albums/al-1/media/" + itemRef(t, store, 1) + "?variant=thumb",
 		"Ved målstregen",
 		`loading="lazy"`, `width="1600"`, `height="1200"`,
 	} {
@@ -1007,10 +1010,83 @@ func TestAlbumMediaIsPubliclyCacheable(t *testing.T) {
 // store — a literal here would be a second opinion about what the hash of "full-1" is.
 func firstItemRef(t *testing.T, store *albumStore) string {
 	t.Helper()
-	if len(store.albums) == 0 || len(store.albums[0].items) == 0 {
-		t.Fatal("the fixture has no first item")
+	return itemRef(t, store, 0)
+}
+
+// itemRef is the display ref of the first album's nth item.
+func itemRef(t *testing.T, store *albumStore, n int) string {
+	t.Helper()
+	if len(store.albums) == 0 || len(store.albums[0].items) <= n {
+		t.Fatalf("the fixture has no item %d", n)
 	}
-	return store.albums[0].items[0].Ref
+	return store.albums[0].items[n].Ref
+}
+
+// **No public page addresses album media by position** (task 462).
+//
+// # The bug this would have caught
+//
+// Task 447 moved the album tile's anchor to refs — `data-full`, `data-thumb`, `data-medium` — and left the
+// `<img src>` one line below it on the ordinal. Nothing failed, because the existing tests pinned the ordinal form
+// and the structural guard only required *a* display ref to be present, which the anchor satisfied.
+//
+// What it cost is a visible wrong answer: after a re-sort, the grid showed one sequence of photographs and opening
+// the viewer showed another. The tile's bytes came from an ordinal URL that this route served
+// `immutable, max-age=1y` until task 456, so every browser that had loaded the album before kept answering each
+// position with the photograph that used to be there — while the viewer, reading `data-thumb`, got the right one.
+// A cold cache renders both correctly, which is why it survived local testing and was reported from use.
+//
+// So the rule is not "the anchor uses refs" but "**nothing here is addressed by position**", asserted over the
+// whole page. `?foto=N` is untouched: that is the page's own state (task 401), not an address for bytes.
+func TestNoPublicPageAddressesAlbumMediaByPosition(t *testing.T) {
+	app, _ := albumApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	// The trailing `["?]` matters: a ref is hex and may begin with digits, so an unanchored `\d+` matches the
+	// front of a perfectly good ref. The first draft of this test did, and reported the fixture's own refs.
+	byPosition := regexp.MustCompile(`/api/public/albums/[^/"]+/media/\d+["?]`)
+
+	for _, path := range []string{"/2026/album/loerdag-morgen", "/2026"} {
+		_, body := getPublic(t, srv.URL+path, nil)
+		if found := byPosition.FindAllString(string(body), -1); len(found) > 0 {
+			t.Errorf("%s addresses album media by position: %v\n\nAn ordinal's meaning moves when the album is "+
+				"re-sorted (PRD 024), and this route promised caches immutable at one until task 456 — so a "+
+				"position-addressed image can keep serving the photograph that used to be there. Use the "+
+				"display ref.", path, found)
+		}
+	}
+}
+
+// And the tile's own image is the **same** photograph the viewer will open for it.
+//
+// The pair that drifted. Asserted per tile rather than by counting refs on the page, because the failure was not a
+// missing ref — it was two addresses for one tile that stopped agreeing.
+func TestTheTileImageAndTheViewerAgreeOnThePhotograph(t *testing.T) {
+	app, store := albumApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
+	page := string(body)
+
+	tiles := strings.Split(page, `<a class="tile"`)[1:]
+	if len(tiles) != len(store.albums[0].items) {
+		t.Fatalf("want %d tiles, got %d", len(store.albums[0].items), len(tiles))
+	}
+	for i, tile := range tiles {
+		ref := itemRef(t, store, i)
+		thumb := "/api/public/albums/al-1/media/" + ref + "?variant=thumb"
+		// The viewer's thumbnail and the tile's own <img src> are the same URL, which is also what makes the
+		// filmstrip and the grid show the same photograph in the same place.
+		if got := strings.Count(tile, thumb); got != 2 {
+			t.Errorf("tile %d: want the thumbnail URL twice — the img src and data-thumb — got %d\n%s",
+				i, got, tile[:min(len(tile), 700)])
+		}
+		if !strings.Contains(tile, `data-full="/api/public/albums/al-1/media/`+ref+`"`) {
+			t.Errorf("tile %d: the display image must be the same photograph\n%s", i, tile[:min(len(tile), 700)])
+		}
+	}
 }
 
 // The album pages must ignore the session like the rest of the surface.
