@@ -417,7 +417,7 @@ func (app *application) spaHandler() http.Handler {
 	fileServer := http.FileServer(http.Dir(root))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if looksLikeYearPrefix(r.URL.Path) {
-			app.renderPublicNotFound(w)
+			app.renderPublicNotFound(w, r)
 			return
 		}
 		requested := filepath.Join(root, filepath.Clean(r.URL.Path))

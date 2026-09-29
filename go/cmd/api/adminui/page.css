@@ -79,6 +79,10 @@ h2 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
 .counts .n { display: block; font-size: 1.5rem; font-weight: 600; }
 .counts .k { color: #52525b; font-size: 0.875rem; }
 .warn { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 0.75rem 1rem; margin-bottom: 1.5rem; }
+/* A hint that is also a warning (task 470): the cover-photograph note in the album editor. It keeps the hint's
+   smaller type — it is guidance rather than an error — and takes the warn block's amber rail so it is not skimmed
+   past with the sentence above it. */
+#albumeditor .hint.warn { margin: 0.5rem 0 0; padding: 0.5rem 0.75rem; }
 
 /* The drop zone is a thin bar when idle and grows during a batch (PRD 022 §7). Driven by a class on the
    section rather than by inline styles, so the two states are readable in one place. */

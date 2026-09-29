@@ -1,11 +1,11 @@
 # 468 — The patrol page's share card is its diploma
 
-**Status:** open
+**Status:** done
 **Priority:** medium
 **Created:** 2026-09-28
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent
+**Started:** 2026-09-28
+**Completed:** 2026-09-28
 
 **PRD:** 026
 
@@ -21,13 +21,4 @@ described as having finished.
 Note what the thumbnail does **not** carry: any photograph of anybody. The stand-in pictures an empty backdrop, so
 this card puts no child's face on Facebook's CDN even though the album cards deliberately do.
 
-## Acceptance Criteria
-
-- [ ] The card is the diploma thumbnail
-- [ ] The wording matches the diploma's own finish/participation split
-- [ ] A closed patrol page still 404s before any of this
-- [ ] No member name anywhere in the card
-
-## Progress Log
-
-- 2026-09-28 — Created from PRD 026 §10 on approval.
+#

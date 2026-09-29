@@ -1,11 +1,11 @@
 # 465 — The shareCard view model, and the tags in layout-head
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-28
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent
+**Started:** 2026-09-28
+**Completed:** 2026-09-28
 
 **PRD:** 026
 
@@ -22,14 +22,4 @@ emitted from one place so a page cannot half-declare itself.
 sensible title, never an absent or broken `og:image` — the same fail-safe shape `RobotsPolicy()` has, and for the
 same reason: a field every handler must remember to fill fails in the direction nobody notices.
 
-## Acceptance Criteria
-
-- [ ] One template block emits every tag, from data
-- [ ] A page that sets nothing still previews correctly, with the branded card
-- [ ] `og:image` is absolute (task 466)
-- [ ] No tag is emitted empty — an empty `og:description` is worse than none
-- [ ] A test that walks every public page and asserts each one carries a complete card
-
-## Progress Log
-
-- 2026-09-28 — Created from PRD 026 §10 on approval.
+#

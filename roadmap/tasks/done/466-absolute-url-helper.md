@@ -1,11 +1,11 @@
 # 466 — An absolute-URL helper for the public site
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-28
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent
+**Started:** 2026-09-28
+**Completed:** 2026-09-28
 
 **PRD:** 026
 
@@ -24,12 +24,4 @@ break every preview at once, while a wrong `Host` can only come from a request t
 `renderPublicPage` has no `*http.Request` today, so it needs one — which is the right shape anyway, since the origin
 and the default card should be filled by the renderer rather than by eight handlers remembering.
 
-## Acceptance Criteria
-
-- [ ] `https` behind the proxy, `http` only in dev
-- [ ] Every public handler passes the request to the renderer
-- [ ] A test for the forwarded-proto path, since that is the production one and `r.TLS` is nil there
-
-## Progress Log
-
-- 2026-09-28 — Created from PRD 026 §10 on approval.
+#

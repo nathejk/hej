@@ -77,6 +77,18 @@ kun på hjemmesiden, fordi nogen har valgt det.
 
 Et album du ikke har udgivet, er der ingen udefra der kan se — heller ikke hvis de kender adressen.
 
+### Forsidebilledet bliver delt
+
+Forsidebilledet er det, folk ser på forsiden — og det er det billede der kommer med, når nogen deler albummet
+på Facebook eller i en besked.
+
+**Deler nogen albummet, tager Facebook en kopi af forsidebilledet.** Den kopi ligger hos Facebook, og vi kan
+ikke fjerne den igen — heller ikke hvis vi sletter billedet her. Det gælder kun forsidebilledet; resten af
+albummet bliver ikke kopieret.
+
+Så vælg et forsidebillede som patruljen selv ville være glad for at få sendt rundt. Et bredt billede af hele
+patruljen er bedre end et nærbillede af ét barn.
+
 ### Tjek albummet igennem, før du udgiver
 
 Inde i albummet er der samme **filterknapper** som på kontaktarket. I et album med 200 billeder er de

@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/julienschmidt/httprouter"
@@ -107,6 +108,44 @@ type publicPatrolPageData struct {
 // only one of them survives somebody setting a field while wiring something else.
 func (d publicPatrolPageData) RobotsPolicy() string { return publicRobotsNone }
 
+// ShareCard previews the patrol's page with **its diploma** (PRD 026, task 468).
+//
+// # Why this is the one card worth getting right
+//
+// A parent posting their patrol's page in the family group is the likeliest share on the whole site, and the diploma
+// is the thing they are proud of. Until now Facebook picked its own image from the page.
+//
+// # What it does and does not carry
+//
+// The diploma thumbnail pictures **nobody**: it is the artwork with an empty start backdrop in the photograph's box
+// (task 463). So this card puts no child's face on Facebook's infrastructure — unlike the album cards, which
+// deliberately do. Worth saying out loud, because the two decisions look inconsistent and are not: an album's cover
+// is a curated photograph with consent upstream, and this is a certificate.
+//
+// The wording follows **the diploma's own split**: a patrol the backstop opened has a page and a diploma that says
+// "deltog i", not "gennemførte" (task 360). Describing them as finished would be the same lie in a new place, and it
+// would be the version a relative reads without opening the page.
+//
+// A patrol's own name is on this card, as it is on the page and on the certificate. That is a patrol's name, not a
+// person's — the distinction PRD 011 §0b.1 turns on, and the reason `diploma.Diploma` may hold `Name` at all.
+func (d publicPatrolPageData) ShareCard() shareCard {
+	title := publicHoldLabel(holdAttribution{Group: "spejder", Number: d.Patrol.Number, Name: d.Patrol.Name})
+
+	description := "Deltog i " + publicSiteTitle + " " + d.Year + "."
+	if d.FinishedAt != nil {
+		description = "Gennemførte " + publicSiteTitle + " " + d.Year +
+			" og gik i mål kl. " + d.FinishedAt.Format("15:04") + "."
+	}
+
+	return shareCard{
+		Title:       title,
+		Description: description,
+		// The thumbnail rather than the PDF: `og:image` must be an image, and a PDF is silently ignored.
+		Image:    "/api/public/patrol/" + url.PathEscape(d.Patrol.Number) + "/diploma/thumb",
+		ImageAlt: "Diplom fra " + publicSiteTitle + " " + d.Year,
+	}
+}
+
 // publicScanRow is one registration as the page lists it.
 //
 // **Race order, oldest first.** The app's list is newest-first, because a participant during the race wants
@@ -144,13 +183,13 @@ func (app *application) publicPatrolPageHandler(w http.ResponseWriter, r *http.R
 		// A number that could not be a number answers not-yet like everything else. A distinguishable
 		// "bad request" here would tell a prober that the route parses its input, which is one bit more
 		// than nothing.
-		app.renderPatrolNotYet(w)
+		app.renderPatrolNotYet(w, r)
 		return
 	}
 
 	data, ok := app.patrolPage(number)
 	if !ok {
-		app.renderPatrolNotYet(w)
+		app.renderPatrolNotYet(w, r)
 		return
 	}
 	// The acknowledgement after the takedown form's redirect (task 343). A query parameter, so a reload
@@ -159,7 +198,7 @@ func (app *application) publicPatrolPageHandler(w http.ResponseWriter, r *http.R
 	// Where that form posts (task 423). The footer renders the form now, and it renders one only for a page
 	// that names where it goes — so this line is what makes the patrol page the only page with one.
 	data.ReportPath = app.publicRoot() + "/patrulje/" + number + "/anmeld"
-	app.renderPublicPage(w, "patrol", data)
+	app.renderPublicPage(w, r, "patrol", &data)
 }
 
 // patrolPage assembles everything the page shows, or reports that it must not be served.

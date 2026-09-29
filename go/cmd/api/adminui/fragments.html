@@ -465,6 +465,19 @@ the album, so the album view has the same selection and actions as the library.
   {{if .ItemCount}}
   <p class="hint">Træk et billede for at flytte det. Vælger du flere først, flytter de med sammen. Forsidebilledet
   vælger du med <strong>Gør til forsidebillede</strong>; har du ikke valgt et, er det det første billede.</p>
+  {{/* What choosing a cover now means (task 470, PRD 026).
+
+       Here rather than only in the guide, because this is the one place somebody can act on it: the cost of the
+       album card decision is that a shared photograph leaves our reach, and the person who can choose a different
+       photograph is standing at this control.
+
+       No jargon. A curator does not need to know what Open Graph is, and "og:image" in this paragraph would make
+       the whole thing skippable. */}}
+  <p class="hint warn">Forsidebilledet er albummets ansigt: det vises på forsiden, og det er det billede folk får
+  at se, når de deler albummet på Facebook eller i en besked. <strong>Deler nogen albummet, tager Facebook en kopi
+  af forsidebilledet</strong> — den kopi kan vi ikke fjerne igen, heller ikke hvis billedet bliver slettet her.
+  Vælg derfor et billede, patruljen selv ville være glad for at få sendt rundt, og hellere et bredt billede af hele
+  patruljen end et nærbillede af ét barn.</p>
   {{else}}
   <p class="hint">Der er ingen billeder i albummet endnu. Vælg dem under <a href="{{.Root}}/photos">Alle billeder</a>
   og brug <strong>Tilføj til album</strong>.</p>

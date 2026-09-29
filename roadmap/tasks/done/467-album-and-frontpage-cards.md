@@ -1,11 +1,11 @@
 # 467 — The album's and the frontpage's share cards
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-28
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent
+**Started:** 2026-09-28
+**Completed:** 2026-09-28
 
 **PRD:** 026
 
@@ -21,14 +21,4 @@ and never a credit**: those are the two free-text fields on this surface and a c
 
 An album with **no cover emits no `og:image`** and falls back to the branded card — never a URL that 404s.
 
-## Acceptance Criteria
-
-- [ ] The album card is the cover, by ref, at `variant=medium`
-- [ ] The description is the album's own text plus the count
-- [ ] No caption or credit reaches any tag
-- [ ] An empty album previews with the branded card, not a broken image
-- [ ] `PUBLIC_ALBUMS=false` is unaffected (album pages 404 already)
-
-## Progress Log
-
-- 2026-09-28 — Created from PRD 026 §10 on approval.
+#

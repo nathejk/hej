@@ -353,6 +353,11 @@ func TestPublicViewTypesHaveNowhereToPutAPerson(t *testing.T) {
 		"publicAlbumSummary": publicAlbumSummary{},
 		"publicAlbumItem":    publicAlbumItem{},
 		"publicPageData":     publicPageData{},
+		// The share card (PRD 026, task 469). Four strings rendered into `<head>`, and the risk is that one of
+		// them gets built from a caption or a credit — which is asserted from the other side too, by
+		// `TestNoShareCardNamesAPerson` looking for the fixture's credit in every tag. Walked rather than
+		// excepted: the type has no business holding a person-shaped field either.
+		"shareCard": shareCard{},
 	} {
 		for _, field := range structFieldNames(v) {
 			if isPersonShaped(field) {

@@ -137,6 +137,68 @@ type publicAlbumItem struct {
 	HasMedium bool
 }
 
+// ShareCard is the album's own preview: its cover, its title, its description (PRD 026, task 467).
+//
+// # The cover, and what that decision cost
+//
+// The maintainer chose the cover over a neutral card, against the recommendation, and the reasoning is in PRD 026
+// §6: the cover is the one photograph an organizer **picked** to represent the album, with PRD 011 §0b.2's consent
+// gate upstream of it — and a card with no picture is a card nobody clicks, which defeats a public gallery.
+//
+// What it costs is written down where it can be acted on: a photograph Facebook scrapes is copied to Facebook's
+// infrastructure and no takedown of ours reaches it. That is why task 470 puts the warning next to the control that
+// chooses the cover rather than only in a document.
+//
+// # Where the text comes from, and where it must not come from
+//
+// The title is the album's title and the description is the album's own description — both written by a curator
+// *about the album*. **Never a caption and never a credit.** Those are the two free-text fields on this surface that
+// could carry a person's name, and a credit is the documented exception that certainly does (task 393).
+// `TestNoShareCardNamesAPerson` holds it.
+func (d publicAlbumPageData) ShareCard() shareCard {
+	card := shareCard{
+		Title:       d.Album.Title,
+		Description: d.Album.Description,
+	}
+	// The count is worth having and worth being relaxed about: Facebook caches what it scrapes for days, so a share
+	// from before an album grew will read low. A slightly stale count on an old post is harmless; a card that says
+	// nothing about how much is in there is just less useful.
+	if n := d.Album.ItemCount; n > 0 {
+		count := photoCount(n)
+		if card.Description == "" {
+			card.Description = count + " fra " + publicSiteTitle + " " + d.Year + "."
+		} else {
+			card.Description += " \u00b7 " + count
+		}
+	}
+
+	// The cover, at the 800px rendition — nearest the size a card is rendered at, and already the one the frontpage's
+	// grid asks for (task 461). Addressed by **ref**, like everything else on this page since task 462.
+	//
+	// **No cover, no image**: `resolve` then falls back to the branded card. An og:image that 404s is worse than
+	// none — Facebook caches the failure, so the card stays blank for days after the album has photographs.
+	if cover, ok := d.coverRef(); ok {
+		card.Image = "/api/public/albums/" + url.PathEscape(d.Album.ID) + "/media/" + cover + "?variant=medium"
+		card.ImageAlt = "Forsidebillede fra albummet " + d.Album.Title
+	}
+	return card
+}
+
+// coverRef is the album's cover photograph.
+//
+// `album.Album` carries `CoverRef` since task 461 and `BySlug` — this page's read — computes it, so this is a
+// pass-through with a fallback to the first item rather than a second cover rule. There is exactly one cover rule and
+// it lives in `album.pickCover`.
+func (d publicAlbumPageData) coverRef() (string, bool) {
+	if d.Album.CoverRef != "" {
+		return d.Album.CoverRef, true
+	}
+	if len(d.Items) > 0 && d.Items[0].Ref != "" {
+		return d.Items[0].Ref, true
+	}
+	return "", false
+}
+
 // albumPageHandler renders one album.
 //
 // @Summary      One public album (HTML)
@@ -227,7 +289,7 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 		})
 	}
 
-	app.renderPublicPage(w, "album", data)
+	app.renderPublicPage(w, r, "album", &data)
 }
 
 // albumRequestedSide decides which window a request asks for, from `foto` if it names an item and `side`

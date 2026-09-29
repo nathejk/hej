@@ -131,6 +131,40 @@ type publicPageData struct {
 	// rendered beside the form, and the form is in the shared footer.
 	Reported bool
 
+	// Origin is the scheme and host this page was served from — "https://hej.nathejk.dk" (PRD 026, task 466).
+	//
+	// # Why a page needs to know, when every link on it is relative
+	//
+	// Because a share preview is not fetched by the visitor's browser. `og:url` and `og:image` are read by
+	// Facebook's scraper on somebody else's server, and a relative value there is silently ignored — the card comes
+	// back with no picture and nobody is told why.
+	//
+	// **Filled by the renderer, not by the handler.** Same reasoning as `RobotsPolicy`'s default: a field eight
+	// handlers must remember is a field one of them will forget, and the symptom is a page whose card is subtly
+	// wrong rather than a page that fails.
+	Origin string
+
+	// Path is the page's own path, for `og:url`. The **query is dropped**: an album shared at `?foto=9` should
+	// present as the album, or every ordinal becomes a separate card in Facebook's index of the same page.
+	Path string
+
+	// share is the resolved card, filled in by the renderer. See ShareCardResolved.
+	share shareCard
+
+	// HideCanonical suppresses `og:url` and the canonical link for a page that must not admit which address it was
+	// reached at.
+	//
+	// # This exists because adding og:url broke a privacy invariant
+	//
+	// The "not yet" patrol page is **byte-identical for every number**, deliberately: a closed page that differed
+	// from an unknown one would leak which patrols exist and which have finished, which is the whole point of
+	// `openPatrol`. A canonical URL containing the number breaks that, and four existing tests said so immediately
+	// — `TestAPatrolThatHasNotFinishedIsIndistinguishableFromAnUnknownOne` among them.
+	//
+	// So the rule is not "every page gets og:url" but "every page that can afford to say where it is". The 404 page
+	// is suppressed by the renderer for the same reason plus another: its path is whatever a stranger typed.
+	HideCanonical bool
+
 	// Robots is this page's crawling policy, or "" for the default (task 427).
 	//
 	// **Empty means not indexed.** Read through `RobotsPolicy` rather than directly, so a page that says nothing
@@ -148,6 +182,188 @@ func (d publicPageData) RobotsPolicy() string {
 		return publicRobotsNone
 	}
 	return d.Robots
+}
+
+// shareCard is what a social platform shows for a shared link (PRD 026).
+//
+// Four strings, and the constraint on three of them is privacy rather than length: **no person's name may appear in
+// any of them.** The album pages carry two free-text fields that could contain one — a caption and a credit — and
+// neither may be used to build a card. See `TestNoShareCardNamesAPerson`.
+type shareCard struct {
+	// Title and Description are what the card reads. Empty is not allowed through: `resolve` fills them.
+	Title       string
+	Description string
+
+	// Image is an absolute URL. Empty means "use the branded card", which is the only safe default — an absent
+	// og:image gives a text-only card, and a wrong one gives a broken picture that Facebook then caches.
+	Image string
+
+	// ImageAlt describes the image for a screen reader on the platform's side. Names nobody, like the rest.
+	ImageAlt string
+}
+
+// shareCardProvider is how the renderer asks a page what to preview as.
+//
+// Optional, like `robotsPolicyProvider`: a page that does not implement it gets `publicPageData`'s default, which is
+// the branded card. Every public page type embeds `publicPageData`, so the default is always reachable.
+type shareCardProvider interface {
+	ShareCard() shareCard
+}
+
+// ShareCard is the default card: the site, branded, naming nothing in particular.
+//
+// Every page gets this unless it says otherwise, and that direction matters. The alternative — no card unless a page
+// provides one — fails by omission, and the failure is invisible from here: a page with no tags is a page Facebook
+// guesses at, which is the state PRD 026 exists to end.
+func (d publicPageData) ShareCard() shareCard {
+	return shareCard{
+		Title:       publicSiteTitle + " " + d.Year,
+		Description: "Billeder og patruljesider fra " + publicSiteTitle + " " + d.Year + ".",
+	}
+}
+
+// ShareCardResolved is what the template renders.
+//
+// # Why the renderer fills this in rather than the page computing it
+//
+// The obvious arrangement — a method on `publicPageData` that asks "does my page override `ShareCard`?" — **cannot
+// work**, and it took a rendered page to see it: an embedded struct cannot see the struct embedding it, so the type
+// assertion inside such a method is against `publicPageData` itself and finds the default every time. The frontpage
+// rendered with the generic description while `publicFrontpageData.ShareCard` sat there unused, and every test
+// passed, because the default is a perfectly good card.
+//
+// So the assertion happens in `renderPublicPageStatus`, which is holding the concrete page, and the result is stored
+// here. `Share` being unexported keeps it out of a handler's reach: it is derived, not set.
+func (d publicPageData) ShareCardResolved() shareCard {
+	if d.share.Title != "" {
+		return d.share
+	}
+	// Not rendered through `renderPublicPageStatus` — a test executing a template directly, say. The default card is
+	// the honest answer, and it is better than empty tags.
+	return d.ShareCard().resolve(d)
+}
+
+// Canonical is this page's absolute address, for og:url and a canonical link, or "" when it must not say.
+func (d publicPageData) Canonical() string {
+	if d.HideCanonical {
+		return ""
+	}
+	return absoluteURL(d.Origin, d.Path)
+}
+
+// resolve fills a card's gaps and makes its image absolute.
+//
+// The branded card is the fallback for an empty image, which is what an album with no cover and every page that
+// never thought about it both get.
+func (c shareCard) resolve(d publicPageData) shareCard {
+	blank := publicPageData{Year: d.Year}.ShareCard()
+	if c.Title == "" {
+		c.Title = blank.Title
+	}
+	if c.Description == "" {
+		c.Description = blank.Description
+	}
+	if c.Image == "" {
+		c.Image = "/" + d.Year + "/share-card.png"
+		if c.ImageAlt == "" {
+			c.ImageAlt = publicSiteTitle + "s logo"
+		}
+	}
+	c.Image = absoluteURL(d.Origin, c.Image)
+	return c
+}
+
+// absoluteURL joins an origin and a path, leaving an already-absolute URL alone.
+//
+// Tolerant of an empty origin rather than producing a mangled URL: `renderPublicPageStatus` always sets one, and a
+// test that builds page data by hand should get a relative path back instead of "//api/...".
+func absoluteURL(origin, path string) string {
+	switch {
+	case path == "":
+		return ""
+	case strings.HasPrefix(path, "http://"), strings.HasPrefix(path, "https://"):
+		return path
+	case origin == "":
+		return path
+	}
+	return origin + path
+}
+
+// publicOrigin is the scheme and host this request arrived on.
+//
+// # Why the request and not a configured base URL
+//
+// A `PUBLIC_BASE_URL` can be silently wrong in production — left at a staging host, or at localhost — and the
+// symptom is every share preview on the site breaking at once, with nothing in a log. A wrong `Host` header can only
+// come from a request that was already sent somewhere odd, and it affects only that response.
+//
+// `X-Forwarded-Proto` is consulted because Traefik terminates TLS and speaks plain HTTP to this service, so `r.TLS`
+// is nil in production. That header is trustworthy **only because our own proxy is the sole route to this service**,
+// which is the same caveat `adminTransportOK` carries — it is not evidence in general.
+//
+// # And X-Forwarded-Host, which this needed and I found the hard way
+//
+// `r.Host` is **not** the host the visitor typed here. The first version used it, and the rendered page came back
+// with `og:image` pointing at `https://api:4000/…` — the container's own address, which no scraper on the internet
+// can reach. Traefik forwards to the service by its internal name and puts the original host in
+// `X-Forwarded-Host`, so that is the one to prefer.
+//
+// That is worth stating plainly because the failure is invisible from a browser: every link on the page is relative
+// and works, and only the two absolute URLs — the ones nobody's browser fetches — are wrong.
+func (app *application) publicOrigin(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	host := r.Host
+	// The first value, because a chain of proxies appends: the leftmost is what the visitor asked for.
+	if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
+		if i := strings.IndexByte(fwd, ','); i >= 0 {
+			fwd = fwd[:i]
+		}
+		host = strings.TrimSpace(fwd)
+	}
+	if host == "" {
+		return ""
+	}
+
+	scheme := "http"
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	return scheme + "://" + host
+}
+
+// pageLocator is how the renderer tells a page where it is.
+//
+// A pointer receiver, so handlers pass `&data` — which is what makes this impossible to forget. A value would be
+// filled in and thrown away, and the page would render with an empty origin and a relative og:image: exactly the
+// silent failure this whole arrangement is built to avoid.
+type pageLocator interface {
+	locate(origin, path string)
+	// pageData hands the shared part back, so the renderer can resolve a card against the year and the origin.
+	pageData() publicPageData
+	setShareCard(shareCard)
+}
+
+func (d *publicPageData) locate(origin, path string) {
+	d.Origin = origin
+	d.Path = path
+}
+
+func (d *publicPageData) pageData() publicPageData { return *d }
+func (d *publicPageData) setShareCard(c shareCard) { d.share = c }
+
+// ShareCard is the frontpage's card: branded, and saying what the site is (PRD 026).
+//
+// No photograph. The frontpage lists several albums and any one of them would be an arbitrary choice made by us
+// rather than by a curator — and the frontpage is the page most likely to be shared by somebody who is not a parent
+// of anybody in the pictures.
+func (d publicFrontpageData) ShareCard() shareCard {
+	return shareCard{
+		Title: publicSiteTitle + " " + d.Year,
+		Description: "Billeder fra " + publicSiteTitle + " " + d.Year +
+			" — og siden for hver patrulje, med deres diplom og deres rute.",
+	}
 }
 
 // robotsPolicyProvider is how the renderer asks a page for its policy.
@@ -316,7 +532,7 @@ func (app *application) publicFrontpageHandler(w http.ResponseWriter, r *http.Re
 		data.Glimt = append(data.Glimt, newPublicGlimtResponse(g))
 	}
 
-	app.renderPublicPage(w, "frontpage", data)
+	app.renderPublicPage(w, r, "frontpage", &data)
 }
 
 // publicFrontpageGlimtLimit is how many glimt the strip shows.
@@ -423,11 +639,15 @@ func patrolSearchError(flag string) string {
 // and "404" in a browser reads as *broken*, which would send them to a leader to ask why. So every
 // number gets the same friendly page — which achieves the same indistinguishability by making the
 // answers equal rather than by making them both errors.
-func (app *application) renderPatrolNotYet(w http.ResponseWriter) {
-	app.renderPublicPage(w, "patrol-notyet", publicPageData{
+func (app *application) renderPatrolNotYet(w http.ResponseWriter, r *http.Request) {
+	app.renderPublicPage(w, r, "patrol-notyet", &publicPageData{
 		Year:  app.config.eventYear,
 		Title: "Patruljens side",
 		Root:  app.publicRoot(),
+		// **The number must not reach this page, in any form.** It is byte-identical for every patrol on purpose:
+		// a closed page that differed from an unknown one would say which patrols exist and which have finished.
+		// A canonical URL carries the number, so this page has none (PRD 026, task 466).
+		HideCanonical: true,
 	})
 }
 
@@ -457,7 +677,7 @@ func (app *application) publicPrivacyPageHandler(w http.ResponseWriter, r *http.
 	if !app.allowPublicSiteRead(w, r) {
 		return
 	}
-	app.renderPublicPage(w, "privatliv", publicPageData{
+	app.renderPublicPage(w, r, "privatliv", &publicPageData{
 		Year:  app.config.eventYear,
 		Title: "Data og privatliv",
 		Root:  app.publicRoot(),
@@ -476,8 +696,8 @@ func (app *application) publicPrivacyPageHandler(w http.ResponseWriter, r *http.
 //
 // A wrong **year** lands here too, and that is deliberate: this deployment serves one event, so
 // `/2025/patrulje/42` is a page we do not have rather than one we should improvise from this year's data.
-func (app *application) renderPublicNotFound(w http.ResponseWriter) {
-	app.renderPublicPageStatus(w, "notfound", publicPageData{
+func (app *application) renderPublicNotFound(w http.ResponseWriter, r *http.Request) {
+	app.renderPublicPageStatus(w, r, "notfound", &publicPageData{
 		Year:  app.config.eventYear,
 		Title: "Siden findes ikke",
 		Root:  app.publicRoot(),
@@ -523,8 +743,10 @@ func (app *application) allowPublicMediaRead(w http.ResponseWriter, r *http.Requ
 //   - `max-age=60`, the same short window the glimt page chose: long enough to absorb the
 //     morning-after burst, short enough that a takedown lands quickly. Task 335 depends on that bound,
 //     so it must not be lengthened without reading it.
-func (app *application) renderPublicPage(w http.ResponseWriter, name string, data any) {
-	app.renderPublicPageStatus(w, name, data, http.StatusOK)
+//   - the share card, which is why this takes the request: `og:url` and `og:image` must be absolute, and the origin
+//     is a fact about the request rather than about the page (PRD 026, task 466).
+func (app *application) renderPublicPage(w http.ResponseWriter, r *http.Request, name string, data any) {
+	app.renderPublicPageStatus(w, r, name, data, http.StatusOK)
 }
 
 // renderPublicPageStatus is renderPublicPage with an explicit status.
@@ -535,7 +757,30 @@ func (app *application) renderPublicPage(w http.ResponseWriter, name string, dat
 // every shared cache in the path, so a page that appears a minute later — an album being published, a patrol
 // finishing — would read as missing to anybody unlucky enough to have asked early. Task 347's header test
 // asserts this from the outside.
-func (app *application) renderPublicPageStatus(w http.ResponseWriter, name string, data any, status int) {
+func (app *application) renderPublicPageStatus(
+	w http.ResponseWriter, r *http.Request, name string, data any, status int,
+) {
+	// Where this page is, so its card can name itself absolutely. **Before the template runs**, and through a
+	// pointer, so a handler cannot render a page that does not know its own origin — see `pageLocator`.
+	if p, ok := data.(pageLocator); ok && r != nil {
+		// **No path on a failure.** A 404's address is whatever a stranger typed, and reflecting it into a canonical
+		// link is both meaningless and a small invitation. The origin is the same for every request, so it stays.
+		path := r.URL.Path
+		if status != http.StatusOK {
+			path = ""
+		}
+		p.locate(app.publicOrigin(r), path)
+
+		// The page's own card if it has one, the default otherwise — asserted **here**, where the concrete type is
+		// still in hand. See ShareCardResolved for why it cannot be done from inside publicPageData.
+		base := p.pageData()
+		card := base.ShareCard()
+		if provider, ok := data.(shareCardProvider); ok {
+			card = provider.ShareCard()
+		}
+		p.setShareCard(card.resolve(base))
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if status == http.StatusOK {
 		w.Header().Set("Cache-Control", "public, max-age=60")
@@ -606,6 +851,34 @@ var publicSiteFuncs = template.FuncMap{
 // custom-property fallbacks — the constraints task 204 established against a 2013 iPad, which is
 // precisely the device this page exists for.
 var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicSiteFuncs).Parse(`
+{{/* The share card's tags (PRD 026).
+
+     # Why this is one block rather than four lines in the head
+
+     Because the alternative is four lines per page, and a page that emits three of them previews wrongly in a way
+     nobody sees from here: Facebook fills the gap with a guess. One block, given the whole page, renders the same
+     complete set for every surface — and the values come from ShareCard, which has a default, so a page that has
+     never thought about sharing still gets a correct card.
+
+     og:url carries the path without its query. An album shared at ?foto=9 is still the album, and a card per
+     ordinal would be Facebook holding a dozen entries for one page.
+
+     twitter:card is the large-image summary. It is not Twitter-specific in practice — Slack, Discord and several
+     chat clients read these before they read og: — which is why it is here despite nobody posting to Twitter.
+
+     No backticks in this comment: the template is one Go raw string literal. */}}
+{{define "sharetags"}}{{with .ShareCardResolved}}<meta property="og:type" content="website">
+<meta property="og:site_name" content="` + publicSiteTitle + `">
+<meta property="og:locale" content="da_DK">
+<meta property="og:title" content="{{.Title}}">
+<meta property="og:description" content="{{.Description}}">
+<meta property="og:image" content="{{.Image}}">
+<meta property="og:image:alt" content="{{.ImageAlt}}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="{{.Image}}">{{end}}
+{{if .Canonical}}<meta property="og:url" content="{{.Canonical}}">
+<link rel="canonical" href="{{.Canonical}}">{{end}}{{end}}
+
 {{define "layout-head"}}<!DOCTYPE html>
 <html lang="da">
 <head>
@@ -613,6 +886,7 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{if .Title}}{{.Title}} · {{end}}` + publicSiteTitle + ` {{.Year}}</title>
 <meta name="robots" content="{{.RobotsPolicy}}">
+{{template "sharetags" .}}
 <!-- The same favicon the app declares, at the same URL (task 426).
 
      **A reference, not a copy.** The file lives in vue/public/favicon.svg and is served from the origin's root by

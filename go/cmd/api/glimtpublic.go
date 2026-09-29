@@ -394,7 +394,7 @@ func (app *application) publicGlimtPageHandler(w http.ResponseWriter, r *http.Re
 
 	// Through the shared renderer since task 424, which is what gives this page the site's header and footer — and
 	// incidentally the `X-Robots-Tag` header the meta tag below used to carry alone.
-	app.renderPublicPage(w, "glimt", data)
+	app.renderPublicPage(w, r, "glimt", &data)
 }
 
 // publicGlimtPageData is the public glimt page.

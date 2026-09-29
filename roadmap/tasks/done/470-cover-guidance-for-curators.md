@@ -1,11 +1,11 @@
 # 470 — Tell curators what choosing a cover now means
 
-**Status:** open
+**Status:** done
 **Priority:** medium
 **Created:** 2026-09-28
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent
+**Started:** 2026-09-28
+**Completed:** 2026-09-28
 
 **PRD:** 026
 
@@ -24,13 +24,4 @@ Danish. The same point goes in `docs/billedarkiv-for-fotografer.md` §4, where t
 This is the one place somebody can act on the cost PRD 026 accepted, which is why it is a requirement and not a
 nicety.
 
-## Acceptance Criteria
-
-- [ ] The explanation is beside the control that sets the cover
-- [ ] It says plainly that a shared photograph leaves our reach
-- [ ] The photographers' guide says the same thing
-- [ ] Danish, and no jargon — "Open Graph" appears nowhere a curator reads
-
-## Progress Log
-
-- 2026-09-28 — Created from PRD 026 §10 on approval.
+#

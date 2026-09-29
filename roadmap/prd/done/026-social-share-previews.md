@@ -1,11 +1,11 @@
 # PRD 026 — Social share previews for the public site
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (2026-09-28)
 **Created:** 2026-09-28
 **Last updated:** 2026-09-28
 **Approved:** 2026-09-28
-**Shipped:**
+**Shipped:** 2026-09-28
 **Target users:** families and the open web (the public site's visitors); curators, indirectly, through the cover they choose
 
 ---
@@ -200,12 +200,12 @@ patrol card is announced, so the first shared diploma does not show an empty box
 
 - [x] Task 463: a stand-in start photograph in the diploma thumbnail, so it looks like a diploma
 - [x] Task 464: the branded share card, rendered from the poster, with a route and OpenAPI annotations
-- [ ] Task 465: `shareCard` on `publicPageData`, rendered in `layout-head`, defaulting to the branded card
-- [ ] Task 466: the absolute-URL helper, with the proxy-header reasoning recorded
-- [ ] Task 467: the album page's and frontpage's cards, including the no-cover case
-- [ ] Task 468: the patrol page's card, from the diploma thumbnail
-- [ ] Task 469: extend the public privacy walk over the new fields
-- [ ] Task 470: curator-facing explanation of the cover, in the album editor card and the photographers' guide
+- [x] Task 465: `shareCard` on `publicPageData`, rendered in `layout-head`, defaulting to the branded card
+- [x] Task 466: the absolute-URL helper, with the proxy-header reasoning recorded
+- [x] Task 467: the album page's and frontpage's cards, including the no-cover case
+- [x] Task 468: the patrol page's card, from the diploma thumbnail
+- [x] Task 469: extend the public privacy walk over the new fields
+- [x] Task 470: curator-facing explanation of the cover, in the album editor card and the photographers' guide
 
 ## 11a. Settled during the work
 
@@ -231,3 +231,37 @@ patrol card is announced, so the first shared diploma does not show an empty box
    stale count on an old share is harmless, and the alternative is a card that says less.
 4. **Anything for the privacy page and the "not yet" patrol page?** They currently get the default. The frontpage
    card seems right for both, but say so if you would rather they carried nothing.
+
+---
+
+## 12. What shipped, and what was learned (2026-09-28)
+
+All eight tasks done. Every surface previews as decided: the frontpage branded, an album as its cover at the 800px
+rendition, a photograph as its album, a patrol page as its diploma.
+
+**Three bugs, none of which a browser could show.** This is the record worth keeping from this PRD, because it
+generalises to anything that renders into `<head>`:
+
+1. `r.Host` behind Traefik is the container's own address, so every card pointed at `https://api:4000/…`. Fixed with
+   `X-Forwarded-Host`. Every other link on the site is relative and was fine.
+2. A method on an embedded struct cannot see the struct embedding it, so the per-page `ShareCard` override was never
+   called and every page silently used the default. Nothing failed; the default is a good card.
+3. Adding `og:url` put the patrol number into the "not yet" page, which is byte-identical for every number on purpose
+   — and four tests written for task 343 caught it on the first run.
+
+Each was found by a different means: reading the live page, reading the live page again more carefully, and the
+existing suite. None by the tests written for this feature, which is why those tests now assert **values** rather than
+shapes — `TestNoShareCardNamesAPerson` looks for the fixture's credit in every tag rather than for a suspicious field
+name.
+
+**The accepted cost is now visible where it can be acted on** (task 470): the curator choosing a cover is told, at
+that control, that Facebook keeps a copy we cannot recall.
+
+### Left deliberately undone
+
+- **§11.3 answered as proposed:** the album card carries the photograph count, and will read low on a share made
+  before the album grew. A stale count on an old post is harmless.
+- **§11.4:** the privacy page and the "not yet" page carry the branded card, as suggested.
+- **No per-album generated artwork.** The cover is what was asked for and needs no renderer.
+- **The branded card is a placeholder** (task 464), built from the poster because no designed artwork exists. Replacing
+  it is a decoded asset and no route change.

@@ -79,7 +79,7 @@ func (app *application) reportPatrolPageHandler(w http.ResponseWriter, r *http.R
 
 	number, ok := normalizePatrolNumber(httprouter.ParamsFromContext(r.Context()).ByName("number"))
 	if !ok {
-		app.renderPatrolNotYet(w)
+		app.renderPatrolNotYet(w, r)
 		return
 	}
 
@@ -88,7 +88,7 @@ func (app *application) reportPatrolPageHandler(w http.ResponseWriter, r *http.R
 	// that does not exist, and become the discovery oracle the whole surface avoids being (task 330).
 	patrol, _, open := app.openPatrol(number)
 	if !open {
-		app.renderPatrolNotYet(w)
+		app.renderPatrolNotYet(w, r)
 		return
 	}
 

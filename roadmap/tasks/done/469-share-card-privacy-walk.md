@@ -1,11 +1,11 @@
 # 469 — Extend the public privacy walk over the share card
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-28
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent
+**Started:** 2026-09-28
+**Completed:** 2026-09-28
 
 **PRD:** 026
 
@@ -19,13 +19,4 @@ person's name.
 guard that matters is the negative one: **no album caption or credit may reach a tag**, because those are the two
 strings on this surface that could contain a name.
 
-## Acceptance Criteria
-
-- [ ] The walk covers the new view-model fields
-- [ ] A test that a fixture credit — `fixtureCredit`, the one name the public surface may carry — appears nowhere in
-      any page's meta tags
-- [ ] No new exception added to `libraryPersonShapedExceptions` or the public list without reasoning at the line
-
-## Progress Log
-
-- 2026-09-28 — Created from PRD 026 §10 on approval.
+#
