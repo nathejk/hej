@@ -205,6 +205,8 @@ type application struct {
 	diplomaThumbOnce  sync.Once
 	diplomaThumbBytes []byte
 	diplomaThumbErr   error
+	// The share card, rendered once from the same artwork (PRD 026). See cmd/api/sharecard.go.
+	shareCardState
 	// confirmLimiter throttles the guardian-number confirmation and report endpoints
 	// (PRD 005, tasks 135/136), keyed by IP like the PIN limiter.
 	//

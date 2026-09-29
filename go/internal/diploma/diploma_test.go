@@ -290,6 +290,137 @@ func TestThumbnailIsAJPEGOfTheRequestedSize(t *testing.T) {
 	}
 }
 
+// The thumbnail carries the stand-in photograph, in the box the PDF puts a photograph in (task 463).
+//
+// # Why this is worth asserting
+//
+// The thumbnail was a scaled copy of the artwork, which left the photograph's band empty — the maintainer's report
+// was that it did not look like a diploma. The fix is a composite, and a composite has two ways to go wrong
+// silently: the picture can be absent (a decode that failed, an embed that was dropped) and it can be in the wrong
+// place (the geometry drifting from the PDF's). Both produce a perfectly valid JPEG.
+//
+// So this compares the thumbnail against the **bare artwork**: inside the photograph's box they must differ, and
+// well outside it they must not.
+func TestTheThumbnailCarriesTheStandInWhereThePDFPutsThePhotograph(t *testing.T) {
+	out, err := Thumbnail(600)
+	if err != nil {
+		t.Fatalf("Thumbnail: %v", err)
+	}
+	thumb, err := jpeg.Decode(bytes.NewReader(out))
+	if err != nil {
+		t.Fatalf("decoding the thumbnail: %v", err)
+	}
+
+	bare, _, err := image.Decode(bytes.NewReader(Background()))
+	if err != nil {
+		t.Fatalf("decoding the artwork: %v", err)
+	}
+
+	tb := thumb.Bounds()
+	box := photoBoxIn(tb)
+	if box.Dx() < 20 || box.Dy() < 15 {
+		t.Fatalf("the photo box is %v in a %v thumbnail, which cannot be right", box, tb)
+	}
+
+	// Scale a point in the thumbnail to the same relative point in the full-size artwork.
+	sample := func(x, y int) (uint32, uint32, uint32) {
+		bb := bare.Bounds()
+		r, g, b, _ := bare.At(
+			bb.Min.X+(x-tb.Min.X)*bb.Dx()/tb.Dx(),
+			bb.Min.Y+(y-tb.Min.Y)*bb.Dy()/tb.Dy()).RGBA()
+		return r >> 8, g >> 8, b >> 8
+	}
+	differs := func(x, y int) bool {
+		tr, tg, tbl, _ := thumb.At(x, y).RGBA()
+		ar, ag, abl := sample(x, y)
+		d := abs(int(tr>>8)-int(ar)) + abs(int(tg>>8)-int(ag)) + abs(int(tbl>>8)-int(abl))
+		// Generous: both images are JPEGs and the thumbnail has been resampled, so equal pixels are never bitwise
+		// equal. A composited photograph differs by far more than this.
+		return d > 60
+	}
+
+	// The middle of the box is the stand-in.
+	cx, cy := (box.Min.X+box.Max.X)/2, (box.Min.Y+box.Max.Y)/2
+	if !differs(cx, cy) {
+		t.Error("the middle of the photograph's box is unchanged from the artwork: the stand-in was not drawn")
+	}
+
+	// A margin inside the box, to catch a composite that landed a few pixels off rather than in the box.
+	for _, p := range [][2]int{
+		{box.Min.X + box.Dx()/8, box.Min.Y + box.Dy()/8},
+		{box.Max.X - box.Dx()/8, box.Max.Y - box.Dy()/8},
+	} {
+		if !differs(p[0], p[1]) {
+			t.Errorf("%v is inside the box and unchanged: the stand-in is not filling it", p)
+		}
+	}
+
+	// And the artwork's own headline, well above the box, is untouched — a composite drawn at the wrong offset
+	// would show up here.
+	if differs(tb.Min.X+tb.Dx()/2, tb.Min.Y+tb.Dy()/20) {
+		t.Error("the top of the artwork changed: the stand-in is being drawn in the wrong place")
+	}
+}
+
+// The box the thumbnail fills is the box the PDF places a photograph in.
+//
+// One set of millimetres, two renderers. Asserted as fractions of the page rather than in pixels, because that is
+// the form the two share — and a drift here is the failure a reader would only notice by holding the thumbnail next
+// to the certificate.
+func TestTheThumbnailsPhotoBoxMatchesThePDFs(t *testing.T) {
+	// A page-shaped rectangle at an arbitrary resolution, to check the mapping rather than one raster.
+	box := photoBoxIn(image.Rect(0, 0, 2100, 2970))
+
+	for _, want := range []struct {
+		name         string
+		got          float64
+		wantFraction float64
+	}{
+		{"left", float64(box.Min.X) / 2100, photoXMM / pageWidthMM},
+		{"top", float64(box.Min.Y) / 2970, photoYMM / pageHeightMM},
+		{"width", float64(box.Dx()) / 2100, photoWMM / pageWidthMM},
+		{"height", float64(box.Dy()) / 2970, photoHMM / pageHeightMM},
+	} {
+		if diff := want.got - want.wantFraction; diff > 0.002 || diff < -0.002 {
+			t.Errorf("%s = %.4f of the page, want %.4f (%.0fmm of %.0fmm)",
+				want.name, want.got, want.wantFraction, photoWMM, pageWidthMM)
+		}
+	}
+}
+
+// **The stand-in never reaches a PDF.**
+//
+// The rule, and the reason it is a test rather than a comment: a patrol with no photograph either was not
+// photographed or has a refusal recorded in hq's Fototilladelse, and filling their certificate's empty box with the
+// backdrop would be inventing the photograph they declined. It is also the obvious "improvement" somebody would
+// make after seeing that the thumbnail has one.
+func TestTheStandInNeverReachesThePDF(t *testing.T) {
+	var out bytes.Buffer
+	if err := PDF(Diploma{Number: "42", Name: "Ørnene", Title: "Nathejk 2026"}, &out); err != nil {
+		t.Fatalf("PDF: %v", err)
+	}
+
+	// A JPEG is embedded in a PDF as its own bytes (DCTDecode passes them through), so a chunk from the middle of
+	// the asset is findable if it was placed. Taken from the middle rather than the start: JPEG headers are not
+	// distinctive enough to prove which image it is.
+	asset := StartPhotoStandIn()
+	if len(asset) < 4096 {
+		t.Fatalf("the stand-in asset is %d bytes, which is not the photograph", len(asset))
+	}
+	needle := asset[len(asset)/2 : len(asset)/2+512]
+	if bytes.Contains(out.Bytes(), needle) {
+		t.Error("the stand-in photograph is embedded in a diploma with no photograph — a certificate must not " +
+			"carry a picture the patrol did not have taken, or declined")
+	}
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

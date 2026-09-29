@@ -63,6 +63,7 @@ import (
 	"bytes"
 	"fmt"
 	"image"
+	"image/draw"
 	"image/jpeg"
 	"io"
 	"strings"
@@ -170,6 +171,25 @@ type Diploma struct {
 	PhotoContentType string
 }
 
+// The page and the photograph's box, in millimetres — `diplom`'s geometry (task 361).
+//
+// **Package-level because two renderers use them**: `PDF` places the photograph here, and `Thumbnail` composites
+// its stand-in into the same rectangle (task 463). Two copies of these numbers would drift the first time the
+// artwork moved, and the symptom would be a thumbnail whose picture sits somewhere the real diploma's does not —
+// visible only to somebody comparing the two, which is exactly what a family does.
+const (
+	pageWidthMM  = 210.0
+	pageHeightMM = 297.0
+
+	// 100×75 mm at (55, 130): centred, 4:3 landscape, in the clear middle of the artwork with the name and the
+	// sentences beneath. Reusing `diplom`'s numbers means a family comparing this year's diploma with 2024's sees
+	// the same document rather than a redesign.
+	photoXMM = 55.0
+	photoYMM = 130.0
+	photoWMM = 100.0
+	photoHMM = 75.0
+)
+
 // Background returns the image the diploma is drawn on.
 //
 // A function rather than a field so a caller cannot forget it, and so replacing the artwork is a change in one
@@ -194,9 +214,6 @@ func Background() []byte { return background }
 // above the name reads as a certificate, not as a mistake.
 func PDF(d Diploma, w io.Writer) error {
 	const (
-		pageWidthMM  = 210.0
-		pageHeightMM = 297.0
-
 		// The patrol's name, centred across the page, below the photograph's box.
 		nameY        = 210.0
 		nameFontSize = 28.0
@@ -312,13 +329,11 @@ func headlineSafe(s string) string {
 // Clearing it means `ClearError`. See the note at the call site: `SetError(nil)` is silently a no-op, and using it
 // here made this function look like it handled the case while doing nothing at all.
 func drawPhoto(pdf *fpdf.Fpdf, d Diploma) {
-	const (
-		photoX = 55.0
-		photoY = 130.0
-		photoW = 100.0
-		photoH = 75.0
-	)
-
+	// **No stand-in here, ever.** `Thumbnail` fills this box with an empty-backdrop image so the *preview* looks
+	// like a diploma (task 463); the document itself must not. A patrol with no photograph either was not
+	// photographed or — the case that decides this — has a refusal recorded in hq's Fototilladelse, and printing
+	// something photograph-shaped on their certificate would be inventing the picture they declined. Whitespace is
+	// the honest answer, and the layout was built for it (see PDF's comment).
 	if len(d.Photo) == 0 {
 		return
 	}
@@ -339,7 +354,7 @@ func drawPhoto(pdf *fpdf.Fpdf, d Diploma) {
 		return
 	}
 
-	pdf.ImageOptions("patrolphoto", photoX, photoY, photoW, photoH, false, opts, 0, "")
+	pdf.ImageOptions("patrolphoto", photoXMM, photoYMM, photoWMM, photoHMM, false, opts, 0, "")
 	if pdf.Err() {
 		pdf.ClearError()
 	}
@@ -452,14 +467,52 @@ func sentences(d Diploma) []string {
 // Quality 80 and area-average scaling, via `internal/imaging.Fit`, so this matches how every other image on
 // the public surface is minified rather than introducing a second filter. The JPEG encode is done here rather
 // than by exporting `imaging.encode`, because one caller is not a reason to widen that package's API.
+//
+// # It does carry a picture, since task 463
+//
+// The artwork leaves a band in the middle for the patrol's photograph, and a thumbnail of the bare artwork was
+// therefore a preview with a hole in it — the maintainer's report was that it did not look like a diploma. So the
+// photograph's box is filled with `startPhotoStandIn`: the start backdrop with nobody in front of it.
+//
+// **A stand-in and not the patrol's own photograph**, deliberately. This is one JPEG shared by every patrol and
+// cached behind a `sync.Once`; a per-patrol thumbnail would mean rendering and caching one per patrol, and it would
+// put a photograph of children on a second public route for a 144-pixel preview. The real photograph is in the PDF
+// one click away, where it belongs. And the stand-in never goes the other way — see `drawPhoto`.
 func Thumbnail(edge int) ([]byte, error) {
 	img, _, err := image.Decode(bytes.NewReader(Background()))
 	if err != nil {
 		return nil, fmt.Errorf("decoding the diploma background: %w", err)
 	}
 
+	// **The page is scaled first and the stand-in placed into the small copy**, not the other way round.
+	//
+	// Compositing at full resolution was the first attempt, on the reasoning that the box's edges would then land
+	// on the artwork's own pixel grid. It was wrong for a concrete reason: `imaging.Fit` never *enlarges* — it
+	// returns the image unchanged when it already fits — so a 720-pixel photograph placed in an 1180-pixel box was
+	// drawn at its native size with parchment around it. Caught by the test that samples inside the box, and worth
+	// recording because the symptom was a thumbnail that looked almost right.
+	//
+	// Scaling first is also the better order on its own merits: the box is ~200 pixels wide in the finished
+	// thumbnail, so this downscales the photograph once instead of upscaling it and then throwing the pixels away.
+	small := imaging.Fit(img, edge)
+
+	// A copy, because a decoded JPEG is a YCbCr image and not drawable.
+	b := small.Bounds()
+	page := image.NewRGBA(b)
+	draw.Draw(page, b, small, b.Min, draw.Src)
+
+	// The stand-in, scaled to cover the box. A failure here fails the whole thumbnail rather than being skipped —
+	// unlike the PDF's photograph, which is one patrol's decoration; this is an embedded asset, so it being
+	// unreadable or too small means the binary is wrong, and an empty box would be the only symptom.
+	box := photoBoxIn(b)
+	standIn, err := standInFor(box)
+	if err != nil {
+		return nil, err
+	}
+	draw.Draw(page, box, standIn, standIn.Bounds().Min, draw.Src)
+
 	var out bytes.Buffer
-	if err := jpeg.Encode(&out, imaging.Fit(img, edge), &jpeg.Options{Quality: 80}); err != nil {
+	if err := jpeg.Encode(&out, page, &jpeg.Options{Quality: 80}); err != nil {
 		return nil, fmt.Errorf("encoding the diploma thumbnail: %w", err)
 	}
 	return out.Bytes(), nil

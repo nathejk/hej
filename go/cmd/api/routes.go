@@ -185,6 +185,9 @@ func (app *application) routes() http.Handler {
 	// route, which a browser visitor cannot reach — that link was a dead end before the desktop gate pointed
 	// here and a loop afterwards.
 	router.HandlerFunc(http.MethodGet, publicRoot+"/privatliv", app.publicPrivacyPageHandler)
+	// The branded card social platforms fetch for a share of the frontpage (PRD 026). Year-scoped because the
+	// artwork it is lifted from is the year's poster.
+	router.HandlerFunc(http.MethodGet, publicRoot+"/share-card.png", app.shareCardHandler)
 	router.HandlerFunc(http.MethodGet, publicRoot+"/album/:slug", app.albumPageHandler)
 	// A photograph's durable address (task 447). Redirects onto the album page's own state; see the handler.
 	//
