@@ -1,10 +1,10 @@
 # PRD 026 — Social share previews for the public site
 
-**Status:** draft
+**Status:** doing
 **Author:** agent session (2026-09-28)
 **Created:** 2026-09-28
 **Last updated:** 2026-09-28
-**Approved:**
+**Approved:** 2026-09-28
 **Shipped:**
 **Target users:** families and the open web (the public site's visitors); curators, indirectly, through the cover they choose
 
@@ -200,12 +200,12 @@ patrol card is announced, so the first shared diploma does not show an empty box
 
 - [x] Task 463: a stand-in start photograph in the diploma thumbnail, so it looks like a diploma
 - [x] Task 464: the branded share card, rendered from the poster, with a route and OpenAPI annotations
-- [ ] Task: `shareCard` on `publicPageData`, rendered in `layout-head`, defaulting to the branded card
-- [ ] Task: the absolute-URL helper, with the proxy-header reasoning recorded
-- [ ] Task: the album page's and frontpage's cards, including the no-cover case
-- [ ] Task: the patrol page's card, from the diploma thumbnail
-- [ ] Task: extend the public privacy walk over the new fields
-- [ ] Task: curator-facing explanation of the cover, in the album editor card and the photographers' guide
+- [ ] Task 465: `shareCard` on `publicPageData`, rendered in `layout-head`, defaulting to the branded card
+- [ ] Task 466: the absolute-URL helper, with the proxy-header reasoning recorded
+- [ ] Task 467: the album page's and frontpage's cards, including the no-cover case
+- [ ] Task 468: the patrol page's card, from the diploma thumbnail
+- [ ] Task 469: extend the public privacy walk over the new fields
+- [ ] Task 470: curator-facing explanation of the cover, in the album editor card and the photographers' guide
 
 ## 11a. Settled during the work
 
