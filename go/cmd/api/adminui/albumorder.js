@@ -265,6 +265,23 @@ function initAlbumOrder(ctx) {
     if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey) return;
     const cell = e.target.closest('.cell');
     if (!cell || !sheet.contains(cell)) return;
+    // **No reordering while the grid is filtered** (task 460).
+    //
+    // The album view gained a filter row, and a drag there would be a move the curator cannot verify: the request
+    // says "these, before that one" and the server rebuilds the album's *whole* order (moveAdminAlbumItemsHandler),
+    // while the grid is showing a subset. Dropping photograph 40 before photograph 12 of the uncaptioned ones puts
+    // it before photograph 12 **of the album** — somewhere off screen — and the filtered grid may well look
+    // unchanged afterwards, which reads as the drag having failed.
+    //
+    // Refused at the start of the gesture, unlike the sort-mode confirmation at the end: there is no decision to
+    // offer here, and letting the gap open and the stack lift would promise a move that is not going to happen.
+    // Said in the action line rather than as a permanent banner, because it is only interesting to somebody who
+    // just tried.
+    if (sheet.dataset.filtered) {
+      ctx.actionNote.textContent = 'Ryd filteret for at flytte billeder. Rækkefølgen gælder hele albummet, ' +
+        'så et træk i et udvalg ville flytte billedet et sted hen, du ikke kan se.';
+      return;
+    }
     press = { id: cell.dataset.id, x: e.clientX, y: e.clientY, pointerId: e.pointerId };
   });
 

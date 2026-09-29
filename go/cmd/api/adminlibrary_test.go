@@ -274,6 +274,8 @@ func TestAdminLibraryRefusesAnUnknownFilterValue(t *testing.T) {
 
 	for _, q := range []string{
 		"album=all", "location=maybe", "verdict=insid", "verdict=plottable", "tagged=perhaps",
+		// `caption=any` is the plausible typo, because `credit` spells its sentinels that way (task 460).
+		"caption=maybe", "caption=any", "caption=none",
 	} {
 		resp := getAdmin(t, srv, "/api/admin/photos?"+q, testAdminUser, testAdminPass)
 		if resp.StatusCode != http.StatusBadRequest {

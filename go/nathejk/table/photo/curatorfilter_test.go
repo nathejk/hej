@@ -93,6 +93,46 @@ func TestTheCreditFilterCoversBothFormsOfCredit(t *testing.T) {
 	}
 }
 
+// The caption filter (task 460).
+//
+// The operationally useful half is the negative — "which of these has nobody written a line for" — and it is asked
+// of an album of two hundred, where the answer cannot be got by looking. Tested at this level because the column is
+// `NOT NULL` with no default: an uncaptioned photograph holds `""`, so a `IS NULL` test would match nothing and the
+// filter would answer "none missing" on a library full of them. An empty grid reads as "nothing to do here", which
+// is the worst possible way for this to be wrong.
+func TestTheCaptionFilterTestsTheEmptyStringNotNull(t *testing.T) {
+	no, yes := false, true
+
+	without, _ := Filter{HasCaption: &no}.where("2026")
+	with, _ := Filter{HasCaption: &yes}.where("2026")
+
+	if !strings.Contains(without, `p.caption = ""`) {
+		t.Errorf("`caption=no` must test for the empty string, got %q", without)
+	}
+	if !strings.Contains(with, `p.caption <> ""`) {
+		t.Errorf("`caption=yes` must test for a non-empty string, got %q", with)
+	}
+	for name, clause := range map[string]string{"without": without, "with": with} {
+		if strings.Contains(clause, "NULL") {
+			t.Errorf("%s a caption must not test NULL: the column is NOT NULL, so it would match nothing — got %q",
+				name, clause)
+		}
+		// It composes, like every other filter here. The album view's row is `album=… AND caption=""`, and a
+		// condition that replaced the album rather than narrowing it would show the whole year's uncaptioned pile.
+		if !strings.HasPrefix(clause, "p.year = ?") || !strings.Contains(clause, "p.deleted = 0") {
+			t.Errorf("%s a caption must compose with the year and the live-only default, got %q", name, clause)
+		}
+	}
+}
+
+// No caption filter, no condition.
+func TestNoCaptionFilterAddsNoCondition(t *testing.T) {
+	clause, _ := Filter{}.where("2026")
+	if strings.Contains(clause, "caption") {
+		t.Errorf("an absent caption filter must add nothing, got %q", clause)
+	}
+}
+
 // No credit filter, no condition: the ordinary contact sheet read must not acquire one.
 func TestNoCreditFilterAddsNoCondition(t *testing.T) {
 	clause, _ := Filter{}.where("2026")

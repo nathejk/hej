@@ -95,10 +95,26 @@ func (app *application) adminAlbumPageHandler(w http.ResponseWriter, r *http.Req
 	}
 	a := *found
 
+	// The filter row, minus the presets an album cannot answer, with the one this URL names switched on
+	// (task 460). The album view's URL carries nothing but the preset, so `RawQuery` is exactly what to match.
+	filters, preset := adminFiltersInAlbum(r.URL.RawQuery)
+
+	// **The album is the base and the preset narrows it.** Composed here rather than in the browser so the grid's
+	// very first request is already the right set — a page that loaded the whole album and then narrowed would
+	// show 200 thumbnails and take them away again.
+	base := "album=" + url.QueryEscape(a.ID)
+	query := base
+	if preset != "" {
+		query += "&" + preset
+	}
+
 	app.renderAdminPage(w, r, adminPageData{
-		View: "album",
+		View:    "album",
+		Filters: filters,
 		// The grid's first request, and "select all matching", both narrow to this album.
-		Query: "album=" + url.QueryEscape(a.ID),
+		Query:      query,
+		Base:       base,
+		FilterPath: "/" + adminYear(r) + "/album/" + a.Slug + "/edit",
 		Album: &adminAlbumPageData{
 			Root:         "/" + adminYear(r),
 			AlbumID:      a.ID,

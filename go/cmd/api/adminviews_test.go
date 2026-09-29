@@ -139,11 +139,195 @@ func TestTheAlbumViewIsTheEditorOverTheSharedSheet(t *testing.T) {
 			t.Errorf("the album view should contain %s", want)
 		}
 	}
-	// Not the library's own parts: no upload and no filters, and no year-wide counts that would read as the album's.
-	for _, unwanted := range []string{`id="drop"`, `id="filters"`, `id="counts"`} {
+	// Not the library's own parts: no upload, and no year-wide counts that would read as the album's.
+	//
+	// **The filter row used to be on this list and is deliberately off it** (task 460). It was excluded when this
+	// view was built because the album *was* the filter; what that missed is that the album is where the work
+	// happens — 100+ photographs, where "is anything missing a caption or a position" cannot be answered by
+	// looking — and the page already offered "Vælg alle der matcher filteret", naming a filter it did not have.
+	for _, unwanted := range []string{`id="drop"`, `id="counts"`} {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("the album view should not carry %s", unwanted)
 		}
+	}
+}
+
+// The album view has the filter row, and every preset it shows composes with the album (task 460).
+//
+// # Why this is the whole point of the task
+//
+// The album view is where a curator actually works, and an album is 100–300 photographs. "Is anything missing a
+// position or a caption" is a question about the album, asked of the whole album, and sometimes the answer is
+// "yes, deliberately" — so it has to be *visible* rather than inferred. Before this the view had no row at all and
+// yet still offered "Vælg alle der matcher filteret": a button naming a filter the page did not have.
+//
+// What must hold is the composition. A preset that replaced the query rather than narrowing it would silently show
+// the whole year's uncaptioned pile on a page titled with one album's name — with the action bar, and "select all
+// matching", acting on it.
+func TestTheAlbumViewFiltersWithinTheAlbum(t *testing.T) {
+	srv := albumViewApp(t)
+
+	body := adminBody(t, getAdmin(t, srv, "/2026/album/natten/edit?caption=no", testAdminUser, testAdminPass))
+
+	for _, want := range []struct{ needle, why string }{
+		{`id="filters"`, "the row is on this view now"},
+		{`data-q="caption=no"`, "the preset the task asked for: which of these has nobody written a line for"},
+		{`data-q="location=no"`, "and the other half of the question, which already existed"},
+		{`data-query="album=al-1&amp;caption=no"`,
+			"the grid reads the album **narrowed** by the preset; a preset that replaced the query would show " +
+				"the whole year on a page named for one album"},
+		{`data-base="album=al-1"`,
+			"the browser needs the album separately, to recompose when another preset is clicked"},
+		// The literal `&` in the template stays literal while the one inside `.Query` is escaped, so the attribute
+		// reads `…&album=al-1&amp;caption=no`. Asserted as it is actually written rather than as it looks like it
+		// should be — the first version of this needle was wrong in exactly that way.
+		{`hx-get="/admin/fragments/photos?limit=120&album=al-1&amp;caption=no"`,
+			"the first request is already the narrowed set: loading 200 thumbnails and then taking them away is " +
+				"the version of this that feels broken"},
+		{`data-path="/2026/album/natten/edit"`,
+			"a choice is written to the album's own address, by slug — navigating to /photos would drop the album"},
+		{`class="f on" data-q="caption=no"`, "and the button the URL names is the one lit"},
+	} {
+		if !strings.Contains(body, want.needle) {
+			t.Errorf("the album view is missing %s: %s", want.needle, want.why)
+		}
+	}
+
+	// **"Uden album" is not offered here**, because every photograph on this page is in one. A preset that can only
+	// ever return nothing is worse than a missing one: a curator who clicks it learns that the filters lie.
+	if strings.Contains(body, `data-q="album=none"`) {
+		t.Error("the album view must not offer `album=none`: inside an album it can only return an empty grid")
+	}
+	// It is still on the all-photos view, which is where it answers the question it was built for.
+	if photos := adminBody(t, getAdmin(t, srv, "/2026/photos", testAdminUser, testAdminPass)); !strings.Contains(
+		photos, `data-q="album=none"`) {
+		t.Error("`album=none` is the all-photos view's most-used filter and must stay there")
+	}
+}
+
+// The two rows are one list, so a filter cannot exist in one view and be missing from the other by accident.
+func TestTheAlbumRowIsTheLibraryRowMinusWhatCannotApply(t *testing.T) {
+	inAlbum, _ := adminFiltersInAlbum("")
+	inLibrary, _ := adminFiltersFor("")
+
+	// Asserted against the Go values rather than the page, because that is what both views render *from* — and
+	// `adminFilters` is not in the template's text at all (see TestTheFilterRowOffersUncreditedPhotographs).
+	allowed := map[string]bool{}
+	for _, f := range inLibrary {
+		allowed[f.Q] = true
+	}
+	for _, f := range inAlbum {
+		if !allowed[f.Q] {
+			t.Errorf("the album row offers %q, which the library row does not: the two must be one list, or a "+
+				"curator learns a filter in one view and cannot find it in the other", f.Q)
+		}
+	}
+	if len(inAlbum) != len(inLibrary)-1 {
+		t.Errorf("the album row has %d presets and the library row %d; exactly one — `album=none` — cannot apply "+
+			"inside an album, so any other difference is a filter that went missing", len(inAlbum), len(inLibrary))
+	}
+
+	// Both rows always have something lit, or the grid is narrowed with nothing on screen saying so.
+	for name, row := range map[string][]adminFilterView{"album": inAlbum, "photos": inLibrary} {
+		on := 0
+		for _, f := range row {
+			if f.On {
+				on++
+			}
+		}
+		if on != 1 {
+			t.Errorf("%s row has %d presets switched on, want exactly 1", name, on)
+		}
+	}
+}
+
+// A preset the album view does not offer must not be honoured by its URL either.
+//
+// `adminFiltersFor`'s rule, on the other view: only an exact preset is honoured, because a grid narrowed by a query
+// no button represents is a curator looking at a subset with nothing saying so. `album=none` typed into the album
+// view's URL would be exactly that — and would compose to `album=al-1&album=none`, where the second wins in the
+// parser and the page would show the unsorted pile under an album's title.
+func TestTheAlbumViewIgnoresAPresetItDoesNotOffer(t *testing.T) {
+	srv := albumViewApp(t)
+
+	body := adminBody(t, getAdmin(t, srv, "/2026/album/natten/edit?album=none", testAdminUser, testAdminPass))
+
+	if !strings.Contains(body, `data-query="album=al-1"`) {
+		t.Error("an unoffered preset must fall back to the album alone, not compose with it")
+	}
+	if strings.Contains(body, "album=none") {
+		t.Error("`album=none` must not reach the album view's markup at all")
+	}
+}
+
+// The browser recomposes rather than reloading the page, and it keeps the album while doing it (task 460).
+//
+// Source-read, because there is no JavaScript runtime in this suite. It is worth pinning for one reason: a filter
+// click that dropped `base` would leave the *page* saying one album and the *grid* showing the year, and both
+// "select all matching" and every action in the bar read the same `query`. The bug would not be a wrong screen, it
+// would be a bulk edit applied to photographs the curator never saw.
+func TestTheFilterRowKeepsTheAlbumWhenItChangesThePreset(t *testing.T) {
+	js := stripJSLineComments(adminAsset(t, "contactsheet.js"))
+
+	for _, want := range []struct{ needle, why string }{
+		{"const base = sheet.dataset.base || '';",
+			"the album arrives separately from the preset, because the preset is what a click replaces"},
+		{"const compose = (preset) => [base, preset].filter(Boolean).join('&');",
+			"composed in one place; two call sites building the query by hand is how one of them loses the album"},
+		{"query = compose(preset);",
+			"the filter click must compose rather than assign — assigning is the bug this guards"},
+		{"history.replaceState(null, '', filters.dataset.path + (preset ? '?' + preset : ''));",
+			"the URL gets the preset and the view's own path: the album is already in the path, and writing its " +
+				"id beside its slug would be two answers to which album this is"},
+	} {
+		if !strings.Contains(js, want.needle) {
+			t.Errorf("contactsheet.js no longer has %q: %s", want.needle, want.why)
+		}
+	}
+
+	// And nothing assigns the bare preset to `query`, which is what the code did before the album view had a row.
+	if strings.Contains(js, "query = b.dataset.q;") {
+		t.Error("assigning the preset straight to `query` drops the album on the album view — compose() exists " +
+			"for exactly this line")
+	}
+}
+
+// Dragging is refused while the grid is filtered, and the two files agree on how that is known (task 460).
+//
+// # Why the filter row had to bring this with it
+//
+// A move says "these, before that one" and the server rebuilds the album's **whole** order, because the browser may
+// hold 120 of 200 (moveAdminAlbumItemsHandler). That is right when the grid is the album. With a filter on it is a
+// trap: dropping a photograph before the twelfth *uncaptioned* one puts it before the twelfth photograph of the
+// album, off screen — and the filtered grid can look unchanged afterwards, which reads as the drag having failed.
+// The reorder also rewrites every ordinal in the album, so "it looked like nothing happened" is not harmless.
+func TestReorderingIsRefusedWhileTheAlbumGridIsFiltered(t *testing.T) {
+	sheetJS := stripJSLineComments(adminAsset(t, "contactsheet.js"))
+	orderJS := stripJSLineComments(adminAsset(t, "albumorder.js"))
+
+	// One side publishes the fact, the other reads it. Asserted as a pair, because the failure mode is a rename on
+	// one side: the flag would simply never be set, and dragging in a filtered album would silently come back.
+	if !strings.Contains(sheetJS, "sheet.dataset.filtered = query === base ? '' : '1';") {
+		t.Error("contactsheet.js must publish whether the grid shows a subset: it owns `query`, and a filter click " +
+			"does not reload the page, so the server cannot say")
+	}
+	if !strings.Contains(orderJS, "if (sheet.dataset.filtered) {") {
+		t.Error("albumorder.js must refuse to start a drag while the grid is filtered")
+	}
+
+	// Refused at the **start** of the gesture. The sort-mode confirmation deliberately waits for the end, because
+	// there is a decision to make and the curator may drop the photograph back where it came from; here there is no
+	// decision, and opening the gap would promise a move that is not going to happen.
+	before := strings.Index(orderJS, "if (sheet.dataset.filtered) {")
+	press := strings.Index(orderJS, "press = { id: cell.dataset.id")
+	if before < 0 || press < 0 || before > press {
+		t.Error("the refusal must come before the press is recorded, or the gap opens and the stack lifts for a " +
+			"move that will not be sent")
+	}
+	// And it is said where an action's outcome is said, which is `aria-live`.
+	if !strings.Contains(orderJS, "ctx.actionNote.textContent = 'Ryd filteret for at flytte billeder.") {
+		t.Error("the refusal has to explain itself in Danish, in the action line: a drag that silently does " +
+			"nothing is indistinguishable from a broken tool")
 	}
 }
 

@@ -124,16 +124,25 @@
        a curator who has just dragged a card is watching the rows, not this line. -->
   <p id="uploadnote" aria-live="polite"></p>
   <h2>Kontaktark</h2>
-  <!-- Rendered from `adminFilters`, with the one in this page's URL already on (task 396), so a link from the
-       album list — or a reload — lands on the filter it named. -->
-  <div id="filters" role="group" aria-label="Filtre" data-root="{{.Root}}">
-    {{range .Filters}}<button type="button" class="f{{if .On}} on{{end}}" data-q="{{.Q}}">{{.Label}}</button>
-    {{end}}
-  </div>
 
 {{end}}
 
 {{if ne .View "albums"}}
+  <!-- Rendered from `adminFilters`, with the one in this page's URL already on (task 396), so a link from the
+       album list — or a reload — lands on the filter it named.
+
+       **Shared by both views since task 460.** The album view used to have no row and yet still offered "Vælg
+       alle der matcher filteret", which named a filter the page did not have. An album is where the work is —
+       100+ photographs, and "is anything missing a caption or a position" cannot be answered by looking — so the
+       row belongs there at least as much as on the all-photos view. One row rather than two, because a filter a
+       curator learns in one view and cannot find in the other is worse than none.
+
+       `data-path` is where a choice is written to history: the two views have different addresses, and the album
+       view navigating to `/photos` would silently drop the album and show the whole year. -->
+  <div id="filters" role="group" aria-label="Filtre" data-path="{{.FilterPath}}">
+    {{range .Filters}}<button type="button" class="f{{if .On}} on{{end}}" data-q="{{.Q}}">{{.Label}}</button>
+    {{end}}
+  </div>
   <!-- From here down is shared by the all-photos view and the album view (task 396): the same grid, selection,
        action bar and sheets, so a curator sorting an album has every action there rather than a trip back to the
        library. The album view's grid is the same fragment, narrowed with `album={id}`. -->
@@ -154,7 +163,7 @@
        The cells' click handling is delegated from here rather than bound per cell, which is what makes a swap
        free. -->
   <div id="sheet" role="listbox" aria-multiselectable="true" aria-label="Billeder" tabindex="0"
-       data-query="{{.Query}}"
+       data-query="{{.Query}}" data-base="{{.Base}}"
        data-viewer data-viewer-actions="caption,credit,fullscreen" data-viewer-click="none"
        data-viewer-label="Billeder"
        hx-get="/admin/fragments/photos?limit=120{{if .Query}}&{{.Query}}{{end}}" hx-trigger="load" hx-swap="innerHTML"></div>

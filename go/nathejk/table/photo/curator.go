@@ -127,6 +127,14 @@ type Filter struct {
 	// something they removed by accident.
 	IncludeDeleted bool
 
+	// HasCaption selects photographs with, or without, a caption. Nil means either.
+	//
+	// The same shape of question as HasCredit and it exists for the same reason (task 460): in an album of two
+	// hundred, "which of these has nobody written a line for" cannot be answered by looking, and the answer is
+	// not always "fix it" — a photograph that needs no caption is a decision, and seeing the set is what lets a
+	// curator make it deliberately rather than by omission.
+	HasCaption *bool
+
 	// HasCredit selects photographs with, or without, a credit of **either** kind. Nil means either.
 	//
 	// "Without" is the operationally useful one and the reason this exists (task 454): before an album is
@@ -323,6 +331,17 @@ func (f Filter) where(year string) (string, []any) {
 			conds = append(conds, exists)
 		} else {
 			conds = append(conds, "NOT "+exists)
+		}
+	}
+	if f.HasCaption != nil {
+		// `<> ""` rather than `IS NOT NULL`: `caption` is `TEXT NOT NULL` (photo/table.sql) and the fold always
+		// writes a string, so an uncaptioned photograph holds the empty string. A NULL test would match nothing
+		// and "uden billedtekst" would come back empty on a library full of them — the failure mode being an
+		// empty grid, which reads as "nothing to do here".
+		if *f.HasCaption {
+			conds = append(conds, `p.caption <> ""`)
+		} else {
+			conds = append(conds, `p.caption = ""`)
 		}
 	}
 	if f.HasCredit != nil {

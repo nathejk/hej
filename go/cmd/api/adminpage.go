@@ -50,9 +50,24 @@ type adminPageData struct {
 
 	// Filters are the contact sheet's presets, with the one this page's URL names switched on.
 	Filters []adminFilterView
-	// Query is the switched-on preset's query string, empty for "Alle". Passed to the first fragment request so
-	// the grid a curator lands on already matches the button that is lit.
+	// Query is what the grid is read with: the switched-on preset, **composed with Base**. Passed to the first
+	// fragment request so the grid a curator lands on already matches the button that is lit, and used by
+	// "select all matching this filter" so the selection is the same set.
 	Query string
+
+	// Base is the part of Query that is not the curator's choice — `album={id}` on the album view, empty
+	// elsewhere (task 460).
+	//
+	// Sent separately because the browser has to be able to *recompose*: clicking a filter replaces the preset and
+	// must keep the album. Before this the album view had no filter row at all, and its whole query was the album.
+	Base string
+
+	// FilterPath is the address the filter row writes to history, without a query — `/2026/photos`, or the
+	// album's own `/2026/album/{slug}/edit`.
+	//
+	// The row cannot derive it: the two views have different addresses, and a filter that navigated the album view
+	// to `/photos` would silently drop the album and show the curator the whole year.
+	FilterPath string
 
 	// Years are the workable years, for the header's year switch; EventYear is `EVENT_YEAR`, so the page can
 	// mark working in any other year as the abnormal thing it is (task 392).
@@ -110,6 +125,17 @@ type adminFilterView struct {
 	Label string
 	Q     string
 	On    bool
+
+	// HiddenInAlbum keeps a preset off the album view, where it would be nonsense (task 460).
+	//
+	// Only one preset is, and the flag exists rather than a second list because the album view's row must
+	// otherwise be the *same* row: two lists would drift, and a filter a curator learns in one view and cannot
+	// find in the other is worse than no filter at all.
+	//
+	// Named for what it does rather than `PhotosOnly`, which the privacy walk rejects: its `photo` needle is
+	// deliberately blunt (see `isPersonShaped`), and an allowlist entry to let a *layout flag* through would have
+	// spent a real guard on a field that has nothing to do with people.
+	HiddenInAlbum bool
 }
 
 // adminFilters are the contact sheet's presets, in the order they are shown.
@@ -118,7 +144,12 @@ type adminFilterView struct {
 // names: the album list links to `photos?album=none`, and a reload must keep what was chosen.
 var adminFilters = []adminFilterView{
 	{Label: "Alle", Q: ""},
-	{Label: "Uden album", Q: "album=none"},
+	// The only preset that cannot mean anything inside an album: every photograph on that page is in one.
+	{Label: "Uden album", Q: "album=none", HiddenInAlbum: true},
+	// Captions before coordinates, because it is the commoner gap and the one a curator works through last
+	// (task 460). Only the negative, for the reason the credit preset records: "which of these has nobody
+	// written a line for" is the checklist question, and "med billedtekst" is the set you have finished with.
+	{Label: "Uden billedtekst", Q: "caption=no"},
 	{Label: "Uden position", Q: "location=no"},
 	{Label: "Med position", Q: "location=yes"},
 	{Label: "Uden for området", Q: "verdict=outside"},
@@ -138,8 +169,27 @@ var adminFilters = []adminFilterView{
 // query no button represents — the curator would be looking at a subset with nothing on screen saying so, and the
 // action bar acts on what they see.
 func adminFiltersFor(rawQuery string) ([]adminFilterView, string) {
-	out := make([]adminFilterView, len(adminFilters))
-	copy(out, adminFilters)
+	return adminFiltersIn("photos", rawQuery)
+}
+
+// adminFiltersInAlbum is the same row, minus the presets an album cannot answer (task 460).
+//
+// The album view needs it because an album is where the work actually happens: 100+ photographs, and "is anything
+// missing a position or a caption" cannot be answered by looking at them. Until now that view had no filter row
+// and yet still showed **"Vælg alle der matcher filteret"** — a button naming a filter the page did not offer,
+// which is how the gap was reported.
+func adminFiltersInAlbum(rawQuery string) ([]adminFilterView, string) {
+	return adminFiltersIn("album", rawQuery)
+}
+
+func adminFiltersIn(view, rawQuery string) ([]adminFilterView, string) {
+	out := make([]adminFilterView, 0, len(adminFilters))
+	for _, f := range adminFilters {
+		if f.HiddenInAlbum && view != "photos" {
+			continue
+		}
+		out = append(out, f)
+	}
 	on := 0
 	for i, f := range out {
 		if f.Q != "" && f.Q == rawQuery {
@@ -163,7 +213,12 @@ func (app *application) adminAlbumsPageHandler(w http.ResponseWriter, r *http.Re
 // glimtopenapi_test.go's isInScope, which task 380 widens to `/api/admin`).
 func (app *application) adminPhotosPageHandler(w http.ResponseWriter, r *http.Request) {
 	filters, query := adminFiltersFor(r.URL.RawQuery)
-	app.renderAdminPage(w, r, adminPageData{View: "photos", Filters: filters, Query: query})
+	app.renderAdminPage(w, r, adminPageData{
+		View:       "photos",
+		Filters:    filters,
+		Query:      query,
+		FilterPath: "/" + adminYear(r) + "/photos",
+	})
 }
 
 // renderAdminPage fills in what every view shows — the year, the counts — and renders it.

@@ -77,6 +77,24 @@ kun på hjemmesiden, fordi nogen har valgt det.
 
 Et album du ikke har udgivet, er der ingen udefra der kan se — heller ikke hvis de kender adressen.
 
+### Tjek albummet igennem, før du udgiver
+
+Inde i albummet er der samme **filterknapper** som på kontaktarket. I et album med 200 billeder er de
+den eneste måde at se, om der er huller:
+
+- **Uden billedtekst** — hvilke har ingen tekst under sig?
+- **Uden position** — hvilke er ikke sat på kortet?
+- **Uden fotokredit** — hvilke står der ingen fotograf på?
+
+Du kan godt lade et billede stå uden billedtekst eller uden position. Pointen er at du **kan se hvilke
+det er**, og så selv bestemme. Klik **Alle** for at komme tilbage til hele albummet.
+
+Et filter er også en adresse: står der `?caption=no` i linjen øverst i browseren, kan du sende den til
+en anden, og de ser det samme udvalg.
+
+**Du kan ikke trække billederne rundt, mens et filter er slået til.** Rækkefølgen gælder hele albummet,
+så et træk i et udvalg ville flytte billedet et sted hen du ikke kan se. Klik **Alle** først.
+
 Et album kan slettes fra listen med **Slet album**. Billederne bliver liggende i arkivet og i de andre
 albummer — det er kun albummet der forsvinder.
 

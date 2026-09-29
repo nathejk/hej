@@ -29,10 +29,27 @@ function initContactSheet(ctx) {
   // DOM. Getting that distinction right is what made the grid safe to render server-side (task 395).
   let order = [];
   let lastClicked = null;
-  // The query the page was served with (task 396): the filter its URL names on the all-photos view, or
-  // `album={id}` on the album view. The first page of thumbnails was already requested with it, and "select all
-  // matching" pages with it, so on the album view that means the album's photographs and nothing else.
+  // The query the page was served with (task 396): the filter its URL names, composed with the album on the album
+  // view. The first page of thumbnails was already requested with it, and "select all matching" pages with it, so
+  // on the album view that means this album's photographs and nothing else.
   let query = sheet.dataset.query || '';
+  // The part of it that is not the curator's choice — `album={id}` on the album view, empty on the all-photos one
+  // (task 460).
+  //
+  // Held separately because a filter click replaces the *preset* and must keep the album. Composing in the browser
+  // rather than asking the server for a new page is what makes the row feel like a filter instead of a navigation:
+  // the selection survives it, which the filters are unusable without (see the re-paint below).
+  const base = sheet.dataset.base || '';
+  const compose = (preset) => [base, preset].filter(Boolean).join('&');
+
+  // Whether the grid is showing a *subset* of what the page is about, published on the element so other features
+  // can see it (task 460).
+  //
+  // One feature needs it and the need is sharp: dragging to reorder an album whose grid is filtered would move
+  // photographs in an order the curator cannot see — see albumorder.js, which refuses. Derived rather than sent by
+  // the server, because a filter click does not reload the page.
+  const markFiltered = () => { sheet.dataset.filtered = query === base ? '' : '1'; };
+  markFiltered();
 
   // chosen renders "1 valgt" or "12 valgte" (task 387).
   //
@@ -126,15 +143,21 @@ function initContactSheet(ctx) {
     else { toggle(id); lastClicked = id; }
   });
 
-  // The album view has no filters: its query is the album.
+  // Both views have the row since task 460; on the album view each preset is composed with the album.
   if (filters) filters.addEventListener('click', (e) => {
     const b = e.target.closest('.f');
     if (!b) return;
     for (const other of filters.querySelectorAll('.f')) other.classList.toggle('on', other === b);
-    query = b.dataset.q;
+    const preset = b.dataset.q;
+    query = compose(preset);
+    markFiltered();
     // Into the address bar, so a reload keeps the filter and the URL can be sent to a colleague. `replaceState`
     // rather than `pushState`: Back leaving the page is what a curator expects, not stepping through filters.
-    history.replaceState(null, '', filters.dataset.root + '/photos' + (query ? '?' + query : ''));
+    //
+    // **The preset, not the composed query.** The album is already in the path, and writing `?album=…` next to it
+    // would put the album's id in a URL that names it by slug — two answers to which album this is, and the id is
+    // the one that stops being true when it is copied to another year.
+    history.replaceState(null, '', filters.dataset.path + (preset ? '?' + preset : ''));
     load(true);
   });
 
