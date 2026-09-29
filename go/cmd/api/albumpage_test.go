@@ -54,7 +54,8 @@ func (s *albumStore) Published(string) ([]album.Album, error) {
 		a := e.album
 		a.ItemCount = len(e.items)
 		if len(e.items) > 0 {
-			a.CoverOrdinal = e.items[0].Ordinal
+			a.CoverRef = e.items[0].Ref
+			a.CoverMediumRef = e.items[0].MediumRef
 			a.HasCover = true
 		}
 		out = append(out, a)
@@ -78,7 +79,8 @@ func (s *albumStore) BySlug(_, slug string) (album.Album, []album.Item, bool, er
 		a := e.album
 		a.ItemCount = len(e.items)
 		if len(e.items) > 0 {
-			a.CoverOrdinal = e.items[0].Ordinal
+			a.CoverRef = e.items[0].Ref
+			a.CoverMediumRef = e.items[0].MediumRef
 			a.HasCover = true
 		}
 		return a, e.items, true, nil
@@ -205,7 +207,7 @@ func TestAlbumPageShowsACreditWithoutACaption(t *testing.T) {
 }
 
 func TestFrontpageListsPublishedAlbums(t *testing.T) {
-	app, _ := albumApp(t)
+	app, store := albumApp(t)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
@@ -215,8 +217,10 @@ func TestFrontpageListsPublishedAlbums(t *testing.T) {
 	for _, want := range []string{
 		"Lørdag morgen", "Da solen kom", `href="/2026/album/loerdag-morgen"`,
 		"Natten", `href="/2026/album/natten"`,
-		// The cover is the album's first item, addressed through the media route.
-		"/api/public/albums/al-1/media/0?variant=thumb",
+		// The cover is the album's first item, addressed through the media route **by ref** (task 461): an
+		// ordinal is not a durable name once an album re-sorts itself, and the media route stopped serving
+		// ordinals `immutable` because of it (task 456) — on the one page a whole event opens at once.
+		"/api/public/albums/al-1/media/" + firstItemRef(t, store) + "?variant=thumb",
 		"2 billeder",
 		// **And the singular** (task 387). "Natten" holds one photograph, and this page rendered "1 billeder"
 		// to every family that opened it until then — asserting only the plural above was what let that ship.

@@ -158,7 +158,8 @@ func (s *visibilityStore) summary(a visibilityAlbum) album.Album {
 	out := album.Album{ID: a.id, Slug: a.slug, Title: a.title, SortOrder: a.sortOrder,
 		ItemCount: len(items)}
 	if len(items) > 0 {
-		out.CoverOrdinal = items[0].Ordinal
+		out.CoverRef = items[0].Ref
+		out.CoverMediumRef = items[0].MediumRef
 		out.HasCover = true
 	}
 	return out

@@ -61,13 +61,27 @@ type Album struct {
 	// ItemCount is how many live items the album holds, for the frontpage's "12 billeder".
 	ItemCount int
 
-	// CoverOrdinal is the item shown as the cover, and HasCover says whether there is one.
+	// CoverRef is the cover photograph's display ref, CoverMediumRef its 800px rendition or "", and HasCover
+	// says whether there is a cover at all.
 	//
-	// The curator's chosen cover while it is a live item, otherwise the lowest live ordinal — `coverOrder`
-	// (task 396). Until then it was only the lowest ordinal, on the reasoning that ordering the album *was*
-	// choosing its cover; the maintainer asked for a cover that need not be the first photograph.
-	CoverOrdinal int
-	HasCover     bool
+	// The cover is the curator's chosen photograph while it is a live item, otherwise the lowest live ordinal —
+	// `coverOrder` (task 396). Until then it was only the lowest ordinal, on the reasoning that ordering the album
+	// *was* choosing its cover; the maintainer asked for a cover that need not be the first photograph.
+	//
+	// # Refs rather than the ordinal this used to carry (task 461)
+	//
+	// The frontpage addressed its covers by **position**, which cost two things once PRD 024 let albums re-sort
+	// themselves. Its media URL stopped being cacheable — task 456 had to drop `immutable` for ordinals, because
+	// an ordinal's meaning moves — and the frontpage is the page a whole event opens at once on the Sunday
+	// morning. And `srcset` needs to know whether the 800px rendition **exists**: naming one that does not is the
+	// single thing `srcset` must never be told (see the album page's comment), and only the photograph's row can
+	// say.
+	//
+	// Both are answered by the same widening, so the ordinal is gone rather than kept alongside: which bytes is
+	// one fact, and "which slot, then which bytes" was two that could disagree.
+	CoverRef       string
+	CoverMediumRef string
+	HasCover       bool
 }
 
 // Item is one photograph in an album.
@@ -170,16 +184,21 @@ type querier struct {
 // album that has no items at all — which is a normal state while one is being assembled, and the state
 // a GROUP BY quietly drops.
 func (q querier) Published(year string) ([]Album, error) {
+	// The cover is picked once, as a photograph id, and its renditions come from a join on that — rather than one
+	// correlated subquery per column. `coverOrder` stays the only statement of the rule, and the alternative was
+	// three near-identical subqueries differing in their SELECT list, which is three places to get it wrong.
 	rows, err := q.db.Query(`
 		SELECT a.albumId, a.slug, a.title, a.description, a.sortOrder,
 		       (SELECT COUNT(*) FROM album_item i
 		         JOIN photo p ON p.photoId = i.photoId
 		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0) AS itemCount,
-		       (SELECT i.ordinal FROM album_item i
-		         JOIN photo p ON p.photoId = i.photoId
-		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0
-		         ORDER BY `+coverOrder+` LIMIT 1) AS coverOrdinal
+		       cp.blobRef, cp.mediumRef
 		FROM album a
+		LEFT JOIN photo cp ON cp.photoId = (
+		         SELECT i.photoId FROM album_item i
+		           JOIN photo p ON p.photoId = i.photoId
+		           WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0
+		           ORDER BY `+coverOrder+` LIMIT 1)
 		WHERE a.year = ? AND a.deleted = 0 AND a.published = 1
 		ORDER BY a.sortOrder ASC, a.albumId ASC`, year)
 	if err != nil {
@@ -190,14 +209,17 @@ func (q querier) Published(year string) ([]Album, error) {
 	out := []Album{}
 	for rows.Next() {
 		var a Album
-		// NULL when the album has no live items, which is why this is not an int.
-		var cover sql.NullInt64
+		// NULL when the album has no live items, which is why these are not strings. `mediumRef` is separately
+		// nullable in effect — a photograph uploaded before that rendition existed holds "" — so an album can
+		// have a cover and no medium, which is exactly the case `srcset` must not lie about.
+		var cover, medium sql.NullString
 		if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Description, &a.SortOrder,
-			&a.ItemCount, &cover); err != nil {
+			&a.ItemCount, &cover, &medium); err != nil {
 			return nil, err
 		}
-		if cover.Valid {
-			a.CoverOrdinal = int(cover.Int64)
+		if cover.Valid && cover.String != "" {
+			a.CoverRef = cover.String
+			a.CoverMediumRef = medium.String
 			a.HasCover = true
 		}
 		out = append(out, a)
@@ -238,7 +260,8 @@ func (q querier) BySlug(year, slug string) (Album, []Item, bool, error) {
 	}
 	a.ItemCount = len(items)
 	if cover, ok := pickCover(items, chosen); ok {
-		a.CoverOrdinal = cover.Ordinal
+		a.CoverRef = cover.Ref
+		a.CoverMediumRef = cover.MediumRef
 		a.HasCover = true
 	}
 	return a, items, true, nil

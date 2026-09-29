@@ -669,9 +669,11 @@ func (app *application) frontpageAlbums() []publicAlbumSummary {
 			Title:        a.Title,
 			Description:  a.Description,
 			CoverAlbumID: a.ID,
-			CoverOrdinal: a.CoverOrdinal,
-			HasCover:     a.HasCover,
-			Count:        a.ItemCount,
+			CoverRef:     a.CoverRef,
+			// The **presence** of the rendition, not its ref: see publicAlbumSummary.CoverHasMedium.
+			CoverHasMedium: a.CoverMediumRef != "",
+			HasCover:       a.HasCover,
+			Count:          a.ItemCount,
 		})
 	}
 	return out

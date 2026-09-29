@@ -195,11 +195,23 @@ type publicAlbumSummary struct {
 	Slug        string
 	Title       string
 	Description string
-	// CoverOrdinal is which item is the cover; CoverAlbumID addresses the media route.
+	// CoverAlbumID addresses the media route, which resolves the ref **within that published album** — the
+	// condition the ref-in-a-public-payload rule was narrowed to (task 456, PRD 022 §8.4).
 	CoverAlbumID string
-	CoverOrdinal int
-	HasCover     bool
-	Count        int
+
+	// CoverRef is the cover photograph's display ref, and CoverHasMedium whether it also has an 800px
+	// rendition (task 461).
+	//
+	// **A boolean, not the medium rendition's ref** — the same shape `publicAlbumItem.HasMedium` uses, and for
+	// the same reason: one ref plus `?variant=` addresses all three renditions, so publishing the derived hashes
+	// would widen the narrowed invariant (PRD 022 §8.4) for nothing. The flag is needed because `srcset` may only
+	// name a candidate that exists: a URL the server answers by *falling back* would put 1600px bytes behind an
+	// 800w label, and a lie in `srcset` is one the browser then does arithmetic with.
+	CoverRef       string
+	CoverHasMedium bool
+
+	HasCover bool
+	Count    int
 }
 
 // robotsTxt is the origin's crawling rules (task 427, PRD 011 §0c).
@@ -982,7 +994,39 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
            carries the crop, so it stands in for a missing cover at the same size. -->
       <span class="cover">
         {{if .HasCover}}
-        <img src="/api/public/albums/{{.CoverAlbumID}}/media/{{.CoverOrdinal}}?variant=thumb"
+        {{/* The cover is offered in two sizes, and the reason is arithmetic rather than taste (task 461).
+
+             A card is 12rem at its narrowest and **the full width of the column on a phone** — around 330px,
+             which is 660 device pixels at the 2x every phone has. The thumbnail is 320px on its *longest* edge,
+             and this crop is square: a landscape photograph therefore brings 240px of vertical detail to a box
+             asking for 660. That is a 2.7x upscale, which is the blur.
+
+             The album page's own grid does not need this, and the difference is worth keeping in mind before
+             "fixing" it too: its tiles are 10rem, so the same thumbnail is very nearly a genuine 2x image there,
+             and an album of 300 photographs offered the 800px rendition would fetch and decode 300 of them.
+             Task 398 sized that grid deliberately; this card is the one that outgrew the thumbnail.
+
+             Addressed by **ref**, not by ordinal (task 461). An ordinal is not a durable name for a photograph
+             once an album re-sorts itself, so task 456 had to stop serving those URLs "immutable" — and this is
+             the page an entire event opens at once. By ref the bytes are cacheable for a year again.
+
+             The medium candidate appears **only when the rendition exists**. A photograph uploaded before task
+             409 has no mediumRef, and naming a URL the server would answer by falling back means 1600px bytes
+             under an 800w label — the one thing srcset must not be told.
+
+             The sizes values are what the grid actually computes: one column at 92vw on a phone, two at ~45vw on
+             a small tablet, and ~14rem once the 60rem container caps the row at four. Worth stating rather than
+             guessing, though with only two candidates the effect is coarse: every one of those boxes exceeds
+             160px, so a 2x screen takes the 800px file and a 1x desktop keeps the 320px one. The precision is
+             for the day a third rendition exists.
+
+             (No backticks anywhere above: this template is one Go raw string literal, so a single one ends it and
+             the compiler points at a line of HTML. Sixth recorded occurrence; the first draft of this very
+             comment did it.) */}}
+        <img src="/api/public/albums/{{.CoverAlbumID}}/media/{{.CoverRef}}?variant=thumb"
+             {{if .CoverHasMedium}}srcset="/api/public/albums/{{.CoverAlbumID}}/media/{{.CoverRef}}?variant=thumb 320w,
+                     /api/public/albums/{{.CoverAlbumID}}/media/{{.CoverRef}}?variant=medium 800w"
+             sizes="(min-width: 62rem) 14rem, (min-width: 34rem) 45vw, 92vw"{{end}}
              alt="" loading="lazy" decoding="async">
         {{else}}
         <svg class="nocover" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
