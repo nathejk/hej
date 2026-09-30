@@ -99,30 +99,21 @@
 
 {{else if eq .View "album"}}
   {{template "albumeditor" .Album}}
+  {{/* The uploader, on this view too since task 474: what lands here goes **into this album**.
+
+       Asked for as *"when uploading new photos it should be possible to upload them into an album directly"*. The
+       album page is where that belongs rather than a target picker on the all-photos view: a curator assembling an
+       album is already here, and the alternative — upload, go back, select, file — is the round trip task 396 was
+       about. Filing an already-uploaded selection is still the action bar's "Tilføj til album"; this is for the
+       card that has not been uploaded yet.
+
+       `data-album` is what the uploader files into. It comes from the editor card's own attribute rather than being
+       repeated here, so one element states which album this page is. */}}
+  <h2>Læg billeder op i albummet</h2>
+  {{template "uploader" .}}
 {{else}}
   <h2>Læg billeder op</h2>
-  <section id="drop" class="idle" data-max-mb="{{.MaxUploadMB}}" aria-describedby="drophint">
-    <div class="row1">
-      <label class="filelabel" for="files">
-        <!-- Lucide: image-up -->
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7"/><path d="m21 15-3-3-3 3"/><path d="M18 12v9"/><circle cx="9" cy="9" r="2"/></svg>
-        Vælg billeder
-        <input type="file" id="files" multiple accept="image/*">
-      </label>
-      <div class="progress" hidden id="prog">
-        <div class="bar"><i id="bar"></i></div>
-        <div class="label" id="proglabel"></div>
-      </div>
-    </div>
-    <p class="hint" id="drophint">Træk en mappe eller en bunke filer herind. Op til {{.MaxUploadMB}} MB pr. billede.
-    Uploader du de samme filer igen, bliver de ikke lagt op to gange.</p>
-  </section>
-
-  <ul id="rows"></ul>
-  <!-- What the batch did, and whether the grid below is showing it yet (task 437). Separate from the progress
-       widget's label, which is about files going up; this is about the library having them. `aria-live`, because
-       a curator who has just dragged a card is watching the rows, not this line. -->
-  <p id="uploadnote" aria-live="polite"></p>
+  {{template "uploader" .}}
   <h2>Kontaktark</h2>
 
 {{end}}
@@ -446,3 +437,38 @@
 {{end}}
 </body>
 </html>{{end}}
+
+{{/* The uploader (task 395's split; shared by the all-photos view and the album view since task 474).
+
+     One definition, because the two differ only in where the photographs end up — and that difference is read from
+     the page by upload.js, not rendered differently here. Two copies of this markup would have two sets of ids, and
+     every one of them is looked up by name.
+
+     No `aria-describedby` juggling between the views either: the hint element is the same one, and the album view's
+     extra sentence is appended to it below. */}}
+{{define "uploader"}}
+  <section id="drop" class="idle" data-max-mb="{{.MaxUploadMB}}" aria-describedby="drophint">
+    <div class="row1">
+      <label class="filelabel" for="files">
+        <!-- Lucide: image-up -->
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7"/><path d="m21 15-3-3-3 3"/><path d="M18 12v9"/><circle cx="9" cy="9" r="2"/></svg>
+        Vælg billeder
+        <input type="file" id="files" multiple accept="image/*">
+      </label>
+      <div class="progress" hidden id="prog">
+        <div class="bar"><i id="bar"></i></div>
+        <div class="label" id="proglabel"></div>
+      </div>
+    </div>
+    <p class="hint" id="drophint">Træk en mappe eller en bunke filer herind. Op til {{.MaxUploadMB}} MB pr. billede.
+    Uploader du de samme filer igen, bliver de ikke lagt op to gange.
+    {{if eq .View "album"}}Billederne bliver lagt i <strong>{{.Album.Title}}</strong> — og i arkivet, som altid.
+    Ligger nogle af dem der allerede, bliver de lagt i albummet uden at blive uploadet igen.{{end}}</p>
+  </section>
+
+  <ul id="rows"></ul>
+  <!-- What the batch did, and whether the grid below is showing it yet (task 437). Separate from the progress
+       widget's label, which is about files going up; this is about the library having them. `aria-live`, because
+       a curator who has just dragged a card is watching the rows, not this line. -->
+  <p id="uploadnote" aria-live="polite"></p>
+{{end}}

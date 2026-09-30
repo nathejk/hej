@@ -139,13 +139,16 @@ func TestTheAlbumViewIsTheEditorOverTheSharedSheet(t *testing.T) {
 			t.Errorf("the album view should contain %s", want)
 		}
 	}
-	// Not the library's own parts: no upload, and no year-wide counts that would read as the album's.
+	// Not the year-wide counts, which would read as this album's.
 	//
-	// **The filter row used to be on this list and is deliberately off it** (task 460). It was excluded when this
-	// view was built because the album *was* the filter; what that missed is that the album is where the work
-	// happens — 100+ photographs, where "is anything missing a caption or a position" cannot be answered by
-	// looking — and the page already offered "Vælg alle der matcher filteret", naming a filter it did not have.
-	for _, unwanted := range []string{`id="drop"`, `id="counts"`} {
+	// **Two things have come off this list, and both were the same mistake.** The filter row (task 460) was excluded
+	// because the album *was* the filter — which missed that the album is where the work happens, and the page was
+	// already offering "Vælg alle der matcher filteret" for a filter it did not have. The uploader (task 474) was
+	// excluded because uploading was the library's business — which missed that a curator assembling an album has a
+	// card to put in it, and the alternative is upload, navigate back, select, file.
+	//
+	// What remains on the list is the thing that is genuinely about the year rather than the album.
+	for _, unwanted := range []string{`id="counts"`} {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("the album view should not carry %s", unwanted)
 		}

@@ -618,7 +618,9 @@ func TestTheUploadWaitsForTheProjectionBeforeSayingItIsDone(t *testing.T) {
 	// Every outcome the server distinguishes is counted, so the summary cannot quietly report a duplicate or a
 	// refused re-upload as a success. `adminUploadOutcome`'s three values are the contract; `failed` is the
 	// fourth case, which has no outcome because it has no response.
-	for _, tally := range []string{"tally('stored'", "tally('already')", "tally('gone')", "tally('failed')"} {
+	// `already` carries an id since task 474, because a photograph that was in the library already is still filed
+	// into the album a card was dragged onto — so the needle is the call, not its exact arguments.
+	for _, tally := range []string{"tally('stored'", "tally('already'", "tally('gone')", "tally('failed')"} {
 		if !strings.Contains(js, tally) {
 			t.Errorf("upload.js must record %s: an outcome that is not counted is one the summary claims went up",
 				tally)

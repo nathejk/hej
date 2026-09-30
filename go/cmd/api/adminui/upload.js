@@ -43,6 +43,13 @@ function initUpload(ctx) {
   const progLabel = document.getElementById('proglabel');
   const note = document.getElementById('uploadnote');
 
+  // The album these uploads go into, or "" on the all-photos view (task 474).
+  //
+  // Read from the editor card, which is the one element that states which album this page is — rather than a second
+  // attribute on the uploader saying the same thing, which is how the two come to disagree.
+  const editor = document.getElementById('albumeditor');
+  const intoAlbum = editor ? (editor.dataset.album || '') : '';
+
   let queued = 0, done = 0, running = 0;
   const queue = [];
   // The batch in flight, or null between batches: what it has done so far, and the ids the server gave it.
@@ -57,7 +64,13 @@ function initUpload(ctx) {
     // A new batch is a drop onto an idle uploader. `queued`/`done` deliberately keep accumulating across a
     // session, so "idle" is the two being equal rather than a counter reset.
     if (done === queued) {
-      batch = { stored: [], already: 0, gone: 0, failed: 0 };
+      // `file` is what goes into the album: the ids stored **and** the ones that were already in the library.
+      //
+      // Including `already` is the point of the feature rather than an edge case. Half a card is routinely already
+      // uploaded — a colleague's dump, a retry, a second pass — and if those were skipped, dragging a card into an
+      // album would file some of it and silently leave the rest out. `gone` is deliberately absent: a photograph a
+      // curator deleted must not be filed into an album, which would resurrect it into public view.
+      batch = { stored: [], file: [], already: 0, gone: 0, failed: 0 };
       note.textContent = '';
     }
     for (const file of files) {
@@ -106,20 +119,67 @@ function initUpload(ctx) {
   // --- the end of a batch ---------------------------------------------------
 
   async function finish(b) {
-    // Nothing new in the library means nothing to wait for. The sheet is still reloaded: a re-upload of a card
+    // Nothing new and nothing to file means nothing to wait for. The sheet is still reloaded: a re-upload of a card
     // whose photographs a colleague has since filed should show their albums.
-    if (!b.stored.length) {
+    if (!b.stored.length && !(intoAlbum && b.file.length)) {
       ctx.reloadSheet();
       note.textContent = summary(b);
       return;
     }
 
     note.textContent = 'Opdaterer kontaktarket…';
+    // **The wait comes first, and the filing second.** `/api/admin/albums/items` validates the photographs against
+    // the library projection, so filing an id the fold has not reached yet would be refused for a photograph that is
+    // perfectly fine — the race task 437 was reported for, in a new place.
     const caught = await ctx.settled(b.stored);
+
+    let filed = null;
+    if (intoAlbum && b.file.length) {
+      note.textContent = 'Lægger billederne i albummet…';
+      filed = await fileIntoAlbum(b.file);
+    }
+
     ctx.reloadSheet();
-    note.textContent = caught
-      ? summary(b)
-      : summary(b) + ' Kontaktarket kan være et øjeblik bagud — genindlæs siden, hvis nogle mangler.';
+    let line = summary(b);
+    if (filed) line += ' ' + filed;
+    if (!caught) line += ' Kontaktarket kan være et øjeblik bagud — genindlæs siden, hvis nogle mangler.';
+    note.textContent = line;
+  }
+
+  // fileIntoAlbum adds the batch to this page's album, and returns the sentence to append.
+  //
+  // # One request for the whole batch, not one per photograph
+  //
+  // Because adding to an album **re-sorts it** when its sort mode is not manual (PRD 024): filing three hundred
+  // photographs one at a time would publish three hundred reorder events, each rewriting every ordinal in the album,
+  // for one arrangement nobody saw the intermediate states of. The existing endpoint takes a list precisely so the
+  // sort is applied once, and it is the same endpoint the action bar's "Tilføj til album" uses — so a card dragged
+  // here and a selection filed there cannot end up ordered differently.
+  //
+  // The server writes the sentence, as it does for the sheet: it is the side that knows how many were already in the
+  // album and whether the addition re-sorted it.
+  async function fileIntoAlbum(ids) {
+    try {
+      const res = await ctx.fetch('/api/admin/albums/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoIds: ids, albumIds: [intoAlbum] }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        // Said plainly, and it names the recovery that works: the photographs *are* in the library, so filing them
+        // is the action bar's job now. Anything else would imply the upload failed, which it did not.
+        return (payload && payload.error)
+          ? 'Billederne blev lagt op, men kunne ikke lægges i albummet: ' + payload.error +
+            ' Vælg dem og brug Tilføj til album.'
+          : 'Billederne blev lagt op, men kunne ikke lægges i albummet. Vælg dem og brug Tilføj til album.';
+      }
+      // Waited for, so the grid below is the album including them rather than the album without them (task 457).
+      await ctx.settledFilter(ids, '&album=' + encodeURIComponent(intoAlbum), true);
+      return payload && payload.message ? payload.message : 'Lagt i albummet.';
+    } catch (err) {
+      return 'Billederne blev lagt op, men kunne ikke lægges i albummet. Vælg dem og brug Tilføj til album.';
+    }
   }
 
   // summary is the sentence the curator reads when a batch is over.
@@ -169,6 +229,9 @@ function initUpload(ctx) {
     if (!batch) return;
     if (what === 'stored') batch.stored.push(id);
     else batch[what]++;
+    // Both outcomes that leave a live photograph in the library are filed into the album. See `file` above for why
+    // `already` belongs here and `gone` does not.
+    if (id && (what === 'stored' || what === 'already')) batch.file.push(id);
   }
 
   function applyOutcome(li, out) {
@@ -180,7 +243,7 @@ function initUpload(ctx) {
     // Three outcomes, three appearances. A duplicate reported as a plain success would make a duplicated card
     // impossible to notice, and a skipped deletion reported as success would be a lie (task 372).
     if (out.outcome === 'already') {
-      tally('already');
+      tally('already', out.photoId);
       finishRow(li, 'skip', '', out, 'Allerede lagt op');
       return;
     }
