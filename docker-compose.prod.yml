@@ -224,6 +224,19 @@ services:
       # `original/` subtree of it, not the whole directory (task 429) — again, see
       # the header.
       BLOB_PATH: /blobs
+      # Tell the Go runtime what the container's limit is (task 471).
+      #
+      # **The garbage collector cannot see a cgroup limit.** Left to itself it targets a *ratio* — roughly twice the
+      # live heap — so a process with 166 MB live will happily reserve ~330 MB and keep going until the kernel kills
+      # it. There is no warning and no error: the container simply disappears mid-request, which is what produced
+      # 502s rather than a slow response.
+      #
+      # 400 MiB against the 512 MiB limit leaves headroom for the parts of a Go process that are not heap — stacks,
+      # the runtime's own structures, and the fact that returning memory to the OS is not instant. Under pressure the
+      # runtime now collects harder instead of dying, which is the difference between a slow upload and a failed one.
+      #
+      # Keep this **below** `deploy.resources.limits.memory`, and move both together.
+      GOMEMLIMIT: ${GOMEMLIMIT:-400MiB}
       # SMS delivery of login PINs (CPSMS). Required in production: without it the
       # API logs PINs instead of sending them, which means nobody can log in — a
       # silent failure, hence the hard `:?`. Same account and approved sender name
@@ -340,7 +353,23 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          # 512 MiB, raised from 256 MiB on 2026-09-28 after production upload failures (task 471).
+          #
+          # THE ARITHMETIC, MEASURED — do not lower this without redoing it:
+          #
+          #   one Prepare of a 12MP phone JPEG   83 MB of live heap  (174 MB before the fix in that task)
+          #   the decode gate                     2 at a time        (cmd/api/decodegate.go)
+          #   so image work peaks at             ~166 MB
+          #   plus the app's own baseline        ~60-80 MB           (projections, pools, caches, the share card)
+          #
+          # At 256 MiB that did not fit: three concurrent uploads at 174 MB each was twice the limit, the cgroup
+          # killed the process mid-request, and Traefik answered 502 for everything in flight. The photographer saw
+          # three files upload to 100% and then fail, with nothing in the message to act on.
+          #
+          # Two things now stop that recurring, and the limit is only one of them: the per-image cost is halved and
+          # the *number* of concurrent decodes is the server's decision rather than the uploader's. Raising the
+          # limit alone would have moved the failure to the next person who opened two browser tabs.
+          memory: 512M
         reservations:
           memory: 64M
 

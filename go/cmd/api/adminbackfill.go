@@ -177,8 +177,15 @@ func (app *application) produceMediumFor(r *http.Request, year string, p photo.L
 	// The same call the upload path makes, so a backfilled rendition is indistinguishable from an uploaded
 	// one. Only the medium edge is asked for: the thumbnail already exists on these rows, and re-encoding it
 	// would write a second copy of bytes the store already holds under a different hash.
-	prepared, err := imaging.Prepare(raw, mediumEdge, []int{mediumEdge}, glimtJPEGQuality, false)
-	if err != nil {
+	// Behind the decode gate (task 471), and this is the caller that needed it most: a backfill is a **loop**, so
+	// without the gate it competes with every live upload for the whole event, at 83 MB a photograph. It yields a
+	// slot between images rather than holding one for the run.
+	var prepared imaging.Portrait
+	if err := withDecodeSlot(ctx, func() error {
+		var perr error
+		prepared, perr = imaging.Prepare(raw, mediumEdge, []int{mediumEdge}, glimtJPEGQuality, false)
+		return perr
+	}); err != nil {
 		app.Logger.Warn("backfill: cannot re-render a photograph", "photoId", p.ID, "err", err)
 		return false
 	}

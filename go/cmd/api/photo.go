@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -165,7 +166,7 @@ func (app *application) updatePhotoHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	encoded, meta, err := normalizePortrait(raw, app.config.portraitKeepOriginal)
+	encoded, meta, err := normalizePortrait(r.Context(), raw, app.config.portraitKeepOriginal)
 	if err != nil {
 		app.BadRequestResponse(w, r, err)
 		return
@@ -464,8 +465,15 @@ func readCapped(src io.Reader) ([]byte, error) {
 // The decode is the validation: bytes that are not an image cannot get past it, and no
 // header or filename is consulted. What comes out is always JPEG. The work itself lives
 // in internal/imaging, where it is testable without a request.
-func normalizePortrait(raw []byte, keepOriginal bool) ([]byte, portraitMeta, error) {
-	prepared, err := imaging.Prepare(raw, maxPortraitEdge, thumbnailEdges, jpegQuality, keepOriginal)
+func normalizePortrait(ctx context.Context, raw []byte, keepOriginal bool) ([]byte, portraitMeta, error) {
+	// Behind the decode gate (task 471). A portrait is smaller than a library photograph but decodes the same way,
+	// and a check-in queue is many people photographing at once — so this counts against the same ceiling.
+	var prepared imaging.Portrait
+	err := withDecodeSlot(ctx, func() error {
+		var perr error
+		prepared, perr = imaging.Prepare(raw, maxPortraitEdge, thumbnailEdges, jpegQuality, keepOriginal)
+		return perr
+	})
 	if err != nil {
 		if errors.Is(err, imaging.ErrNotAnImage) {
 			// Translated to the Danish message the client shows; the packaged error is

@@ -512,8 +512,9 @@ func TestNotYetPageCarriesNoPatrolData(t *testing.T) {
 	defer srv.Close()
 
 	_, body := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
-	// Minus the artwork, which contains "42" inside a Bezier coordinate — see withoutSVG.
-	page := withoutSVG(string(body))
+	// Minus the artwork, which contains "42" inside a Bezier coordinate — see withoutSVG — and minus the test
+	// server's own host and port, which since PRD 026 appears in the page's absolute URLs and is a random number.
+	page := withoutOrigin(withoutSVG(string(body)), srv.URL)
 
 	// The requested number itself is patrol data on a closed page: echoing it back is how "is 42 real?"
 	// becomes answerable by comparing two responses.
@@ -781,6 +782,28 @@ func TestThePublicNotFoundPageOffersAWayBack(t *testing.T) {
 // template action** — the marks are constants — so nothing that could be a leak can be inside one.
 // `TestNoInlineSvgOnThePublicSiteCarriesATemplateAction` is what keeps that true, and it is the licence for this
 // helper: without it, this would be a hole rather than an exception.
+// withoutOrigin removes the test server's own scheme://host:port from a page.
+//
+// # A second exception, for the same reason as withoutSVG's
+//
+// Since PRD 026 the pages carry absolute URLs — `og:image`, `og:url` — which means every page contains the **host
+// and port**. `httptest` picks an ephemeral port, so roughly one run in twenty produces something like
+// `127.0.0.1:53042` and the leak guards below, which search for a bare two-digit patrol number, fail on a digit of
+// the port. Found by running one of them forty times; it passed alone and failed in the suite, which is the shape of
+// a flake worth chasing rather than re-running.
+//
+// **The exact origin string, not a pattern.** That is what makes this safe: a patrol number could only hide here if
+// the OS had put it in the port, and the *paths* of those URLs are left intact — so a real leak that reached an
+// og:url path is still caught. In production the origin is `https://hej.nathejk.dk`, which has no digits at all.
+func withoutOrigin(page, origin string) string {
+	if origin == "" {
+		return page
+	}
+	// The scheme and authority only. strings.TrimPrefix would not do: the origin appears several times, inside
+	// attribute values.
+	return strings.ReplaceAll(page, origin, "")
+}
+
 func withoutSVG(page string) string {
 	var out strings.Builder
 	for {

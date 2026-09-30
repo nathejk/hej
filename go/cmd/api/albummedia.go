@@ -118,8 +118,15 @@ func (app *application) storeAlbumImage(ctx context.Context, year string, raw []
 	// at Nathejk (task 440).
 	shotAt, hasShotAt := imaging.ReadShotAt(raw, eventtime.Location())
 
-	prepared, err := imaging.Prepare(raw, maxGlimtEdge, libraryThumbEdges, glimtJPEGQuality, false)
-	if err != nil {
+	// **Behind the decode gate** (task 471): this is the step that costs ~83 MB for a 12MP photograph, and the
+	// uploader sends three files at once. See decodegate.go for the measurements and why the bound belongs on the
+	// server rather than in the client's concurrency setting.
+	var prepared imaging.Portrait
+	if err := withDecodeSlot(ctx, func() error {
+		var perr error
+		prepared, perr = imaging.Prepare(raw, maxGlimtEdge, libraryThumbEdges, glimtJPEGQuality, false)
+		return perr
+	}); err != nil {
 		if errors.Is(err, imaging.ErrNotAnImage) {
 			return albumMediaPrepared{}, errGlimtNotMedia
 		}

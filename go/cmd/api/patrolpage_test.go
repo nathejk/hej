@@ -261,8 +261,9 @@ func TestAClosedPageLeaksNothingAboutARealPatrol(t *testing.T) {
 
 	_, body := getPublic(t, srv.URL+"/2026/patrulje/43", nil)
 	// Minus the artwork: the header's moon is forty Bezier coordinates and "43" is inside one of them. See
-	// withoutSVG for why that is an exception rather than a softening.
-	page := withoutSVG(string(body))
+	// withoutSVG for why that is an exception rather than a softening — and minus the test server's origin, whose
+	// random port is the same kind of incidental number (see withoutOrigin).
+	page := withoutOrigin(withoutSVG(string(body)), srv.URL)
 
 	for _, forbidden := range []string{"Ulvene", "2. Gruppe", "KFUM", "43", "team-43"} {
 		if strings.Contains(page, forbidden) {

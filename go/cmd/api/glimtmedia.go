@@ -183,7 +183,15 @@ func (app *application) uploadGlimtMediaHandler(w http.ResponseWriter, r *http.R
 // sharper media it should raise maxGlimtEdge for new uploads rather than hoard originals for all of
 // them.
 func (app *application) storeGlimtImage(r *http.Request, raw []byte) (glimtMediaStored, error) {
-	prepared, err := imaging.Prepare(raw, maxGlimtEdge, glimtThumbEdges, glimtJPEGQuality, false)
+	// Behind the decode gate (task 471), like every other call to Prepare in this binary. This one matters as much
+	// as the curator's: a glimt burst is hundreds of phones at once during the event, and the gate is what makes the
+	// process's memory ceiling a property of the server rather than of how many people pressed send.
+	var prepared imaging.Portrait
+	err := withDecodeSlot(r.Context(), func() error {
+		var perr error
+		prepared, perr = imaging.Prepare(raw, maxGlimtEdge, glimtThumbEdges, glimtJPEGQuality, false)
+		return perr
+	})
 	if err != nil {
 		if errors.Is(err, imaging.ErrNotAnImage) {
 			// Translated to the message the client shows; the packaged error is for the log.

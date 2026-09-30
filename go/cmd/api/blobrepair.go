@@ -167,8 +167,14 @@ func (app *application) repairRendition(ctx context.Context, plan renditionRepai
 		// One thumbnail, no display rendition to speak of and no original: `Prepare` is given the edge
 		// as both the display bound and the thumbnail size, and only the thumbnail is used. Same code
 		// path as the upload, which is what keeps a rebuilt rendition looking like an uploaded one.
-		prepared, err := imaging.Prepare(source, plan.Edge, []int{plan.Edge}, plan.Quality, false)
-		if err != nil {
+		// Behind the decode gate (task 471): this runs while somebody is waiting for an image, so it is exactly the
+		// work that would otherwise pile up alongside an upload burst.
+		var prepared imaging.Portrait
+		if err := withDecodeSlot(ctx, func() error {
+			var perr error
+			prepared, perr = imaging.Prepare(source, plan.Edge, []int{plan.Edge}, plan.Quality, false)
+			return perr
+		}); err != nil {
 			return nil, fmt.Errorf("re-rendering: %w", err)
 		}
 		if len(prepared.Thumbs) == 0 || len(prepared.Thumbs[0].Bytes) == 0 {

@@ -123,14 +123,40 @@ func Prepare(raw []byte, edge int, thumbEdges []int, quality int, keepOriginal b
 
 	out := Portrait{Orientation: orientation, Format: format}
 
-	out.Full, err = render(img, "", edge, quality)
+	// **Converted to RGBA once, here, rather than once per rendition.**
+	//
+	// MEASURED, 2026-09-28: `Fit` calls `toRGBA`, and this function calls `Fit` once for the display image and once
+	// per thumbnail — so a 4000×3000 photograph was being converted three times, at 48 MB a copy. One `Prepare`
+	// peaked at **174 MB of live heap** for a 5.9 MB JPEG.
+	//
+	// That is how the production upload failures happened (task 471): the container is limited to 256 MB, the
+	// uploader sends three files at once, and three of those peaks is twice the limit — so the process was
+	// OOM-killed mid-request and Traefik answered 502 for everything in flight. Dev has no memory limit, so the
+	// same three photographs uploaded cleanly there.
+	//
+	// `toRGBA` returns its argument unchanged when it is already an origin-based `*image.RGBA`, so passing this to
+	// every `render` below converts once and reuses.
+	//
+	// For every rendition that is actually **scaled** — which is all of them, for any photograph from a camera — the
+	// output bytes are identical: the same pixels reach the same filter, they are simply not copied twice for
+	// nothing. The one case that changes is an image already **smaller** than a target edge, where `Fit` returns its
+	// input untouched: that used to hand the decoded JPEG's own YCbCr planes to the encoder and now hands it RGBA,
+	// so the chroma makes one extra round trip. Imperceptible at quality 82, and not worth keeping a second
+	// full-size image alive for — which is the only way to have both.
+	src := toRGBA(img)
+	// The decoded image is no longer needed once it has been converted; releasing the reference lets the collector
+	// take it during the renditions rather than at the end of the call. Worth doing for a YCbCr 12MP frame, which
+	// is ~18 MB.
+	img = nil
+
+	out.Full, err = render(src, "", edge, quality)
 	if err != nil {
 		return Portrait{}, err
 	}
 
 	out.Thumbs = make([]Rendition, 0, len(thumbEdges))
 	for _, thumbEdge := range thumbEdges {
-		thumb, terr := render(img, ThumbName(thumbEdge), thumbEdge, quality)
+		thumb, terr := render(src, ThumbName(thumbEdge), thumbEdge, quality)
 		if terr != nil {
 			return Portrait{}, terr
 		}
