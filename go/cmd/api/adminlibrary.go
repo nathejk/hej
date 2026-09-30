@@ -96,6 +96,22 @@ type adminLibraryPhoto struct {
 	AlbumCount int `json:"albumCount"`
 	TagCount   int `json:"tagCount"`
 
+	// FileName is the name the photographer's file had, or "" (task 475).
+	//
+	// # On the wire, and only this side of the credential
+	//
+	// The column has existed since task 448, where the maintainer's bound was *"protected by authentication"*. It
+	// stayed out of every response because nothing needed to show it: the sort that justified keeping it runs in SQL.
+	//
+	// The viewer needs it now — *"when watching photo in large viewer in album edit mode, filename should be printed
+	// below photocredit"* — and a curator's viewer is the authenticated side. So the bound is unchanged and the
+	// structure that enforces it is unchanged: `isPersonShaped` still flags `filename`, so every **public** read that
+	// grows one still fails, and `TestThePublicAlbumPageCarriesNoFilename` says so from the other direction.
+	//
+	// The second bound from task 448 also holds: it is rendered **as a filename**, in the curator's own tool, next to
+	// the photograph it names. Nothing attributes it to anybody and nothing derives a person from it.
+	FileName string `json:"fileName,omitempty"`
+
 	Deleted    bool   `json:"deleted,omitempty"`
 	UploadedAt string `json:"uploadedAt,omitempty"`
 }
@@ -252,6 +268,7 @@ func (app *application) readAdminLibraryPage(w http.ResponseWriter, r *http.Requ
 			Lat:           p.Lat,
 			Lng:           p.Lng,
 			BoundsVerdict: p.BoundsVerdict,
+			FileName:      p.FileName,
 			AlbumCount:    p.AlbumCount,
 			TagCount:      p.TagCount,
 			Deleted:       p.Deleted,

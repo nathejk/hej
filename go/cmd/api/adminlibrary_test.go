@@ -346,6 +346,21 @@ func TestAdminLibraryPayloadHasNowhereToPutAPerson(t *testing.T) {
 		// Note what is **not** excepted, and would still fail here: `CreditCrewID`. The id is the thing R6 keeps off
 		// the wire, and this exception does not touch it.
 		"CreditIsCrew": true,
+
+		// The name the photographer's file had (task 475, on task 448's decision).
+		//
+		// This one *is* person-shaped in the general case — a filename can read `mor-og-far.jpg` — and it is excepted
+		// on bounds rather than on being harmless. The maintainer's bound when allowing the column was
+		// **"protected by authentication"**, and this response is the authenticated side: the curator's own tool,
+		// behind the shared credential, showing a photographer the filing they did themselves.
+		//
+		// Both of task 448's bounds still hold structurally rather than by promise:
+		//
+		//   - `isPersonShaped` keeps flagging the word, so any **public** read that grows a filename still fails —
+		//     `TestTheFilenameExceptionStopsAtTheAdminSurface` asserts the function's behaviour and
+		//     `TestThePublicAlbumPageCarriesNoFilename` asserts the page's.
+		//   - it is rendered **as a filename** and nothing else. No attribution, nothing derived from it.
+		"FileName": true,
 	}
 
 	for _, field := range structFieldNames(adminLibraryPhoto{}) {

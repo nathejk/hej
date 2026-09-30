@@ -273,6 +273,19 @@
   font-size: 0.85rem;
 }
 
+/* The photographer's own filename (task 475), under the credit and quieter than it.
+   Only the curator's tool provides one, so this rule never applies on the public pages. Monospace, because a
+   filename is an identifier a photographer scans and compares against a folder on their own computer —
+   `DSC_0142.JPG` against `DSC_0143.JPG` — and a proportional font makes that harder than it needs to be. */
+.hv-filename {
+  display: block;
+  margin-top: 0.15rem;
+  color: #8b8b93;
+  font-size: 0.8rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+
 /* A photograph the curator has deleted from the library (task 406). It still appears in their sheet, marked, and
    it must stay marked here: presenting it as live is how something taken down on purpose gets re-published. Amber
    rather than red — it is a state, not a failure. */

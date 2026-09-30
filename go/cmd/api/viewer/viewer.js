@@ -206,6 +206,10 @@
         thumb: node.getAttribute('data-thumb') || '',
         caption: node.getAttribute('data-caption') || '',
         credit: node.getAttribute('data-credit') || '',
+        // The photographer's own filename (task 475). Set by the curator's tool and by nothing else: the public
+        // album page does not emit it, so on that surface this is "" and the panel shows no such line. The same
+        // shape as `deleted` below — a field the shared component can carry and only one host provides.
+        filename: node.getAttribute('data-filename') || '',
         ordinal: node.getAttribute('data-viewer-ordinal') || '',
         // The photograph's durable address, when the host page has one (task 447). The viewer knows nothing about
         // albums or refs — it is handed a URL and prefers it when sharing, because the page that rendered it is
@@ -306,6 +310,15 @@
       credit.className = 'hv-credit';
       credit.textContent = creditLine(item.credit);
       state.info.appendChild(credit);
+    }
+    // **Below the credit**, as asked for (task 475), and only where the host page provides one — which is the
+    // curator's tool. Rendered as the filename it is, with no prefix and no attempt to make it a sentence: a
+    // photographer recognises their own filing, and dressing it up would be the tool interpreting it.
+    if (item.filename) {
+      var filename = document.createElement('span');
+      filename.className = 'hv-filename';
+      filename.textContent = item.filename;
+      state.info.appendChild(filename);
     }
     if (item.deleted) {
       // A photograph the curator has deleted from the library still appears in their sheet, marked. It must stay

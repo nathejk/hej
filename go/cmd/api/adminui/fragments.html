@@ -305,6 +305,10 @@ Everything that is not a cell arrives as an out-of-band swap, which is how one r
         {{/* Which kind of credit it is (task 473). An editor that prefills from data-credit and saves it would
              otherwise turn a crew reference into a typed name — losing the erasable form silently. */}}
         {{if .CreditIsCrew}}data-credit-crew="1"{{end}}
+        {{/* The photographer's own filename, for the viewer's info panel (task 475). **Admin only**: the public
+             album page never emits this, and TestThePublicAlbumPageCarriesNoFilename holds that — the filename's
+             bound since task 448 is that it lives behind the credential. */}}
+        {{if .FileName}}data-filename="{{.FileName}}"{{end}}
         {{if .Deleted}}data-viewer-deleted="true"{{end}}>
   <img loading="lazy" decoding="async" alt="{{.Caption}}"
        src="/api/admin/photos/{{.ID}}/media?variant=thumb&amp;year={{$.Year}}">

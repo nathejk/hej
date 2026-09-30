@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -166,5 +168,92 @@ func TestTheAllPhotosUploaderFilesNothing(t *testing.T) {
 	if !strings.Contains(js, "if (intoAlbum && b.file.length) {") {
 		t.Error("filing must be conditional on there being an album: on the all-photos view an upload goes to the " +
 			"library and nowhere else")
+	}
+}
+
+// The filename in the viewer's info panel, below the credit (task 475).
+//
+// # Why the public boundary is the whole test
+//
+// A filename is the one field in the library whose exception rests entirely on *where it is allowed to be*. Task 448
+// admitted it on the maintainer's bound — **"protected by authentication"** — and made that structural: the public
+// guard keeps flagging the word, so a public read that grows one fails.
+//
+// Putting it in the viewer moves it one step closer to a page, and the viewer is a **shared** component: the same
+// `viewer.js` runs on the public album page. So what needs asserting is not that the admin viewer shows it — that is
+// one attribute and one span — but that the public page never provides it.
+func TestTheViewerShowsTheFilenameBelowTheCredit(t *testing.T) {
+	js := stripJSLineComments(viewerAsset(t, "viewer.js"))
+
+	for _, want := range []struct{ needle, why string }{
+		{"filename: node.getAttribute('data-filename') || '',",
+			"read from the tile, so only a host page that provides it has one"},
+		{"filename.className = 'hv-filename';", "its own element, so it can be styled and found"},
+		{"filename.textContent = item.filename;",
+			"rendered as the filename it is: no prefix, nothing that would read as an attribution (task 448's " +
+				"second bound)"},
+	} {
+		if !strings.Contains(js, want.needle) {
+			t.Errorf("viewer.js no longer has %q: %s", want.needle, want.why)
+		}
+	}
+
+	// Below the credit, which is what was asked for — so the credit's block must come first in the panel.
+	credit := strings.Index(js, "credit.className = 'hv-credit';")
+	filename := strings.Index(js, "filename.className = 'hv-filename';")
+	if credit < 0 || filename < 0 || credit > filename {
+		t.Error("the filename must be appended after the credit: the info panel renders in append order")
+	}
+
+	if !strings.Contains(viewerAsset(t, "viewer.css"), ".hv-filename {") {
+		t.Error("the filename needs its own rule, or it renders as the caption's body text")
+	}
+}
+
+// The curator's tile provides it; **the public album page never does.**
+func TestOnlyTheCuratorsTileCarriesAFilename(t *testing.T) {
+	// The admin fragment: the attribute is there when the photograph has a filename.
+	fragment := adminAsset(t, "fragments.html")
+	if !strings.Contains(fragment, `{{if .FileName}}data-filename="{{.FileName}}"{{end}}`) {
+		t.Error("the curator's tile must carry the filename for the viewer to read")
+	}
+
+	// And the public album page's own template does not mention it at all — not as an attribute, not as a field.
+	// Asserted against the template source rather than one rendered page, so an item that happens to have no
+	// filename in a fixture cannot make this pass.
+	src, err := os.ReadFile("publicsite.go")
+	if err != nil {
+		t.Fatalf("reading publicsite.go: %v", err)
+	}
+	// Comments stripped: this file's prose discusses filenames in several places, and a guard that greps for a word
+	// finds the paragraph forbidding it. The same trap task 439 records.
+	public := stripGoComments(string(src))
+	for _, forbidden := range []string{"data-filename", ".FileName", "fileName"} {
+		if strings.Contains(public, forbidden) {
+			t.Errorf("the public site's template mentions %q: a filename is admin-only (task 448 — the bound is "+
+				"that it sits behind the credential)", forbidden)
+		}
+	}
+}
+
+// And rendered, the public album page carries none — the other direction, against a fixture that has one.
+func TestThePublicAlbumPageCarriesNoFilename(t *testing.T) {
+	app, store := albumApp(t)
+	// The public read model has no filename field at all, which is the real guarantee; this sets the *library's*
+	// value to something unmistakable so that any future path from one to the other shows up here.
+	store.albums[0].items[0].Caption = "Ved målstregen"
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
+	if strings.Contains(string(body), "data-filename") {
+		t.Error("the public album page must not carry a filename")
+	}
+
+	// The type itself cannot hold one, which is what makes the above true by construction rather than by omission.
+	for _, field := range structFieldNames(publicAlbumItem{}) {
+		if strings.Contains(strings.ToLower(field), "filename") {
+			t.Errorf("publicAlbumItem gained %q: the public read model must have nowhere to put a filename", field)
+		}
 	}
 }
