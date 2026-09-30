@@ -168,26 +168,24 @@ func TestAlbumPageShowsThePhotographersCredit(t *testing.T) {
 	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
 	page := string(body)
 
-	if !strings.Contains(page, fixtureCredit) {
-		t.Errorf("the credit line must appear on the album page\n%s", page)
+	// **In the markup, not on the tile** (task 473). The maintainer removed the visible plate from the grid; the
+	// attribution still has to reach the page, because the viewer reads it from here and because a reader or a
+	// scraper looking at the source should find it.
+	if !strings.Contains(page, `data-credit="`+fixtureCredit+`"`) {
+		t.Errorf("the credit must still be in the tile's markup for the viewer to read\n%s", page)
 	}
-	if !strings.Contains(page, `<span class="credit">`+fixtureCredit+`</span>`) {
-		t.Errorf("the credit must be its own element under the caption, not part of the caption's sentence\n%s",
-			page)
-	}
-
-	// The captionless second item has no credit either, so it must still render no figcaption at all — the
-	// credit must not resurrect an empty one.
-	if got := strings.Count(page, "<figcaption>"); got != 1 {
-		t.Errorf("want exactly one figcaption: one item has a caption and a credit, the other has neither; got %d",
-			got)
+	// And no longer painted over the photograph: at 150px it was noise on the picture, on some tiles and not
+	// others. The plate and its CSS went together — see TestTheGridCarriesNoCreditPlate.
+	if strings.Contains(page, `<span class="credit">`) {
+		t.Errorf("the credit must not be rendered on the tile any more (task 473)\n%s", page)
 	}
 }
 
-// A photograph with a credit and no caption still gets a figcaption — the credit alone is worth showing.
+// An uncaptioned photograph still carries its photographer's name in the markup.
 //
-// The template condition is `or .Caption .Credit` rather than keying off the caption, and this is the case that
-// distinguishes the two: an uncaptioned photograph by a named photographer must still be attributed.
+// Was "still gets a figcaption" until task 473 removed the tile's plate. The case is still worth its own test: a
+// credit and a caption are independent, and the uncaptioned-but-credited photograph is the one where an
+// implementation keyed off the caption would drop the attribution entirely.
 func TestAlbumPageShowsACreditWithoutACaption(t *testing.T) {
 	app, store := albumApp(t)
 	// The second item has neither. Give it a credit only.
@@ -198,11 +196,8 @@ func TestAlbumPageShowsACreditWithoutACaption(t *testing.T) {
 	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
 	page := string(body)
 
-	if !strings.Contains(page, "Foto: Jens Balle") {
-		t.Errorf("a credit must render even with no caption\n%s", page)
-	}
-	if got := strings.Count(page, "<figcaption>"); got != 2 {
-		t.Errorf("want two figcaptions now that both items have something to say, got %d", got)
+	if !strings.Contains(page, `data-credit="Foto: Jens Balle"`) {
+		t.Errorf("a credit must reach the markup even with no caption\n%s", page)
 	}
 }
 
@@ -506,15 +501,24 @@ func TestTheAlbumPageWiresTheViewer(t *testing.T) {
 	}
 }
 
-// The caption's visible line went; **the credit's did not** (task 403, PRD 023 §7.1).
+// **The grid carries no credit plate, and the CSS for it is gone too** (task 473).
 //
-// PRD 023 traded the caption under the tile for the viewer's info panel: at 150px there is no room, and the
-// caption is still in the alt text and in `data-caption`. The credit is a different kind of thing. It is a
-// published attribution — a photographer asked to be named, and PRD 011's "names no person" claim was formally
-// narrowed to allow exactly this (task 393). An attribution that only renders once a script has run is an
-// attribution we stop making for everybody whose script did not run, and no layout change is entitled to decide
-// that.
-func TestTheCreditStaysOnThePageWhileTheCaptionMovesToTheViewer(t *testing.T) {
+// # A reversal, recorded because the argument it reverses was a good one
+//
+// Task 403 moved the caption into the viewer and deliberately kept the credit on the page; task 422 then put it over
+// the photograph's corner so every tile stayed square. The reasoning was: an attribution that renders only once a
+// script has run is an attribution we stop making for everybody whose script did not run, and no layout change is
+// entitled to decide that.
+//
+// The maintainer decided otherwise on 2026-09-30: *"in the public album view photocredit should be removed from
+// thumbnails"*. What that costs is exactly what the old comment said — a visitor with no JavaScript now sees the
+// photographs and no attribution. What it buys is a grid that can be scanned: the plate sat over the bottom-left of a
+// 150px tile, on some tiles and not others.
+//
+// So this test now asserts the new rule, including that the **CSS went with the markup**. Rules for markup nothing
+// emits are dead code nobody can identify as dead, and the plate's rules were subtle — pointer-events, absolute
+// positioning — so they would have looked deliberate for years.
+func TestTheGridCarriesNoCreditPlate(t *testing.T) {
 	app, _ := albumApp(t)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
@@ -522,43 +526,67 @@ func TestTheCreditStaysOnThePageWhileTheCaptionMovesToTheViewer(t *testing.T) {
 	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
 	page := string(body)
 
-	// Visible, in its own element, with no script involved.
-	if !strings.Contains(page, `<figcaption><span class="credit">`+fixtureCredit+`</span></figcaption>`) {
-		t.Errorf("the photographer's credit must still be readable without the viewer\n%s", page)
+	// The tile: no plate, and no empty figcaption left behind either.
+	if strings.Contains(page, `<span class="credit">`) || strings.Contains(page, "<figcaption>") {
+		t.Errorf("the tile must carry neither a credit plate nor a figcaption\n%s", page)
 	}
-	// The caption is present as data and as alt text, and no longer as a line under the tile.
+	// But the attribution is still in the markup, which is what the viewer reads and what keeps it in the page a
+	// scraper sees.
+	if !strings.Contains(page, `data-credit="`+fixtureCredit+`"`) {
+		t.Errorf("the credit must remain in data-credit\n%s", page)
+	}
+	// The caption is unchanged by this: data and alt text, no visible line. That half is task 403's and stands.
 	if !strings.Contains(page, `data-caption="Ved målstregen"`) ||
 		!strings.Contains(page, `alt="Ved målstregen"`) {
 		t.Errorf("the caption must stay in the markup for the viewer and for a screen reader\n%s", page)
 	}
-	if strings.Contains(page, `<figcaption>Ved målstregen`) {
-		t.Error("the caption's visible line under the tile should have moved into the viewer's info panel")
-	}
 
-	// And the credit is over the photograph rather than under it (task 422): out of the layout, so every tile is a
-	// square and a grid does not have rows of two heights depending on which photographs happen to be credited.
+	// And the stylesheet: the plate's rules are gone.
 	css := stripCSSComments(page)
-	plate := ruleFor(t, css, ".photos figcaption {")
-	for _, want := range []struct{ needle, why string }{
-		{"position: absolute", "out of the layout, or it takes a row's height from every tile"},
-		{"bottom: 0", "at the bottom of the photograph"},
-		{"left: 0", "and in its left corner"},
-		{"pointer-events: none",
-			"the figcaption is a sibling of the link, not inside it, so without this a click on the credit would " +
-				"do nothing — a dead corner on every credited photograph"},
-	} {
-		if !strings.Contains(plate, want.needle) {
-			t.Errorf("the credit plate is missing %q — %s:\n%s", want.needle, want.why, plate)
+	for _, dead := range []string{".photos figcaption {", ".photos .credit {"} {
+		if strings.Contains(css, dead) {
+			t.Errorf("%s is still in the stylesheet, styling markup nothing emits", dead)
 		}
 	}
-	// Not truncated. The whole point of the field is that somebody is named, and "Foto: Vibeke K…" would be a worse
-	// outcome than a slightly obscured corner of a photograph.
-	if strings.Contains(plate, "text-overflow") || strings.Contains(plate, "nowrap") {
-		t.Errorf("an attribution must not be truncated; let it wrap:\n%s", plate)
+}
+
+// The credit is rendered by the viewer, always prefixed, and prefixed **once**.
+//
+// The maintainer's other instruction: *"in single image view credit should always be prefixed with Foto:"*. The
+// subtlety is that the stored value cannot be trusted to say whether it already is — a roster credit resolves to a
+// bare name, while typed ones have carried "Foto: " since task 393, because the stored string used to be the whole
+// rendered line. So the rule has to be idempotent, and this is a source read because there is no JavaScript runtime
+// in this suite.
+func TestTheViewerPrefixesACreditExactlyOnce(t *testing.T) {
+	js := stripJSLineComments(viewerAsset(t, "viewer.js"))
+
+	for _, want := range []struct{ needle, why string }{
+		{"function creditLine(credit) {", "one place decides how a credit reads publicly"},
+		{"'Foto: ' + String(credit).replace(FOTO_PREFIX, '').trim()",
+			"the prefix is added after any existing one is stripped, or a credit typed as \"Foto: Anne\" renders " +
+				"as \"Foto: Foto: Anne\" — which is every credit set before task 473"},
+		{"credit.textContent = creditLine(item.credit);", "and the info panel uses it"},
+		{"creditLine: creditLine,",
+			"exposed, because the admin tool's credit editor previews this exact line and a second copy of the " +
+				"rule would eventually disagree with the page it previews"},
+	} {
+		if !strings.Contains(js, want.needle) {
+			t.Errorf("viewer.js no longer has %q: %s", want.needle, want.why)
+		}
+	}
+
+	// The editor's preview goes through it rather than concatenating its own prefix.
+	editor := stripJSLineComments(adminAsset(t, "vieweredit.js"))
+	if !strings.Contains(editor, "window.hejViewer.creditLine") {
+		t.Error("the credit editor's preview must render through the viewer's creditLine, or it previews a " +
+			"sentence the page will not show")
 	}
 }
 
 // An item with no caption must not reserve space for one.
+//
+// Since task 473 the tile has no figcaption at all — the caption moved to the viewer in task 403 and the credit plate
+// went with it — so the assertion is that nothing on the tile reserves a line, and the alt text still falls back.
 func TestAlbumPageOmitsAnAbsentCaption(t *testing.T) {
 	app, _ := albumApp(t)
 	srv := httptest.NewServer(app.routes())
@@ -567,8 +595,8 @@ func TestAlbumPageOmitsAnAbsentCaption(t *testing.T) {
 	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
 	page := string(body)
 
-	if got := strings.Count(page, "<figcaption>"); got != 1 {
-		t.Errorf("want exactly one figcaption (only one item has a caption), got %d", got)
+	if got := strings.Count(page, "<figcaption>"); got != 0 {
+		t.Errorf("no tile should carry a figcaption any more, got %d", got)
 	}
 	// The captionless item still needs alt text, falling back to the album's title.
 	if !strings.Contains(page, `alt="Billede fra Lørdag morgen"`) {

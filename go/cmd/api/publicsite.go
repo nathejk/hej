@@ -1053,28 +1053,16 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   .photos .frame img { width: 100%; height: 100%; object-fit: cover; display: block;
          transition: opacity .15s ease-in-out; }
   .photos .tile:hover .frame img { opacity: .85; }
-  /* **The credit sits over the photograph, bottom left** (task 422).
+  /* The tile carries no caption and no credit (tasks 403 and 473), so there is nothing positioned over it and
+     every tile is exactly a square.
 
-     It was a line under the tile, which cost every row the height of one — and cost it unevenly, since only some
-     photographs carry a credit, so a grid of them had rows of two different heights for no reason a reader could
-     see. Absolutely positioned, it is out of the layout entirely: every tile is now exactly a square.
+     The rules that styled the credit plate — .photos figcaption and .photos .credit, added by task 422 — are gone
+     with it. They were carefully made pointer-transparent so a click on the plate still reached the tile underneath;
+     that is now a problem that does not exist. Deleted rather than left for a future caption, because CSS for markup
+     nothing emits is CSS nobody can tell is dead.
 
-     It is **not** truncated. A long name wraps onto a second line and covers a little more of the picture, which
-     is the right way round for an attribution: the whole point of the field is that somebody is named, and
-     "Foto: Vibeke K…" would be a worse outcome than a slightly obscured corner.
-
-     Making it transparent to the pointer is load-bearing rather than tidy. The figcaption is a sibling of the
-     link, not inside it, so a click landing on the credit would do nothing at all — a dead corner on every
-     credited photograph. Transparent to the pointer, the click passes through to the tile underneath, which is
-     what the visitor was aiming at. (No backticks in here: Go raw string.) */
-  .photos figcaption { position: absolute; left: 0; bottom: 0; z-index: 1; max-width: 100%;
-         padding: .15rem .4rem; border-radius: 0 .25rem 0 .25rem;
-         background: rgba(0,0,0,.6); color: #fff; font-size: .7rem; line-height: 1.3;
-         pointer-events: none; }
-  /* The photographer's credit (task 393), which is the only thing left in the figcaption since the caption moved
-     into the viewer. It inherits the plate's colour and size rather than setting its own — the plate is the styling
-     now, and two places deciding the same thing is how one of them gets forgotten. */
-  .photos .credit { display: block; color: inherit; font-size: inherit; margin: 0; }
+     (No backticks: Go raw string. Seventh recorded occurrence, this one while deleting the rules whose own comment
+     carried the same warning.) */
   /* The patrol page's header: who they are on the left, the diploma on the right. Flex rather than
      grid so it collapses to one column on a narrow screen without a media query. */
   .patrolhead { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start;
@@ -1445,15 +1433,19 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
            {{if and .Width .Height}}width="{{.Width}}" height="{{.Height}}"{{end}}>
     </span>
   </a>
-  <!-- **The credit stays visible; the caption does not** (task 403).
+  <!-- **The credit is not on the tile** (task 473). It was, from task 403 to task 473, and the reasoning then was
+       that an attribution rendered only by script is an attribution we stop making for anybody whose script did not
+       run. The maintainer's instruction reverses that for the grid: *"in the public album view photocredit should be
+       removed from thumbnails, and in single image view credit should always be prefixed with Foto:"*.
 
-       PRD 023 §7.1 traded the caption under the tile for the viewer's info panel: at 150px there is no room,
-       and the caption is still in the alt text and in data-caption. The credit is **not** the same kind of
-       thing and did not go with it. It is a published attribution (task 393) — a photographer asked to be
-       named, and PRD 011's "names no person" claim was formally narrowed to allow exactly this. An attribution
-       that only renders once a script has run is an attribution we stop making for anybody whose script did not
-       run, and that is not a decision a layout change is entitled to take. -->
-  {{if .Credit}}<figcaption><span class="credit">{{.Credit}}</span></figcaption>{{end}}
+       What the reversal costs is worth being clear about, because the old comment's argument was not wrong: with no
+       script, a visitor now sees the photographs and no attribution. What it buys is a grid a reader can scan — the
+       credit sat over the bottom-left corner of a 150px tile, on some tiles and not others, and at that size it was
+       noise on the photograph rather than information about it.
+
+       The attribution still reaches everybody who opens a photograph, which is where somebody actually looks at one,
+       and it is still in data-credit on the tile — so it is in the markup a reader or a scraper sees, just not
+       painted over the picture. -->
 </figure>
 {{end}}
 {{end}}

@@ -57,8 +57,11 @@ func TestAlbumPageRendersACreditedCrewMembersName(t *testing.T) {
 	_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen", nil)
 	page := string(body)
 
-	if !strings.Contains(page, `<span class="credit">Anne Sørensen</span>`) {
-		t.Errorf("a credit by reference must render as the crew member's name, in the same element a typed "+
+	// **The same place a typed credit lands, so the page cannot tell the two apart.** Since task 473 that place is
+	// `data-credit` rather than a plate on the tile — the assertion is unchanged in substance: one attribute, one
+	// resolved name, no way for a reader to see which kind of credit it was.
+	if !strings.Contains(page, `data-credit="Anne Sørensen"`) {
+		t.Errorf("a credit by reference must render as the crew member's name, in the same attribute a typed "+
 			"credit renders in — the page must not be able to tell the two apart\n%s", page)
 	}
 	// **The reference itself is nowhere on the page.** Not in an attribute, not in a comment, not in the

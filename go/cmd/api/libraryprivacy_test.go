@@ -215,6 +215,21 @@ var libraryPersonShapedExceptions = map[string]bool{
 	"hascredit": true,
 	"creditis":  true,
 
+	// **Which kind of credit a photograph has**, rather than what it says (task 473).
+	//
+	// `adminLibraryPhoto.CreditIsCrew` — true when the credit came from the crew picker, false when somebody typed
+	// a name. A boolean about which column holds the value. It names nobody and could not: there is exactly one bit
+	// of information in it, and neither of its two values is a person.
+	//
+	// It exists because the reference is *not* on the wire, which is right (PRD 025 §6 R6) and had a consequence
+	// nobody had noticed: every editor that prefills from the resolved `credit` and saves what it finds converts a
+	// reference into a typed name. That is PRD 025 §8 D1 running backwards — the erasable form silently replaced by
+	// the one that cannot be erased, on the append-only log. `vieweredit.js` was doing it.
+	//
+	// So this is the narrowest thing that fixes it: the editors need to know the *kind*, and telling them costs one
+	// bit rather than a person's identifier.
+	"creditiscrew": true,
+
 	// The name the photographer's file had (task 448, PRD 024 §6 R5).
 	//
 	// # What it is for

@@ -200,6 +200,14 @@ function initViewerEdit(ctx) {
     return editPanel;
   }
 
+  // creditFromRoster reports whether this photograph's credit is a **reference** rather than a typed name.
+  //
+  // Read off the cell, which carries `data-credit-crew` since task 473. The viewer's own item has no such notion —
+  // it is the shared component and knows nothing about crews — so this looks at the DOM node the item came from.
+  function creditFromRoster(item) {
+    return !!(item && item.node && item.node.dataset && item.node.dataset.creditCrew);
+  }
+
   function fill() {
     const spec = open.spec;
     const els = editPanel.els;
@@ -208,7 +216,21 @@ function initViewerEdit(ctx) {
     // **Prefilled from the photograph**, never from `hej.admin.lastCredit`. That key exists because a *batch* has
     // no single current value to show and retyping one line per card is real tedium; with one photograph in front
     // of you the honest prefill is its own text.
-    els.field.value = spec.read(open.vctx.item) || '';
+    //
+    // **Except a credit that came from the roster** (task 473). Prefilling it here was a silent downgrade: the field
+    // shows the *resolved name*, and saving would write that name into `photo.credit` — replacing a reference that
+    // can be erased in one place with a string that is also on the append-only log and cannot. PRD 025 §8 D1 is the
+    // decision that runs backwards.
+    //
+    // The name is still shown, in the hint, so the curator can see who it is. They just cannot turn it into text by
+    // pressing Gem without meaning to — for that, they type a different name, which is a deliberate act.
+    const fromRoster = open.name === 'credit' && creditFromRoster(open.vctx.item);
+    els.field.value = fromRoster ? '' : (spec.read(open.vctx.item) || '');
+    if (fromRoster) {
+      els.hint.textContent = 'Krediteret ' + (spec.read(open.vctx.item) || 'en fra crewlisten') +
+        ', valgt fra crewlisten. Skriv kun et navn her, hvis krediteringen skal skiftes til fri tekst — ' +
+        'så følger den ikke længere crewlisten.';
+    }
     els.clear.hidden = !spec.clear;
     if (spec.clear) els.clear.textContent = spec.clear;
     els.note.textContent = '';
@@ -223,9 +245,15 @@ function initViewerEdit(ctx) {
     }
     // What a family will read under the photograph, in the words the curator just typed. A curator putting a
     // colleague's name on a public page should be looking at the public form of it while they do.
+    //
+    // **Rendered by the viewer's own `creditLine`** (task 473), not by a second copy of the rule here: the public
+    // line is always "Foto: " plus the name, with an existing prefix stripped so a credit typed as "Foto: Anne"
+    // does not become "Foto: Foto: Anne". A preview that applied that rule differently would be a preview of
+    // something else — which is the one thing a preview must not be.
     const value = els.field.value.trim();
+    const render = (window.hejViewer && window.hejViewer.creditLine) || ((v) => 'Foto: ' + v);
     els.preview.hidden = false;
-    els.preview.textContent = value ? 'Offentligt: ' + value : 'Offentligt: ingen fotokredit';
+    els.preview.textContent = value ? 'Offentligt: ' + render(value) : 'Offentligt: ingen fotokredit';
   }
 
   function close() {

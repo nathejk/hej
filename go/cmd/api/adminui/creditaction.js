@@ -38,12 +38,46 @@ function initCreditAction(ctx) {
   const creditText = document.getElementById('credittext');
   const CREDIT_KEY = 'hej.admin.lastCredit';
 
+  // currentCredit describes what the selection is credited to today, for the line above the controls.
+  //
+  // # Why the sheet says this instead of prefilling
+  //
+  // The maintainer's report was that opening the sheet on a credited photograph showed nothing about its credit
+  // (task 473), which was true and unhelpful: the only visible text was the *placeholder* of the last name typed on
+  // this machine, which reads exactly like a filled field and belongs to a different photograph.
+  //
+  // Prefilling the typed field would have been the obvious fix and is wrong twice over. With several photographs
+  // selected it is a guess that silently overwrites the ones it guessed wrong about — the reason this sheet never
+  // prefilled. And on a photograph credited from the **roster** it would replace a reference with a typed name the
+  // moment the curator pressed the button, turning the erasable form into the permanent one (PRD 025 §8 D1) without
+  // anybody choosing to.
+  //
+  // So: state the current credit, and let the buttons keep meaning "replace it with what I chose here".
+  function currentCredit() {
+    const ids = Array.from(ctx.selected);
+    const seen = [];
+    let fromRoster = false;
+    for (const id of ids) {
+      const cell = document.querySelector('#sheet .cell[data-id="' + id + '"]');
+      const credit = cell ? (cell.dataset.credit || '') : '';
+      if (cell && cell.dataset.creditCrew) fromRoster = true;
+      if (seen.indexOf(credit) < 0) seen.push(credit);
+    }
+    if (!seen.length) return '';
+    if (seen.length > 1) return 'De valgte billeder har forskellige fotokreditter.';
+    if (seen[0] === '') return ids.length === 1 ? 'Billedet har ingen fotokredit endnu.' : 'Ingen af dem har fotokredit endnu.';
+    // Named as what it is, because the two kinds behave differently when a photographer later asks to be removed.
+    return (ids.length === 1 ? 'Nuværende fotokredit: ' : 'Alle har samme fotokredit: ') + seen[0] +
+      (fromRoster ? ' (valgt fra crewlisten)' : ' (skrevet ind)');
+  }
+
   function openCreditPanel() {
     ctx.openSheet(creditPanel);
     creditNote.textContent = ctx.photoCount(ctx.selected.size) + ' får fotokreditten.';
+    const now = currentCredit();
+    if (now) creditNote.textContent += ' ' + now;
     // Prefilled from the last one typed on this machine, so a second card is one click. Not prefilled from the
-    // selection: the photographs may carry different credits, and picking one of them to show would be a guess
-    // that silently overwrites the others when the curator presses the button.
+    // selection: see currentCredit above for why that would be wrong in two different ways.
     try {
       if (!creditText.value) creditText.value = window.localStorage.getItem(CREDIT_KEY) || '';
     } catch (err) { /* storage disabled or full: the field is simply empty */ }

@@ -329,10 +329,38 @@ func TestAdminLibraryReturnsNoBlobRefs(t *testing.T) {
 // The library read must never carry a person. Behind a credential is not a reason to relax it — the rule is
 // about what the table is allowed to know (PRD 022 §8.3), and task 381 walks it structurally.
 func TestAdminLibraryPayloadHasNowhereToPutAPerson(t *testing.T) {
+	// Held to the **public** standard, `isPersonShaped`, rather than to the library's more forgiving list — which is
+	// the point of this test and must stay: `libraryPersonShapedExceptions` admits `creditCrewId`, and PRD 025 §6 R6
+	// says the reference may live in the column and never on the wire. Using the library predicate here would let it
+	// onto the wire in silence.
+	//
+	// So a field this payload needs, whose name contains `credit` and which is not a person, is excepted here, by
+	// name, with the reason — the same mechanism `isPersonShaped` uses for `credit` itself.
+	allowed := map[string]bool{
+		// Which *kind* of credit a photograph has: picked from the roster, or typed (task 473).
+		//
+		// One bit, and neither of its values is a person. It is on the wire because the reference is not: without
+		// the kind, every editor that prefills from the resolved name and saves what it finds converts a reference
+		// into a typed string — the erasable form replaced by the permanent one, which is PRD 025 §8 D1 backwards.
+		//
+		// Note what is **not** excepted, and would still fail here: `CreditCrewID`. The id is the thing R6 keeps off
+		// the wire, and this exception does not touch it.
+		"CreditIsCrew": true,
+	}
+
 	for _, field := range structFieldNames(adminLibraryPhoto{}) {
+		if allowed[field] {
+			continue
+		}
 		if isPersonShaped(field) {
 			t.Errorf("adminLibraryPhoto gained a person-shaped field %q", field)
 		}
+	}
+
+	// And the exception is narrow: the reference itself must still be refused, so that "add the kind" cannot become
+	// "add the id" by following the same paragraph.
+	if !isPersonShaped("CreditCrewID") {
+		t.Error("CreditCrewID must remain person-shaped: PRD 025 §6 R6 keeps the reference off every response")
 	}
 }
 

@@ -66,8 +66,23 @@ type adminLibraryPhoto struct {
 	// The one person-shaped field the curator's tool carries, narrowly and deliberately — free text somebody
 	// typed, never derived from the `person` projection. See photo/table.sql's column comment for the bounds.
 	Credit string `json:"credit,omitempty"`
-	Width  int    `json:"width,omitempty"`
-	Height int    `json:"height,omitempty"`
+
+	// CreditIsCrew says the credit came from the **crew picker** rather than from a typed name (task 473).
+	//
+	// # Why the kind has to be on the wire when the reference must not be
+	//
+	// The reference itself stays off it, deliberately (PRD 025 §6 R6): a crew id is person-shaped, and the response
+	// carries the resolved name instead. But without knowing *which kind* a credit is, every editor that prefills
+	// from `Credit` and saves what it finds converts a reference into a typed string — silently turning the
+	// erasable form into the one that cannot be erased, which is the entire point of PRD 025 §8 D1 running
+	// backwards. `vieweredit.js` was doing exactly that.
+	//
+	// A boolean about which column holds the credit names nobody. It is excepted in
+	// `libraryPersonShapedExceptions` on that basis, and the exception is narrower than the one the reference would
+	// have needed.
+	CreditIsCrew bool `json:"creditIsCrew,omitempty"`
+	Width        int  `json:"width,omitempty"`
+	Height       int  `json:"height,omitempty"`
 
 	// Lat/Lng are omitted when the photograph has no coordinate, which is the common case.
 	Lat *float64 `json:"lat,omitempty"`
@@ -231,6 +246,7 @@ func (app *application) readAdminLibraryPage(w http.ResponseWriter, r *http.Requ
 			// `isPersonShaped` flags it precisely so that a *response* type cannot quietly acquire one —
 			// `libraryPersonShapedExceptions` admits the column, not the wire (PRD 025 §6 R6).
 			Credit:        resolvedCredit(p.Credit, p.CreditCrewID, creditNames),
+			CreditIsCrew:  p.CreditCrewID != "",
 			Width:         p.Width,
 			Height:        p.Height,
 			Lat:           p.Lat,

@@ -302,6 +302,9 @@ Everything that is not a cell arrives as an out-of-band swap, which is how one r
         data-thumb="/api/admin/photos/{{.ID}}/media?variant=thumb&amp;year={{$.Year}}"
         {{if .Caption}}data-caption="{{.Caption}}"{{end}}
         {{if .Credit}}data-credit="{{.Credit}}"{{end}}
+        {{/* Which kind of credit it is (task 473). An editor that prefills from data-credit and saves it would
+             otherwise turn a crew reference into a typed name — losing the erasable form silently. */}}
+        {{if .CreditIsCrew}}data-credit-crew="1"{{end}}
         {{if .Deleted}}data-viewer-deleted="true"{{end}}>
   <img loading="lazy" decoding="async" alt="{{.Caption}}"
        src="/api/admin/photos/{{.ID}}/media?variant=thumb&amp;year={{$.Year}}">

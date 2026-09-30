@@ -218,6 +218,27 @@
     return out;
   }
 
+  // creditLine renders a credit as the public sentence: always "Foto: " and then the name.
+  //
+  // # Why the prefix is added here rather than stored
+  //
+  // The maintainer's instruction (task 473) is that the single-image view always shows the credit prefixed. The
+  // stored value cannot be relied on to carry it: a credit picked from the crew roster resolves to a **bare name**
+  // ("Anne Sørensen"), while a typed one is whatever a curator wrote — and they have been writing "Foto: Anne
+  // Sørensen" since task 393, because until now the stored string was the whole rendered line.
+  //
+  // So both forms exist in the data, and adding the prefix unconditionally would render "Foto: Foto: Anne Sørensen"
+  // for every credit typed before today. An existing prefix is therefore stripped before one is added, which makes
+  // this idempotent and makes the two kinds render identically — which is the point of the instruction.
+  //
+  // Case-insensitive and tolerant of the missing space, because the variants are what people type. It does **not**
+  // touch anything else: a credit reading "Billede: X" or "Photo: X" keeps its own words and gets the prefix, which
+  // is a little redundant and much better than this function guessing at prose.
+  var FOTO_PREFIX = /^\s*foto\s*:\s*/i;
+  function creditLine(credit) {
+    return 'Foto: ' + String(credit).replace(FOTO_PREFIX, '').trim();
+  }
+
   // The one place a plain image URL is chosen: the display image, or the thumbnail if a photograph somehow has
   // no display rendition. This is what a browser that ignores `srcset` ends up with, and what the filmstrip
   // falls back to.
@@ -283,7 +304,7 @@
     if (item.credit) {
       var credit = document.createElement('span');
       credit.className = 'hv-credit';
-      credit.textContent = item.credit;
+      credit.textContent = creditLine(item.credit);
       state.info.appendChild(credit);
     }
     if (item.deleted) {
@@ -832,6 +853,10 @@
     // For a host page that opens the viewer itself rather than on a click — see `data-viewer-click="none"`.
     open: open,
     icons: ICONS,
+    // How a credit is rendered publicly (task 473). Exposed because the admin tool's credit editor shows a preview
+    // of exactly this line, and a preview rendered by a second copy of the rule is a preview that will eventually
+    // disagree with the page it is previewing.
+    creditLine: creditLine,
   };
   // Fullscreen (task 404, PRD 023 §7.5).
   //
