@@ -12,15 +12,18 @@ import (
 // Production uploads failed with **502** while the identical files uploaded cleanly in dev. The cause was memory, and
 // the numbers are worth keeping because every one of them was measured rather than reasoned about:
 //
-//	one Prepare of a 12MP phone JPEG   174 MB of live heap  (before task 471's fix)
-//	the same, after converting once     83 MB
-//	the uploader's concurrency           3 files at a time
-//	the production container            256 MB
+//	one Prepare of a 12MP phone JPEG   122-170 MB of live heap   (the three files that failed)
+//	the same, after task 471's fix       79-126 MB               (see imaging.Prepare: it helps the unrotated one)
+//	the uploader's concurrency                3 files at a time
+//	the production container                256 MB
 //
-// Three concurrent uploads is 249 MB of image data on a 256 MB limit, with nothing left for the projections, the
-// connection pools or the caches. The cgroup killed the process mid-request, every connection in flight died, and
-// Traefik — which cannot know why a backend vanished — answered 502. Dev has no memory limit, so the same three
+// Three concurrent uploads is 370-510 MB of image data on a 256 MB limit, with nothing left for the projections,
+// the connection pools or the caches. The cgroup killed the process mid-request, every connection in flight died,
+// and Traefik — which cannot know why a backend vanished — answered 502. Dev has no memory limit, so the same three
 // photographs sailed through.
+//
+// Note the spread within one file size: a 2.7 MB JPEG peaked *higher* than a 5.3 MB one, because the cost is pixels
+// and GC timing rather than bytes on the wire. 12 MP is 46 MB as RGBA whatever it compressed to.
 //
 // # Why a semaphore rather than only a bigger limit
 //
@@ -38,8 +41,8 @@ import (
 //
 // `GOMAXPROCS`, capped at 2. Resizing is CPU-bound, so there is nothing to gain from more concurrency than there are
 // cores; and the cap is what keeps a big host from setting a peak the *memory* limit cannot pay for. Two is the
-// measured fit: 2 × 83 MB leaves room inside a 256 MB container, and inside the 512 MB the deploy now asks for it
-// leaves plenty.
+// measured fit: 2 × 126 MB is 252 MB, which does not fit the old 256 MB container at all and sits comfortably
+// inside the 512 MB the deploy now asks for, with the app's own 60-80 MB baseline on top.
 //
 // This is deliberately not configurable. A knob would need a number nobody can pick without the measurement above,
 // and the measurement says "two" on every host this runs on.

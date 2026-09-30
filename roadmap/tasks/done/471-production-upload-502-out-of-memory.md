@@ -20,7 +20,7 @@ A 502 is Traefik's, not the app's: the proxy either got no response or the backe
 
 | | |
 |---|---|
-| One `imaging.Prepare` of a 12MP phone JPEG | **174 MB** of live heap |
+| One `imaging.Prepare` of a 12MP phone JPEG | **122–170 MB** of live heap |
 | The uploader's concurrency (`upload.js`) | **3** files at a time |
 | The production container (`docker-compose.prod.yml`) | **256 MB** |
 | The dev container | **no limit** |
@@ -42,10 +42,26 @@ reason: the conversions are identical.
 
 Three changes, because the limit alone would have moved the failure rather than fixed it.
 
-### 1. Convert once — 174 MB → 83 MB
+### 1. Convert once — 170 MB → 79 MB, for an unrotated photograph only
 
 `Prepare` now converts to RGBA once and hands the same image to every rendition. `toRGBA` already returned its
-argument unchanged for an origin-based `*image.RGBA`, so this is a two-line change for a **2.1× reduction**.
+argument unchanged for an origin-based `*image.RGBA`, so this is a two-line change.
+
+**Corrected after the maintainer pushed back on the numbers.** I first measured a synthetic 4000×3000 fixture and
+reported a uniform 2.1× win. Re-measured on the three photographs that actually failed:
+
+| file | on disk | EXIF orientation | peak before | after |
+|---|---|---|---|---|
+| `20260918_205915.jpg` | 5.3 MB | 1 | 170 MB | **79 MB** |
+| `20260918_210005.jpg` | 2.7 MB | 6 | 122 MB | 122 MB |
+| `20260918_211252.jpg` | 4.5 MB | 6 | 126 MB | 126 MB |
+
+So it helps the **unrotated** photograph and does nothing for the two rotated ones — because `applyOrientation`
+already returns an `*image.RGBA` when it rotates, which `toRGBA` passes through, so those two never had duplicate
+conversions to remove. Orientation 6 is a phone held upright, which is most of them.
+
+My fixture had no EXIF rotation, so it measured the best case and I generalised from it. The lesson is the ordinary
+one: **measure the input that failed**, not one shaped like it.
 
 Output bytes are identical wherever a rendition is actually scaled, which is every photograph from a camera. The one
 case that changes is an image already *smaller* than a target edge, where `Fit` returns its input untouched: that used
@@ -80,6 +96,25 @@ declared, the runtime collects harder instead, which is the difference between a
 
 `TestTheProductionMemoryLimitsPayForTheGate` reads the compose file and asserts the three numbers still agree, since
 they are one decision recorded in two files.
+
+## Why 2–5 MB on disk costs 125 MB in memory
+
+The maintainer's question, and it deserves an answer rather than a restatement: *"your measurements are in the
++100MB scale, actual filesizes on disk (and over the wire) is 2-5MB"*.
+
+Two multiplications sit between the two numbers, and neither is avoidable:
+
+1. **JPEG is compressed**, about 9–17× for these files. 5.3 MB of JPEG is 12 million pixels.
+2. **A pixel in memory is 4 bytes**, not the ~0.44 a byte-per-pixel average implies. 4000 × 3000 × 4 = **46 MB** for
+   one copy of the image, and the pipeline needs the decoded frame, a rotated copy, and a destination for each
+   rendition.
+
+Which is why the cost tracks **pixels, not bytes on the wire** — the 2.7 MB file peaked *higher* than the 5.3 MB one.
+All three are 12 MP. A file half the size is not half the work; it is the same work on a better-compressed photograph.
+
+The corollary matters for the limit: `maxAdminUpload` is 32 MiB, and a 32 MiB JPEG is likely 50 MP or more — around
+200 MB as RGBA. The gate bounds how many are in flight, not how big one is, so if uploads start failing again the
+first thing to measure is one `Prepare` of the file that failed.
 
 ## A flake I introduced, and caught
 

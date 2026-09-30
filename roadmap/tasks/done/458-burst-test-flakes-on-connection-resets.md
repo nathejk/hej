@@ -1,11 +1,11 @@
 # 458 — The morning-after burst test flakes with connection resets, and hides it behind a bad helper
 
-**Status:** open
+**Status:** done
 **Priority:** low
 **Created:** 2026-09-28
-**Picked up by:**
-**Started:**
-**Completed:**
+**Picked up by:** agent
+**Started:** 2026-09-28
+**Completed:** 2026-09-28
 
 ## Description
 
@@ -73,3 +73,55 @@ the sequential tests that use it.
   goroutine `Fatalf` are both plainly there, and either alone explains what was observed. Worth confirming the
   first is really the cause — if resets persist with a properly sized transport, the next suspect is the
   `httptest` listener backlog rather than the client.
+
+## What shipped
+
+Picked up because it stopped being background noise: while validating task 471 it failed on most runs and was
+blocking a clean gate.
+
+**Both diagnoses in the description were right, and neither was the whole story.**
+
+`getPublic`'s `t.Fatalf` from 400 goroutines was fixed first — the test now does its own request, records
+`(status, err)` per slot, and asserts after `wg.Wait()` on the test's own goroutine. That immediately paid for itself
+by replacing "connection reset by peer" with the real error:
+
+	can't assign requested address
+
+The local ephemeral port range running dry. HTTP/1.1 needs one connection per in-flight request, so 400 simultaneous
+requests is 400 sockets against one `httptest` listener — and 400 more in TIME_WAIT on every repeat, on a machine
+also running the rest of the suite. A bigger idle-connection budget does not help: at the instant 400 goroutines
+start, there is nothing idle to reuse.
+
+So the burst is now **400 requests with 64 in flight**, through its own transport.
+
+### Why that does not weaken the test, checked rather than argued
+
+The description says the concurrency must not be lost, and I wrote that. It turns out to be half right, and the
+distinction matters:
+
+- **The assertion is "400 requests cost one read."** That is what the counting doubles check and it does not depend on
+  how many sockets were open at once.
+- **The concurrency's job is to make requests overlap**, so a cache without single-flight is caught doing two reads.
+
+Mutation-checked by disabling `patrolTrackReader.claim`'s waiter path:
+
+| in flight | single-flight disabled |
+|---|---|
+| 64 | **fails** — "ByPeople called 2 times for 400 requests" |
+| 400 | cannot tell — dies at the transport before it asserts anything |
+
+So 64 tests the property and 400 tested nothing at all on this machine. The old number was not protecting the
+assertion; it was preventing it from running.
+
+## Acceptance Criteria
+
+- [x] The burst uses its own client, sized for its own width
+- [x] No `t.Fatalf` from a non-test goroutine; failures collected and asserted after `wg.Wait()`
+- [x] The one-read assertion and the 200-for-every-request assertion unchanged
+- [x] Passes at `-count=10`, six runs in a row, and in the full suite
+
+## Progress Log
+
+- 2026-09-28 — Created from two flakes seen during task 471's validation.
+- 2026-09-28 — Fixed. The goroutine-`Fatalf` fix is what made the real cause visible, which is the general lesson:
+  **a test that hides its own errors cannot be debugged.** Mutation-checked both concurrencies.

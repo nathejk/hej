@@ -17,7 +17,7 @@ import (
 //
 // # What these protect
 //
-// Not a feature — a **ceiling**. Decoding one 12MP photograph costs ~83 MB of live heap, the container is limited to
+// Not a feature — a **ceiling**. Decoding one 12MP photograph costs 79-126 MB of live heap, the container is limited to
 // 512 MiB, and the uploader sends three files at once. The gate is what makes the peak a property of this process
 // rather than of how many requests happen to arrive, and every one of these tests exists because a plausible edit
 // would quietly remove that property: gating one call site and not another, sizing the gate off a big host's core
@@ -151,7 +151,7 @@ func TestEveryDecodeGoesThroughTheGate(t *testing.T) {
 		}
 		found += calls
 		if gates := len(inSlot.FindAllString(code, -1)); gates < calls {
-			t.Errorf("%s calls imaging.Prepare %d times but withDecodeSlot only %d: an ungated decode is 83 MB "+
+			t.Errorf("%s calls imaging.Prepare %d times but withDecodeSlot only %d: an ungated decode is ~125 MB "+
 				"nothing accounted for, and the ceiling is a fiction", name, calls, gates)
 		}
 	}
@@ -178,9 +178,11 @@ func TestTheProductionMemoryLimitsPayForTheGate(t *testing.T) {
 	limit := firstInt(t, text, `memory: (\d+)M\b`)
 	memLimit := firstInt(t, text, `GOMEMLIMIT: \$\{GOMEMLIMIT:-(\d+)MiB\}`)
 
-	// Measured: 83 MB per decode. Held as a constant here so the relationship is checked rather than the number
-	// being repeated as a hope.
-	const perDecodeMB = 83
+	// Measured on the three photographs that failed in production: 79, 122 and 126 MB after the fix. The worst case
+	// is the number that has to fit, so 130 with a little rounding up — **not** the 83 MB an earlier version of this
+	// test used, which came from a synthetic fixture that happened to have no EXIF rotation and so measured the best
+	// case. Held as a constant here so the relationship is checked rather than the number being repeated as a hope.
+	const perDecodeMB = 130
 	need := perDecodeMB*cap(decodeGate) + 60 // + the app's own baseline
 
 	if limit < need {

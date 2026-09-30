@@ -357,12 +357,15 @@ services:
           #
           # THE ARITHMETIC, MEASURED — do not lower this without redoing it:
           #
-          #   one Prepare of a 12MP phone JPEG   83 MB of live heap  (174 MB before the fix in that task)
-          #   the decode gate                     2 at a time        (cmd/api/decodegate.go)
-          #   so image work peaks at             ~166 MB
-          #   plus the app's own baseline        ~60-80 MB           (projections, pools, caches, the share card)
+          #   one Prepare of a 12MP phone JPEG   79-126 MB of live heap  (122-170 MB before the fix in that task)
+          #   the decode gate                      2 at a time            (cmd/api/decodegate.go)
+          #   so image work peaks at              ~252 MB
+          #   plus the app's own baseline         ~60-80 MB               (projections, pools, caches, the card)
           #
-          # At 256 MiB that did not fit: three concurrent uploads at 174 MB each was twice the limit, the cgroup
+          # Measured on the three photographs that actually failed, not on a fixture. Note the cost is **pixels**,
+          # not bytes on the wire: all three are 12 MP, which is 46 MB as RGBA whether the JPEG was 2.7 MB or 5.3 MB.
+          #
+          # At 256 MiB that did not fit: three concurrent uploads at 122-170 MB each was well past the limit, the cgroup
           # killed the process mid-request, and Traefik answered 502 for everything in flight. The photographer saw
           # three files upload to 100% and then fail, with nothing in the message to act on.
           #

@@ -125,14 +125,25 @@ func Prepare(raw []byte, edge int, thumbEdges []int, quality int, keepOriginal b
 
 	// **Converted to RGBA once, here, rather than once per rendition.**
 	//
-	// MEASURED, 2026-09-28: `Fit` calls `toRGBA`, and this function calls `Fit` once for the display image and once
-	// per thumbnail — so a 4000×3000 photograph was being converted three times, at 48 MB a copy. One `Prepare`
-	// peaked at **174 MB of live heap** for a 5.9 MB JPEG.
+	// `Fit` calls `toRGBA`, and this function calls `Fit` once for the display image and once per thumbnail — so an
+	// unrotated 4000×3000 photograph was being converted three times, at 46 MB a copy.
 	//
-	// That is how the production upload failures happened (task 471): the container is limited to 256 MB, the
-	// uploader sends three files at once, and three of those peaks is twice the limit — so the process was
-	// OOM-killed mid-request and Traefik answered 502 for everything in flight. Dev has no memory limit, so the
-	// same three photographs uploaded cleanly there.
+	// MEASURED on the three photographs that failed in production (task 471), 12 MP each:
+	//
+	//	                     orientation   peak heap before   after
+	//	20260918_205915.jpg            1             170 MB   79 MB
+	//	20260918_210005.jpg            6             122 MB  122 MB
+	//	20260918_211252.jpg            6             126 MB  126 MB
+	//
+	// **So this helps an unrotated photograph and does nothing for a rotated one**, and the reason is worth knowing
+	// before anybody measures it again and concludes the change did nothing: `applyOrientation` above already
+	// returns an `*image.RGBA` when it rotates, which `toRGBA` passes through — so those two never had the
+	// duplicate conversions to remove. Orientation 6 is a phone held upright, which is most of them.
+	//
+	// The remaining ~125 MB is the irreducible part: one full-size RGBA, the decoded YCbCr, and the decoder's own
+	// scratch. Halving it further means rotating *after* downscaling rather than before — a 90° rotation commutes
+	// with an area-average resize up to rounding, and the destination would be 8 MB instead of 46 — which is task
+	// 472, not this one.
 	//
 	// `toRGBA` returns its argument unchanged when it is already an origin-based `*image.RGBA`, so passing this to
 	// every `render` below converts once and reuses.

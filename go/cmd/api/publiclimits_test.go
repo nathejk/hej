@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -115,23 +116,80 @@ func TestAMorningAfterBurstCostsOneTrackRead(t *testing.T) {
 
 	const visitors = 200
 
+	// **400 requests, 64 of them in flight at a time** (task 458).
+	//
+	// # Why not all 400 at once, which is what this did
+	//
+	// HTTP/1.1 needs one connection per in-flight request, so 400 simultaneous requests means 400 sockets against one
+	// `httptest` listener — and 400 sockets in TIME_WAIT, repeatedly, on a machine running the rest of the suite.
+	// That produced two failures with two different messages, neither about this route: "connection reset by peer",
+	// and then, once the client stopped hiding it, `can't assign requested address` — the local ephemeral port range
+	// running dry.
+	//
+	// **The assertion is unchanged: 400 requests must cost one read.** That is what the counting doubles below check,
+	// and it does not depend on how many sockets were open at once. What the concurrency has to do is make the
+	// requests *overlap*, so that the second visitor arrives before the first has finished reading and a cache
+	// without single-flight would be caught doing two reads. 64 simultaneous first-hits tests that as well as 400
+	// do, and it is 64 sockets instead of 400.
+	//
+	// A pool that serialised them would be worthless here — it would pass against no cache at all — which is why
+	// this is a pool of 64 and not of one.
+	const inFlight = 64
+
+	// Its own client rather than `http.DefaultClient`, whose transport keeps two idle connections per host and so
+	// re-dials for almost every request even at this concurrency.
+	transport := &http.Transport{
+		MaxIdleConns:        inFlight,
+		MaxIdleConnsPerHost: inFlight,
+		MaxConnsPerHost:     inFlight,
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: 30 * time.Second}
+
+	// Collected rather than asserted in place, because **`t.Fatalf` may not be called from these goroutines**: it
+	// runs `runtime.Goexit`, so the line recording the status code never executes and the failure surfaces as a
+	// zero from a different assertion. `getPublic` fatals, which is right for the sequential tests that use it and
+	// wrong for 400 goroutines — so this one does its own request and reports afterwards.
 	var wg sync.WaitGroup
 	codes := make([]int, visitors*2)
+	errs := make([]error, visitors*2)
+	get := func(slot int, url string) {
+		defer wg.Done()
+		resp, err := client.Get(url)
+		if err != nil {
+			errs[slot] = err
+			return
+		}
+		defer resp.Body.Close()
+		// Drained, or the connection cannot be reused and the budget above buys nothing.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		codes[slot] = resp.StatusCode
+	}
+
+	// The two URLs interleaved, so both reads are raced rather than one being warm by the time the other starts.
+	urls := make([]string, visitors*2)
 	for i := 0; i < visitors; i++ {
-		wg.Add(2)
-		go func(i int) {
-			defer wg.Done()
-			resp, _ := getPublic(t, srv.URL+"/2026/patrulje/42", nil)
-			codes[i*2] = resp.StatusCode
-		}(i)
-		go func(i int) {
-			defer wg.Done()
-			resp, _ := getPublic(t, srv.URL+"/api/public/patrol/42/map", nil)
-			codes[i*2+1] = resp.StatusCode
-		}(i)
+		urls[i*2] = srv.URL + "/2026/patrulje/42"
+		urls[i*2+1] = srv.URL + "/api/public/patrol/42/map"
+	}
+
+	// A gate rather than 400 goroutines: the goroutines are free, the sockets are not.
+	slots := make(chan struct{}, inFlight)
+	for i, url := range urls {
+		wg.Add(1)
+		slots <- struct{}{}
+		go func(slot int, url string) {
+			defer func() { <-slots }()
+			get(slot, url)
+		}(i, url)
 	}
 	wg.Wait()
 
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("request %d failed at the transport: %v", i, err)
+		}
+	}
 	for i, code := range codes {
 		if code != http.StatusOK {
 			t.Fatalf("request %d answered %d; the burst must not be throttled or fail", i, code)
