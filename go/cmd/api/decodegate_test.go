@@ -197,6 +197,36 @@ func TestTheProductionMemoryLimitsPayForTheGate(t *testing.T) {
 	}
 }
 
+// Dev gives the app the same ceiling, and gives the toolchain a different one.
+//
+// The asymmetry is the point and is easy to "tidy" wrongly: moving `GOMEMLIMIT` into the dev compose environment
+// looks like a simplification and would hand it to `go test`, `staticcheck` and `go build`, which run in that same
+// container on every save and need several times the app's budget. So this asserts both halves — the value is
+// applied to the binary, and the plain name is not in the dev environment.
+func TestDevGivesTheAppTheSameMemoryCeiling(t *testing.T) {
+	launcher, err := os.ReadFile("../../../docker/init/api-dev")
+	if err != nil {
+		t.Skipf("dev launcher not readable from here: %v", err)
+	}
+	compose, err := os.ReadFile("../../../docker-compose.yml")
+	if err != nil {
+		t.Skipf("dev compose not readable from here: %v", err)
+	}
+
+	if !strings.Contains(string(launcher), `GOMEMLIMIT="${API_GOMEMLIMIT:-400MiB}" "$API_BIN" &`) {
+		t.Error("the dev loop must set GOMEMLIMIT on the api binary itself: production does, and an app whose " +
+			"collector behaves differently in dev is how the 502s in task 471 were production-only")
+	}
+	if !strings.Contains(string(compose), "API_GOMEMLIMIT:") {
+		t.Error("docker-compose.yml must carry API_GOMEMLIMIT, so the dev value is visible beside the others")
+	}
+	// The distinct name is the mechanism. A bare GOMEMLIMIT here would reach the compiler.
+	if regexp.MustCompile(`(?m)^\s+GOMEMLIMIT:`).Match(compose) {
+		t.Error("GOMEMLIMIT in the dev container's environment would be inherited by go test, staticcheck and " +
+			"go build — use API_GOMEMLIMIT, which only the api exec reads")
+	}
+}
+
 func firstInt(t *testing.T, text, pattern string) int {
 	t.Helper()
 	m := regexp.MustCompile(pattern).FindStringSubmatch(text)

@@ -121,6 +121,16 @@ services:
       # API serves in a degraded state rather than not at all (PRD 008 §5).
       JETSTREAM_DSN: "nats://jetstream:4222"
       BLOB_PATH: "/blobs"
+      # What the api binary's Go runtime is told its memory ceiling is (task 471).
+      #
+      # Matches production's `GOMEMLIMIT`, so the app's collector behaves here as it does there. **Deliberately a
+      # different variable name**: `GOMEMLIMIT` in this environment would be inherited by `go test`, `staticcheck`
+      # and `go build`, which run in this same container on every save and need several times this. The dev loop
+      # applies it to the one exec that is the server — see docker/init/api-dev.
+      #
+      # There is no container memory limit in dev, and that asymmetry is the reason: the toolchain lives here too.
+      # It is also what let the production upload failure be production-only.
+      API_GOMEMLIMIT: "400MiB"
       # SMS delivery of login PINs. Deliberately left empty in dev: with no DSN the
       # PIN is written to `docker compose logs api` and nothing is sent, so testing
       # login costs no money and cannot reach a real participant's phone. Put a real

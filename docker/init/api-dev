@@ -144,7 +144,23 @@ start() {
         echo "==> starting api"
         # No `go run`: $! is now the server, so stop() can actually stop it.
         # GO_BUILD_FLAGS (e.g. -race) belongs on the build above, not here.
-        "$API_BIN" &
+        #
+        # GOMEMLIMIT is set **here, on the binary**, and deliberately not in the container's environment
+        # (task 471).
+        #
+        # Production limits this service to 512 MiB and tells the runtime about it, because the collector cannot
+        # see a cgroup limit and will otherwise grow into the kill — which is how three photographs became three
+        # 502s. Dev should behave the same way, so that "it worked locally" means something about memory too.
+        #
+        # But this container is not only the app: it runs `go test`, `staticcheck` and `go build` on every save,
+        # and those need several times the app's whole budget. A container-level memory limit would starve the
+        # toolchain, and `GOMEMLIMIT` in the compose environment would be inherited by the compiler and make it
+        # collect against a ceiling meant for a web server. Setting it on this one exec is what separates the two.
+        #
+        # Note it is a **soft** limit: the runtime collects harder rather than failing, so dev gets slow where
+        # production got killed. That is the honest maximum here — reproducing the kill would mean giving up the
+        # dev loop — and slow-under-pressure is still a signal where none existed before.
+        GOMEMLIMIT="${API_GOMEMLIMIT:-400MiB}" "$API_BIN" &
         API_PID=$!
     else
         echo "==> build failed; waiting for changes"

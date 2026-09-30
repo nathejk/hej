@@ -99,6 +99,28 @@ into an `og:url` path is still caught. In production the origin is `https://hej.
 - **It does not add a streaming decode.** Go's `image/jpeg` has no scaled-decode entry point, so the full frame must
   exist in memory at least once. Halving the copies is the whole win available without a new dependency.
 
+## Dev now gets the same ceiling — with one deliberate asymmetry
+
+Asked for after the fix landed. `GOMEMLIMIT` is applied **to the api binary**, on the exec in `docker/init/api-dev`,
+from `API_GOMEMLIMIT` in `docker-compose.yml`.
+
+Not a container memory limit, and not `GOMEMLIMIT` in the compose environment, because **this container is not only
+the app**: it runs `go test`, `staticcheck` and `go build` on every save, and those need several times the app's whole
+budget. A container limit would starve the toolchain; a bare `GOMEMLIMIT` in the environment would be inherited by the
+compiler and make it collect against a ceiling meant for a web server. A distinct variable name applied to one exec is
+what separates them, and `TestDevGivesTheAppTheSameMemoryCeiling` asserts both halves — including that the bare name
+does *not* appear in the dev environment, since moving it there looks like a tidy-up.
+
+It is a **soft** limit, so dev gets slow where production got killed. That is the honest maximum without giving up the
+dev loop, and slow-under-pressure is still a signal where there was none.
+
+**Worth knowing:** `docker/init/api-dev` is `COPY`'d into the image, not bind-mounted — the dev loop hot-reloads Go
+source only. Changing it needs `docker compose build api`. I lost a rebuild cycle to that.
+
+Verified in the dev container: the api process has `GOMEMLIMIT=400MiB`, the toolchain does not, and three concurrent
+6 MB 12MP uploads answer 200 in 1.2 s wall with timings (0.79, 0.79, 1.16 s) that show the gate admitting two and
+queueing the third.
+
 ## Acceptance Criteria
 
 - [x] The cause identified with measurements rather than inference
@@ -106,6 +128,7 @@ into an `og:url` path is still caught. In production the origin is `https://hej.
 - [x] Concurrent decoding bounded server-side, at every call site
 - [x] The container limit sized by the measurement, with `GOMEMLIMIT` below it
 - [x] A test that a new ungated `Prepare` cannot be added quietly
+- [x] Dev applies the same ceiling to the app without starving the toolchain
 - [x] Full gate clean: `gofmt`, `go vet`, `staticcheck`, `GOWORK=off go test ./...`
 
 ## Progress Log
