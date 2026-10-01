@@ -79,6 +79,13 @@ type adminAlbumSummary struct {
 	Deleted   bool `json:"deleted,omitempty"`
 	ItemCount int  `json:"itemCount"`
 
+	// OriginalCount is how many of those items hold the photographer's own file (PRD 027 R7).
+	//
+	// Rendered in the download menu so `Original (34 af 180)` is visible **before** a curator starts a
+	// multi-gigabyte zip, rather than leaving them to find out afterwards that most entries are 1600px renditions.
+	// The zip's fallback is honest, but a fallback nobody was told about is indistinguishable from a bug.
+	OriginalCount int `json:"originalCount"`
+
 	// CoverPhotoID is the photograph the album opens with, or absent when it has none (task 391).
 	//
 	// A photo id rather than a URL, so the client builds the admin media address and the server does not
@@ -116,16 +123,17 @@ func (app *application) listAdminAlbumsHandler(w http.ResponseWriter, r *http.Re
 	out := listAdminAlbumsResponse{Albums: make([]adminAlbumSummary, 0, len(rows))}
 	for _, a := range rows {
 		out.Albums = append(out.Albums, adminAlbumSummary{
-			AlbumID:      a.ID,
-			Slug:         a.Slug,
-			Title:        a.Title,
-			Description:  a.Description,
-			SortOrder:    a.SortOrder,
-			SortMode:     a.SortMode,
-			Published:    a.Published,
-			Deleted:      a.Deleted,
-			ItemCount:    a.ItemCount,
-			CoverPhotoID: a.CoverPhotoID,
+			AlbumID:       a.ID,
+			Slug:          a.Slug,
+			Title:         a.Title,
+			Description:   a.Description,
+			SortOrder:     a.SortOrder,
+			SortMode:      a.SortMode,
+			Published:     a.Published,
+			Deleted:       a.Deleted,
+			ItemCount:     a.ItemCount,
+			OriginalCount: a.OriginalCount,
+			CoverPhotoID:  a.CoverPhotoID,
 		})
 	}
 
@@ -305,6 +313,10 @@ func (app *application) updateAdminAlbumHandler(w http.ResponseWriter, r *http.R
 		Published:   a.Published,
 		Deleted:     a.Deleted,
 		ItemCount:   a.ItemCount,
+		// Carried on the edit response too, so the tool never has two answers about how much of an album can be
+		// downloaded at full resolution. An edit does not change it, which is exactly why omitting it here would be
+		// easy to do and would leave a stale zero behind in whatever re-rendered from this.
+		OriginalCount: a.OriginalCount,
 	}
 	if in.Title != nil {
 		out.Title = *in.Title

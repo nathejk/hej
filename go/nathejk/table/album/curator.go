@@ -86,6 +86,17 @@ type CuratorAlbum struct {
 	// uses, so the admin tool and the frontpage never disagree about how many photographs an album has.
 	ItemCount int
 
+	// OriginalCount is how many of those items hold the photographer's own file (PRD 027 R7).
+	//
+	// Carried so the download menu can say `Original (34 af 180)` **before** a curator starts a multi-gigabyte zip,
+	// rather than leaving them to discover afterwards that two thirds of the entries are 1600px renditions. The zip
+	// falls back honestly — 1600px is a pre-PRD-027 photograph's most original surviving form — but a fallback
+	// nobody was told about is indistinguishable from a bug.
+	//
+	// Equal to ItemCount for an album assembled after PRD 027, and 0 for one assembled before. A mixed album is the
+	// case worth designing for: albums are edited across years' worth of material.
+	OriginalCount int
+
 	// CoverPhotoID is the photograph the album opens with, or "" when it has none (task 391).
 	//
 	// The **photograph**, not an ordinal, because the curator's surfaces address photographs — and because the
@@ -153,6 +164,10 @@ func (q curatorQuerier) All(year string) ([]CuratorAlbum, error) {
 		       (SELECT COUNT(*) FROM album_item i
 		         JOIN photo p ON p.photoId = i.photoId
 		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0) AS itemCount,
+		       (SELECT COUNT(*) FROM album_item i
+		         JOIN photo p ON p.photoId = i.photoId
+		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0
+		           AND p.originalRef <> "") AS originalCount,
 		       (SELECT i.photoId FROM album_item i
 		         JOIN photo p ON p.photoId = i.photoId
 		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0
@@ -173,7 +188,7 @@ func (q curatorQuerier) All(year string) ([]CuratorAlbum, error) {
 		// rather than a COALESCE, to keep "no cover" distinguishable from a photo id that is somehow empty.
 		var cover sql.NullString
 		if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Description, &a.SortOrder, &a.SortMode,
-			&published, &deleted, &a.CreatedAt, &a.ItemCount, &cover); err != nil {
+			&published, &deleted, &a.CreatedAt, &a.ItemCount, &a.OriginalCount, &cover); err != nil {
 			return nil, err
 		}
 		a.Published = published != 0
@@ -196,6 +211,10 @@ func (q curatorQuerier) Album(year, albumID string) (CuratorAlbum, []CuratorItem
 		       (SELECT COUNT(*) FROM album_item i
 		         JOIN photo p ON p.photoId = i.photoId
 		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0) AS itemCount,
+		       (SELECT COUNT(*) FROM album_item i
+		         JOIN photo p ON p.photoId = i.photoId
+		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0
+		           AND p.originalRef <> "") AS originalCount,
 		       (SELECT i.photoId FROM album_item i
 		         JOIN photo p ON p.photoId = i.photoId
 		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0
@@ -214,7 +233,7 @@ func (q curatorQuerier) Album(year, albumID string) (CuratorAlbum, []CuratorItem
 	var published, deleted int
 	var cover sql.NullString
 	if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Description, &a.SortOrder, &a.SortMode,
-		&published, &deleted, &a.CreatedAt, &a.ItemCount, &cover); err != nil {
+		&published, &deleted, &a.CreatedAt, &a.ItemCount, &a.OriginalCount, &cover); err != nil {
 		return CuratorAlbum{}, nil, false, err
 	}
 	a.CoverPhotoID = cover.String

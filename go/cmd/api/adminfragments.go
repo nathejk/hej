@@ -264,19 +264,35 @@ func (app *application) renderAdminAlbumList(w http.ResponseWriter, r *http.Requ
 	data := adminAlbumListData{Year: adminYear(r), PublicServed: adminYear(r) == app.currentEventYear(), Note: note}
 	drafts := 0
 	for _, a := range rows {
-		if !a.Published && !a.Deleted {
+		// **Deleted albums are not in the list.**
+		//
+		// They used to be, shown greyed out, on the reasoning that a curator should be able to see what they had
+		// taken down. That reasoning does not survive contact with the page: the list is the tool's landing page and
+		// answers "what have I not published yet?", a deleted album offers no action but «Redigér», and a year's
+		// deletions accumulate forever — so the answer gets quieter every time somebody tidies up.
+		//
+		// Nothing is hidden that cannot be reached: the editor still opens at `/{year}/album/{slug}/edit` and still
+		// reads through `AlbumCurator`, which is the read that can see a deleted album. This is a decision about
+		// the **list**, not about visibility — and that distinction is why the filter is here rather than in
+		// `CuratorQueries.All`, which other callers need whole (the delete handler's "already gone" check among
+		// them).
+		if a.Deleted {
+			continue
+		}
+		if !a.Published {
 			drafts++
 		}
 		data.Albums = append(data.Albums, adminAlbumSummary{
-			AlbumID:      a.ID,
-			Slug:         a.Slug,
-			Title:        a.Title,
-			Description:  a.Description,
-			SortOrder:    a.SortOrder,
-			Published:    a.Published,
-			Deleted:      a.Deleted,
-			ItemCount:    a.ItemCount,
-			CoverPhotoID: a.CoverPhotoID,
+			AlbumID:       a.ID,
+			Slug:          a.Slug,
+			Title:         a.Title,
+			Description:   a.Description,
+			SortOrder:     a.SortOrder,
+			Published:     a.Published,
+			Deleted:       a.Deleted,
+			ItemCount:     a.ItemCount,
+			OriginalCount: a.OriginalCount,
+			CoverPhotoID:  a.CoverPhotoID,
 		})
 	}
 

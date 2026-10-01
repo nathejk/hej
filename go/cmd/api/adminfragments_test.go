@@ -94,12 +94,17 @@ func TestTheAlbumListFragmentLinksEachAlbumToItsEditor(t *testing.T) {
 	}
 }
 
-// The list is the **curator's** read: drafts and deleted albums are shown, not filtered.
+// The list is the **curator's** read: drafts are shown, not filtered. Deleted albums are not in it.
 //
-// That is the entire difference between `album.CuratorQueries` and `album.Queries` (task 366). The public read
-// hides them so drafts cannot be enumerated; this one shows them because "what have I not published yet" is the
-// question a curator opens the page with.
-func TestTheAlbumListFragmentShowsDraftsAndDeletedAlbums(t *testing.T) {
+// Drafts being listed is the entire difference between `album.CuratorQueries` and `album.Queries` (task 366). The
+// public read hides them so drafts cannot be enumerated; this one shows them because "what have I not published
+// yet" is the question a curator opens the page with.
+//
+// A deleted album is a different case and is deliberately **not** listed. It used to be, greyed out, so a curator
+// could see what they had taken down — but it answers none of the questions this page is for, it offers no action
+// but «Redigér», and a year's deletions accumulate forever, so the list got noisier every time somebody tidied up.
+// Nothing became unreachable: its editor still opens by URL and still reads through `AlbumCurator`.
+func TestTheAlbumListFragmentShowsDraftsAndHidesDeletedAlbums(t *testing.T) {
 	_, srv, _ := albumWriteApp(t, newAlbumCurator(
 		&curatedAlbum{a: album.CuratorAlbum{ID: "al-1", Slug: "udgivet", Title: "Udgivet album", Published: true, ItemCount: 4}},
 		&curatedAlbum{a: album.CuratorAlbum{ID: "al-2", Slug: "kladde", Title: "Kladde album", ItemCount: 1}},
@@ -110,10 +115,8 @@ func TestTheAlbumListFragmentShowsDraftsAndDeletedAlbums(t *testing.T) {
 
 	for _, want := range []struct{ needle, why string }{
 		{"Kladde album", "a draft must be listed at all"},
-		{"Slettet album", "a deleted album must be listed: hiding it is what the public read does"},
 		{">Kladde<", "a draft must say so"},
 		{">Udgivet<", "a published album must say so"},
-		{">Slettet<", "a deleted album must say so rather than looking like a draft"},
 		{"1 billede<", "the count needs a singular; see task 387"},
 		{"4 billeder", "the plural form for anything else"},
 	} {
@@ -122,15 +125,20 @@ func TestTheAlbumListFragmentShowsDraftsAndDeletedAlbums(t *testing.T) {
 		}
 	}
 
-	// The note answers the question the page is opened with — not "3 album" but how many are unpublished.
-	if !strings.Contains(body, "1 album er ikke udgivet endnu.") {
-		t.Errorf("the note should count the drafts\n%s", body)
+	for _, gone := range []struct{ needle, why string }{
+		{"Slettet album", "a deleted album must not be in the list"},
+		{"al-3", "nor any action addressed to it"},
+		{`class="badge del"`, "so the list needs no badge for a state it cannot show"},
+	} {
+		if strings.Contains(body, gone.needle) {
+			t.Errorf("the list still carries %q: %s\n%s", gone.needle, gone.why, body)
+		}
 	}
 
-	// A deleted album offers no publish button: restoring one is not built, and a button that would publish
-	// something taken down is the wrong thing to offer.
-	if strings.Contains(body, "/admin/fragments/albums/al-3/published") {
-		t.Error("a deleted album must not get a publish button")
+	// The note answers the question the page is opened with — not "3 album" but how many are unpublished. The
+	// deleted one was never counted in it, and now it is not in the list it was not counted in.
+	if !strings.Contains(body, "1 album er ikke udgivet endnu.") {
+		t.Errorf("the note should count the drafts\n%s", body)
 	}
 	if !strings.Contains(body, "/admin/fragments/albums/al-2/published") {
 		t.Error("a draft must get a publish button")
@@ -152,7 +160,9 @@ func TestTheAlbumListFragmentCoversUseTheAdminMediaRoute(t *testing.T) {
 
 	body := albumListFragment(t, srv)
 
-	if !strings.Contains(body, `src="/api/admin/photos/`+cover+`/media?variant=thumb&amp;year=2026"`) {
+	// `medium`, not `thumb`, since the cover became the whole width of the card: a 320px thumbnail shown at 15rem
+	// on a laptop is visibly soft, and the 800px rendition already exists for exactly this (task 433).
+	if !strings.Contains(body, `src="/api/admin/photos/`+cover+`/media?variant=medium&amp;year=2026"`) {
 		t.Errorf("covers must be fetched through the admin media route\n%s", body)
 	}
 	if strings.Contains(body, "/api/public/albums/") {

@@ -34,34 +34,146 @@ page.html triggers on `load` and the fragment triggers only on the `albums-chang
   <div class="grid">
     {{range .Albums}}
     {{/* A draft is marked on the card itself, not only by a badge, so "what is not published" is answerable by
-         glancing rather than by reading every row. */}}
-    <div class="card{{if .Deleted}} gone{{else if not .Published}} draft{{end}}">
-      {{if .CoverPhotoID}}
-      {{/* Through the **admin** media route, not the public one: this list shows unpublished albums, and the
-           public route would correctly refuse their photographs (task 382). A list of broken images is a list a
-           curator stops trusting. */}}
-      <img class="cover" loading="lazy" alt=""
-           src="/api/admin/photos/{{.CoverPhotoID}}/media?variant=thumb&amp;year={{$.Year}}">
-      {{else}}
-      {{/* No live items means no cover. A dashed placeholder rather than a blank gap, so the row reads as
-           "empty album" instead of "image failed to load". */}}
-      <div class="cover none"></div>
-      {{end}}
+         glancing rather than by reading every row.
 
-      <div class="meta">
-        <span class="t">{{.Title}}</span>
-        <span class="s">
-          {{if .Deleted}}<span class="badge del">Slettet</span>
-          {{else if .Published}}<span class="badge pub">Udgivet</span>
-          {{else}}<span class="badge drafty">Kladde</span>{{end}}
-          {{/* Live items only, so an album whose photographs were all deleted reads 0 — rendered rather than
-               hidden, because "why is this album empty" is a question with an answer the curator needs. */}}
-          <span>{{photos .ItemCount}}</span>
-        </span>
+         **Deleted albums are not here at all** — `renderAdminAlbumList` filters them out, and its comment carries
+         the reasoning. So nothing below asks about `.Deleted`: this is the live list, every card offers every
+         action, and that is what lets the menu be the same five items every time.
 
-        <div class="acts">
+         # The cover is the card, and the actions are behind the cog
+
+         The card used to be a 44px thumbnail beside a row of up to four buttons, and at ten albums that read as a
+         wall of text with a stamp next to it. A curator recognises an album by **looking at it** — the title is
+         "Lørdag morgen", which is true of two hundred photographs — so the cover now gets the whole width of the
+         card and the actions get a menu.
+
+         Alpine for the open state (it is already loaded, task 395) rather than a `<details>`: the menu has to
+         escape the card's bounds, close on Escape and close when the next card's cog is pressed, and a disclosure
+         element gives us none of those three.
+
+         The swap takes the menu with it, which is the behaviour we want and comes for free: every action in it
+         re-renders `#albums`, so the card a curator was acting on is replaced by the card as it now is. */}}
+    <div class="card{{if not .Published}} draft{{end}}"
+         x-data="{menu:false, sizes:false}" @keydown.escape="menu=false; sizes=false">
+      {{/* The cover is a link to the editor as well as a picture. It is the biggest target on the card and it is
+           the thing a curator points at when they mean "that album", so it should be the thing that opens it —
+           «Redigér» stays in the menu for somebody who is reading rather than pointing. */}}
+      <a class="coverlink" href="/{{$.Year}}/album/{{.Slug}}/edit" tabindex="-1" aria-hidden="true">
+        {{if .CoverPhotoID}}
+        {{/* Through the **admin** media route, not the public one: this list shows unpublished albums, and the
+             public route would correctly refuse their photographs (task 382). A list of broken images is a list a
+             curator stops trusting.
+
+             `medium`, not `thumb`, since the cover became the card: a 320px thumbnail stretched across a 13rem
+             card on a laptop's display is visibly soft, and the 800px rendition is the one that already exists
+             for exactly this (task 433). */}}
+        <img class="cover" loading="lazy" alt=""
+             src="/api/admin/photos/{{.CoverPhotoID}}/media?variant=medium&amp;year={{$.Year}}">
+        {{else}}
+        {{/* No live items means no cover. A dashed placeholder rather than a blank gap, so the card reads as
+             "empty album" instead of "image failed to load". */}}
+        <span class="cover none"></span>
+        {{end}}
+      </a>
+
+      {{/* `@click.outside` sits on this wrapper rather than on the menu, and that is not cosmetic: the cog itself
+           is "outside" the menu, so a handler on the menu would close it on the way down and the cog's own toggle
+           would reopen it on the way up — a cog that cannot be pressed twice. The wrapper contains both. */}}
+      <div class="cog" @click.outside="menu=false; sizes=false">
+        <button type="button" class="cogbtn" @click="menu = !menu; sizes = false"
+                :aria-expanded="menu ? 'true' : 'false'" aria-haspopup="true"
+                aria-label="Handlinger for albummet {{.Title}}">
+          {{/* Lucide: settings. Inline, because this surface has no build step to import a component through
+               (.rules). Not in the page's sprite: that exists because the contact sheet repeats two icons across
+               120 cells, and a year has tens of albums. */}}
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+
+        {{/* `x-cloak` so the menu is not briefly visible on first paint, before Alpine has applied `x-show` — on a
+             swapped-in fragment that is a row of ten menus flashing open. The rule that honours it is in
+             page.css. */}}
+        <div class="menu" x-show="menu" x-cloak>
           <a href="/{{$.Year}}/album/{{.Slug}}/edit">Redigér</a>
-          {{if not .Deleted}}
+          {{if and .Published $.PublicServed}}
+          <a href="/{{$.Year}}/album/{{.Slug}}" target="_blank" rel="noopener">Se den</a>
+          {{end}}
+          {{if .ItemCount}}
+          {{/* The whole album as one zip, in the album's order (adminalbumzip.go).
+
+               Three sizes, because "download the album" is at least two different errands: an e-mail to a local
+               paper and a copy for the archive want very different files, and a curator who gets the wrong one
+               finds out after the upload. So the size is chosen here rather than guessed, and each option says its
+               pixels — «stor» and «lille» are opinions, 1200px is a fact somebody can act on.
+
+               **The first three are scales; the fourth is the photographer's file.** 1600px is labelled `XLarge`
+               rather than `Original` on purpose — it is the largest *rendition*, and calling it an original for years
+               is what trained everybody to expect the wrong thing from it (PRD 027). `Original` now means the file
+               that was handed in, metadata and all, and is the only entry here that is not a rendition.
+
+               Expanded **inline** rather than flying out sideways. A flyout has to decide what to do when the card
+               is at the right edge of the window, and the whole reason this surface has no build step is that we
+               are not maintaining that sort of thing by hand.
+
+               Ordinary links rather than htmx actions: the response is a file for the browser to save, and htmx
+               would read several hundred megabytes into a swap that has nowhere to go. The year rides in the query
+               string because an anchor cannot carry `X-Admin-Year`.
+
+               Offered only for an album that has something in it: an empty archive is a file that looks broken,
+               and the endpoint refuses one — but a button that can only fail is not worth showing. */}}
+          <button type="button" class="sub" @click="sizes = !sizes"
+                  :aria-expanded="sizes ? 'true' : 'false'">
+            <span>Hent alle billeder (zip)</span>
+            {{/* Lucide: chevron-down, rotated when open — so the control says which way it is going to move. */}}
+            <svg class="chev" :class="sizes ? 'up' : ''" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="sizes" x-show="sizes" x-cloak>
+            <a href="/api/admin/albums/{{.AlbumID}}/zip?size=medium&amp;year={{$.Year}}">Medium (800px)</a>
+            <a href="/api/admin/albums/{{.AlbumID}}/zip?size=large&amp;year={{$.Year}}">Stor (1200px)</a>
+            <a href="/api/admin/albums/{{.AlbumID}}/zip?size=xlarge&amp;year={{$.Year}}">XLarge (1600px)</a>
+            {{/* The photographer's file (PRD 027). Set apart from the three scales above because it is a different
+                 kind of thing, not a bigger one: full resolution, and the only download here that carries the
+                 camera's metadata — including where the photograph was taken.
+
+                 Last, because it is the heaviest and the most specialised: a curator sending something to a local
+                 paper wants one of the scales, and reaching past them to the original by accident is a 2 GB
+                 download. The three scales keep their order; this is added below them rather than above.
+
+                 # The count is the substance here, not decoration
+
+                 No backfill can produce an original for a photograph uploaded before PRD 027, so an album assembled
+                 across two eras is **permanently** mixed. The zip falls back to the 1600px rendition for those
+                 entries, which is honest — it is that photograph's most original surviving form — but a fallback
+                 nobody was told about is indistinguishable from a bug, and the person who finds out is the one who
+                 has already sent the files to a printer.
+
+                 So three states, and each says something different:
+                   * all of them — no count, because a number that always reads "180 af 180" is noise;
+                   * some of them — the count, so the curator knows what they are getting before a long download;
+                   * none of them — no link at all. A download that would silently be entirely renditions is worse
+                     than an absence, and the absence is explained rather than left as a gap. */}}
+            {{if eq .OriginalCount .ItemCount}}
+            <a class="orig" href="/api/admin/albums/{{.AlbumID}}/zip?size=original&amp;year={{$.Year}}">Original</a>
+            {{else if .OriginalCount}}
+            <a class="orig" href="/api/admin/albums/{{.AlbumID}}/zip?size=original&amp;year={{$.Year}}">Original ({{.OriginalCount}} af {{.ItemCount}})</a>
+            <span class="note">De øvrige hentes i 1600px — der findes ikke originaler for dem.</span>
+            {{else}}
+            <span class="note orig">Ingen originaler i dette album — de blev lagt op, før vi gemte fotografens egen fil.</span>
+            {{end}}
+            {{/* What an original carries, said where the download is chosen rather than in a help page nobody opens.
+
+                 This is new behaviour for this tool and the curator is the only person who can act on it: until PRD
+                 027 every file leaving here was stripped, so passing one on could not disclose a location. Now it
+                 can, while doing nothing wrong — and the people in these photographs are children.
+
+                 So the sentence names the consequence (hvor billedet er taget) rather than the mechanism (EXIF),
+                 and it ends by pointing at the scales as the thing to send on. The easy reading should be "use a
+                 scale unless you need the original", which is also true. */}}
+            {{if .OriginalCount}}
+            <span class="note warn">Originalerne indeholder kameraets data, bl.a. hvor billedet er taget. Send
+            en af størrelserne ovenfor videre — de er renset.</span>
+            {{end}}
+          </div>
+          {{end}}
           {{/* Publication is posted **alone** (task 378): a curator pressing this has said one thing, and
                bundling it with the album's other fields would let a half-typed title ride along.
 
@@ -73,22 +185,30 @@ page.html triggers on `load` and the fragment triggers only on the `albums-chang
                   hx-target="#albums" hx-swap="outerHTML">
             {{if .Published}}Fjern fra forsiden{{else}}Udgiv på forsiden{{end}}
           </button>
-          {{end}}
-          {{if and .Published (not .Deleted) $.PublicServed}}
-          <a href="/{{$.Year}}/album/{{.Slug}}" target="_blank" rel="noopener">Se den</a>
-          {{end}}
-          {{if not .Deleted}}
           {{/* Deleting the album (task 396), behind the browser's own confirm. The prompt names the album and says
                what survives, because "slet" next to a photograph means the bytes go, and here it does not — the
-               two must not read alike (PRD 022 §5). */}}
-          <button type="button" class="ghost danger"
+               two must not read alike (PRD 022 §5).
+
+               The card then leaves the list, which is the point of the confirm being this explicit: there is no
+               greyed-out row left behind to reassure somebody who pressed it by mistake. */}}
+          <button type="button" class="danger"
                   hx-post="/admin/fragments/albums/{{.AlbumID}}/deleted"
                   hx-target="#albums" hx-swap="outerHTML"
                   hx-confirm="Slet albummet «{{.Title}}»?{{if .Published}} Det bliver taget af forsiden med det samme.{{end}} Billederne bliver liggende i arkivet og i andre album. Det kan ikke fortrydes herfra.">
             Slet album
           </button>
-          {{end}}
         </div>
+      </div>
+
+      <div class="meta">
+        <a class="t" href="/{{$.Year}}/album/{{.Slug}}/edit">{{.Title}}</a>
+        <span class="s">
+          {{if .Published}}<span class="badge pub">Udgivet</span>
+          {{else}}<span class="badge drafty">Kladde</span>{{end}}
+          {{/* Live items only, so an album whose photographs were all deleted reads 0 — rendered rather than
+               hidden, because "why is this album empty" is a question with an answer the curator needs. */}}
+          <span>{{photos .ItemCount}}</span>
+        </span>
       </div>
     </div>
     {{end}}
@@ -123,8 +243,9 @@ The fragment renders the **albums**; the sheet's note keeps saying how many phot
 is the rule for every sheet fragment here: the server writes the sentences only it can, and the selection stays
 in the browser, which is the only place that knows it. Neither side has to be told anything by the other.
 
-Deleted albums are filtered out — unlike the list on the page, which shows them. That is not an inconsistency:
-the list answers "what have I got", and you cannot file a photograph into an album that is gone.
+Deleted albums are filtered out, as they now are from the album list too — you cannot file a photograph into an
+album that is gone, and the list answers "what have I not published yet?", which a deleted album is not an answer
+to. The filter is applied per caller rather than inside `CuratorQueries.All`, which other callers need whole.
 */}}
 {{define "albumpicker"}}
 <div id="albumlist">
@@ -244,6 +365,10 @@ unconditionally is cheaper than a flag whose only job would be to be got wrong o
   <li><span class="n">{{.OutOfBounds}}</span><span class="k">uden for området</span></li>
   <li><span class="n">{{.Unknown}}</span><span class="k">ikke vurderet</span></li>
   <li><span class="n">{{.Tagged}}</span><span class="k">med patrulje</span></li>
+  {{/* The permanent gap (PRD 027 R7). Shown only when there is one, because a zero here would be a line that is
+       always zero on any library filled after PRD 027 — and the whole point of the number is that it marks
+       photographs whose pixels can never be recovered, not a queue somebody can work through. */}}
+  {{if .WithoutOriginal}}<li><span class="n">{{.WithoutOriginal}}</span><span class="k">uden original</span></li>{{end}}
   <li><span class="n">{{.Deleted}}</span><span class="k">slettede</span></li>
 </ul>
 {{end}}

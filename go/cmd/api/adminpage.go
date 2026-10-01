@@ -117,7 +117,16 @@ type adminCountsView struct {
 	OutOfBounds  int `json:"outOfBounds"`
 	Unknown      int `json:"unknown"`
 	Tagged       int `json:"tagged"`
-	Deleted      int `json:"deleted"`
+
+	// WithoutOriginal is how many live photographs have no stored original (PRD 027 R7).
+	//
+	// **A gap, not a backlog.** No backfill can produce an original for a photograph uploaded before PRD 027 — the
+	// bytes left with the HTTP request — so this number only falls when something is deleted, and never reaches
+	// zero for a library that predates the change. It is shown so "can I print from this?" is answerable before a
+	// download rather than after unpacking one.
+	WithoutOriginal int `json:"withoutOriginal"`
+
+	Deleted int `json:"deleted"`
 }
 
 // adminFilterView is one preset button over the contact sheet.
@@ -158,6 +167,14 @@ var adminFilters = []adminFilterView{
 	// before publishing an album; "which are credited to Anne" is a question about a *value*, and free text
 	// cannot be enumerated into buttons — that one is reached by URL (task 454).
 	{Label: "Uden fotokredit", Q: "credit=none"},
+	// "Which of these cannot be printed" (PRD 027 R7). Offered as a filter rather than as a mark on every cell,
+	// because the sheet's marks follow one rule — the ordinary case gets none — and "has an original" is rare now and
+	// universal later, so no badge for it stays quiet. See `photo.Filter.HasOriginal`.
+	//
+	// Unlike the two presets above it, this is **not a gap to work through**: no backfill can produce an original for
+	// a photograph uploaded before PRD 027, so the set it returns is something to plan around. The label says "uden
+	// original" and not "mangler original" for exactly that reason — nothing is missing that anybody can supply.
+	{Label: "Uden original", Q: "original=no"},
 	{Label: "Med patrulje", Q: "tagged=yes"},
 	{Label: "Uden patrulje", Q: "tagged=no"},
 	{Label: "Inkl. slettede", Q: "deleted=1"},
@@ -241,14 +258,15 @@ func (app *application) renderAdminPage(w http.ResponseWriter, r *http.Request, 
 			data.Unavailable = true
 		} else {
 			data.Counts = adminCountsView{
-				Total:        counts.Total,
-				InNoAlbum:    counts.InNoAlbum,
-				WithLocation: counts.WithLocation,
-				Plottable:    counts.Plottable,
-				OutOfBounds:  counts.OutOfBounds,
-				Unknown:      counts.Unknown,
-				Tagged:       counts.Tagged,
-				Deleted:      counts.Deleted,
+				Total:           counts.Total,
+				InNoAlbum:       counts.InNoAlbum,
+				WithLocation:    counts.WithLocation,
+				Plottable:       counts.Plottable,
+				OutOfBounds:     counts.OutOfBounds,
+				Unknown:         counts.Unknown,
+				Tagged:          counts.Tagged,
+				WithoutOriginal: counts.WithoutOriginal,
+				Deleted:         counts.Deleted,
 			}
 		}
 	}

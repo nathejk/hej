@@ -228,14 +228,15 @@ func (app *application) readAdminLibraryPage(w http.ResponseWriter, r *http.Requ
 	page := adminLibraryResponse{
 		Photos: make([]adminLibraryPhoto, 0, len(rows)),
 		Counts: adminCountsView{
-			Total:        counts.Total,
-			InNoAlbum:    counts.InNoAlbum,
-			WithLocation: counts.WithLocation,
-			Plottable:    counts.Plottable,
-			OutOfBounds:  counts.OutOfBounds,
-			Unknown:      counts.Unknown,
-			Tagged:       counts.Tagged,
-			Deleted:      counts.Deleted,
+			Total:           counts.Total,
+			InNoAlbum:       counts.InNoAlbum,
+			WithLocation:    counts.WithLocation,
+			Plottable:       counts.Plottable,
+			OutOfBounds:     counts.OutOfBounds,
+			Unknown:         counts.Unknown,
+			Tagged:          counts.Tagged,
+			WithoutOriginal: counts.WithoutOriginal,
+			Deleted:         counts.Deleted,
 		},
 		Limit:        limit,
 		Offset:       offset,
@@ -376,6 +377,22 @@ func adminLibraryFilter(r *http.Request) (photo.Filter, error) {
 		return f, errors.New(`ubrugelig værdi for "credit"`)
 	}
 
+	// `original`: with or without the photographer's own file (PRD 027 R7).
+	//
+	// `no`/`yes` like `location`, not `none`/`any` like `credit`: this parameter carries no values, so there is no
+	// "the day somebody is credited as «no»" problem to avoid.
+	switch q.Get("original") {
+	case "":
+	case "no":
+		no := false
+		f.HasOriginal = &no
+	case "yes":
+		yes := true
+		f.HasOriginal = &yes
+	default:
+		return f, errors.New(`ubrugelig værdi for "original"`)
+	}
+
 	f.IncludeDeleted = q.Get("deleted") == "1"
 
 	// `ids`: which of these photographs the projection can see (task 438).
@@ -422,11 +439,11 @@ func adminQueryInt(r *http.Request, key string, fallback int) int {
 // showAdminPhotoMediaHandler streams one photograph's bytes.
 //
 // @Summary      Serve a library photograph's bytes
-// @Description  Streams one photograph from the year's library, as a thumbnail with `?variant=thumb`, the 800px rendition with `?variant=medium`, or the full stored rendition otherwise. A variant whose rendition was never produced falls back to the full image rather than 404-ing. The id is resolved through the library projection rather than being handed to the blob store, so this route serves photographs of the configured year and nothing else. A deleted photograph answers 404. Requires the admin credential.
+// @Description  Streams one photograph from the year's library, as a thumbnail with `?variant=thumb`, the 800px rendition with `?variant=medium`, the photographer's own file with `?variant=original`, or the full stored display rendition otherwise. A variant whose rendition was never produced falls back to the full image rather than 404-ing — including `original` for every photograph uploaded before PRD 027, where 1600px is that photograph's most original surviving form. **`original` carries the camera's metadata, including where the photograph was taken**, which is why it is served only here, behind the admin credential, and is never referenced by the viewer or any public page. The id is resolved through the library projection rather than being handed to the blob store, so this route serves photographs of the configured year and nothing else. A deleted photograph answers 404. Requires the admin credential.
 // @Tags         admin
 // @Produce      image/jpeg
 // @Param        photoId  path      string  true   "library photograph id"
-// @Param        variant  query     string  false  "thumb for the 320px thumbnail, medium for the 800px rendition; omit for the full rendition"
+// @Param        variant  query     string  false  "thumb for the 320px thumbnail, medium for the 800px rendition, original for the photographer's file; omit for the 1600px display rendition"
 // @Success      200  {file}  binary
 // @Failure      304  "not modified: the browser already holds these bytes. A rendition is immutable, so its id is its content hash and a revalidation can always be answered without reading the object."
 // @Failure      400  {object}  map[string]string  "no working year, or one the tool does not know (X-Admin-Year or ?year=)"
@@ -482,6 +499,24 @@ func (app *application) showAdminPhotoMediaHandler(w http.ResponseWriter, r *htt
 	case "medium":
 		if p.MediumRef != "" {
 			ref, edge = p.MediumRef, mediumEdge
+		}
+	case "original":
+		// The photographer's file (PRD 027 R6). **A download, never a view** — nothing in the viewer, the public
+		// album page or the PWA may ask for this, and `originalboundary_test.go` fails if anything does.
+		//
+		// `edge` stays 0, which is what leaves `plan` empty below, and that is the load-bearing part of this case:
+		// **an original must never be given a repair plan.** The repair (task 430) regenerates a missing rendition
+		// by re-rendering it from a source, which works precisely because a rendition is derivable. An original is
+		// not derivable from anything — that is its definition — so a plan here would either rebuild it from
+		// itself or, worse, write a re-encode over the only copy of somebody's file. `blob.PutAs` refuses to
+		// overwrite an original for exactly that reason, so the attempt would fail rather than corrupt; relying on
+		// that backstop instead of not asking would still be wrong.
+		//
+		// Falls through to the display image when the row holds no original, which is every photograph uploaded
+		// before PRD 027 — the same fallback rule the renditions use, and for a stronger reason: 1600px is that
+		// photograph's most original surviving form, so it is the honest answer rather than a substitute.
+		if p.OriginalRef != "" {
+			ref = p.OriginalRef
 		}
 	}
 	// Validated even though it came out of our own row, because a ref is the one string here that becomes a

@@ -355,6 +355,10 @@ func (app *application) routes() http.Handler {
 		// interpretations of one filter is how a bulk action lands on the wrong photographs.
 		router.HandlerFunc(http.MethodGet, "/admin/fragments/photos", app.requireAdmin(app.requireAdminYear(app.showAdminContactSheetHandler)))
 		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId", app.requireAdmin(app.requireAdminYear(app.updateAdminAlbumHandler)))
+		// The album as one zip file, in the album's order. A plain GET, because it is
+		// a link a curator clicks and the browser saves — so this is the one admin route besides the <img> media one
+		// whose year normally arrives as `?year=`: an anchor cannot carry a header. See adminalbumzip.go.
+		router.HandlerFunc(http.MethodGet, "/api/admin/albums/:albumId/zip", app.requireAdmin(app.requireAdminYear(app.downloadAdminAlbumZipHandler)))
 		router.HandlerFunc(http.MethodPatch, "/api/admin/albums/:albumId/items", app.requireAdmin(app.requireAdminYear(app.reorderAdminAlbumItemsHandler)))
 		// Drag-and-drop (task 396): "these, next to that", with the whole order built server-side, because the
 		// album view scrolls in pages and the browser may not hold all of it. PATCH, because POST already has the static
