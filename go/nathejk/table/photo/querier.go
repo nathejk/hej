@@ -57,6 +57,11 @@ type Queries interface {
 	// possible outcomes and both are bad: bytes orphaned on disk forever, or — worse — a live object deleted
 	// because nothing claimed it. Neither shows up in a test that only exercises uploads. Task 368's
 	// reasoning, and the reason task 409 called this out before adding `mediumRef`.
+	//
+	// Since PRD 027 that includes `originalRef`, and it is the column where the second outcome stops being
+	// recoverable: a rendition deleted in error can be rebuilt (task 430), while the photographer's file cannot be
+	// produced again from anything. The implementation now derives the select list and the scan from one column
+	// list rather than repeating it, so "every ref column" is enforced by construction instead of by this sentence.
 	RefsInUse(year string, excluding []string, refs []string) (map[string]bool, error)
 }
 
@@ -156,10 +161,17 @@ func (q querier) RefsInUse(year string, excluding []string, refs []string) (map[
 		excluded[id] = true
 	}
 
-	// One `refs` copy per ref column, in the order the columns appear in the WHERE clause below. Three
-	// columns, three copies — the kind of arithmetic that silently breaks when a column is added, which is
-	// why the capacity, the loop and the clause are all derived from one list.
-	columns := []string{"blobRef", "thumbRef", "mediumRef"}
+	// **One list drives everything**: the WHERE clause, the argument arithmetic, the select list and the scan.
+	//
+	// It used to drive only the first two, with the `SELECT` and the `Scan` written out by hand — and the comment
+	// here warned that the arithmetic "silently breaks when a column is added", which was true of the half it
+	// covered and not of the half it did not. Adding `originalRef` for PRD 027 meant touching four places that had to
+	// agree, in a function whose own doc says a missed column either orphans bytes forever or **deletes a live
+	// object because nothing claimed it**. So the duplication is gone rather than extended.
+	//
+	// `originalRef` is the newest and the one with the most at stake: it is the photographer's file, the only copy of
+	// it, and it is what a library takedown has to be able to free (PRD 027 R8).
+	columns := []string{"blobRef", "thumbRef", "mediumRef", "originalRef"}
 
 	args := make([]any, 0, len(refs)*len(columns)+1)
 	args = append(args, year)
@@ -176,7 +188,7 @@ func (q querier) RefsInUse(year string, excluding []string, refs []string) (map[
 	}
 
 	rows, err := q.db.Query(`
-		SELECT photoId, blobRef, thumbRef, mediumRef
+		SELECT photoId, `+strings.Join(columns, ", ")+`
 		FROM photo
 		WHERE year = ? AND deleted = 0
 		  AND (`+strings.Join(clauses, " OR ")+`)`, args...)
@@ -190,8 +202,16 @@ func (q querier) RefsInUse(year string, excluding []string, refs []string) (map[
 		wanted[ref] = true
 	}
 	for rows.Next() {
-		var id, full, thumb, medium string
-		if err := rows.Scan(&id, &full, &thumb, &medium); err != nil {
+		var id string
+		// Sized from `columns` for the same reason the clause is: a scan with one target too few is a runtime error
+		// inside a delete path, and one too many cannot happen at all.
+		found := make([]string, len(columns))
+		targets := make([]any, 0, len(columns)+1)
+		targets = append(targets, &id)
+		for i := range found {
+			targets = append(targets, &found[i])
+		}
+		if err := rows.Scan(targets...); err != nil {
 			return nil, err
 		}
 		if excluded[id] {
@@ -199,7 +219,7 @@ func (q querier) RefsInUse(year string, excluding []string, refs []string) (map[
 		}
 		// Filtered against what was asked for, because a matching row carries all of its refs and only one
 		// of them may be the one in question.
-		for _, ref := range []string{full, thumb, medium} {
+		for _, ref := range found {
 			if wanted[ref] {
 				inUse[ref] = true
 			}

@@ -142,6 +142,22 @@ type Filter struct {
 	// answer it.
 	HasCredit *bool
 
+	// HasOriginal selects photographs with, or without, the photographer's own file. Nil means either (PRD 027 R7).
+	//
+	// # Why this is a filter and not a badge on every cell
+	//
+	// The contact sheet's marks follow one rule: **the ordinary case gets no mark**, because a badge on most of the
+	// sheet makes the whole row slower to read rather than faster (see the `none` verdict). "Has an original" breaks
+	// that rule in both directions over time — rare at first, universal later — so there is no answer that stays
+	// quiet. A filter answers the same question per photograph without putting anything on the cells at all, and it
+	// is the mechanism this tool already uses for "which ones": "uden album", "uden billedtekst", "uden fotokredit".
+	//
+	// The negative is the useful one, as with captions and credits: "which of these cannot be printed" is a question
+	// somebody asks before promising a photograph to a printer. Unlike those two it is **not a gap to work through** —
+	// no backfill can produce an original for a photograph uploaded before PRD 027 — so the set it returns is
+	// something to plan around rather than to fix.
+	HasOriginal *bool
+
 	// CreditIs limits the result to one credit: a crew member's id, **or** an exact credit line.
 	//
 	// One parameter for both forms, because the question a curator asks is "which photographs are credited to
@@ -187,6 +203,18 @@ type Counts struct {
 	Unknown int
 	// Tagged is how many carry at least one patrol attribution.
 	Tagged int
+	// WithoutOriginal is how many live photographs have no stored original (PRD 027 R7).
+	//
+	// # A number that only goes down, and never to zero
+	//
+	// Every photograph uploaded before PRD 027 shipped has no original and **no backfill can produce one** — the
+	// uploaded bytes left with the HTTP request. So this is not a queue of work; it is the size of a permanent gap,
+	// and it is shown for exactly that reason: a curator asking "can I print from this album?" needs the answer
+	// before a download rather than after unpacking one.
+	//
+	// Counted over live photographs only, like every other number here, so a takedown reduces it.
+	WithoutOriginal int
+
 	// Deleted is how many the curator has removed. Shown so a soft delete is visible rather than silent.
 	Deleted int
 }
@@ -258,6 +286,39 @@ type LibraryPhoto struct {
 
 	// UploadedAt is when it entered the library, which is what the contact sheet orders by.
 	UploadedAt string
+
+	// OriginalRef is the photographer's file, or "" when none is held (PRD 027).
+	//
+	// # Treat this field differently from every other ref on this struct
+	//
+	// The others are renditions: re-encoded, metadata-stripped, safe to put in front of anybody who may see the
+	// photograph at all. This one is the uploaded file with its EXIF intact, **including where it was taken** — so it
+	// may only be handed to somebody holding the admin credential, and `cmd/api/originalboundary_test.go` fails if
+	// any non-admin route, viewer or public surface resolves it.
+	//
+	// That is also why it is on `LibraryPhoto` (the curator read) and must never be copied onto a public one.
+	//
+	// "" for every photograph uploaded before PRD 027 shipped, permanently: the bytes left with the HTTP request and
+	// no backfill is possible. Readers that want "the largest we have" fall back to `Ref`, which is that
+	// photograph's most original surviving form.
+	OriginalRef string
+
+	// OriginalContentType is the upload's own format, since the original was not re-encoded — so it may differ from
+	// the renditions, which are always image/jpeg. Needed when serving the bytes: a stored PNG sent as image/jpeg is
+	// a file a curator's tools will refuse.
+	OriginalContentType string
+
+	// OriginalBytes is the stored size, which is what makes the archive's growth answerable without opening objects.
+	OriginalBytes int
+
+	// OriginalWidth and OriginalHeight describe the stored bytes **before** rotation, so for a photograph taken
+	// sideways they are swapped relative to Width/Height above. The orientation needed to display them is still in
+	// the file, because its metadata was not stripped.
+	//
+	// Zero when no original is held, and also for one real case worth knowing about: a row written by a binary older
+	// than the column. Readers must treat 0 as "unknown" rather than as a dimension.
+	OriginalWidth  int
+	OriginalHeight int
 }
 
 // Tag is one patrol attribution.
@@ -285,6 +346,7 @@ type curatorQuerier struct {
 const libraryColumns = `
 	p.photoId, p.blobRef, p.thumbRef, p.mediumRef, p.caption, p.credit, p.creditCrewId, p.width, p.height, p.bytes,
 	p.latitude, p.longitude, p.boundsVerdict, p.deleted, p.shotAt, p.fileName, p.uploadedAt,
+	p.originalRef, p.originalContentType, p.originalBytes, p.originalWidth, p.originalHeight,
 	(SELECT COUNT(*) FROM album_item i
 	  WHERE i.photoId = p.photoId AND i.deleted = 0) AS albumCount,
 	(SELECT COUNT(*) FROM photo_patrol t
@@ -351,6 +413,15 @@ func (f Filter) where(year string) (string, []any) {
 			conds = append(conds, has)
 		} else {
 			conds = append(conds, "NOT "+has)
+		}
+	}
+	if f.HasOriginal != nil {
+		// `= ""` rather than `IS NULL`, as every ref column in this projection spells "absent" — the columns are
+		// `NOT NULL DEFAULT ""`, and `original_lookup` serves the comparison.
+		if *f.HasOriginal {
+			conds = append(conds, `p.originalRef <> ""`)
+		} else {
+			conds = append(conds, `p.originalRef = ""`)
 		}
 	}
 	if f.CreditIs != "" {
@@ -490,6 +561,7 @@ func scanLibraryPhoto(rows *sql.Rows) (LibraryPhoto, error) {
 	if err := rows.Scan(&p.ID, &p.Ref, &p.ThumbRef, &p.MediumRef, &p.Caption, &p.Credit, &p.CreditCrewID,
 		&p.Width, &p.Height, &p.Bytes,
 		&lat, &lng, &p.BoundsVerdict, &deleted, &shotAt, &p.FileName, &p.UploadedAt,
+		&p.OriginalRef, &p.OriginalContentType, &p.OriginalBytes, &p.OriginalWidth, &p.OriginalHeight,
 		&p.AlbumCount, &p.TagCount); err != nil {
 		return LibraryPhoto{}, err
 	}
@@ -523,12 +595,13 @@ func (q curatorQuerier) Counts(year string) (Counts, error) {
 			COALESCE(SUM(p.deleted = 0 AND EXISTS (
 				SELECT 1 FROM photo_patrol t
 				 WHERE t.photoId = p.photoId AND t.year = p.year AND t.deleted = 0)), 0),
+			COALESCE(SUM(p.deleted = 0 AND p.originalRef = ""), 0),
 			COALESCE(SUM(p.deleted = 1), 0)
 		FROM photo p
 		WHERE p.year = ?`,
 		BoundsInside, BoundsOutside, BoundsUnknown, year,
 	).Scan(&c.Total, &c.InNoAlbum, &c.WithLocation, &c.Plottable, &c.OutOfBounds, &c.Unknown,
-		&c.Tagged, &c.Deleted)
+		&c.Tagged, &c.WithoutOriginal, &c.Deleted)
 	if err != nil {
 		return Counts{}, err
 	}

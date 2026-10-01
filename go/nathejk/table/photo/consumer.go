@@ -128,6 +128,28 @@ func (c consumer) handleUploaded(msg cqrs.Message, year string) error {
 		mediumRef = ""
 	}
 
+	// The photographer's file (PRD 027 R2/R3). Five columns that move as **one group**, which is the whole reason
+	// this is unpacked into locals rather than read inline from `body.Original`.
+	//
+	// A ref written without its dimensions, or dimensions left over from a previous event's file, would be a row
+	// describing a photograph that does not exist — and because an original is the one thing here that cannot be
+	// re-derived, there would be nothing to check it against. So either all five are the event's, or all five are
+	// left alone.
+	//
+	// An invalid ref costs the original, not the photograph, as with the renditions above. The asymmetry is worth
+	// noticing though: losing a rendition costs bandwidth, while losing an original costs the only copy of the
+	// photographer's file — so the writer (task 479) fails the upload rather than publishing a bad ref. This blanking
+	// is the fold's last line of defence against a malformed message, not a sanctioned path.
+	originalRef, originalType := "", ""
+	originalBytes, originalWidth, originalHeight := 0, 0, 0
+	if body.Original != nil && validRef(body.Original.Ref) {
+		originalRef = body.Original.Ref
+		originalType = body.Original.ContentType
+		originalBytes = body.Original.Bytes
+		originalWidth = body.Original.Width
+		originalHeight = body.Original.Height
+	}
+
 	uploadedAt := body.UploadedAt
 	if uploadedAt.IsZero() {
 		// No replay-stable fallback exists: time.Now() would differ on every rebuild, and this column
@@ -159,8 +181,25 @@ func (c consumer) handleUploaded(msg cqrs.Message, year string) error {
 	//
 	// `caption` and `credit` are absent from the clause entirely rather than treated this way, because
 	// those are a curator's words: no file, however complete, has any business overwriting them.
+	//
+	// # The original follows the same rule, and it is the case that rule was waiting for
+	//
+	// The reasoning above is about a capture time or a filename going missing. For the original it is about **the
+	// photographer's file going missing**, and it is the most consequential application of the rule in this fold.
+	//
+	// Concretely: `photoId` is the hash of the *stored display rendition*, so the same id legitimately arrives from
+	// two different files — the same photograph with its EXIF stripped, or re-saved by an editor, produces the same
+	// 1600px re-encode and therefore the same id (task 372's documented re-upload recovery does exactly this). Under a
+	// plain `VALUES(...)` upsert, re-uploading a stripped copy of a photograph would **blank the original we already
+	// held**, and that original is the one thing in this projection that cannot be produced again.
+	//
+	// So all five original columns are guarded on one condition — `VALUES(originalRef)=""` — rather than each on its
+	// own value. That is what keeps the group consistent: a later event either replaces the whole file or touches none
+	// of it. Guarding each column separately would let a new ref land beside the old dimensions.
 	return c.w.Consume(fmt.Sprintf(
 		"INSERT INTO photo SET photoId=%s, year=%s, blobRef=%s, thumbRef=%s, mediumRef=%s, "+
+			"originalRef=%s, originalContentType=%s, originalBytes=%d, "+
+			"originalWidth=%d, originalHeight=%d, "+
 			"caption=\"\", credit=\"\", "+
 			"width=%d, height=%d, bytes=%d, latitude=%s, longitude=%s, boundsVerdict=%s, "+
 			"shotAt=%s, fileName=%s, "+
@@ -168,6 +207,11 @@ func (c consumer) handleUploaded(msg cqrs.Message, year string) error {
 			"ON DUPLICATE KEY UPDATE "+
 			"year=VALUES(year), blobRef=VALUES(blobRef), thumbRef=VALUES(thumbRef), "+
 			"mediumRef=VALUES(mediumRef), "+
+			"originalRef=IF(VALUES(originalRef)=\"\", originalRef, VALUES(originalRef)), "+
+			"originalContentType=IF(VALUES(originalRef)=\"\", originalContentType, VALUES(originalContentType)), "+
+			"originalBytes=IF(VALUES(originalRef)=\"\", originalBytes, VALUES(originalBytes)), "+
+			"originalWidth=IF(VALUES(originalRef)=\"\", originalWidth, VALUES(originalWidth)), "+
+			"originalHeight=IF(VALUES(originalRef)=\"\", originalHeight, VALUES(originalHeight)), "+
 			"width=VALUES(width), height=VALUES(height), bytes=VALUES(bytes), "+
 			"latitude=VALUES(latitude), longitude=VALUES(longitude), "+
 			"boundsVerdict=VALUES(boundsVerdict), "+
@@ -175,6 +219,8 @@ func (c consumer) handleUploaded(msg cqrs.Message, year string) error {
 			"fileName=IF(VALUES(fileName)=\"\", fileName, VALUES(fileName)), "+
 			"uploadedAt=VALUES(uploadedAt)",
 		quote(photoID), quote(year), quote(body.Ref), quote(thumbRef), quote(mediumRef),
+		quote(originalRef), quote(originalType), originalBytes,
+		originalWidth, originalHeight,
 		body.Width, body.Height, body.Bytes, lat, lng, quote(verdict),
 		shotAt, quote(NormalizeFileName(body.FileName)),
 		quote(formatTime(uploadedAt)),

@@ -46,6 +46,12 @@ var adminOwnedFiles = map[string]bool{
 	// including **removed** memberships, which a public read cannot see and which decide whether a re-add takes
 	// a new ordinal or reinstates the old one. Also `SlugTaken`, which must count deleted albums.
 	"adminalbum.go": true,
+	// The album download (the zip). Reads `AlbumCurator.Album` for the album's items **in its own order**, which is
+	// the thing being downloaded, and it is the curator read because the action is offered for a draft: a curator
+	// takes a copy of an album before it is published as often as after. Reads `PhotoCurator.Photo` per item to
+	// resolve a requested size to a stored rendition — the same id-through-the-projection rule as the media route,
+	// so the refs it hands the blob store come out of rows and never off the wire.
+	"adminalbumzip.go": true,
 	// The 800px rendition backfill (task 433). Reads `PhotoCurator.MissingMedium`, which returns library rows
 	// with no `mediumRef` — a read the public interface cannot express and should not: it enumerates the year's
 	// photographs irrespective of whether any album references them, which is precisely what a curator read is

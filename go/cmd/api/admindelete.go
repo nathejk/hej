@@ -194,7 +194,19 @@ func (app *application) deleteAdminPhotoHandler(w http.ResponseWriter, r *http.R
 	// forever; a rendition left out of `photo.RefsInUse` is worse, a live object deleted because nothing
 	// claimed it. Both halves have to know about each rendition — task 368's reasoning, restated by task 409
 	// when it added `mediumRef`.
-	refs := make([]string, 0, 3)
+	//
+	// # And since PRD 027, the original — which is the one that makes this path matter
+	//
+	// "Deleted from the library" is what somebody means when they say take it down (PRD 022 §5). The renditions are
+	// metadata-stripped re-encodes; the original is the photographer's file with its EXIF intact, **including the
+	// coordinate of where the photograph was taken**. So a takedown that freed the renditions and left the original
+	// would take the photograph off every page while the most sensitive copy of it stayed on disk — inside the volume
+	// that is backed up and never purged. That is a takedown in name only, and it is the failure a parent asking for
+	// a photograph to come down would never find out about.
+	//
+	// Listed last rather than beside `p.Ref` deliberately: the order here is the order bytes are freed in, and the
+	// original is the one object whose loss is unrecoverable, so it is freed after everything cheaper has succeeded.
+	refs := make([]string, 0, 4)
 	if p.Ref != "" {
 		refs = append(refs, p.Ref)
 	}
@@ -204,6 +216,11 @@ func (app *application) deleteAdminPhotoHandler(w http.ResponseWriter, r *http.R
 	}
 	if p.MediumRef != "" {
 		refs = append(refs, p.MediumRef)
+	}
+	// "" for every photograph uploaded before PRD 027 shipped, which is most of the library and permanently so.
+	// Nothing to free in that case, and that is a normal takedown rather than a partial one.
+	if p.OriginalRef != "" {
+		refs = append(refs, p.OriginalRef)
 	}
 
 	subject, serr := photo.Subject(adminYear(r), photoID, photo.VerbDeleted)

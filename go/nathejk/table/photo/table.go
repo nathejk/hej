@@ -94,6 +94,20 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
 		// back to the full image" everywhere it is read. So an existing library keeps working the moment
 		// this column appears, and photographs uploaded afterwards get the rendition.
 		{"mediumRef", `mediumRef VARCHAR(64) NOT NULL DEFAULT ""`},
+		// The photographer's file (PRD 027 R3). See table.sql for what these are, why the metadata is **not**
+		// stripped from them, and what enforces that no reader can reach them.
+		//
+		// No backfill accompanies these and none is possible: the uploaded bytes left with the HTTP request, so
+		// every existing row keeps ""/0 forever and readers fall back to `blobRef`. That is the same no-migration
+		// property the 800px rendition had, for a different and permanent reason.
+		//
+		// Five columns that the fold writes as one group — a ref without its dimensions would describe a
+		// photograph that does not exist, and an original is the one thing here with nothing to check it against.
+		{"originalRef", `originalRef VARCHAR(64) NOT NULL DEFAULT ""`},
+		{"originalContentType", `originalContentType VARCHAR(80) NOT NULL DEFAULT ""`},
+		{"originalBytes", `originalBytes INT NOT NULL DEFAULT 0`},
+		{"originalWidth", `originalWidth INT NOT NULL DEFAULT 0`},
+		{"originalHeight", `originalHeight INT NOT NULL DEFAULT 0`},
 	} {
 		if err := cqrs.EnsureColumn(r, w, "photo", col.name, col.ddl); err != nil {
 			return nil, fmt.Errorf("photo: ensure column %s: %w", col.name, err)
@@ -108,6 +122,10 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
 	for _, idx := range []struct{ name, ddl string }{
 		// The 800px rendition's ref (task 409).
 		{"medium_lookup", "ALTER TABLE photo ADD KEY medium_lookup (mediumRef)"},
+		// The original's ref (PRD 027). More at stake than the renditions': `RefsInUse` consults it inside the
+		// library takedown, where the two ways to be wrong are destroying the only copy of somebody's file and
+		// leaving an EXIF-bearing photograph on disk after it was taken down.
+		{"original_lookup", "ALTER TABLE photo ADD KEY original_lookup (originalRef)"},
 	} {
 		if err := cqrs.EnsureIndex(r, w, "photo", idx.name, idx.ddl); err != nil {
 			return nil, fmt.Errorf("photo: ensure index %s: %w", idx.name, err)

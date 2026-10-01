@@ -96,6 +96,74 @@ type Uploaded struct {
 	FileName string `json:"fileName,omitempty"`
 
 	UploadedAt time.Time `json:"uploadedAt"`
+
+	// Original is the photographer's file as handed in, when one was kept (PRD 027 R2).
+	//
+	// Nil for every photograph uploaded before PRD 027 shipped, and that is permanent — see Original's own doc for
+	// why no backfill is possible and what readers fall back to.
+	Original *Original `json:"original,omitempty"`
+}
+
+// Original is the photographer's file as it was handed in (PRD 027 R2).
+//
+// # What this is, and what every other ref here is not
+//
+// `Ref` above is a **1600px re-encode** with all metadata stripped. Until PRD 027 that was the only copy this
+// service kept, so it was classified an original in the blob store and the projection called it one — truthfully, in
+// the sense that nothing truer existed, and misleadingly, in the sense that it is not the photograph that was taken.
+//
+// This field is the photograph that was taken: the uploaded bytes, unchanged. Not re-encoded, not resized, and
+// — unlike `person.PortraitOriginal` — **not stripped of metadata**. EXIF, including the GPS coordinate, is retained.
+//
+// # Why the metadata stays, when PRD 003 §6 says it must not
+//
+// Because PRD 003's rule was protecting readers, and it still does. Every rendition is decoded and re-encoded, which
+// removes everything; `cmd/api/albummedia_test.go`'s `TestStoreAlbumImageReadsTheCoordinateAndStripsIt` pins that and
+// must never need editing. What changed is that the archive master and the thing readers are served are now two
+// different objects, so "no reader may be handed unexamined metadata" and "the archive may not hold metadata" come
+// apart — and PRD 027 answers them differently.
+//
+// An archive that has lost the capture time, the camera and the lens is a worse archive, and none of it can be
+// recovered later. So the file is kept whole, and the guard that keeps it safe is
+// `cmd/api/originalboundary_test.go`: **nothing outside `requireAdmin` may resolve this ref.**
+//
+// A portrait original is the other decision, deliberately: it is a photograph *of a person*, often a minor, so
+// `person.PortraitOriginal` is stripped. The two are not inconsistent — they are the same question asked about
+// different subjects.
+//
+// # Nil is normal, and permanently so
+//
+// Nil means no original is held. That is the state of **every photograph uploaded before PRD 027 shipped**, and no
+// backfill can change it: the bytes left with the HTTP request. Readers fall back to `Ref`, which is the 1600px copy
+// and is that photograph's most original surviving form — the same fallback rule every rendition here already uses.
+//
+// Two eras of photograph therefore coexist for the life of the product, which is why PRD 027 R7 requires the admin
+// tool to *say* which is which rather than letting a curator discover it after a download.
+type Original struct {
+	// Ref is the blob store's content hash for the stored file.
+	//
+	// **Always its real hash.** Originals keep content addressing — `blob.PutAs` refuses to write over one for
+	// exactly this reason — because they are the data that cannot be rebuilt and so must stay verifiable. Derived
+	// renditions trade that away knowingly; this must not.
+	Ref string `json:"ref"`
+
+	// ContentType is the format the bytes are in — the **upload's** format, since they were not re-encoded. So it
+	// can differ from the renditions, which are always image/jpeg.
+	ContentType string `json:"contentType,omitempty"`
+
+	// Bytes is the stored size. Worth carrying so a consumer can reason about the archive's growth without opening
+	// objects — PRD 027's capacity argument is made of this number.
+	Bytes int `json:"bytes,omitempty"`
+
+	// Width and Height describe the stored bytes **before** rotation is applied, so for a photograph taken sideways
+	// they are swapped relative to the display image.
+	//
+	// That is not a defect to be corrected here: these describe the file, and the file is what is being described.
+	// The orientation needed to display it is still inside it, because the metadata was not stripped — which is one
+	// concrete way this differs from `person.PortraitOriginal`, where the tag is removed and therefore has to be
+	// recorded alongside.
+	Width  int `json:"width,omitempty"`
+	Height int `json:"height,omitempty"`
 }
 
 // Location is a coordinate together with what the race-area check made of it.
