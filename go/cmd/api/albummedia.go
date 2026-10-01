@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"time"
 
 	"nathejk.dk/internal/eventtime"
@@ -16,26 +18,54 @@ import (
 	"nathejk.dk/nathejk/table/year"
 )
 
-// Album media ingest (PRD 011 §6 section 1, §8; task 333).
+// Album media ingest (PRD 011 §6 section 1, §8; task 333; PRD 027).
 //
-// # What is different from the glimt upload, and it is one thing
+// # Two objects, and the difference between them is the whole of this file
 //
-// Everything about storing the bytes is the glimt path's, reused wholesale: `internal/imaging` decodes
-// (which *is* the validation), turns the image upright by its EXIF orientation, re-encodes to JPEG —
-// **which strips all EXIF including GPS** — and `internal/blob` stores the result content-addressed
-// with a thumbnail. None of that changes here, and it must not.
+// Every upload here produces **the photographer's file** and **a set of renditions**, and they are governed by
+// opposite rules:
 //
-// The one addition is that the coordinate is **read before it is destroyed**, and written to a column.
+//   - the **original** is the uploaded bytes, stored unchanged — full resolution, metadata intact, EXIF and GPS and
+//     all. See `storeLibraryOriginal`.
+//   - the **renditions** are the glimt path's pipeline, reused wholesale: `internal/imaging` decodes (which *is* the
+//     validation), turns the image upright by its EXIF orientation, re-encodes to JPEG — **which strips all EXIF
+//     including GPS** — and `internal/blob` stores the results content-addressed. None of that changes, and it must
+//     not.
 //
-// That is not a loophole in the stripping rule, it is the point of it. A photograph of a child must not
-// carry where it was taken around inside a file that nobody has looked at (PRD 003 §6). A *curated*
-// album photograph may legitimately be plotted on the public map, and the honest way to hold that fact
-// is a column a curator can see, correct, bounds-check and delete. So:
+// The coordinate and the capture time are **read before the renditions destroy them**, and written to columns.
+//
+// That is not a loophole in the stripping rule, it is the point of it. A *curated* album photograph may legitimately
+// be plotted on the public map, and the honest way to hold that fact is a column a curator can see, correct,
+// bounds-check and delete. So:
 //
 //   - a coordinate in a column is a decision somebody made;
-//   - a coordinate inside a stored file is a leak waiting to happen.
+//   - a coordinate inside a **served** file is a leak waiting to happen.
 //
-// **Never** change the pipeline to preserve EXIF because this feature wants a coordinate.
+// # The rule that used to be here, what replaced it, and why that is not a loosening
+//
+// Until PRD 027 this header ended: *"**Never** change the pipeline to preserve EXIF because this feature wants a
+// coordinate."* That sentence is gone, and anyone citing it at a future change should read this instead — because the
+// prohibition was defending two things that only looked like one while the archive master and the served bytes were
+// the same object:
+//
+//  1. **No reader may be handed unexamined metadata.** A photograph of a child must not carry where it was taken
+//     around inside a file nobody has looked at (PRD 003 §6). **Unchanged, and now tested rather than asserted:**
+//     every rendition is still stripped (`TestStoreAlbumImageReadsTheCoordinateAndStripsIt`,
+//     `TestTheRenditionsStillCarryNoMetadata`), and `cmd/api/originalboundary_test.go` fails if any route outside
+//     `requireAdmin`, any viewer, any public page or anything in `vue/` so much as names an original.
+//  2. **The archive may not hold metadata.** This was never argued for separately; it followed from there being only
+//     one object. PRD 027 answers it differently, because an archive master that has lost the capture time, the
+//     camera and the lens is a worse archive and **none of it can be recovered later** — the bytes leave with the
+//     HTTP request.
+//
+// So the replacement rule, which is narrower and enforced rather than remembered:
+//
+//	**The original keeps everything and is reachable only behind the admin credential.
+//	  Every byte any reader is served is stripped. Neither half may be relaxed without the other being re-argued.**
+//
+// A *portrait* original is still stripped (`person.PortraitOriginal`, task 111) and that is not an inconsistency: it
+// is the same question asked about a photograph **of a person**, often a minor, rather than about an event the
+// organizers are archiving.
 //
 // # Why the bounds check is here and not at read time
 //
@@ -54,6 +84,16 @@ type albumMediaPrepared struct {
 	// Empty is a normal answer rather than a failure: readers fall back to the full image, which is what
 	// lets this rendition exist without a backfill for everything uploaded before it.
 	MediumRef string
+
+	// Original is the photographer's file as handed in (PRD 027 R1).
+	//
+	// **Never nil for a successful ingest**, which is deliberate and is what makes `originalRef` mean one thing:
+	// storing it is the first thing this path does and a failure fails the upload. Contrast the renditions above,
+	// where "" is routine — losing a rendition costs bandwidth, losing this costs the photograph.
+	//
+	// A pointer so that the zero value is unusable rather than quietly empty: a caller that forgot to set it
+	// publishes nothing instead of publishing a row claiming an original at ref "".
+	Original *photo.Original
 
 	Width  int
 	Height int
@@ -118,9 +158,33 @@ func (app *application) storeAlbumImage(ctx context.Context, year string, raw []
 	// at Nathejk (task 440).
 	shotAt, hasShotAt := imaging.ReadShotAt(raw, eventtime.Location())
 
+	// **The photographer's file, stored first and stored whole** (PRD 027 R1).
+	//
+	// First because it is the one thing here that cannot be produced again: if the volume is full or the store is
+	// failing, that should be discovered before spending a decode and three encodes on derivatives of bytes we are
+	// about to refuse. And `Put`, not `PutCache` — this *is* the backup scope.
+	//
+	// A failure fails the ingest. Keeping the photograph and silently dropping its original would leave one frame
+	// quietly un-recoverable, discovered years later for no visible reason; the portrait path already makes exactly
+	// this call and for exactly this reason.
+	original, err := app.storeLibraryOriginal(ctx, raw)
+	if err != nil {
+		if errors.Is(err, imaging.ErrNotAnImage) {
+			// The header read is the first thing that can reject a `.mov` or a `Thumbs.db` off the same card. Mapped
+			// to the same error the decode below produces, so the handler's one Danish message still covers it.
+			return albumMediaPrepared{}, errGlimtNotMedia
+		}
+		return albumMediaPrepared{}, err
+	}
+
 	// **Behind the decode gate** (task 471): this is the step that costs ~83 MB for a 12MP photograph, and the
 	// uploader sends three files at once. See decodegate.go for the measurements and why the bound belongs on the
 	// server rather than in the client's concurrency setting.
+	//
+	// `keepOriginal` stays **false**, and that is not an oversight now that an original is kept. `imaging.Prepare`'s
+	// original is metadata-*stripped* and is declined when it has no more pixels than the display image — both right
+	// for a portrait (PRD 003 §6) and both wrong here, where the point is that the file keeps its EXIF. The library's
+	// original is stored above, from the raw bytes, and `keepOriginal` must not be switched on to do it.
 	var prepared imaging.Portrait
 	if err := withDecodeSlot(ctx, func() error {
 		var perr error
@@ -133,7 +197,20 @@ func (app *application) storeAlbumImage(ctx context.Context, year string, raw []
 		return albumMediaPrepared{}, fmt.Errorf("prepare album media: %w", err)
 	}
 
-	ref, err := app.blobs.Put(ctx, prepared.Full.Bytes)
+	// **PutCache since PRD 027, where this used to be `Put`** (R4).
+	//
+	// The display image is a 1600px re-encode. It was classified an original while it was the only copy of these
+	// pixels — which is what the blob store's two classes actually distinguish, not "was this re-encoded" — and the
+	// original stored above is what stops that being true. So it moves to `cache/`, outside the backup scope, and
+	// task 430 can rebuild it from the original on a miss.
+	//
+	// **This demotion is the library's alone** (R4a). A glimt's or a portrait's display image stays `Put`: those come
+	// from a participant's phone during the race, and however modest the quality, that frame is the most original
+	// copy of that moment which will ever exist. Do not generalise this line to `glimtmedia.go` or `portrait.go`.
+	//
+	// Existing library display images stay in `original/` and keep resolving — `locate` checks both subtrees — so
+	// nothing already stored moves or needs to.
+	ref, err := app.blobs.PutCache(ctx, prepared.Full.Bytes)
 	if err != nil {
 		return albumMediaPrepared{}, fmt.Errorf("store album media: %w", err)
 	}
@@ -143,8 +220,6 @@ func (app *application) storeAlbumImage(ctx context.Context, year string, raw []
 	//
 	// Which is also why these are PutCache: the same fallback that makes the failure survivable makes the
 	// bytes worth excluding from the backup, and they are reproducible from the full rendition above.
-	// That one stays an original — an admin upload keeps no separate original either (§8.5), so it is the
-	// only copy of the photographer's work, and PRD 022 §11 Q2 says it is never purged.
 	//
 	// **By name, not by index.** `prepared.Thumbs` is in the order of `libraryThumbEdges`, so indexing it
 	// would mean every reader here silently depends on that order — and adding a rendition would re-point
@@ -156,6 +231,7 @@ func (app *application) storeAlbumImage(ctx context.Context, year string, raw []
 		Ref:       ref.String(),
 		ThumbRef:  thumbRef,
 		MediumRef: mediumRef,
+		Original:  original,
 		Width:     prepared.Full.Width,
 		Height:    prepared.Full.Height,
 		Bytes:     len(prepared.Full.Bytes),
@@ -173,6 +249,65 @@ func (app *application) storeAlbumImage(ctx context.Context, year string, raw []
 		}
 	}
 	return out, nil
+}
+
+// storeLibraryOriginal stores the uploaded bytes unchanged and describes them (PRD 027 R1).
+//
+// # Byte for byte, metadata included
+//
+// No re-encode, no resize, no strip, **and no condition**. The bytes that arrive are the bytes that are stored, so
+// the archive holds the photograph that was taken rather than our rendering of it.
+//
+// There is deliberately no "only if it has more pixels than the display image" check, which `imaging.Prepare` applies
+// to a portrait original and which was measured in production on 2026-08-29 to be worth 1.9x the storage for nothing.
+// That measurement was about a **stripped** same-size original, which genuinely carries no additional information.
+// Once the metadata stays, the premise is gone: the capture time, the camera, the lens and the coordinate are facts no
+// rendition has and none can re-derive. Keeping every original also makes `originalRef` mean one thing, rather than
+// "present, unless one of two conditions you have to go and read".
+//
+// # The dimensions are a header read, and they are pre-rotation
+//
+// `image.DecodeConfig` parses the header only — no pixels are decoded, so this costs nothing next to the decode that
+// follows and does not need the decode gate.
+//
+// The width and height it returns describe **the stored bytes before rotation is applied**, so for a photograph taken
+// sideways they are swapped relative to the display image's. That is correct and is not to be "fixed": these describe
+// the file, and the orientation needed to display it is still inside the file, because the metadata was not stripped.
+// (This is precisely where a portrait original differs — stripping removes the tag, so `person.PortraitOriginal` has
+// to carry an `Orientation` of its own.)
+//
+// # Why a failure is fatal to the upload
+//
+// Every other object in this path is recoverable: a thumbnail can be rebuilt, the display image can be rebuilt from
+// the original, and a failed publish leaves bytes that a retry reuses for free. The original can be rebuilt from
+// nothing. So a store that will not take it means this photograph cannot be archived, and the honest answer is to
+// refuse the upload rather than accept it in a state nobody will notice until the pixels are wanted.
+func (app *application) storeLibraryOriginal(ctx context.Context, raw []byte) (*photo.Original, error) {
+	// Before the write, so an unreadable file is refused without storing anything. The decode below is the real
+	// validation, but there is no reason to put a `Thumbs.db` in the backup scope on the way to finding that out.
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return nil, imaging.ErrNotAnImage
+	}
+
+	// `Put`, not `PutCache`: this **is** the backup scope. And its ref stays its true content hash — `blob.PutAs`
+	// refuses to write over an original for exactly that reason, because this is the data that cannot be rebuilt and
+	// so must remain verifiable.
+	ref, err := app.blobs.Put(ctx, raw)
+	if err != nil {
+		return nil, fmt.Errorf("store the photographer's original: %w", err)
+	}
+
+	return &photo.Original{
+		Ref: ref.String(),
+		// The upload's own format, since the bytes were not re-encoded — so this may be image/png where every
+		// rendition is image/jpeg. Derived from what the decoder recognised rather than from the request's
+		// Content-Type, which is whatever the client chose to claim.
+		ContentType: "image/" + format,
+		Bytes:       len(raw),
+		Width:       cfg.Width,
+		Height:      cfg.Height,
+	}, nil
 }
 
 // storeRendition stores one prepared rendition, identified by its edge, and returns its ref or "".

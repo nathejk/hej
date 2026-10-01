@@ -24,8 +24,12 @@ import (
 // Not "is it small", and not "is it a thumbnail". A glimt's *full* rendition is already
 // downscaled to `maxGlimtEdge` and still an original, because no original was kept behind
 // it (glimtmedia.go, "Why no original is kept") — those bytes are the only copy of the
-// member's photograph. Same for an admin upload: PRD 022 §8.5 keeps no separate original,
-// and §11 Q2 says the photograph is never purged.
+// member's photograph, and PRD 027 R4a confirms that stays true: a participant's photograph from
+// the race is not photographer quality and is nonetheless the most original copy there will ever be.
+//
+// The **library** used to be the same case and is no longer. Since PRD 027 it keeps the photographer's
+// file, so its 1600px display image became rebuildable and moved to cache; the original is what is
+// backed up now. That is a change of which object the rule selects, not a change in the rule.
 
 // classStore records the class each ref was stored under, so a test can assert on the
 // decision a handler made.
@@ -88,9 +92,21 @@ func TestGlimtUploadClassifiesItsBytes(t *testing.T) {
 	}
 }
 
-// TestAlbumIngestClassifiesItsBytes is the same assertion for the curated library, which is
-// the one whose volume actually motivated the split: PRD 022 §6 puts a hand-in at order
-// 1 GB, and §11 Q2 means it is never reclaimed.
+// TestAlbumIngestClassifiesItsBytes is the same assertion for the curated library, and PRD 027 **inverted half of
+// it** — which is why the reasoning is restated here rather than the test quietly edited.
+//
+// Until PRD 027 the library's 1600px display image was an original, correctly: the photographer's file was discarded,
+// so those bytes were the only copy of those pixels. That is what the blob store's two classes distinguish — "is this
+// the only copy", not "was this re-encoded" — and it is the whole reason the glimt test above still expects `Put` for
+// a frame that is also a re-encode (R4a: a participant's photograph from the race is modest quality and is
+// nonetheless the most original copy that will ever exist).
+//
+// Now the library keeps the uploaded file, so the display image stops being the only copy and becomes what it always
+// looked like: a rendition, rebuildable from the original, outside the backup scope. The thing that must be in
+// `original/` is the photographer's file.
+//
+// The volumes are the reason this matters either way: PRD 022 §6 puts a hand-in at order 1 GB and §11 Q2 means it is
+// never reclaimed — PRD 027 makes that 8–15 GB, so every byte wrongly classified is wrong forever.
 func TestAlbumIngestClassifiesItsBytes(t *testing.T) {
 	app := newTestApp(t)
 	store := newClassStore(app.blobs)
@@ -103,10 +119,26 @@ func TestAlbumIngestClassifiesItsBytes(t *testing.T) {
 	if prepared.ThumbRef == "" {
 		t.Fatal("no thumbnail was stored, so this test asserts nothing about the interesting half")
 	}
+	if prepared.Original == nil || prepared.Original.Ref == "" {
+		t.Fatal("no original was stored. Every library upload gets one (PRD 027 R1) — there is no size or " +
+			"pixel-count condition — and without it the classification below is asserting the wrong thing")
+	}
 
-	if store.cached[blob.Ref(prepared.Ref)] {
-		t.Error("a library photograph's full rendition was stored as cache. An admin upload keeps " +
-			"no separate original (PRD 022 §8.5), so this is the photographer's only copy")
+	// **The photographer's file is the backup scope.** If this ever becomes `PutCache`, a restore brings back the
+	// renditions and loses every original the event collected, which is the single worst outcome this split exists
+	// to prevent — and it would be invisible until somebody wanted to print something.
+	if store.cached[blob.Ref(prepared.Original.Ref)] {
+		t.Error("the photographer's original was stored as cache. It is the only copy of those pixels and it " +
+			"cannot be rebuilt from anything (PRD 027 R1) — a backup that skips the cache class would not " +
+			"contain it")
+	}
+	// And the derivatives are not. Both are checked, because "everything is an original" would pass a test that only
+	// looked at the original.
+	if !store.cached[blob.Ref(prepared.Ref)] {
+		t.Error("the 1600px display image was stored as an original. Since PRD 027 R4 it is derived from the " +
+			"photographer's file, so it belongs in the cache class and task 430 rebuilds it on a miss. Note this " +
+			"is the **library's** rule alone: a glimt's display image stays an original (R4a), because for a glimt " +
+			"there is no truer copy")
 	}
 	if !store.cached[blob.Ref(prepared.ThumbRef)] {
 		t.Error("a library thumbnail was stored as an original. At PRD 022 §6's volumes this is the " +

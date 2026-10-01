@@ -165,10 +165,17 @@ func (app *application) uploadAdminPhotoHandler(w http.ResponseWriter, r *http.R
 	}
 
 	// **Before the bytes are stored, not after.** There is no point discovering the volume is full once the
-	// object is on it, and `storeAlbumImage` writes two objects (the rendition and its thumbnail) with no way
-	// to undo half of it. The check is against the raw size, which over-counts slightly because the stored
-	// rendition is usually smaller — over-counting is the safe direction for a floor.
-	if app.writeAdminDiskResponse(w, r, app.checkAdminDiskFloor(int64(len(raw)))) {
+	// object is on it, and `storeAlbumImage` writes several objects with no way to undo half of it.
+	//
+	// Since PRD 027 the estimate is **the raw size twice**: the photographer's file is stored whole *and* a 1600px
+	// display image, a 800px rendition and a thumbnail are derived from it. One raw size used to over-count, because
+	// the only object written was smaller than the upload; now the original alone costs exactly the raw size, so the
+	// same figure would under-count — and under-counting a floor is how a volume fills up halfway through a
+	// photographer's SD card, which is the one moment nobody can recover from gracefully.
+	//
+	// Doubling rather than modelling the renditions: they come to well under the original for any real photograph,
+	// and a floor should be crude in the safe direction. The cap (`maxAdminUpload`, 32 MB) is what bounds this.
+	if app.writeAdminDiskResponse(w, r, app.checkAdminDiskFloor(2*int64(len(raw)))) {
 		return
 	}
 
@@ -248,6 +255,10 @@ func (app *application) uploadAdminPhotoHandler(w http.ResponseWriter, r *http.R
 			Bytes:     stored.Bytes,
 			Location:  stored.Location,
 			ShotAt:    stored.ShotAt,
+			// The photographer's file (PRD 027 R2). Never nil for a successful ingest — `storeAlbumImage` fails
+			// rather than returning without one — so there is no branch here, and that absence is the point:
+			// a conditional would invite an "if it worked" reading of something that must always have worked.
+			Original: stored.Original,
 			// Normalised at the point of publication, so the log never carries a value the column cannot
 			// hold — the log is permanent and a projection cannot fix it later. The fold applies it again,
 			// because it does not get to assume the publisher was this version of the publisher.

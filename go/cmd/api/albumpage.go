@@ -687,9 +687,14 @@ func (app *application) albumItemRef(
 		}
 
 		// The repair plan (task 430), only when a **derived** rendition is being served — `edge` is non-zero
-		// exactly in those cases. An album upload keeps no separate original (PRD 022 §8.5), so the item's
-		// full rendition is the source; and the full rendition itself is therefore unrebuildable, which is
-		// exactly why it is the half that is backed up.
+		// exactly in those cases. The item's 1600px display image is the source.
+		//
+		// Since PRD 027 that display image is itself derived, from the photographer's stored original, so it is
+		// rebuildable too — but **this is the public album read, and it must not reach for an original**: that
+		// object carries the camera's metadata and lives behind the admin credential (PRD 027 R10/R11,
+		// `cmd/api/originalboundary_test.go`). A missing display image on a public page therefore degrades, as it
+		// did before, and is repaired by an admin read or by the next upload. That is the correct trade: a
+		// rebuildable rendition is not worth widening the one boundary this file exists to hold.
 		plan := renditionRepair{}
 		if edge > 0 {
 			if full := blob.Ref(it.Ref); full.Valid() {

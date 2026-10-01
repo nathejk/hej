@@ -358,8 +358,16 @@ func TestAlbumIngestProducesBothDerivedRenditions(t *testing.T) {
 		t.Error("the medium rendition was stored as an original, which puts a regenerable 800px copy of " +
 			"every photograph into the backup")
 	}
-	if store.cached[blob.Ref(prepared.Ref)] {
-		t.Error("the full rendition was stored as cache; it is the photographer's only copy")
+	// Since PRD 027 R4, so is the 1600px display image: the photographer's file is kept now, so this is no longer
+	// anybody's only copy. The classification follows "is this the only copy of these pixels", which is why the
+	// original below is the one that must **not** be cache — and why a glimt's display image still is not (R4a).
+	if !store.cached[blob.Ref(prepared.Ref)] {
+		t.Error("the 1600px display image was stored as an original; since PRD 027 it is derived from the " +
+			"photographer's file and belongs in the cache class")
+	}
+	if prepared.Original == nil || store.cached[blob.Ref(prepared.Original.Ref)] {
+		t.Error("the photographer's original is missing or was stored as cache; it is the only copy of those " +
+			"pixels and cannot be rebuilt from anything")
 	}
 }
 

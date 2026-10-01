@@ -654,6 +654,14 @@ Consequences to handle deliberately:
   PRD adds a reason to want one. The warning holds: a coordinate in a column is a decision somebody
   made, which a curator can see, correct and delete; a coordinate inside a stored file is a leak
   waiting to happen.
+
+  **Amended by PRD 027 (2026-10-01), and read the amendment before citing this bullet.** The library now
+  *also* stores the photographer's file unchanged, **with its EXIF**, as a separate object. The half of the
+  warning that matters is unchanged and is now enforced by a test rather than a comment: every byte any
+  reader is served is still stripped, and `cmd/api/originalboundary_test.go` fails if anything outside
+  `requireAdmin` resolves an original. What PRD 027 rejected is the other half — that the *archive* may not
+  hold metadata — which was never argued for separately and only followed from there being one object. See
+  PRD 027 §8 and the rewritten header of `albummedia.go`.
 - **The four bounds verdicts and `Plottable`.** Only `inside` is plotted. `unknown` is not folded
   into `outside`.
 - **Publication filtering in `album.Queries`.** That interface is read by unauthenticated handlers
@@ -702,6 +710,15 @@ properties this must have, and they are in tension:
 The upload handler should additionally tell the browser which it was, so the UI can say "already
 uploaded" rather than claiming a fresh success — and, for a previously deleted photograph, say so
 plainly instead of silently doing nothing.
+
+**Still the display rendition's hash after PRD 027, deliberately — and the distinction now matters.** Since
+PRD 027 there are two stored objects, so "the content hash" could mean either. It remains the **1600px
+rendition's**, because that is what makes the idempotence above work: the same photograph re-saved by an
+editor, or handed in with its EXIF stripped, is a *different file* and therefore a different original, while
+`Prepare` reduces both to the same display rendition. Keying on the original would make those two a second
+row for one photograph — the first property on this list, broken. It is also why the fold guards the original
+columns rather than overwriting them: one id can legitimately be reached from two files, and the later one
+must not be able to blank the first one's original (task 477).
 
 ### 8.6 Patrol tags without a roster read
 
