@@ -52,7 +52,7 @@ func i(v int) *int         { return &v }
 // them to the photo package (PRD 022 §8.3) — `staticcheck` is what noticed, via the dev container's gates.
 
 func TestCreatedWritesTheAlbum(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.created", Created{
+	stmts := fold(t, "PHOTO.2026.album.al-1.created", Created{
 		AlbumID: "al-1", Year: "2026", Slug: "loerdag-morgen",
 		Title: "Lørdag morgen", Description: "Da solen kom", SortOrder: 10, CreatedAt: at,
 	})
@@ -75,7 +75,7 @@ func TestCreatedWritesTheAlbum(t *testing.T) {
 // Both follow from `published` and `deleted` being absent from the update clause — the rule the glimt
 // fold established for `hiddenAt`.
 func TestCreatedDoesNotTouchPublishedOrDeleted(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.created", Created{
+	stmts := fold(t, "PHOTO.2026.album.al-1.created", Created{
 		AlbumID: "al-1", Year: "2026", Slug: "en-titel", Title: "En titel", CreatedAt: at,
 	})
 
@@ -93,7 +93,7 @@ func TestCreatedDoesNotTouchPublishedOrDeleted(t *testing.T) {
 }
 
 func TestCreatedFallsBackToTheSubjectID(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-7.created", Created{
+	stmts := fold(t, "PHOTO.2026.album.al-7.created", Created{
 		Year: "2026", Slug: "noget", Title: "Noget", CreatedAt: at,
 	})
 	if !strings.Contains(stmts[0], `"al-7"`) {
@@ -108,7 +108,7 @@ func TestCreatedRefusesAnUnusableSlug(t *testing.T) {
 		"", "Store Bogstaver", "med mellemrum", "med/skråstreg", "æøå", "-foran", "bagved-",
 		"dobbelt--bindestreg", strings.Repeat("a", 65), "../../etc/passwd", "spørgsmål?",
 	} {
-		err := foldErr(t, "NATHEJK.2026.album.al-1.created", Created{
+		err := foldErr(t, "PHOTO.2026.album.al-1.created", Created{
 			AlbumID: "al-1", Year: "2026", Slug: slug, Title: "T", CreatedAt: at,
 		})
 		if err == nil {
@@ -119,7 +119,7 @@ func TestCreatedRefusesAnUnusableSlug(t *testing.T) {
 
 func TestCreatedAcceptsAUsableSlug(t *testing.T) {
 	for _, slug := range []string{"a", "loerdag", "loerdag-morgen", "2026-start", "42"} {
-		if err := foldErr(t, "NATHEJK.2026.album.al-1.created", Created{
+		if err := foldErr(t, "PHOTO.2026.album.al-1.created", Created{
 			AlbumID: "al-1", Year: "2026", Slug: slug, Title: "T", CreatedAt: at,
 		}); err != nil {
 			t.Errorf("slug %q should be accepted: %v", slug, err)
@@ -128,7 +128,7 @@ func TestCreatedAcceptsAUsableSlug(t *testing.T) {
 }
 
 func TestCreatedRefusesAZeroTimestamp(t *testing.T) {
-	err := foldErr(t, "NATHEJK.2026.album.al-1.created", Created{
+	err := foldErr(t, "PHOTO.2026.album.al-1.created", Created{
 		AlbumID: "al-1", Year: "2026", Slug: "s", Title: "T",
 	})
 	if err == nil {
@@ -138,7 +138,7 @@ func TestCreatedRefusesAZeroTimestamp(t *testing.T) {
 
 // The delta shape's whole point: only what was sent is written.
 func TestUpdatedAppliesOnlyTheFieldsItCarries(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.updated", Updated{
+	stmts := fold(t, "PHOTO.2026.album.al-1.updated", Updated{
 		AlbumID: "al-1", Year: "2026", Title: str("Ny titel"), UpdatedAt: at,
 	})
 
@@ -158,7 +158,7 @@ func TestUpdatedAppliesOnlyTheFieldsItCarries(t *testing.T) {
 // Clearing a description and renaming an album are different events. If they were not, one would wipe
 // the other's field.
 func TestUpdatedCanClearAField(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.updated", Updated{
+	stmts := fold(t, "PHOTO.2026.album.al-1.updated", Updated{
 		AlbumID: "al-1", Year: "2026", Description: str(""), UpdatedAt: at,
 	})
 	if !strings.Contains(stmts[0], `description=""`) {
@@ -167,7 +167,7 @@ func TestUpdatedCanClearAField(t *testing.T) {
 }
 
 func TestUpdatedPublishes(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.updated", Updated{
+	stmts := fold(t, "PHOTO.2026.album.al-1.updated", Updated{
 		AlbumID: "al-1", Year: "2026", Published: b(true), SortOrder: i(3), UpdatedAt: at,
 	})
 	if !strings.Contains(stmts[0], "published=1") || !strings.Contains(stmts[0], "sortOrder=3") {
@@ -177,7 +177,7 @@ func TestUpdatedPublishes(t *testing.T) {
 
 // A no-op update is a client bug, not a reason to drop a message into a log nobody reads.
 func TestUpdatedWithNothingIsANoOp(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.updated", Updated{
+	stmts := fold(t, "PHOTO.2026.album.al-1.updated", Updated{
 		AlbumID: "al-1", Year: "2026", UpdatedAt: at,
 	})
 	if len(stmts) != 0 {
@@ -195,7 +195,7 @@ func TestUpdatedWithNothingIsANoOp(t *testing.T) {
 // What is left to test here is what an album item still is: a photograph at a position.
 
 func TestItemAddedWritesTheMembership(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
+	stmts := fold(t, "PHOTO.2026.album.al-1.itemadded", ItemAdded{
 		AlbumID: "al-1", Year: "2026", Ordinal: 2, PhotoID: ref("a"), AddedAt: at,
 	})
 
@@ -219,7 +219,7 @@ func TestItemAddedWritesTheMembership(t *testing.T) {
 // The membership carries nothing but the membership. A caption or a coordinate reappearing on this table
 // would recreate the divergence PRD 022 §8.3 removed — two albums holding two copies of one fact.
 func TestItemAddedWritesNoPhotographFields(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
+	stmts := fold(t, "PHOTO.2026.album.al-1.itemadded", ItemAdded{
 		AlbumID: "al-1", Year: "2026", Ordinal: 0, PhotoID: ref("a"), AddedAt: at,
 	})
 	for _, stmt := range stmts {
@@ -250,10 +250,10 @@ func TestItemAddedSkipsALegacyEvent(t *testing.T) {
 		"addedAt": at,
 	}
 
-	if err := foldErr(t, "NATHEJK.2026.album.al-1.itemadded", legacy); err != nil {
+	if err := foldErr(t, "PHOTO.2026.album.al-1.itemadded", legacy); err != nil {
 		t.Fatalf("a legacy item event must not fail the replay: %v", err)
 	}
-	stmts := fold(t, "NATHEJK.2026.album.al-1.itemadded", legacy)
+	stmts := fold(t, "PHOTO.2026.album.al-1.itemadded", legacy)
 	if len(stmts) != 0 {
 		t.Errorf("a legacy item event must write nothing, got %d: %v", len(stmts), stmts)
 	}
@@ -267,7 +267,7 @@ func TestItemAddedRefusesAnInvalidPhotoID(t *testing.T) {
 		"short", strings.Repeat("A", 64), strings.Repeat("a", 63), strings.Repeat("g", 64),
 		"../../etc/passwd" + strings.Repeat("a", 48),
 	} {
-		err := foldErr(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
+		err := foldErr(t, "PHOTO.2026.album.al-1.itemadded", ItemAdded{
 			AlbumID: "al-1", Year: "2026", PhotoID: id, AddedAt: at,
 		})
 		if err == nil {
@@ -277,7 +277,7 @@ func TestItemAddedRefusesAnInvalidPhotoID(t *testing.T) {
 }
 
 func TestItemAddedRefusesAZeroTimestamp(t *testing.T) {
-	err := foldErr(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
+	err := foldErr(t, "PHOTO.2026.album.al-1.itemadded", ItemAdded{
 		AlbumID: "al-1", Year: "2026", PhotoID: ref("a"),
 	})
 	if err == nil {
@@ -287,7 +287,7 @@ func TestItemAddedRefusesAZeroTimestamp(t *testing.T) {
 
 // Re-adding a photograph undoes its removal, and leaves it where it is.
 func TestItemAddedClearsTheDeletedFlag(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.itemadded", ItemAdded{
+	stmts := fold(t, "PHOTO.2026.album.al-1.itemadded", ItemAdded{
 		AlbumID: "al-1", Year: "2026", Ordinal: 1, PhotoID: ref("a"), AddedAt: at,
 	})
 
@@ -307,7 +307,7 @@ func TestItemAddedClearsTheDeletedFlag(t *testing.T) {
 }
 
 func TestItemRemovedIsASoftDelete(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.itemremoved", ItemRemoved{
+	stmts := fold(t, "PHOTO.2026.album.al-1.itemremoved", ItemRemoved{
 		AlbumID: "al-1", Year: "2026", PhotoID: ref("a"), Ordinal: 2, Reason: "objection", RemovedAt: at,
 	})
 	if len(stmts) != 1 {
@@ -334,7 +334,7 @@ func TestItemRemovedIsASoftDelete(t *testing.T) {
 // photograph somebody asked to have taken down back on a public page, which is the one direction this
 // projection must never fail in.
 func TestItemRemovedFallsBackToTheOrdinalForALegacyEvent(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.itemremoved", ItemRemoved{
+	stmts := fold(t, "PHOTO.2026.album.al-1.itemremoved", ItemRemoved{
 		AlbumID: "al-1", Year: "2026", Ordinal: 2, RemovedAt: at,
 	})
 	if len(stmts) != 1 {
@@ -347,7 +347,7 @@ func TestItemRemovedFallsBackToTheOrdinalForALegacyEvent(t *testing.T) {
 
 // A malformed id is a bug, not a legacy event, and is refused loudly — the same rule handleItemAdded applies.
 func TestItemRemovedRefusesAnInvalidPhotoID(t *testing.T) {
-	err := foldErr(t, "NATHEJK.2026.album.al-1.itemremoved", ItemRemoved{
+	err := foldErr(t, "PHOTO.2026.album.al-1.itemremoved", ItemRemoved{
 		AlbumID: "al-1", Year: "2026", PhotoID: "../../etc/passwd" + strings.Repeat("a", 48), RemovedAt: at,
 	})
 	if err == nil {
@@ -358,7 +358,7 @@ func TestItemRemovedRefusesAnInvalidPhotoID(t *testing.T) {
 // Deleting an album must mark its items too: the map read looks at items across albums and has no
 // reason to join the parent, so an album deleted alone would keep its photographs on the map.
 func TestDeletedMarksTheAlbumAndItsItems(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.deleted", Deleted{
+	stmts := fold(t, "PHOTO.2026.album.al-1.deleted", Deleted{
 		AlbumID: "al-1", Year: "2026", DeletedAt: at,
 	})
 	if len(stmts) != 2 {
@@ -378,7 +378,7 @@ func TestSubjectBuildsTheVerbs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Subject(%s): %v", verb, err)
 		}
-		want := "NATHEJK.2026.album.al-1." + verb
+		want := "PHOTO.2026.album.al-1." + verb
 		if s.Subject() != want {
 			t.Errorf("got %s, want %s", s.Subject(), want)
 		}
@@ -469,7 +469,7 @@ func TestVerdictsAgreeWithThePhotoPackage(t *testing.T) {
 // The chosen cover (task 396): set, cleared, and a malformed id refused because it is spliced into SQL.
 func TestUpdatedChoosesAndClearsTheCover(t *testing.T) {
 	cover := ref("a")
-	stmts := fold(t, "NATHEJK.2026.album.al-1.updated", Updated{
+	stmts := fold(t, "PHOTO.2026.album.al-1.updated", Updated{
 		AlbumID: "al-1", Year: "2026", CoverPhotoID: str(cover), UpdatedAt: at,
 	})
 	if len(stmts) != 1 || !strings.Contains(stmts[0], `coverPhotoId="`+cover+`"`) {
@@ -481,7 +481,7 @@ func TestUpdatedChoosesAndClearsTheCover(t *testing.T) {
 		}
 	}
 
-	stmts = fold(t, "NATHEJK.2026.album.al-1.updated", Updated{
+	stmts = fold(t, "PHOTO.2026.album.al-1.updated", Updated{
 		AlbumID: "al-1", Year: "2026", CoverPhotoID: str(""), UpdatedAt: at,
 	})
 	if !strings.Contains(stmts[0], `coverPhotoId=""`) {
@@ -490,7 +490,7 @@ func TestUpdatedChoosesAndClearsTheCover(t *testing.T) {
 }
 
 func TestUpdatedRefusesAMalformedCover(t *testing.T) {
-	err := foldErr(t, "NATHEJK.2026.album.al-1.updated", Updated{
+	err := foldErr(t, "PHOTO.2026.album.al-1.updated", Updated{
 		AlbumID: "al-1", Year: "2026", CoverPhotoID: str(`x" OR 1=1 --`), UpdatedAt: at,
 	})
 	if err == nil {

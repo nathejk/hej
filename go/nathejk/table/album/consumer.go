@@ -20,9 +20,9 @@ type consumer struct {
 
 // Consumes lists the subjects this projection subscribes to.
 //
-// Dot form after NATHEJK, matching what this app already publishes for `portrait` and `glimt`. Several
-// upstream producers use a colon, but those are their events and copying the quirk into a new entity
-// would spread it.
+// On `PHOTO`, not `NATHEJK`, like `photo`: albums are far removed from the race itself, this app is
+// their only consumer, and every other projector replaying `NATHEJK` from zero has no use for them. Dot
+// form, not the colon several upstream producers use.
 //
 // The removal verbs (`item-removed`, `deleted`) are subscribed here and folded below even though the
 // handlers that publish them arrive in task 335. Subscribing early is free and the alternative is
@@ -31,12 +31,12 @@ type consumer struct {
 // to extend.
 func (c consumer) Consumes() []cqrs.Subject {
 	return []cqrs.Subject{
-		cqrs.SubjectFromStr("NATHEJK.*.album.*.created"),
-		cqrs.SubjectFromStr("NATHEJK.*.album.*.updated"),
-		cqrs.SubjectFromStr("NATHEJK.*.album.*.itemadded"),
-		cqrs.SubjectFromStr("NATHEJK.*.album.*.itemsreordered"),
-		cqrs.SubjectFromStr("NATHEJK.*.album.*.itemremoved"),
-		cqrs.SubjectFromStr("NATHEJK.*.album.*.deleted"),
+		cqrs.SubjectFromStr("PHOTO.*.album.*.created"),
+		cqrs.SubjectFromStr("PHOTO.*.album.*.updated"),
+		cqrs.SubjectFromStr("PHOTO.*.album.*.itemadded"),
+		cqrs.SubjectFromStr("PHOTO.*.album.*.itemsreordered"),
+		cqrs.SubjectFromStr("PHOTO.*.album.*.itemremoved"),
+		cqrs.SubjectFromStr("PHOTO.*.album.*.deleted"),
 	}
 }
 
@@ -61,17 +61,17 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 	}
 
 	switch {
-	case subject.Match("nathejk.*.album.*.created"):
+	case subject.Match("photo.*.album.*.created"):
 		return c.handleCreated(msg, year)
-	case subject.Match("nathejk.*.album.*.updated"):
+	case subject.Match("photo.*.album.*.updated"):
 		return c.handleUpdated(msg, year)
-	case subject.Match("nathejk.*.album.*.itemadded"):
+	case subject.Match("photo.*.album.*.itemadded"):
 		return c.handleItemAdded(msg, year)
-	case subject.Match("nathejk.*.album.*.itemsreordered"):
+	case subject.Match("photo.*.album.*.itemsreordered"):
 		return c.handleItemsReordered(msg, year)
-	case subject.Match("nathejk.*.album.*.itemremoved"):
+	case subject.Match("photo.*.album.*.itemremoved"):
 		return c.handleItemRemoved(msg, year)
-	case subject.Match("nathejk.*.album.*.deleted"):
+	case subject.Match("photo.*.album.*.deleted"):
 		return c.handleDeleted(msg, year)
 	}
 	return nil
@@ -667,7 +667,7 @@ func boolToInt(b bool) int {
 // validSubjectToken rejects anything that would not survive as a single NATS subject token.
 //
 // Not cosmetic, and the reason is the one person/portrait.go gives: an id containing a dot splits into
-// extra tokens, still matches `NATHEJK.>` and publishes successfully — while quietly no longer matching
+// extra tokens, still matches `PHOTO.>` and publishes successfully — while quietly no longer matching
 // the per-album patterns, which would make that album impossible to update or take down.
 func validSubjectToken(s, what string) error {
 	if s == "" {
@@ -681,7 +681,7 @@ func validSubjectToken(s, what string) error {
 
 // Subject builds the subject for one album and one verb:
 //
-//	NATHEJK.<year>.album.<albumId>.<verb>
+//	PHOTO.<year>.album.<albumId>.<verb>
 //
 // One constructor for every verb rather than five near-identical ones, following the glimt package:
 // the verbs are a closed set used by handlers that already know which they want, and five functions
@@ -697,7 +697,7 @@ func Subject(year, albumID, verb string) (cqrs.Subject, error) {
 		return nil, err
 	}
 	return cqrs.SubjectFromStr(
-		fmt.Sprintf("NATHEJK.%s.album.%s.%s", year, albumID, verb)), nil
+		fmt.Sprintf("PHOTO.%s.album.%s.%s", year, albumID, verb)), nil
 }
 
 // The verbs Subject accepts.

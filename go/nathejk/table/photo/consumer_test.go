@@ -48,7 +48,7 @@ func str(s string) *string { return &s }
 func hash(c string) string { return strings.Repeat(c, 64) }
 
 func TestUploadedWritesThePhotograph(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026",
 		Ref: ref("b"), ThumbRef: ref("c"),
 		Width: 1600, Height: 1067, Bytes: 402_113,
@@ -77,7 +77,7 @@ func TestUploadedWritesThePhotograph(t *testing.T) {
 // deletion — an objection honoured on Tuesday reversed on Wednesday by somebody who was never told there
 // was one.
 func TestUploadedDoesNotResurrectADeletedPhotograph(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026", Ref: ref("b"), UploadedAt: at,
 	})
 
@@ -92,7 +92,7 @@ func TestUploadedDoesNotResurrectADeletedPhotograph(t *testing.T) {
 // to caption a file with at upload time — so including the column in the update clause would write an
 // empty string over an evening's editing.
 func TestUploadedDoesNotOverwriteTheCaption(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026", Ref: ref("b"), UploadedAt: at,
 	})
 
@@ -113,7 +113,7 @@ func TestUploadedDoesNotOverwriteTheCaption(t *testing.T) {
 // republishes this event. A photographer following that advice must not silently lose their own attribution off
 // every photograph that came back.
 func TestUploadedDoesNotOverwriteTheCredit(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026", Ref: ref("b"), UploadedAt: at,
 	})
 
@@ -133,7 +133,7 @@ func TestUploadedDoesNotOverwriteTheCredit(t *testing.T) {
 // captions, and setting a position must not blank forty credits.
 func TestUpdatedWritesOnlyTheFieldsItCarries(t *testing.T) {
 	credit := "Foto: Anne Sørensen"
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".updated", Updated{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".updated", Updated{
 		PhotoID: hash("a"), Year: "2026", Credit: &credit, UpdatedAt: at,
 	})
 	if len(stmts) != 1 {
@@ -161,7 +161,7 @@ func TestUpdatedWritesOnlyTheFieldsItCarries(t *testing.T) {
 func TestUpdatedTruncatesAnOverLongCredit(t *testing.T) {
 	long := strings.Repeat("ø", 200)
 	credit := long
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".updated", Updated{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".updated", Updated{
 		PhotoID: hash("a"), Year: "2026", Credit: &credit, UpdatedAt: at,
 	})
 
@@ -182,7 +182,7 @@ func TestUpdatedTruncatesAnOverLongCredit(t *testing.T) {
 // a published album. Asserted rather than assumed, because a `published` column added here later would
 // look harmless and would route around the one gate PRD 011 §0b depends on.
 func TestUploadedWritesNoPublishedState(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026", Ref: ref("b"), UploadedAt: at,
 	})
 	if strings.Contains(stmts[0], "published") {
@@ -191,7 +191,7 @@ func TestUploadedWritesNoPublishedState(t *testing.T) {
 }
 
 func TestUploadedFallsBackToTheSubjectID(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("d")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("d")+".uploaded", Uploaded{
 		Year: "2026", Ref: ref("b"), UploadedAt: at,
 	})
 	if !strings.Contains(stmts[0], `"`+hash("d")+`"`) {
@@ -205,7 +205,7 @@ func TestUploadedRefusesAnInvalidRef(t *testing.T) {
 		"", "short", strings.Repeat("g", 64), strings.Repeat("A", 64),
 		strings.Repeat("a", 63), strings.Repeat("a", 65), "../../etc/passwd",
 	} {
-		err := foldErr(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+		err := foldErr(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 			PhotoID: hash("a"), Year: "2026", Ref: bad, UploadedAt: at,
 		})
 		if err == nil {
@@ -216,7 +216,7 @@ func TestUploadedRefusesAnInvalidRef(t *testing.T) {
 
 // A malformed thumbnail costs the thumbnail, not the photograph: readers fall back to the full image.
 func TestUploadedBlanksAnInvalidThumbRef(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026", Ref: ref("b"), ThumbRef: "../../etc/passwd",
 		UploadedAt: at,
 	})
@@ -228,7 +228,7 @@ func TestUploadedBlanksAnInvalidThumbRef(t *testing.T) {
 // No replay-stable fallback exists: time.Now() would differ on every rebuild, and this column orders the
 // whole contact sheet.
 func TestUploadedRefusesAZeroTimestamp(t *testing.T) {
-	err := foldErr(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	err := foldErr(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026", Ref: ref("b"),
 	})
 	if err == nil {
@@ -237,7 +237,7 @@ func TestUploadedRefusesAZeroTimestamp(t *testing.T) {
 }
 
 func TestUploadedWritesNoCoordinateWhenThereIsNone(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026", Ref: ref("b"), UploadedAt: at,
 	})
 	for _, want := range []string{"latitude=NULL", "longitude=NULL", `boundsVerdict="none"`} {
@@ -248,7 +248,7 @@ func TestUploadedWritesNoCoordinateWhenThereIsNone(t *testing.T) {
 }
 
 func TestUploadedWritesACoordinateWithItsVerdict(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026", Ref: ref("b"), UploadedAt: at,
 		Location: &Location{Lat: 55.6761, Lng: 12.5683, BoundsVerdict: BoundsInside},
 	})
@@ -263,7 +263,7 @@ func TestUploadedWritesACoordinateWithItsVerdict(t *testing.T) {
 // make a photograph unplottable rather than plot one whose coordinate was never checked.
 func TestAnUnrecognisedVerdictBecomesUnknownNeverInside(t *testing.T) {
 	for _, bad := range []string{"", "INSIDE", "Inside", "ok", "yes", "true", "plottable"} {
-		stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+		stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 			PhotoID: hash("a"), Year: "2026", Ref: ref("b"), UploadedAt: at,
 			Location: &Location{Lat: 55.6, Lng: 12.5, BoundsVerdict: bad},
 		})
@@ -279,7 +279,7 @@ func TestAnUnrecognisedVerdictBecomesUnknownNeverInside(t *testing.T) {
 // `none` beside a real coordinate is contradictory, and the coordinate is the more trustworthy half:
 // something placed it. Judged unknown rather than silently plotted — or silently dropped.
 func TestNoneBesideACoordinateBecomesUnknown(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026", Ref: ref("b"), UploadedAt: at,
 		Location: &Location{Lat: 55.6, Lng: 12.5, BoundsVerdict: BoundsNone},
 	})
@@ -291,7 +291,7 @@ func TestNoneBesideACoordinateBecomesUnknown(t *testing.T) {
 // An out-of-bounds coordinate is kept, not discarded. A curator has to be able to see that a photograph
 // was rejected rather than wonder why it is missing from the map.
 func TestAnOutOfBoundsCoordinateIsStored(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026", Ref: ref("b"), UploadedAt: at,
 		Location: &Location{Lat: 40.7128, Lng: -74.0060, BoundsVerdict: BoundsOutside},
 	})
@@ -303,7 +303,7 @@ func TestAnOutOfBoundsCoordinateIsStored(t *testing.T) {
 }
 
 func TestUpdatedSetsOnlyTheCaption(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".updated", Updated{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".updated", Updated{
 		PhotoID: hash("a"), Year: "2026", Caption: str("Solen over Gribskov"), UpdatedAt: at,
 	})
 
@@ -325,7 +325,7 @@ func TestUpdatedSetsOnlyTheCaption(t *testing.T) {
 // the service: this is the event a bulk action publishes. Setting a location on forty selected
 // photographs must not blank forty captions.
 func TestUpdatedSettingALocationDoesNotBlankTheCaption(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".updated", Updated{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".updated", Updated{
 		PhotoID: hash("a"), Year: "2026", UpdatedAt: at,
 		Location: &Location{Lat: 55.6, Lng: 12.5, BoundsVerdict: BoundsInside},
 	})
@@ -342,7 +342,7 @@ func TestUpdatedSettingALocationDoesNotBlankTheCaption(t *testing.T) {
 // A coordinate and the judgement made about it are one fact. A write that moved the point without
 // restating the verdict would leave a photograph plotted at its old judgement.
 func TestUpdatedAlwaysWritesTheVerdictWithTheCoordinate(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".updated", Updated{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".updated", Updated{
 		PhotoID: hash("a"), Year: "2026", UpdatedAt: at,
 		Location: &Location{Lat: 40.7, Lng: -74.0, BoundsVerdict: BoundsOutside},
 	})
@@ -354,7 +354,7 @@ func TestUpdatedAlwaysWritesTheVerdictWithTheCoordinate(t *testing.T) {
 // An update carrying nothing is a no-op, not an error: refusing it would turn a harmless client bug into
 // a dropped message in a log nobody reads.
 func TestUpdatedWithNothingIsANoOp(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".updated", Updated{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".updated", Updated{
 		PhotoID: hash("a"), Year: "2026", UpdatedAt: at,
 	})
 	if len(stmts) != 0 {
@@ -365,7 +365,7 @@ func TestUpdatedWithNothingIsANoOp(t *testing.T) {
 // Clearing resets the verdict along with the NULLs. Leaving `inside` behind would leave the row matching
 // the map read's filter with nothing to draw.
 func TestLocationClearedResetsTheVerdict(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".locationcleared", LocationCleared{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".locationcleared", LocationCleared{
 		PhotoID: hash("a"), Year: "2026", Reason: "forkert fix", ClearedAt: at,
 	})
 
@@ -384,7 +384,7 @@ func TestLocationClearedResetsTheVerdict(t *testing.T) {
 }
 
 func TestPatrolTaggedWritesIdAndNumber(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".patroltagged", PatrolTagged{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".patroltagged", PatrolTagged{
 		PhotoID: hash("a"), Year: "2026", TeamID: "team-9", Number: "42", TaggedAt: at,
 	})
 
@@ -404,7 +404,7 @@ func TestPatrolTaggedWritesIdAndNumber(t *testing.T) {
 // a different patrol. The id is the identity; a tag without one is a row that can never be matched,
 // untagged or joined.
 func TestPatrolTaggedRequiresATeamID(t *testing.T) {
-	err := foldErr(t, "NATHEJK.2026.photo."+hash("a")+".patroltagged", PatrolTagged{
+	err := foldErr(t, "PHOTO.2026.photo."+hash("a")+".patroltagged", PatrolTagged{
 		PhotoID: hash("a"), Year: "2026", Number: "42", TaggedAt: at,
 	})
 	if err == nil {
@@ -415,7 +415,7 @@ func TestPatrolTaggedRequiresATeamID(t *testing.T) {
 // What makes the bulk tag action safe to re-run over a selection that partly overlaps what is already
 // tagged: the upsert converges instead of duplicating, and it supersedes an earlier untag.
 func TestPatrolTaggedSupersedesAnUntag(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".patroltagged", PatrolTagged{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".patroltagged", PatrolTagged{
 		PhotoID: hash("a"), Year: "2026", TeamID: "team-9", Number: "42", TaggedAt: at,
 	})
 	clause := stmts[0][strings.Index(stmts[0], "ON DUPLICATE KEY UPDATE"):]
@@ -425,7 +425,7 @@ func TestPatrolTaggedSupersedesAnUntag(t *testing.T) {
 }
 
 func TestPatrolUntaggedIsASoftDelete(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".patroluntagged", PatrolUntagged{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".patroluntagged", PatrolUntagged{
 		PhotoID: hash("a"), Year: "2026", TeamID: "team-9", UntaggedAt: at,
 	})
 	if len(stmts) != 1 {
@@ -440,7 +440,7 @@ func TestPatrolUntaggedIsASoftDelete(t *testing.T) {
 }
 
 func TestDeletedIsASoftDelete(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".deleted", Deleted{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".deleted", Deleted{
 		PhotoID: hash("a"), Year: "2026", Reason: "forælder har bedt om det", DeletedAt: at,
 	})
 
@@ -463,7 +463,7 @@ func TestDeletedIsASoftDelete(t *testing.T) {
 // omission: every read resolves the photograph through this table, so the join hides it — while the
 // membership rows are exactly what an undelete would need.
 func TestDeletedDoesNotTouchAlbumMemberships(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".deleted", Deleted{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".deleted", Deleted{
 		PhotoID: hash("a"), Year: "2026", DeletedAt: at,
 	})
 	for _, s := range stmts {
@@ -487,7 +487,7 @@ func TestAMessageWithNoYearIsRefused(t *testing.T) {
 // An unrecognised verb is ignored rather than refused. The projection subscribes to six patterns, so
 // anything else arriving is a broker or configuration matter, not a malformed message to log per event.
 func TestAnUnknownVerbIsIgnored(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".somethingelse", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".somethingelse", Uploaded{
 		PhotoID: hash("a"), Year: "2026", Ref: ref("b"), UploadedAt: at,
 	})
 	if len(stmts) != 0 {
@@ -507,7 +507,7 @@ func TestAnUnknownVerbIsIgnored(t *testing.T) {
 // Keeping a guard whose one blind spot is the bug it was meant to prevent would be worse than having none,
 // because the green tick reads as coverage.
 
-// An id with a dot publishes fine, still matches NATHEJK.>, and quietly stops matching the per-photo
+// An id with a dot publishes fine, still matches PHOTO.>, and quietly stops matching the per-photo
 // patterns — which would make that photograph impossible to edit or take down.
 func TestSubjectRefusesUnusableTokens(t *testing.T) {
 	for _, tc := range []struct{ year, id, verb string }{
@@ -531,13 +531,13 @@ func TestSubjectBuildsTheExpectedString(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Subject: %v", err)
 	}
-	want := "NATHEJK.2026.photo." + hash("a") + ".uploaded"
+	want := "PHOTO.2026.photo." + hash("a") + ".uploaded"
 	if s.Subject() != want {
 		t.Errorf("want %s, got %s", want, s.Subject())
 	}
 	// And the subject the consumer subscribes to must actually match what Subject builds — the one
 	// agreement a typo would break silently, since an unmatched subject is never delivered to anything.
-	if !s.Match("nathejk.*.photo.*.uploaded") {
+	if !s.Match("photo.*.photo.*.uploaded") {
 		t.Errorf("Subject's output does not match the subscribed pattern: %s", s.Subject())
 	}
 }

@@ -91,7 +91,7 @@ func TestRemoveAlbumItemPublishesTheEvent(t *testing.T) {
 	if len(subjects) != 1 {
 		t.Fatalf("want one event, got %v", subjects)
 	}
-	if subjects[0] != "NATHEJK.2026.album.al-1.itemremoved" {
+	if subjects[0] != "PHOTO.2026.album.al-1.itemremoved" {
 		t.Errorf("unexpected subject %q", subjects[0])
 	}
 }
@@ -123,7 +123,7 @@ func TestDeleteAlbumPublishesTheEvent(t *testing.T) {
 		t.Fatalf("want 204, got %d", resp.StatusCode)
 	}
 	subjects := pub.Subjects()
-	if len(subjects) != 1 || subjects[0] != "NATHEJK.2026.album.al-2.deleted" {
+	if len(subjects) != 1 || subjects[0] != "PHOTO.2026.album.al-2.deleted" {
 		t.Fatalf("want one deleted event, got %v", subjects)
 	}
 }

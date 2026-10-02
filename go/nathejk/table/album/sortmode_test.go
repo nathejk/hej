@@ -8,7 +8,7 @@ import (
 // The album sort mode, in the fold (PRD 024 §6 R1/R9, task 442).
 
 func TestCreatedWritesTheSortModeItCarries(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.created", Created{
+	stmts := fold(t, "PHOTO.2026.album.al-1.created", Created{
 		AlbumID: "al-1", Year: "2026", Slug: "s", Title: "T",
 		SortMode: SortModeTimeAsc, CreatedAt: at,
 	})
@@ -22,7 +22,7 @@ func TestCreatedWritesTheSortModeItCarries(t *testing.T) {
 // nothing will ever re-sort. Writing `manual` explicitly here would look equivalent and is not: it would also
 // overwrite a curator's chosen mode on the next replay of the create.
 func TestCreatedWithNoSortModeLeavesTheColumnAlone(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.created", Created{
+	stmts := fold(t, "PHOTO.2026.album.al-1.created", Created{
 		AlbumID: "al-1", Year: "2026", Slug: "s", Title: "T", CreatedAt: at,
 	})
 	if strings.Contains(stmts[0], "sortMode") {
@@ -35,7 +35,7 @@ func TestCreatedWithNoSortModeLeavesTheColumnAlone(t *testing.T) {
 // `published` and `deleted` are: a re-delivered create would otherwise re-sort an album somebody had switched
 // to manual, and their arrangement is not recoverable from the log.
 func TestCreatedDoesNotResetTheSortModeOnReplay(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.created", Created{
+	stmts := fold(t, "PHOTO.2026.album.al-1.created", Created{
 		AlbumID: "al-1", Year: "2026", Slug: "s", Title: "T",
 		SortMode: SortModeFilenameAsc, CreatedAt: at,
 	})
@@ -47,7 +47,7 @@ func TestCreatedDoesNotResetTheSortModeOnReplay(t *testing.T) {
 
 func TestCreatedRefusesAnUnknownSortMode(t *testing.T) {
 	for _, mode := range []string{"tid", "time", "TIME-ASC", "manual "} {
-		err := foldErr(t, "NATHEJK.2026.album.al-1.created", Created{
+		err := foldErr(t, "PHOTO.2026.album.al-1.created", Created{
 			AlbumID: "al-1", Year: "2026", Slug: "s", Title: "T", SortMode: mode, CreatedAt: at,
 		})
 		if err == nil {
@@ -58,7 +58,7 @@ func TestCreatedRefusesAnUnknownSortMode(t *testing.T) {
 
 func TestUpdatedSetsTheSortMode(t *testing.T) {
 	for _, mode := range SortModes() {
-		stmts := fold(t, "NATHEJK.2026.album.al-1.updated", Updated{
+		stmts := fold(t, "PHOTO.2026.album.al-1.updated", Updated{
 			AlbumID: "al-1", Year: "2026", SortMode: str(mode), UpdatedAt: at,
 		})
 		if len(stmts) != 1 || !strings.Contains(stmts[0], `sortMode="`+mode+`"`) {
@@ -71,7 +71,7 @@ func TestUpdatedSetsTheSortMode(t *testing.T) {
 // a malformed message. Stored, it would leave the album in a state nothing recomputes and nothing reports.
 func TestUpdatedRefusesAnUnknownSortMode(t *testing.T) {
 	for _, mode := range []string{"", "tid", "time", "TIME-ASC", "manual "} {
-		err := foldErr(t, "NATHEJK.2026.album.al-1.updated", Updated{
+		err := foldErr(t, "PHOTO.2026.album.al-1.updated", Updated{
 			AlbumID: "al-1", Year: "2026", SortMode: str(mode), UpdatedAt: at,
 		})
 		if err == nil {
@@ -82,7 +82,7 @@ func TestUpdatedRefusesAnUnknownSortMode(t *testing.T) {
 
 // An update that mentions no mode must not write the column, like every other field on this delta.
 func TestUpdatedWithoutASortModeDoesNotWriteIt(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.updated", Updated{
+	stmts := fold(t, "PHOTO.2026.album.al-1.updated", Updated{
 		AlbumID: "al-1", Year: "2026", Title: str("Ny titel"), UpdatedAt: at,
 	})
 	if strings.Contains(stmts[0], "sortMode") {

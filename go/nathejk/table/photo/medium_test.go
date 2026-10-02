@@ -22,7 +22,7 @@ import (
 // answer for it, whatever the Go around it does.
 
 func TestUploadedWritesTheMediumRef(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026",
 		Ref: ref("b"), ThumbRef: ref("c"), MediumRef: ref("d"),
 		Width: 1600, Height: 1067, Bytes: 402_113,
@@ -44,7 +44,7 @@ func TestUploadedWritesTheMediumRef(t *testing.T) {
 
 // Same rule as the thumbnail's: a malformed rendition ref costs the rendition, not the photograph.
 func TestUploadedBlanksAnInvalidMediumRef(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026",
 		Ref: ref("b"), MediumRef: "../../etc/passwd",
 		UploadedAt: at,
@@ -65,7 +65,7 @@ func TestUploadedBlanksAnInvalidMediumRef(t *testing.T) {
 // every reader treats as "serve the full image". This is the property that let task 409 ship without
 // touching a single existing row.
 func TestUploadedWithoutAMediumRefWritesEmpty(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026", Ref: ref("b"), UploadedAt: at,
 	})
 
@@ -221,7 +221,7 @@ func TestEveryRefColumnIsIndexedOnBothPaths(t *testing.T) {
 // about a photograph that already exists, and it must not be able to conjure a row or touch a neighbouring
 // column. A caption, a credit, a coordinate or `deleted` changed by a backfill would be silent data loss.
 func TestMediumAddedWritesOnlyTheMediumRef(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".mediumadded", MediumAdded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".mediumadded", MediumAdded{
 		PhotoID: hash("a"), Year: "2026", MediumRef: ref("d"), AddedAt: at,
 	})
 
@@ -260,7 +260,7 @@ func TestMediumAddedRefusesAnInvalidRef(t *testing.T) {
 		"empty":     "",
 		"too short": "abc",
 	} {
-		err := foldErr(t, "NATHEJK.2026.photo."+hash("a")+".mediumadded", MediumAdded{
+		err := foldErr(t, "PHOTO.2026.photo."+hash("a")+".mediumadded", MediumAdded{
 			PhotoID: hash("a"), Year: "2026", MediumRef: bad, AddedAt: at,
 		})
 		if err == nil {

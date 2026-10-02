@@ -17,7 +17,7 @@ import (
 // These tests pin the consequence: the fold vacates the album's positions before placing any of them.
 
 func TestReorderVacatesBeforePlacing(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.itemsreordered", ItemsReordered{
+	stmts := fold(t, "PHOTO.2026.album.al-1.itemsreordered", ItemsReordered{
 		AlbumID: "al-1", Year: "2026",
 		PhotoIDs:    []string{ref("c"), ref("a")},
 		ReorderedAt: at,
@@ -53,7 +53,7 @@ func TestReorderVacatesBeforePlacing(t *testing.T) {
 // Placement is scoped by **photo id**, not by the old ordinal. That is what makes the fold idempotent on replay:
 // after the first pass the offset has moved, but each photograph is still found by who it is.
 func TestReorderFindsPhotographsByIdentity(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.itemsreordered", ItemsReordered{
+	stmts := fold(t, "PHOTO.2026.album.al-1.itemsreordered", ItemsReordered{
 		AlbumID: "al-1", Year: "2026", PhotoIDs: []string{ref("a")}, ReorderedAt: at,
 	})
 
@@ -85,7 +85,7 @@ func TestReorderOffsetClearsAnyRealAlbum(t *testing.T) {
 // An empty order is a no-op rather than an error: an empty album's order is trivially already correct, and
 // refusing would turn a harmless client into a dropped message in a log nobody reads.
 func TestReorderWithNoItemsIsANoOp(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.album.al-1.itemsreordered", ItemsReordered{
+	stmts := fold(t, "PHOTO.2026.album.al-1.itemsreordered", ItemsReordered{
 		AlbumID: "al-1", Year: "2026", ReorderedAt: at,
 	})
 	if len(stmts) != 0 {
@@ -96,7 +96,7 @@ func TestReorderWithNoItemsIsANoOp(t *testing.T) {
 // A photograph named twice is a contradiction about where it goes, and the fold would silently apply whichever
 // came last — leaving an album in an order the curator was never shown.
 func TestReorderRefusesADuplicate(t *testing.T) {
-	err := foldErr(t, "NATHEJK.2026.album.al-1.itemsreordered", ItemsReordered{
+	err := foldErr(t, "PHOTO.2026.album.al-1.itemsreordered", ItemsReordered{
 		AlbumID: "al-1", Year: "2026",
 		PhotoIDs:    []string{ref("a"), ref("c"), ref("a")},
 		ReorderedAt: at,
@@ -109,7 +109,7 @@ func TestReorderRefusesADuplicate(t *testing.T) {
 // A photo id is a content hash and reaches a SQL statement, so it is validated like every other ref.
 func TestReorderRefusesAnInvalidPhotoID(t *testing.T) {
 	for _, bad := range []string{"", "short", strings.Repeat("A", 64), "../../etc/passwd"} {
-		err := foldErr(t, "NATHEJK.2026.album.al-1.itemsreordered", ItemsReordered{
+		err := foldErr(t, "PHOTO.2026.album.al-1.itemsreordered", ItemsReordered{
 			AlbumID: "al-1", Year: "2026", PhotoIDs: []string{bad}, ReorderedAt: at,
 		})
 		if err == nil {
@@ -135,7 +135,7 @@ func TestReorderIsSubscribed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Subject: %v", err)
 	}
-	if !s.Match("nathejk.*.album.*.itemsreordered") {
+	if !s.Match("photo.*.album.*.itemsreordered") {
 		t.Errorf("Subject's output does not match the subscribed pattern: %s", s.Subject())
 	}
 }
@@ -148,7 +148,7 @@ func TestReorderIsSubscribed(t *testing.T) {
 func TestTheUpdateEventCannotChangeTheSlug(t *testing.T) {
 	// Asserted against the fold's generated SQL rather than the struct, so a field that existed but was written
 	// would also be caught.
-	stmts := fold(t, "NATHEJK.2026.album.al-1.updated", Updated{
+	stmts := fold(t, "PHOTO.2026.album.al-1.updated", Updated{
 		AlbumID: "al-1", Year: "2026",
 		Title: str("En ny titel"), UpdatedAt: at,
 	})

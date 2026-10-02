@@ -743,7 +743,7 @@ All new events follow the established shape: one event per fact, references neve
 for optional-update fields so "not mentioned" and "set to empty" differ. Subjects follow
 `album.Subject`'s pattern and validate their tokens.
 
-New, on `NATHEJK.<year>.photo.<photoId>.*`:
+New, on `PHOTO.<year>.photo.<photoId>.*` (moved off `NATHEJK` to its own stream):
 
 | Verb | Fact |
 |---|---|

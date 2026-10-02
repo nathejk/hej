@@ -181,7 +181,7 @@ func TestAdminUploadPublishesOneEvent(t *testing.T) {
 	if len(subjects) != 1 {
 		t.Fatalf("want exactly 1 event, got %d: %v", len(subjects), subjects)
 	}
-	want := "NATHEJK.2026.photo." + out.PhotoID + ".uploaded"
+	want := "PHOTO.2026.photo." + out.PhotoID + ".uploaded"
 	if subjects[0] != want {
 		t.Errorf("want subject %s, got %s", want, subjects[0])
 	}

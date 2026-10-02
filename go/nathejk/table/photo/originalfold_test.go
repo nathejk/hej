@@ -29,7 +29,7 @@ var originalColumns = []string{
 }
 
 func TestUploadedWritesTheOriginal(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026",
 		Ref: ref("b"), ThumbRef: ref("c"), MediumRef: ref("d"),
 		Width: 1600, Height: 1067, Bytes: 402_113,
@@ -65,7 +65,7 @@ func TestUploadedWritesTheOriginal(t *testing.T) {
 // It is the state of every photograph uploaded before PRD 027 shipped, and of any upload where storing the file was
 // declined. The row says "" / 0 and readers fall back to the display image.
 func TestUploadedWithoutAnOriginalWritesEmptyColumns(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026", Ref: ref("b"), UploadedAt: at,
 	})
 
@@ -89,7 +89,7 @@ func TestUploadedWithoutAnOriginalWritesEmptyColumns(t *testing.T) {
 // A plain `originalRef=VALUES(originalRef)` here would be the bug, and it is the kind that reads as correct in a
 // diff: every other rendition in this clause is written exactly that way, precisely because losing one is survivable.
 func TestUploadedNeverBlanksAnOriginalItAlreadyHas(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026", Ref: ref("b"), UploadedAt: at,
 		Original: &Original{Ref: ref("e"), Width: 4000, Height: 6000},
 	})
@@ -127,7 +127,7 @@ func TestUploadedNeverBlanksAnOriginalItAlreadyHas(t *testing.T) {
 // ref (PRD 027 §5); this blanking is the fold's last line of defence against a malformed message, not a path anybody
 // is meant to take.
 func TestUploadedBlanksAnInvalidOriginalRef(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".uploaded", Uploaded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".uploaded", Uploaded{
 		PhotoID: hash("a"), Year: "2026", Ref: ref("b"), UploadedAt: at,
 		Original: &Original{Ref: "../../etc/passwd", ContentType: "image/jpeg", Bytes: 99, Width: 4000, Height: 6000},
 	})
@@ -153,7 +153,7 @@ func TestUploadedBlanksAnInvalidOriginalRef(t *testing.T) {
 // to produce it from, which is the whole of PRD 027's "no backfill is possible". So no event other than `Uploaded`
 // may set these columns — a second writer would be a second answer to "what is the photographer's file".
 func TestOnlyTheUploadFoldWritesTheOriginal(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".mediumadded", MediumAdded{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".mediumadded", MediumAdded{
 		PhotoID: hash("a"), Year: "2026", MediumRef: ref("d"), AddedAt: at,
 	})
 

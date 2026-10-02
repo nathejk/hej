@@ -26,11 +26,11 @@ func TestATagSurvivesARenumbering(t *testing.T) {
 	photoID := hash("a")
 
 	// Tagged when the patrol was number 42.
-	first := fold(t, "NATHEJK.2026.photo."+photoID+".patroltagged", PatrolTagged{
+	first := fold(t, "PHOTO.2026.photo."+photoID+".patroltagged", PatrolTagged{
 		PhotoID: photoID, Year: "2026", TeamID: teamID, Number: "42", TaggedAt: at,
 	})
 	// Re-tagged after the patrol became number 7 — the same patrol, a different number.
-	second := fold(t, "NATHEJK.2026.photo."+photoID+".patroltagged", PatrolTagged{
+	second := fold(t, "PHOTO.2026.photo."+photoID+".patroltagged", PatrolTagged{
 		PhotoID: photoID, Year: "2026", TeamID: teamID, Number: "7", TaggedAt: at,
 	})
 
@@ -52,7 +52,7 @@ func TestATagSurvivesARenumbering(t *testing.T) {
 	}
 
 	// The untag is by id, not by number, so it still matches after the number changed hands.
-	untag := fold(t, "NATHEJK.2026.photo."+photoID+".patroluntagged", PatrolUntagged{
+	untag := fold(t, "PHOTO.2026.photo."+photoID+".patroluntagged", PatrolUntagged{
 		PhotoID: photoID, Year: "2026", TeamID: teamID, UntaggedAt: at,
 	})
 	if !strings.Contains(untag[0], `teamId="`+teamID+`"`) {
@@ -67,7 +67,7 @@ func TestATagSurvivesARenumbering(t *testing.T) {
 // patrols in it is ordinary, and correcting one of them must not clear both.
 func TestUntaggingIsNarrowedToOnePatrol(t *testing.T) {
 	photoID := hash("a")
-	stmts := fold(t, "NATHEJK.2026.photo."+photoID+".patroluntagged", PatrolUntagged{
+	stmts := fold(t, "PHOTO.2026.photo."+photoID+".patroluntagged", PatrolUntagged{
 		PhotoID: photoID, Year: "2026", TeamID: "team-9", UntaggedAt: at,
 	})
 
@@ -125,7 +125,7 @@ func TestNoPublicReadTouchesTheTags(t *testing.T) {
 // tagging feature is precisely where somebody reaches for a name. The fold's generated SQL is checked rather
 // than the struct, so a field that existed but was written into the statement would also be caught.
 func TestATagNamesAPatrolAndNeverAPerson(t *testing.T) {
-	stmts := fold(t, "NATHEJK.2026.photo."+hash("a")+".patroltagged", PatrolTagged{
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".patroltagged", PatrolTagged{
 		PhotoID: hash("a"), Year: "2026", TeamID: "team-9", Number: "42", TaggedAt: at,
 	})
 

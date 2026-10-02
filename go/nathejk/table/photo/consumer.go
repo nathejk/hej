@@ -20,9 +20,9 @@ type consumer struct {
 
 // Consumes lists the subjects this projection subscribes to.
 //
-// Dot form after NATHEJK, matching what this app already publishes for `portrait`, `glimt` and `album`.
-// Several upstream producers use a colon, but those are their events and copying the quirk into a new
-// entity would spread it.
+// On `PHOTO`, not `NATHEJK`, like `album`: photographs are far removed from the race itself, this app is
+// their only consumer, and every other projector replaying `NATHEJK` from zero has no use for them. Dot
+// form, not the colon several upstream producers use.
 //
 // Every verb is subscribed here, including the ones whose publishing handlers arrive in later tasks
 // (the tags in 367, the deletion in 379). Subscribing early is free and the alternative is worse: a
@@ -31,13 +31,13 @@ type consumer struct {
 // This is the rule the album consumer established for its own removal verbs.
 func (c consumer) Consumes() []cqrs.Subject {
 	return []cqrs.Subject{
-		cqrs.SubjectFromStr("NATHEJK.*.photo.*.uploaded"),
-		cqrs.SubjectFromStr("NATHEJK.*.photo.*.updated"),
-		cqrs.SubjectFromStr("NATHEJK.*.photo.*.mediumadded"),
-		cqrs.SubjectFromStr("NATHEJK.*.photo.*.locationcleared"),
-		cqrs.SubjectFromStr("NATHEJK.*.photo.*.patroltagged"),
-		cqrs.SubjectFromStr("NATHEJK.*.photo.*.patroluntagged"),
-		cqrs.SubjectFromStr("NATHEJK.*.photo.*.deleted"),
+		cqrs.SubjectFromStr("PHOTO.*.photo.*.uploaded"),
+		cqrs.SubjectFromStr("PHOTO.*.photo.*.updated"),
+		cqrs.SubjectFromStr("PHOTO.*.photo.*.mediumadded"),
+		cqrs.SubjectFromStr("PHOTO.*.photo.*.locationcleared"),
+		cqrs.SubjectFromStr("PHOTO.*.photo.*.patroltagged"),
+		cqrs.SubjectFromStr("PHOTO.*.photo.*.patroluntagged"),
+		cqrs.SubjectFromStr("PHOTO.*.photo.*.deleted"),
 	}
 }
 
@@ -62,19 +62,19 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 	}
 
 	switch {
-	case subject.Match("nathejk.*.photo.*.uploaded"):
+	case subject.Match("photo.*.photo.*.uploaded"):
 		return c.handleUploaded(msg, year)
-	case subject.Match("nathejk.*.photo.*.updated"):
+	case subject.Match("photo.*.photo.*.updated"):
 		return c.handleUpdated(msg, year)
-	case subject.Match("nathejk.*.photo.*.locationcleared"):
+	case subject.Match("photo.*.photo.*.locationcleared"):
 		return c.handleLocationCleared(msg, year)
-	case subject.Match("nathejk.*.photo.*.patroltagged"):
+	case subject.Match("photo.*.photo.*.patroltagged"):
 		return c.handlePatrolTagged(msg, year)
-	case subject.Match("nathejk.*.photo.*.patroluntagged"):
+	case subject.Match("photo.*.photo.*.patroluntagged"):
 		return c.handlePatrolUntagged(msg, year)
-	case subject.Match("nathejk.*.photo.*.mediumadded"):
+	case subject.Match("photo.*.photo.*.mediumadded"):
 		return c.handleMediumAdded(msg, year)
-	case subject.Match("nathejk.*.photo.*.deleted"):
+	case subject.Match("photo.*.photo.*.deleted"):
 		return c.handleDeleted(msg, year)
 	}
 	return nil
@@ -607,7 +607,7 @@ func truncateRunes(s string, n int) string {
 // validSubjectToken rejects anything that would not survive as a single NATS subject token.
 //
 // Not cosmetic, and the reason is the one person/portrait.go gives: an id containing a dot splits into
-// extra tokens, still matches `NATHEJK.>` and publishes successfully — while quietly no longer matching
+// extra tokens, still matches `PHOTO.>` and publishes successfully — while quietly no longer matching
 // the per-photo patterns, which would make that photograph impossible to edit or take down.
 //
 // A content-hash id cannot contain a dot, so for the ids this projection mints the check can never fire.
@@ -625,7 +625,7 @@ func validSubjectToken(s, what string) error {
 
 // Subject builds the subject for one photograph and one verb:
 //
-//	NATHEJK.<year>.photo.<photoId>.<verb>
+//	PHOTO.<year>.photo.<photoId>.<verb>
 //
 // One constructor for every verb rather than six near-identical ones, following the glimt and album
 // packages: the verbs are a closed set used by handlers that already know which they want, and six
@@ -641,7 +641,7 @@ func Subject(year, photoID, verb string) (cqrs.Subject, error) {
 		return nil, err
 	}
 	return cqrs.SubjectFromStr(
-		fmt.Sprintf("NATHEJK.%s.photo.%s.%s", year, photoID, verb)), nil
+		fmt.Sprintf("PHOTO.%s.photo.%s.%s", year, photoID, verb)), nil
 }
 
 // The verbs Subject accepts.
