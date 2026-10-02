@@ -335,23 +335,24 @@ func (app *application) syncDiplomaAlbum(ctx context.Context, year, typ, title, 
 			names[photoID] = fileName
 		}
 
-		if t.Number != "" {
-			tagged, err := app.photoTaggedWith(year, photoID, t.TeamID)
-			if err != nil {
+		// Tagged always, number or not: the tag is how a refusal finds the photograph again (`TeamAlbumItems`), and
+		// how the removal pass below knows whose it is. An untagged photograph of a patrol would stay in every album
+		// after the patrol said no.
+		tagged, err := app.photoTaggedWith(year, photoID, t.TeamID)
+		if err != nil {
+			return err
+		}
+		if !tagged {
+			if err := app.publishPhoto(year, photoID, photo.VerbPatrolTagged, photo.PatrolTagged{
+				PhotoID:  photoID,
+				Year:     year,
+				TeamID:   t.TeamID,
+				Number:   t.Number,
+				TaggedAt: time.Now().UTC(),
+			}); err != nil {
 				return err
 			}
-			if !tagged {
-				if err := app.publishPhoto(year, photoID, photo.VerbPatrolTagged, photo.PatrolTagged{
-					PhotoID:  photoID,
-					Year:     year,
-					TeamID:   t.TeamID,
-					Number:   t.Number,
-					TaggedAt: time.Now().UTC(),
-				}); err != nil {
-					return err
-				}
-				res.Tagged++
-			}
+			res.Tagged++
 		}
 
 		if !live[photoID] {

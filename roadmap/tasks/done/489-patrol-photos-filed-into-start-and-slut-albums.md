@@ -40,3 +40,15 @@ zeros), album should be sorted by filename low-to-high."*
 - Decisions taken without asking: titles are capitalised ("Start", "Slut", slugs `start`/`slut`); the albums are
   managed, so a curator's hand removal of a patrol's current photograph is undone by the next run (deleting the
   photograph from the library is how to keep it out); a curator-added photograph with no patrol tag is left alone.
+- 2026-10-02 — Maintainer: *"make sure `NATHEJK:*.patrulje.*.photoconsented` is respected."* Audited every path:
+  * `Latest` excludes refusing patrols in its WHERE clause. Checked on dev: 180 patrols with a start photograph, 1
+    refusal, 179 returned, none of them refused.
+  * **Fixed a hole:** filed photographs were only tagged when the patrol had a number, and a refusal finds a patrol's
+    photographs by that tag (`TeamAlbumItems`). An unnumbered patrol's photograph would have stayed in the albums
+    after a refusal. Now every filed photograph is tagged.
+  * A live refusal is removed at once by `consentReactor` and also triggers a sync. Syncs run one at a time, so a sync
+    already in flight that read the patrol before the refusal is followed by one that reads it after, and that one
+    takes the photograph out again.
+  * A refusal that arrives while the app is down is folded before the boot run, which waits for the patrol-photo
+    projection to catch up and starts by sweeping every refusing patrol out of every album.
+  * A withdrawn refusal puts the patrol's photographs back on the next run, because the albums are managed.
