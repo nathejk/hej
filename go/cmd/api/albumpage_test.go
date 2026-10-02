@@ -464,8 +464,9 @@ func TestTheAlbumPageWiresTheViewer(t *testing.T) {
 			"the display image, addressed by ref so the media route's immutable header is honest (task 456)"},
 		{`data-thumb="/api/public/albums/al-1/media/` + firstItemRef(t, store) + `?variant=thumb"`,
 			"the thumbnail, for the filmstrip — the same address with a variant"},
-		{`data-viewer-permalink="/2026/album/loerdag-morgen/foto/` + firstItemRef(t, store) + `"`,
-			"and the durable address, which is what share hands to somebody else (task 447)"},
+		{`data-viewer-permalink="/2026/album/loerdag-morgen/foto/` + shortPhotoRef(firstItemRef(t, store)) + `"`,
+			"and the durable address, which is what share hands to somebody else (task 447) — 12 characters of " +
+				"the ref since task 486, where the media addresses above keep the whole thing"},
 		{`data-caption="Ved målstregen"`, "the caption reaches the viewer without a request"},
 		{`data-credit="` + fixtureCredit + `"`, "and so does the credit"},
 		{`id="foto-0"`, "the anchor half of the deep link"},
@@ -1251,7 +1252,11 @@ func TestAlbumMediaByRefIsScopedToItsPublishedAlbum(t *testing.T) {
 	}
 }
 
-// A photograph's permalink (task 447): `/{year}/album/{slug}/foto/{ref}`.
+// A photograph's permalink (task 447): `/{year}/album/{slug}/foto/{ref}`, shortened to 12 characters in task 486.
+//
+// Both lengths, in one test, because the pair **is** the requirement: the short form is what the page mints now, and
+// the long form is what is already in people's chat histories. Task 447 set that rule for `?foto={ordinal}` and this
+// inherits it — old addresses keep resolving, the page stops minting them.
 func TestAlbumPhotoPermalinkLandsOnThePhotograph(t *testing.T) {
 	app, store := albumApp(t)
 	srv := httptest.NewServer(app.routes())
@@ -1260,21 +1265,134 @@ func TestAlbumPhotoPermalinkLandsOnThePhotograph(t *testing.T) {
 	ref := firstItemRef(t, store)
 	// No redirect following: the redirect *is* the behaviour.
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	resp, err := client.Get(srv.URL + "/2026/album/loerdag-morgen/foto/" + ref)
-	if err != nil {
-		t.Fatalf("GET the permalink: %v", err)
-	}
-	defer resp.Body.Close()
 
-	// **302, never 301.** The ref-to-ordinal mapping changes whenever the album is re-sorted, so a permanent
-	// redirect would invite caches to pin one — and the link would rot in exactly the way this route prevents.
-	if resp.StatusCode != http.StatusFound {
-		t.Errorf("want 302, got %d: a permanent redirect would pin a mapping that a re-sort changes",
-			resp.StatusCode)
+	for name, segment := range map[string]string{
+		"the 12-character form the page mints":         shortPhotoRef(ref),
+		"the 64-character form minted before task 486": ref,
+		// Anything between the two resolves as well, which is what makes a hand-trimmed or line-wrapped link do
+		// something sensible rather than silently landing on the album.
+		"an intermediate prefix": ref[:20],
+		// Upper-cased on the way, as some mail clients and link previewers do. Silently not matching would be
+		// indistinguishable from a taken-down photograph.
+		"upper-cased by a mail client": strings.ToUpper(shortPhotoRef(ref)),
+	} {
+		resp, err := client.Get(srv.URL + "/2026/album/loerdag-morgen/foto/" + segment)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		resp.Body.Close()
+
+		// **302, never 301.** The ref-to-ordinal mapping changes whenever the album is re-sorted, so a permanent
+		// redirect would invite caches to pin one — and the link would rot in exactly the way this route prevents.
+		if resp.StatusCode != http.StatusFound {
+			t.Errorf("%s: want 302, got %d: a permanent redirect would pin a mapping that a re-sort changes",
+				name, resp.StatusCode)
+		}
+		if got, want := resp.Header.Get("Location"), "/2026/album/loerdag-morgen?foto=0#foto-0"; got != want {
+			t.Errorf("%s: Location = %q, want %q — the query renders the window, the fragment scrolls to the "+
+				"tile, and neither can do the other's job (task 401)", name, got, want)
+		}
 	}
-	if got, want := resp.Header.Get("Location"), "/2026/album/loerdag-morgen?foto=0#foto-0"; got != want {
-		t.Errorf("Location = %q, want %q — the query renders the window, the fragment scrolls to the tile, "+
-			"and neither can do the other's job (task 401)", got, want)
+}
+
+// The minted permalink is 12 hex characters, and they are the start of the ref.
+//
+// The prefix property is the reason hex won over base62 (task 486): back-compat above is a prefix match rather than a
+// second decoder, and a curator can check a shared link against the full ref in the admin tool by eye. A denser
+// encoding would have bought four characters out of a ~50-character URL and cost all of that.
+func TestTheMintedPermalinkIsTwelveCharactersOfTheRef(t *testing.T) {
+	ref := strings.Repeat("3f", 32)
+	got := albumPhotoPermalink("/2026", "natten", ref)
+
+	const want = "/2026/album/natten/foto/3f3f3f3f3f3f"
+	if got != want {
+		t.Errorf("albumPhotoPermalink = %q, want %q", got, want)
+	}
+	if seg := got[strings.LastIndex(got, "/")+1:]; !strings.HasPrefix(ref, seg) {
+		t.Errorf("the minted segment %q is not a prefix of the ref. That property is the whole reason this is "+
+			"hex and not a denser encoding — lose it and the back-compat match needs a decoder.", seg)
+	}
+	if n := len(albumPhotoPermalink("/2026", "natten", ref)) - len(want); n != 0 {
+		t.Errorf("length drifted by %d", n)
+	}
+
+	// Lowering the constant would rot links already minted: a link in somebody's chat history cannot grow
+	// characters it was never given, so a shorter setting makes previously-unambiguous links ambiguous and starts
+	// landing them on the album. Raising it is safe, because the handler matches any length.
+	if albumPermalinkRefLen < 12 {
+		t.Errorf("albumPermalinkRefLen is %d. Raising it is safe; lowering it below 12 rots links that are "+
+			"already shared (task 486 R2).", albumPermalinkRefLen)
+	}
+}
+
+// **An ambiguous prefix lands on the album rather than guessing between two photographs.**
+//
+// The collision this constructs is a 2.8e-08 event over a year's library, so it is built deliberately rather than
+// waited for. The point is not the probability, it is the consequence of being wrong: a visitor shown a different
+// photograph than the one they were sent, with nothing anywhere saying so. An astronomically rare link that is
+// merely less precise beats a rare link that is confidently wrong — and the graceful landing already exists for a
+// half-rotted link (PRD 023 §8), so this reuses it.
+func TestAnAmbiguousPermalinkPrefixLandsOnTheAlbum(t *testing.T) {
+	app, store := albumApp(t)
+
+	// Two items in one album whose refs share the first 12 characters. Constructed by hand: no real pair will.
+	shared := strings.Repeat("ab", 6)
+	store.albums = []albumStoreEntry{{
+		album:     album.Album{ID: "al-1", Slug: "loerdag-morgen", Title: "L\u00f8rdag morgen"},
+		published: true,
+		items: []album.Item{
+			{Ordinal: 0, Ref: shared + strings.Repeat("1", 52)},
+			{Ordinal: 1, Ref: shared + strings.Repeat("2", 52)},
+		},
+	}}
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+
+	resp, err := client.Get(srv.URL + "/2026/album/loerdag-morgen/foto/" + shared)
+	if err != nil {
+		t.Fatalf("GET the ambiguous permalink: %v", err)
+	}
+	resp.Body.Close()
+
+	if got, want := resp.Header.Get("Location"), "/2026/album/loerdag-morgen"; got != want {
+		t.Errorf("Location = %q, want the album %q. Two photographs matched, so the handler must not pick one — "+
+			"a wrong photograph that looks right is the one unacceptable outcome here.", got, want)
+	}
+
+	// And one more character disambiguates them, so the fallback is about the prefix being too short rather than
+	// about the album being unresolvable.
+	resp2, err := client.Get(srv.URL + "/2026/album/loerdag-morgen/foto/" + shared + "2")
+	if err != nil {
+		t.Fatalf("GET the disambiguated permalink: %v", err)
+	}
+	resp2.Body.Close()
+	if got, want := resp2.Header.Get("Location"), "/2026/album/loerdag-morgen?foto=1#foto-1"; got != want {
+		t.Errorf("Location = %q, want %q: one more character names the second photograph", got, want)
+	}
+}
+
+// An empty ref segment matches nothing.
+//
+// `HasPrefix(anything, "")` is true, so a naive prefix match would make `/foto/` resolve to the album's first
+// photograph. httprouter will not route an empty parameter today, which is why this is a unit test of the predicate
+// rather than an HTTP one — the guard is against a future router change, and the failure it prevents is silent.
+func TestAnEmptyPermalinkPrefixMatchesNothing(t *testing.T) {
+	ref := strings.Repeat("3f", 32)
+	for name, tc := range map[string]struct {
+		prefix string
+		want   bool
+	}{
+		"empty":          {"", false},
+		"longer than it": {ref + "ff", false},
+		"the short form": {ref[:12], true},
+		"the whole ref":  {ref, true},
+		"wrong":          {"deadbeefdead", false},
+	} {
+		if got := photoRefHasPrefix(ref, tc.prefix); got != tc.want {
+			t.Errorf("%s: photoRefHasPrefix(ref, %q) = %v, want %v", name, tc.prefix, got, tc.want)
+		}
 	}
 }
 
