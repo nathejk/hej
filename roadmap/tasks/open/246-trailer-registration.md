@@ -6,10 +6,11 @@
 **Picked up by:**
 **Started:**
 **Completed:**
+**PRD:** 028 (moved from PRD 010)
 
 ## Description
 
-Let a user register a trailer. **A trailer counts as a second vehicle** (PRD 010 §11): its
+Let a user register a trailer. **A trailer counts as a second vehicle** (PRD 010 §11; now tracked in PRD 028): its
 own registration, its own row, `kind = trailer` — never a boolean or a note on the towing
 car. That is what keeps the inventory countable and the pickup pool query honest.
 
@@ -50,3 +51,4 @@ Depends on tasks 241, 242, 243, 244 and 245.
 <!-- Append entries here — never edit or delete existing entries -->
 
 - 2026-09-14 — Task created from PRD 010 (approved today).
+- 2026-10-02 — Moved from PRD 010 to PRD 028 on 2026-10-02.

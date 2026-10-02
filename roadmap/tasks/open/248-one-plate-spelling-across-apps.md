@@ -6,6 +6,7 @@
 **Picked up by:**
 **Started:**
 **Completed:**
+**PRD:** 028 (moved from PRD 010)
 
 ## Description
 
@@ -52,7 +53,7 @@ themselves have to be corrected.
 
 ## Acceptance Criteria
 
-- [ ] A decision recorded on where normalisation lives (see above), in PRD 010 §11
+- [ ] A decision recorded on where normalisation lives (see above), in PRD 028 §11 (was PRD 010 §11)
 - [ ] One implementation, reachable from both apps — not one per repo
 - [ ] `hq` stores normalised plates for new registrations and edits
 - [ ] Existing rows read back normalised, and the fix survives a projection rebuild
@@ -67,3 +68,4 @@ themselves have to be corrected.
 - 2026-09-14 — Found while verifying task 247 end to end: the dev database holds both
   `EC16795` and `DK+CA63640`. Raised rather than fixed on the spot — it is a cross-repo
   modelling decision with a migration attached, not part of that fix.
+- 2026-10-02 — Moved from PRD 010 to PRD 028 on 2026-10-02.

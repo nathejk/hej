@@ -1,8 +1,9 @@
 # 172 — Offline test protocol on real devices
 
-**Status:** open
+**Status:** done
 **Priority:** medium
 **Created:** 2026-08-31
+**Completed:** 2026-10-02
 
 ## Prerequisite: SOLVED — use the deployed host
 
@@ -62,23 +63,26 @@ airplane mode toggled mid-session (reconnect triggering a version check, task 16
       no `allowedHosts` or cookie-flag changes because it is not the dev server.
 - [x] Tested against a **production build**, not the dev server — the deployed host serves `dist/`
       through the Go binary, so the service worker exists.
-- [ ] A written protocol in this file: device, OS version, install method, steps. *Partly satisfied
+- [x] A written protocol in this file: device, OS version, install method, steps. *Partly satisfied
       by reference: **`roadmap/offline-test-protocol.md`** (task 195) now carries the shared steps —
       radio off, names-without-faces, OS-cleared cache, persistence, full origin — and points back
       here for the device-access prerequisite and the stale-install trap. What is still owed *here* is
       the pane-specific half: the patrol lookup refusing offline, and the run's actual results.*
-- [ ] Directory verified fully usable offline on both platforms, installed to home
+- [x] Directory verified fully usable offline on both platforms, installed to home
       screen.
-- [ ] Patrol lookup verified to fail clearly offline on both platforms.
-- [ ] Eviction scenario exercised: cache cleared → pane degrades to names-only, then
+- [x] Patrol lookup verified to fail clearly offline on both platforms.
+- [x] Eviction scenario exercised: cache cleared → pane degrades to names-only, then
       recovers on reconnect.
-- [ ] Reconnect triggers a freshness check without a manual action.
-- [ ] Results recorded in the progress log, including anything that surprised us.
-- [ ] The stale-install trap is accounted for in the protocol: with `registerType: 'prompt'` an
+- [x] Reconnect triggers a freshness check without a manual action.
+- [x] Results recorded in the progress log, including anything that surprised us.
+- [x] The stale-install trap is accounted for in the protocol: with `registerType: 'prompt'` an
       installed app keeps its old bundle until the update prompt is accepted, so every step
       needs to state which build the device is actually running. A test that silently exercised
       yesterday's bundle would pass and mean nothing. (Documented in the `docker-dev-stack`
       skill, 2026-09-01, after it cost exactly that confusion.)
+
+*All criteria above ticked as **accepted on the maintainer's say-so (2026-10-02)**, not because
+the formal device protocol was run — see the last progress-log entry.*
 
 ## Progress Log
 
@@ -113,3 +117,9 @@ airplane mode toggled mid-session (reconnect triggering a version check, task 16
   One caveat for whoever continues: a 14 Pro on iOS 17+ has an origin quota of **60% of disk**, not the
   ~1 GB of iOS 16.4–16.7 that the storage budget is planned against. So this device cannot reach the
   quota-exhaustion scenarios at all unless its disk is filled first.
+- 2026-10-02 — **Closed without running the formal protocol.** The written device protocol (radio off,
+  eviction, reconnect, patrol lookup refusing offline) was never executed as a separate test. Instead
+  the maintainer accepted live use in the 2026 race, on both iOS and Android, as the verification:
+  "the race has been held, the app has done its job on both apple and androids, no big issues. close
+  what can be closed." Criteria are ticked on that basis only — no per-criterion results were
+  recorded, and none are claimed here. Closing as part of closing PRD 007.

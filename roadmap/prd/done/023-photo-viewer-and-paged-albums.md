@@ -1,13 +1,12 @@
 # PRD 023 — A shared photo viewer, and album pages that stay bounded and sharp
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed), with maintainer
 **Created:** 2026-09-25
-**Last updated:** 2026-09-25 (§4's two reversals — a caption editor in admin, a share button on the public
-viewer; then §11's 1, 3, 5 and 6, the paging pushback in §2a, an editable credit line, and a medium
-rendition for small screens)
+**Last updated:** 2026-10-02 (closed: tasks 398–416 done, §2a/§9 accepted on real use without measurement,
+closing note in §10)
 **Approved:** 2026-09-25
-**Shipped:**
+**Shipped:** 2026-10-02
 **Target users:** family / open web (the public album page), organizer (the curator's contact sheet)
 
 <!--
@@ -137,6 +136,12 @@ derivation.
 That is the shape this PRD now specifies. The deferred work is kept in §10 rather than deleted, because
 "decided against for now, with a number to revisit it at" is worth more than silence.
 
+**2026-10-02 — not measured; accepted on real use.** Task 400 was closed without running the measurement:
+no HTML bytes, node count or time-to-interactive were ever recorded, and there are no numbers here. The
+paged albums and the viewer served the 2026 race on iOS and Android with no significant issues reported, and
+the maintainer accepted that as the answer: "the race has been held, the app has done its job on both apple and androids, no big issues. close what can be closed." Infinite scroll (tasks 412, 413) is closed as won't do
+— the trigger never fired. If a slow album page is ever reported, §2a.4 is still the plan.
+
 ---
 
 ## 3. Goals
@@ -236,66 +241,67 @@ its list. Arrow keys walk the sheet. `Esc` closes and the selection is exactly a
 
 ### Functional — the album page
 
-- [ ] Tiles are square, uniform, and sized so a 320 px thumbnail is **not upscaled at 2×** — a tile no wider
+- [x] Tiles are square, uniform, and sized so a 320 px thumbnail is **not upscaled at 2×** — a tile no wider
       than ~160 px CSS. Two to three per row on a narrow phone, six to eight on a laptop. This is the item
       with the best ratio of benefit to risk in the PRD; it ships first and alone if need be.
-- [ ] `loading="lazy"` and `decoding="async"` stay on every tile, and intrinsic `width`/`height` stay so the
+- [x] `loading="lazy"` and `decoding="async"` stay on every tile, and intrinsic `width`/`height` stay so the
       page does not reflow as it loads. §2a: this is what actually bounds the bytes, and it already works.
-- [ ] The page renders at most `albumPageCap` items per response. Proposed **200** — deliberately generous,
+- [x] The page renders at most `albumPageCap` items per response. Proposed **200** — deliberately generous,
       because it is a guard against the 2000-photograph dump rather than a pagination feature.
-- [ ] When an album exceeds the cap, a **"Vis flere"** control appears: a real `<a href="?side=2">`, no
+- [x] When an album exceeds the cap, a **"Vis flere"** control appears: a real `<a href="?side=2">`, no
       script involved, rendering the next 200 with the same layout. That page is a normal, shareable address.
-- [ ] Every tile is wrapped in an `<a href>` pointing at the **display variant's media URL**, so a click
+- [x] Every tile is wrapped in an `<a href>` pointing at the **display variant's media URL**, so a click
       with no script opens the large photograph in the browser. The viewer, when present, intercepts it.
-- [ ] Each tile carries `id="foto-{ordinal}"`, so a deep link lands on it with no script at all.
-- [ ] **Deferred behind a measurement (§2a.4), not in v1:** an IntersectionObserver that appends the next
+- [x] Each tile carries `id="foto-{ordinal}"`, so a deep link lands on it with no script at all.
+- [ ] **Deferred behind a measurement (§2a.4), not in v1:** *(Not built — tasks 412/413 closed won't do
+      2026-10-02: the measurement never ran and the trigger never fired.)* an IntersectionObserver that appends the next
       page from an items fragment. If it is built, the "Vis flere" link stays in the markup — an observer
       that never fires must not be the only way to reach photograph 201.
 
 ### Functional — the viewer
 
-- [ ] One overlay, full viewport, dark background, on top of everything.
-- [ ] The large image is **the rendition that fits the screen**, not always the 1600 px one: an 800 px
+- [x] One overlay, full viewport, dark background, on top of everything.
+- [x] The large image is **the rendition that fits the screen**, not always the 1600 px one: an 800 px
       variant on a phone, the display image on a laptop, chosen by the browser from `srcset`/`sizes` rather
       than by JavaScript measuring the window (§7.9).
-- [ ] A photograph with no 800 px rendition (anything uploaded before this ships) falls back to the display
+- [x] A photograph with no 800 px rendition (anything uploaded before this ships) falls back to the display
       image. Same rule, same reason as the existing missing-thumbnail fallback — a rendition is an
       optimisation, and losing one costs bandwidth rather than the photograph.
-- [ ] Prefetching follows the same choice: two ahead and one back, **of the variant this viewport uses**.
+- [x] Prefetching follows the same choice: two ahead and one back, **of the variant this viewport uses**.
       Prefetching 1600 px images to a phone that will display 800 px ones would be the bug this requirement
       exists to remove, arriving by the back door.
-- [ ] Previous/next controls; keyboard `←`, `→`, `Esc`, `Home`/`End`; swipe left/right on touch.
-- [ ] A horizontally scrollable filmstrip of thumbnails along the bottom, the current one marked and
+- [x] Previous/next controls; keyboard `←`, `→`, `Esc`, `Home`/`End`; swipe left/right on touch.
+- [x] A horizontally scrollable filmstrip of thumbnails along the bottom, the current one marked and
       scrolled to centre. Clicking one jumps to it.
-- [ ] **The filmstrip is hidden on a small screen** (maintainer, 2026-09-25, answering §11.3). Below roughly
+- [x] **The filmstrip is hidden on a small screen** (maintainer, 2026-09-25, answering §11.3). Below roughly
       `40rem` wide — or on any short viewport, which is a landscape phone — it costs ~15% of the height to
       show about five thumbnails, and swipe plus the arrows already cover moving through the album. Hidden by
       a media query in `viewer.css`, not by JavaScript measuring the window: a media query re-evaluates on
       rotation for free, and the feature is explicitly **for both desktop and mobile**, so the phone layout
       is a first-class variant rather than a degradation.
-- [ ] A translucent panel above the filmstrip carrying exactly two things: the photograph's **caption** and
+- [x] A translucent panel above the filmstrip carrying exactly two things: the photograph's **caption** and
       the photographer's **credit** (task 393's credit line, verbatim, never derived from `person`).
       **No album description** — §11.1 answered: it repeats on every photograph and says nothing about the
       one you are looking at. Rendered only when there is something to say.
-- [ ] An action row top right. **Which controls appear is decided by the host page, not by the viewer**:
+- [x] An action row top right. **Which controls appear is decided by the host page, not by the viewer**:
       the page declares them and the viewer renders what it is given. Public: share, fullscreen, close.
       Admin: caption, fullscreen, close. This is what keeps one file serving two surfaces without an
       `if (isAdmin)` in it — see §7.7.
-- [ ] The current photograph is reflected in the URL as **`?foto={ordinal}`**, replacing the browser's
+- [x] The current photograph is reflected in the URL as **`?foto={ordinal}`**, replacing the browser's
       history entry as you move and pushing one when the viewer opens, so back closes the viewer rather than
       leaving the album. Not a hash: the same parameter has to work as a **server-side** deep link, because
       the share button sends it to somebody who does not have the album's page loaded — see §7.8.
-- [ ] `?foto={ordinal}` on a cold load renders **the page that contains that item** (the server derives which
+- [x] `?foto={ordinal}` on a cold load renders **the page that contains that item** (the server derives which
       `side` that is from the ordinal and the cap), scrolls to it, and opens the viewer on it. Without script
       it is still the right page scrolled to the right tile, because each tile carries `id="foto-{ordinal}"`.
       With a cap of 200 this derivation is usually the identity — which is the point: it is a few lines, and
       it is what stops a shared link rotting the day an album grows past the cap.
-- [ ] Opening the viewer locks the page behind it from scrolling; closing restores the scroll position.
-- [ ] Focus moves into the viewer on open, is trapped while it is open, and returns to the tile that opened
+- [x] Opening the viewer locks the page behind it from scrolling; closing restores the scroll position.
+- [x] Focus moves into the viewer on open, is trapped while it is open, and returns to the tile that opened
       it on close.
-- [ ] The viewer's item list is read from the DOM via `data-` attributes on the tiles — never from a
+- [x] The viewer's item list is read from the DOM via `data-` attributes on the tiles — never from a
       surface-specific endpoint — which is what lets one file serve both surfaces.
-- [ ] Neighbouring display images are prefetched **two ahead and one back** — see the variant rule above.
+- [x] Neighbouring display images are prefetched **two ahead and one back** — see the variant rule above.
       §2 revised this upward from one: albums are read after the event on home connections, not on a
       congested cell at the finish line, so the cost of being wrong is small and the benefit — the next
       photograph already there when you press `→` — is the whole feel of the thing. Still bounded, and still
@@ -303,49 +309,49 @@ its list. Arrow keys walk the sheet. `Esc` closes and the selection is exactly a
 
 ### Functional — share (public only)
 
-- [ ] A share control in the public viewer's action row shares **a link to this photograph in this album**:
+- [x] A share control in the public viewer's action row shares **a link to this photograph in this album**:
       the absolute `https://…/2026/album/{slug}?foto={ordinal}`.
-- [ ] `navigator.share({ title, url })` where available. **No `files`** — a link, never the bytes (§4).
-- [ ] Where `navigator.share` is absent (desktop Firefox, older desktop Safari), the control copies the URL
+- [x] `navigator.share({ title, url })` where available. **No `files`** — a link, never the bytes (§4).
+- [x] Where `navigator.share` is absent (desktop Firefox, older desktop Safari), the control copies the URL
       via `navigator.clipboard.writeText` and says so in Danish, in the viewer, briefly. A share button that
       does nothing on a laptop is worse than one that copies.
-- [ ] Where neither exists, the control is absent rather than inert.
-- [ ] The shared link must survive being opened by somebody who has never seen the album: that is the whole
+- [x] Where neither exists, the control is absent rather than inert.
+- [x] The shared link must survive being opened by somebody who has never seen the album: that is the whole
       reason `?foto=` is a server-side parameter and not a hash.
-- [ ] The title passed to the share sheet is the **album's** title, not a person's, and never a caption that
+- [x] The title passed to the share sheet is the **album's** title, not a person's, and never a caption that
       might name one. The album page is `noindex` and stays so; sharing is the visitor's own act, not a
       change in what we publish.
 
 ### Functional — admin
 
-- [ ] Contact-sheet cells gain an expand control that opens the viewer. **A click on the cell still
+- [x] Contact-sheet cells gain an expand control that opens the viewer. **A click on the cell still
       selects, and only selects.**
-- [ ] The album editor's sheet gets the same control, with the album's order as the viewer's order.
-- [ ] Deleted photographs stay visibly deleted in the viewer.
-- [ ] **A caption editor in the admin viewer**: the caption is editable in place in the info panel, saved
+- [x] The album editor's sheet gets the same control, with the album's order as the viewer's order.
+- [x] Deleted photographs stay visibly deleted in the viewer.
+- [x] **A caption editor in the admin viewer**: the caption is editable in place in the info panel, saved
       with the existing `PATCH /api/admin/photos` (`{photoIds:[id], caption}`) — one photograph, the bulk
       endpoint, no new route.
-- [ ] **And the credit line**, the same way, through the same endpoint (`{photoIds:[id], credit}`) — §11.5
+- [x] **And the credit line**, the same way, through the same endpoint (`{photoIds:[id], credit}`) — §11.5
       answered yes. Two separate fields with two separate saves, never one form that writes both: a curator
       fixing a typo in a caption must not be able to blank a credit by not touching it.
-- [ ] The credit field carries the sheet's own warning about what it is — **the one field in this tool that
+- [x] The credit field carries the sheet's own warning about what it is — **the one field in this tool that
       records a person's name**, published — and shows how it will read publicly ("Foto: …"). `creditaction.js`
       already makes this point in the sheet; the viewer must not be the quiet way to do the same thing.
-- [ ] Clearing a credit is **its own act**, not "save an empty field" — the rule `creditaction.js` already
+- [x] Clearing a credit is **its own act**, not "save an empty field" — the rule `creditaction.js` already
       applies with a separate "Fjern fotokredit" button, for the reason it records: removing an attribution
       should not be something a stray select-all-and-delete does on its way past.
-- [ ] The credit field is prefilled from the photograph's current credit. Not from `localStorage` — the
+- [x] The credit field is prefilled from the photograph's current credit. Not from `localStorage` — the
       sheet's "last credit typed on this laptop" exists because a *batch* has no single existing value to
       show, and here there is exactly one photograph in front of you.
-- [ ] It says, in the same words the caption sheet already uses, that **the caption belongs to the
+- [x] It says, in the same words the caption sheet already uses, that **the caption belongs to the
       photograph and not to the album**, so a curator knows they are changing it everywhere it appears. The
       same is true of the credit.
-- [ ] Saving updates the item's `alt` and `data-caption` in the host page so the sheet behind the overlay
+- [x] Saving updates the item's `alt` and `data-caption` in the host page so the sheet behind the overlay
       is not stale, and reuses whatever refresh the sheet's existing actions use rather than inventing a
       second path.
-- [ ] A failed save says so and **keeps the typed text**. A caption is a sentence somebody composed; losing
+- [x] A failed save says so and **keeps the typed text**. A caption is a sentence somebody composed; losing
       it to a dropped hotel connection is the failure mode that makes a curator stop trusting the tool.
-- [ ] The editor is not reachable on the public surface. Not hidden — **absent**: the control is rendered by
+- [x] The editor is not reachable on the public surface. Not hidden — **absent**: the control is rendered by
       the admin page's action declaration, and the public page declares no such action, so there is nothing
       for a visitor to un-hide. The endpoint is behind `requireAdmin` regardless.
 
@@ -733,6 +739,11 @@ photographs in the library yet.
 
 ## 9. Success Metrics
 
+> **2026-10-02:** none of the measured metrics below was measured, and the baseline-device QA pass (task 411)
+> was not run. The PRD was accepted on real use — the 2026 race, iOS and Android, no significant issues
+> reported (maintainer: "the race has been held, the app has done its job on both apple and androids, no big issues. close what can be closed."). "We never checked" is, for the record, what happened; the
+> maintainer chose to accept that.
+
 - **A phone fetches the 800 px rendition, not the 1600 px one** — checkable in a network panel, and the
   clearest single signal that §7.9 works.
 - No thumbnail or large image is displayed above its stored resolution, on any viewport in the baseline.
@@ -759,31 +770,31 @@ photographs in the library yet.
 Sequenced so each step ships on its own. The first two are worth doing even if the rest slips, and the
 viewer task is the one that must not be split, because a half-wired viewer is a broken click.
 
-- [ ] Task 398: the album grid's tile size — square ~150 px tiles, sharp thumbnails. Caption and credit stay
+- [x] Task 398: the album grid's tile size — square ~150 px tiles, sharp thumbnails. Caption and credit stay
       under the tile for now; they move into the viewer in task 403, **with** the viewer (§7.1 explains why
       that order is not negotiable). **Ships alone, no dependencies, biggest single win** (§2a.2)
-- [ ] Task: cap the album page at 200 items with a plain `<a href="?side=2">Vis flere</a>` — no JavaScript,
+- [x] Task 399: cap the album page at 200 items with a plain `<a href="?side=2">Vis flere</a>` — no JavaScript,
       about twenty lines in one handler (§2a.3)
-- [ ] Task: **measure** the 2025 import at the new tile size — HTML bytes, node count, time-to-interactive on
+- [x] Task 400 (closed unmeasured, accepted on real use — see §2a): **measure** the 2025 import at the new tile size — HTML bytes, node count, time-to-interactive on
       a mid-range Android — and record the answer to §2a in this PRD. This is what decides whether the two
       deferred tasks at the bottom are ever written
-- [ ] Task: `?foto={ordinal}` as a server-side deep link — the page containing the item, `id="foto-n"` per
+- [x] Task 401: `?foto={ordinal}` as a server-side deep link — the page containing the item, `id="foto-n"` per
       tile, an out-of-range value ignored rather than 404'd. **Before** the share button, which is only
       useful once the link it produces resolves
-- [ ] Task: the viewer itself — `go/cmd/api/viewer/{viewer.js,viewer.css}`, the embedded asset route, the
+- [x] Task 402: the viewer itself — `go/cmd/api/viewer/{viewer.js,viewer.css}`, the embedded asset route, the
       `/viewer` dev-proxy key, the host-declared action row (§7.7), and the filmstrip's wide-viewport-only
       media query
-- [ ] Task: wire the viewer into the public album page, including the per-photograph `href` fallback and
+- [x] Task 403: wire the viewer into the public album page, including the per-photograph `href` fallback and
       the `?foto=` history handling
-- [ ] Task: the fullscreen button, prefixed fallback, feature gate, `fullscreenchange` state
-- [ ] Task: the public share button — `navigator.share`, clipboard fallback with a Danish confirmation,
+- [x] Task 404: the fullscreen button, prefixed fallback, feature gate, `fullscreenchange` state
+- [x] Task 405: the public share button — `navigator.share`, clipboard fallback with a Danish confirmation,
       absent when neither exists, album title never a caption
-- [ ] Task: wire the viewer into the admin contact sheet and album editor, with the expand control, and
+- [x] Task 406: wire the viewer into the admin contact sheet and album editor, with the expand control, and
       extend the frontend-allowlist guard by name
-- [ ] Task: the admin caption editor in the viewer — reusing `PATCH /api/admin/photos`, the caption sheet's
+- [x] Task 407: the admin caption editor in the viewer — reusing `PATCH /api/admin/photos`, the caption sheet's
       own "belongs to the photograph" sentence, typed text kept on failure, and the existing post-action
       refresh
-- [ ] Task: the admin credit editor in the viewer — its own field, its own save, its own "remove" action, the
+- [x] Task 408: the admin credit editor in the viewer — its own field, its own save, its own "remove" action, the
       public-consequence line ("Foto: …"), prefilled from the photograph and **not** from
       `hej.admin.lastCredit`
 - [x] Task 409: the 800 px rendition — `mediumRef` column, event field, fold, querier, `variant=medium` on
@@ -791,18 +802,31 @@ viewer task is the one that must not be split, because a half-wired viewer is a 
       glimt-or-not decision on `glimtThumbEdges` (**split**; §11 Q8)
 - [x] Task 410: the viewer picks its rendition with `srcset`/`sizes`, capped to 800 px on narrow viewports,
       with the comment explaining why `sizes` under-declares; prefetch follows the same choice
-- [ ] Task: QA pass on the baseline devices — iPhone Safari (no fullscreen button, native share sheet, no
+- [x] Task 411 (closed without the formal pass, accepted on real use — see §9): QA pass on the baseline devices — iPhone Safari (no fullscreen button, native share sheet, no
       filmstrip, **800 px fetched not 1600**), iPad Safari (fullscreen, filmstrip), Chrome desktop, desktop
       Firefox (clipboard fallback), and once with JavaScript disabled including opening a shared `?foto=` link
 
 **Deferred, written only if the measurement says so (§2a.4):**
 
-- [ ] Task: the items fragment endpoint, rendered from the shared `{{define}}`, with the guard that it and
+- [ ] Task 412 (closed won't do 2026-10-02 — the trigger never fired): the items fragment endpoint, rendered from the shared `{{define}}`, with the guard that it and
       the page render identical items
-- [ ] Task: the IntersectionObserver that appends it, keeping "Vis flere" in the markup as the floor
+- [ ] Task 413 (closed won't do 2026-10-02 — the trigger never fired): the IntersectionObserver that appends it, keeping "Vis flere" in the markup as the floor
 
 No feature flag. The album page is already behind `PUBLIC_ALBUMS` (task 359) and the admin tool behind its
 credential, which is flag enough; a second switch inside a page would be a state nobody tests.
+
+Follow-ups found in use, all done: task 414 (frontpage album cards), 415 (the viewer would not close),
+416 (caption, arrows and fullscreen), 432 (the filmstrip fetched the whole album), 434 (prefetch asked
+repeatedly).
+
+**Closed 2026-10-02.** Maintainer: "the race has been held, the app has done its job on both apple and androids, no big issues. close what can be closed." What was overtaken after shipping:
+
+- **The `?foto={ordinal}` share link** was replaced by a ref-based permalink (task 447), then by the short
+  `/f/<ref12>` permalink (tasks 486, 487). `?foto=` still resolves, so links already shared keep working.
+- **PRD 024's sort order made ordinals unstable** — an ordinal names a position, not a photograph, once an
+  album can be re-sorted. This is why the share link moved to a ref.
+- **Later additions, not reversals:** a save button in the viewer (task 488) and a per-photograph share
+  preview (task 490) — the latter answers §11 Q7 in the direction this PRD leaned against.
 
 ---
 

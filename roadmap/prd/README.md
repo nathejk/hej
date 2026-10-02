@@ -116,19 +116,33 @@ Repo specifics to respect:
 
 | # | Title | Status |
 |---|---|---|
-| 001 | "Hej Nathejk" event app skeleton (PWA shell + phone login) | done |
-| 002 | Event map (position, Danish topo + aerial layers, patrol scan history) | doing |
-| 003 | Profile page (own details, self-portrait, device permission status) | done |
+| 001 | "Hej Nathejk" Event App Skeleton (PWA shell + phone login) | done |
+| 002 | Event Map (own position, Danish topo + aerial layers, patrol scan history) | done |
+| 003 | Profile Page (own details, self-portrait, device permission status) | done |
 | 004 | Migrate the component library from PrimeVue to shadcn-vue (and upgrade Tailwind to v4) | done |
-| 005 | Install-first mobile onboarding (install, confirm, permissions) | doing |
+| 005 | Install-first mobile onboarding (install, confirm, permissions) | done |
 | 006 | Member directory for the app (person lookup by phone, app roles) | done |
-| 007 | Contacts pane (person lookup with portraits, scoped by race role) | doing |
-| 008 | Persistence and event-stream infrastructure | done |
-| 009 | Offline-first client data layer | draft |
-| 010 | Vehicle registration | draft |
-| 011 | Post-race experience | draft |
+| 007 | Contacts pane (person lookup with portraits, scoped by race role) | done |
+| 008 | Persistence and event-stream infrastructure for `hej` | done |
+| 009 | Offline-first client data layer (shared budget, readiness and freshness) | done |
+| 010 | Vehicle registration (cars and trailers, self-registered) | done |
+| 011 | The public frontpage: albums, patruljens egen side, and public glimt | done |
 | 012 | Switch profile from the app bar | done |
-| 013 | Anonymous website | draft |
-| 014 | Development device simulation | doing |
+| 013 | The anonymous website: what everyone who cannot use the app gets instead | draft |
+| 014 | Development device simulation | done |
+| 015 | Guardian check outcomes on the stream | done |
+| 016 | Map handouts, visible checkpoints, and the scan drawer | done |
+| 017 | One sync check on foreground, for every dataset the device holds | done |
+| 018 | Compass orientation: rotate the map to the device heading | draft |
+| 019 | Glimt: sharing a moment inside the event | done |
+| 020 | Video in Glimt | draft |
+| 021 | The public site at the root, and two binaries | draft |
+| 022 | Photographer admin: a photo library, albums, locations and patrol tags | doing |
+| 023 | A shared photo viewer, and album pages that stay bounded and sharp | done |
+| 024 | Album sort order | done |
+| 025 | Photo credit by crew member | done |
+| 026 | Social share previews for the public site | done |
+| 027 | Keep the photographer's original | done |
+| 028 | Trailer registration and one plate spelling across apps | draft |
 
 Keep this table current when a PRD is added or changes folder.

@@ -1,11 +1,11 @@
 # 400 — Measure a real album page at the new tile size, and write the answer into PRD 023 §2a
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-25
 **Picked up by:**
 **Started:**
-**Completed:**
+**Completed:** 2026-10-02
 
 ## Description
 
@@ -51,3 +51,4 @@ Do this after task 398 has landed, since the tile size is half of what is being 
 ## Progress Log
 
 - 2026-09-25 — Task created from PRD 023.
+- 2026-10-02 — Closed without running the measurement. Maintainer, 2026-10-02: "the race has been held, the app has done its job on both apple and androids, no big issues. close what can be closed." The paged album pages served the 2026 race on iOS and Android with no significant issues reported; accepted by the maintainer on real use. **Nothing was measured** — no HTML bytes, node counts or timings exist, and no numbers were written into PRD 023 §2a. Tasks 412 and 413 closed as won't do, since this task never reported a problem.

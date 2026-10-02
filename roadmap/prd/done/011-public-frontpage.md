@@ -1,11 +1,11 @@
 # PRD 011 — The public frontpage: albums, patruljens egen side, and public glimt
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed)
 **Created:** 2026-08-28
-**Last updated:** 2026-09-25 (§0c added: crawling and indexing)
+**Last updated:** 2026-10-02 (closed — see "Closed 2026-10-02" at the end)
 **Approved:** 2026-09-19
-**Shipped:**
+**Shipped:** 2026-10-02
 **Target users:** anyone outside the app — parents, grandparents, siblings, friends, a leader on a
 laptop — and, through them, the participants who want something to show
 
@@ -551,79 +551,79 @@ will never install the app.
 
 ### Functional — section 1: curated albums
 
-- [ ] The frontpage shows **3–5 albums**, each with a cover image, a title and an optional short
+- [x] *(Overtaken: 10–20 albums per year, task 396; album work continued in PRDs 022/023/024.)* The frontpage shows **3–5 albums**, each with a cover image, a title and an optional short
       description.
-- [ ] An album opens to its photographs, in an order the curator set, each with an optional
+- [x] An album opens to its photographs, in an order the curator set, each with an optional
       caption.
-- [ ] Albums are **curated, not participant-submitted**: an organizer chooses what is in them.
+- [x] Albums are **curated, not participant-submitted**: an organizer chooses what is in them.
       They are not the glimt feed with a filter on it. Curation is also where photo permission is
       enforced (§0b) — a photograph is in an album because somebody decided it may be shown.
-- [ ] A curator can **remove** a photograph, or a whole album, and it leaves the public page
+- [x] A curator can **remove** a photograph, or a whole album, and it leaves the public page
       promptly — within the page's cache window and no longer. Permission is withdrawable.
-- [ ] A photograph **may** carry a location. When it does, it is plotted on the maps this PRD
+- [x] A photograph **may** carry a location. When it does, it is plotted on the maps this PRD
       draws; when it does not, it is simply a photograph. Most will not have one.
-- [ ] Located photographs are **clustered when zoomed out** and separate when zoomed in, so a
+- [x] Located photographs are **clustered when zoomed out** and separate when zoomed in, so a
       post that fifty photographs were taken at reads as one marker, not a blot.
-- [ ] A photograph's location is a **deliberate, reviewable field**, not metadata that happens to
+- [x] A photograph's location is a **deliberate, reviewable field**, not metadata that happens to
       survive. The media pipeline strips all EXIF including GPS by re-encoding (PRD 019,
       `glimtmedia.go`) and **that must not change**; a coordinate is read before stripping and
       stored as a column a curator can see, correct and remove. See §8.
-- [ ] Coordinates are bounds-checked against the race area; anything outside is stored but not
+- [x] Coordinates are bounds-checked against the race area; anything outside is stored but not
       plotted, and is visible to the curator as such.
-- [ ] Albums render without JavaScript: real `<img>` tags, thumbnails, `loading="lazy"`, no
+- [x] Albums render without JavaScript: real `<img>` tags, thumbnails, `loading="lazy"`, no
       carousel — the same decision and the same reasoning as PRD 019's public page (task 323).
 
 ### Functional — section 2: patruljens egen side
 
-- [ ] One page per patrol per year, addressed by patrol number (§11 Q2 decides whether the
+- [x] One page per patrol per year, addressed by patrol number (§11 Q2 decides whether the
       address is guessable).
-- [ ] The header carries **patrol name, gruppe and korps**, read from shared-go's `patrulje`
+- [x] The header carries **patrol name, gruppe and korps**, read from shared-go's `patrulje`
       projection (§0b.4). `korps` is rendered as its label via `types.CorpsSlug.Label()`, and
       `andet`/empty is omitted rather than printed.
-- [ ] An **estimated distance**, derived from the patrol's scans and tracks per the Distance rules
+- [x] An **estimated distance**, derived from the patrol's scans and tracks per the Distance rules
       below.
-- [ ] A **diploma thumbnail**, to the right of the header, linking to the full diploma. Which
+- [x] A **diploma thumbnail**, to the right of the header, linking to the full diploma. Which
       service renders it is §8 / §11 Q6.
-- [ ] A page opened by the **backstop** rather than by a finish scan (§0b.3) has no finish, and
+- [x] A page opened by the **backstop** rather than by a finish scan (§0b.3) has no finish, and
       therefore no diploma: the slot is **absent, not apologetic**, and no copy draws attention to
       what is missing. §11 Q4.
-- [ ] A **map of the race area** below, carrying:
-      - [ ] every scan the patrol collected that has a plottable position, as a pin,
-      - [ ] the patrol's **merged track**,
-      - [ ] any located album photograph in the area, clustered as above.
-- [ ] **Tracks are merged into one.** A patrol has many source tracks: one per member who
+- [x] A **map of the race area** below, carrying:
+      - [x] every scan the patrol collected that has a plottable position, as a pin,
+      - [x] the patrol's **merged track**,
+      - [x] any located album photograph in the area, clustered as above.
+- [x] **Tracks are merged into one.** A patrol has many source tracks: one per member who
       recorded, plus one per resume after an iOS kill. They are presented as a single track with
       **no per-person attribution** — §0b and §4. The merged track is the patrol's route; there is
       no person in it, and there must be no way to recover one from it.
-- [ ] **Merging is a union of segments, not an interleaving of points.** Sorting every member's
+- [x] **Merging is a union of segments, not an interleaving of points.** Sorting every member's
       points into one timestamp-ordered polyline draws a line that jumps between members walking
       ten metres apart — a zig-zag that is pure artefact. Each source track is simplified and
       broken independently; the result is one *multi-segment* polyline in one colour.
-- [ ] Duplicate points are collapsed on `(person, timestamp)`. **This is the contract task 083
+- [x] Duplicate points are collapsed on `(person, timestamp)`. **This is the contract task 083
       established**: a retry after a timeout can legitimately publish the same point twice, and
       the reader is the only place it can be removed.
-- [ ] **Gaps are rendered as gaps.** Break a segment on a time delta above a stated multiple of
+- [x] **Gaps are rendered as gaps.** Break a segment on a time delta above a stated multiple of
       the sampling interval. Joining two points either side of a two-hour hole draws a confident
       line through terrain nobody walked.
-- [ ] The page **states what the track covers** — that it records where a phone had the app open,
+- [x] The page **states what the track covers** — that it records where a phone had the app open,
       not where the patrol walked — in one sentence a parent will read. A gap must not be read as
       "they stood still here".
-- [ ] Every scan is also **listed**, in race order, with what kind of registration it was and
+- [x] Every scan is also **listed**, in race order, with what kind of registration it was and
       when — including the ones with no position. The map is not the only representation.
-- [ ] Simplification is applied for legibility, and the layer that applies it is recorded
+- [x] Simplification is applied for legibility, and the layer that applies it is recorded
       (server-side before the response, or client-side before rendering).
-- [ ] The map is legible on both topographic and aerial backgrounds.
-- [ ] **A patrol with no track, or no scans, still gets a page** that reads as a page, not as an
+- [x] The map is legible on both topographic and aerial backgrounds.
+- [x] **A patrol with no track, or no scans, still gets a page** that reads as a page, not as an
       error or an empty frame.
 
 #### Distance — the rules, because the obvious implementation is wrong
 
-- [ ] The distance is presented as a **floor with a tolerance**, in Danish, e.g. *"mindst ~24 km"*
+- [x] The distance is presented as a **floor with a tolerance**, in Danish, e.g. *"mindst ~24 km"*
       — never a decimal. `23,47 km` claims a measurement that does not exist.
-- [ ] It is **not** the sum of track segments. At 2% coverage (§0a) that sum is a fraction of the
+- [x] It is **not** the sum of track segments. At 2% coverage (§0a) that sum is a fraction of the
       night and would under-report by an order of magnitude: a patrol that walked 30 km would be
       told it walked 600 m.
-- [ ] The base is the **sum of straight-line distances between consecutive positioned scans, in time
+- [x] The base is the **sum of straight-line distances between consecutive positioned scans, in time
       order**. Every leg is a real journey between two places the patrol demonstrably was, and a
       straight line is the shortest it can have been — so the sum is a true lower bound.
 - [x] **Amended 2026-09-19 (task 339), on 2025 data: a leg implying more than a walking pace is
@@ -649,77 +649,77 @@ will never install the app.
       waves through by construction. Both conditions are needed: a long gap alone is a patrol resting, and
       2025 has six-hour legs covering two kilometres that are real walking. On 2025 this moves mean/max
       from 44.8/103.5 km to **38.1/63.6 km**, and patrols credited with over 60 km from 26 to 1.
-- [ ] Within a leg where track points exist, the **measured track distance replaces the straight
+- [x] Within a leg where track points exist, the **measured track distance replaces the straight
       line if it is longer**, which it usually is. This is the only thing the track contributes to
       the number, and it can only move it up — never down.
-- [ ] Legs whose endpoints have no position contribute nothing, and their absence must not make
+- [x] Legs whose endpoints have no position contribute nothing, and their absence must not make
       the number look complete. If a material share of scans is unplottable, the page says the
       figure is incomplete rather than quietly under-reporting.
-- [ ] The rounding, the tolerance and the wording are **stated in one place in the code** and
+- [x] The rounding, the tolerance and the wording are **stated in one place in the code** and
       tested, because this is the number that will be screenshotted.
-- [ ] Sanity-check against 2025: the computed figures must be in the same range as the course's
+- [ ] *(Not done — task 348's formal pass was not run; see "Closed 2026-10-02".)* Sanity-check against 2025: the computed figures must be in the same range as the course's
       actual planned length. A distance estimate that disagrees with the route plan by a factor is
       a bug, not a finding.
 
 ### Functional — section 3: public glimt
 
-- [ ] The frontpage shows the most recent public glimt and links to the full page at
+- [x] The frontpage shows the most recent public glimt and links to the full page at
       `/offentligt/glimt`.
-- [ ] It reuses PRD 019's projection, filtering, retention window, hidden-flag handling and
+- [x] It reuses PRD 019's projection, filtering, retention window, hidden-flag handling and
       reporting. **No second implementation of publicly-visible-glimt logic**; `publiclyVisible`
       stays the single gate.
-- [ ] A glimt is attributed to its **hold**, never to a person — PRD 019's rule, unchanged.
-- [ ] Public glimt carry **no location**, because their EXIF is stripped and nothing replaces it.
+- [x] A glimt is attributed to its **hold**, never to a person — PRD 019's rule, unchanged.
+- [x] Public glimt carry **no location**, because their EXIF is stripped and nothing replaces it.
       They are not on the map, and that is deliberate: a participant tapping "Offentligt" agreed
       to share a photograph, not a position. Only curated album photographs are plotted. §11 Q7 if
       this is ever revisited.
 
 ### Functional — access, gating and safety
 
-- [ ] **Everything on these pages is unauthenticated** and must ignore the session cookie
+- [x] **Everything on these pages is unauthenticated** and must ignore the session cookie
       entirely, so a signed-in member sees exactly what a parent sees. Structural, as with
       `/offentligt/glimt`: the routes do not use the auth middleware.
-- [ ] There is a test asserting that **no response on this surface carries a person's name, a
+- [x] There is a test asserting that **no response on this surface carries a person's name, a
       phone number, a portrait or a `phoneParent`** — the `.rules` invariant, enforced in the
       projection rather than trusted to the template.
-- [ ] **A patrol's page does not exist publicly until one of two triggers fires** (§0b.3), whichever
+- [x] **A patrol's page does not exist publicly until one of two triggers fires** (§0b.3), whichever
       comes first:
-      - [ ] that patrol has a scan attributed to a checkpoint in the last checkgroup — the
+      - [x] that patrol has a scan attributed to a checkpoint in the last checkgroup — the
             non-deleted `checkgroup` with the highest `sortOrder`, which is the finish line, so this
             means "has finished"; or
-      - [ ] **the last checkpoint has closed** — the greatest `checkpoint.openUntilUts` across the
+      - [x] **the last checkpoint has closed** — the greatest `checkpoint.openUntilUts` across the
             event's non-deleted checkpoints — at which point every patrol's page opens, finished or
             not.
-- [ ] Trigger 2 fires **only when a closing instant exists**. The last checkpoint always has absolute
+- [x] Trigger 2 fires **only when a closing instant exists**. The last checkpoint always has absolute
       opening hours (confirmed 2026-09-19), so this is an assertion of an invariant rather than an
       expected path — but `0` means "not set", not 1970, so an absent instant must leave the backstop
       unfired rather than opening every page at the epoch.
-- [ ] The gate **fails closed**: neither trigger satisfied, or the underlying rows cannot be read,
+- [x] The gate **fails closed**: neither trigger satisfied, or the underlying rows cannot be read,
       and the page stays shut. A page that opens early publishes a patrol's positions while it is
       still racing; a page that opens late disappoints somebody. Those are not comparable costs.
-- [ ] A **manual override** exists so løbsledelsen can open a patrol's page early — the case being a
+- [x] A **manual override** exists so løbsledelsen can open a patrol's page early — the case being a
       patrol that finished but whose finish scan could not be attributed to a checkpoint (a normal
       outcome, not an error — §0b.3, §8), which otherwise waits for the backstop. A convenience, not a
       safety net: with the backstop guaranteed, no patrol can end up with no page at all.
-- [ ] Before a patrol's gate opens, its URL answers as **not-yet**, not as 404 and not as a blank
+- [x] Before a patrol's gate opens, its URL answers as **not-yet**, not as 404 and not as a blank
       page — and the not-yet answer carries no patrol data at all, so it cannot be used to discover
       which numbers exist, to read a name early, or to infer which patrols have finished.
-- [ ] The gate is **all-or-nothing** (§0b.3): a patrol page never appears partially. There is no
+- [x] The gate is **all-or-nothing** (§0b.3): a patrol page never appears partially. There is no
       element with its own reveal rule — no "pins later", no "track later" — so there is exactly one
       gate state per patrol to test.
-- [ ] The gate's **assumptions are documented where it is implemented**: that the last checkgroup is
+- [x] The gate's **assumptions are documented where it is implemented**: that the last checkgroup is
       the finish line, that one route sequence serves every patrol, and that the greatest
       `openUntilUts` is when the race ends. All three are facts about the event rather than the
       schema, and any of them changing silently invalidates the gate (§0b.3, §8).
-- [ ] Sections 1 and 3 (albums, glimt) are **not** gated and may be live during the event.
-- [ ] The gate is testable in both states, and the closed state is the default in a fresh
+- [x] Sections 1 and 3 (albums, glimt) are **not** gated and may be live during the event.
+- [x] The gate is testable in both states, and the closed state is the default in a fresh
       environment.
-- [ ] By-IP rate limiting on every new public route, following `publicGlimtReadLimiter`.
-- [ ] `noindex, nofollow` on every page here.
-- [ ] A visible route to "take this down" on the patrol page. Not because the design is in doubt
+- [x] By-IP rate limiting on every new public route, following `publicGlimtReadLimiter`.
+- [x] ~~`noindex, nofollow` on every page here.~~ *Overtaken by the per-surface policy, §0c / task 427.*
+- [x] A visible route to "take this down" on the patrol page. Not because the design is in doubt
       — §0b settled that — but because a patrol whose page is wrong, or who has a reason we have
       not thought of, needs somewhere to write. The glimt page already has this affordance.
-- [ ] All new endpoints carry OpenAPI annotations (repo rule), including the HTML ones, as
+- [x] All new endpoints carry OpenAPI annotations (repo rule), including the HTML ones, as
       `glimtpublic.go` already does.
 
 ### Non-Functional
@@ -1024,55 +1024,56 @@ independently of section 2**.
 
 *Phase 0 — the gate and the copy that must precede publication*
 
-- [ ] **330** — the section 2 gate: per-patrol finish scan OR last-checkpoint-closed backstop, failing
+- [x] **330** — the section 2 gate: per-patrol finish scan OR last-checkpoint-closed backstop, failing
       closed, with the not-yet page, the invariant assertion, the override, the documented assumptions
       and all states tested (§0b.3)
-- [ ] **331** — update `/privatliv` and PRD 002's consent copy to describe the patrol's merged route
+- [x] **331** — update `/privatliv` and PRD 002's consent copy to describe the patrol's merged route
       being public — **a prerequisite for shipping section 2**, per §0b.1
 
 *Phase 1 — the public shell, albums and the glimt strip (no dependency on section 2)*
 
-- [ ] **332** — `/offentligt` frontpage shell in Go templates, linking the existing glimt page
-- [ ] **333** — album and album-item tables, media ingest reusing `blob`/`imaging`, with the
+- [x] **332** — `/offentligt` (now `/2026`, task 351) frontpage shell in Go templates, linking the existing glimt page
+- [x] **333** — album and album-item tables, media ingest reusing `blob`/`imaging`, with the
       GPS-before-strip coordinate column and the race-area bounds check
-- [ ] **334** — album pages: no-JS, thumbnails, alt text
-- [ ] **335** — curator removal of a photograph or an album, effective within the cache window (§0b.2)
-- [ ] **336** — recent-public-glimt strip on the frontpage, reusing `publiclyVisible`
-- [ ] **337** — assert in a test that no public response carries a name, phone, portrait or
+- [x] **334** — album pages: no-JS, thumbnails, alt text
+- [x] **335** — curator removal of a photograph or an album, effective within the cache window (§0b.2)
+- [x] **336** — recent-public-glimt strip on the frontpage, reusing `publiclyVisible`
+- [x] **337** — assert in a test that no public response carries a name, phone, portrait or
       `phoneParent`
 
 *Phase 2 — patruljens egen side*
 
-- [ ] **338** — public patrol read model: number, name, gruppe and korps from shared-go's `patrulje`,
+- [x] **338** — public patrol read model: number, name, gruppe and korps from shared-go's `patrulje`,
       finish time (nullable), distance, and *why* the gate is open; no `contactName`, asserted
-- [ ] **339** — the estimated distance: scan-leg floor, track-raised legs, floor wording, 2025 sanity
+- [x] **339** — the estimated distance: scan-leg floor, track-raised legs, floor wording, 2025 sanity
       check, tested in one place
-- [ ] **340** — merged track reader: `TELEMETRY` by subject filter, dedup on (person, timestamp),
+- [x] **340** — merged track reader: `TELEMETRY` by subject filter, dedup on (person, timestamp),
       union-of-segments merge, gap breaks, simplification, cached per patrol
-- [ ] Task: the patrol page — header, distance, diploma thumbnail, scan list, no-JS complete
+- [x] **341** — the patrol page — header, distance, diploma thumbnail, scan list, no-JS complete
       *(also carries the finish time, moved here from 338: it is derived from the last-checkgroup scan
       rather than projected, so it belongs with the page that renders it)*
-- [ ] Task: the map island — Leaflet + clustering, scans, merged track, located photographs, with
+- [x] **342** — the map island — Leaflet + clustering, scans, merged track, located photographs, with
       a working fallback where it cannot run
       *(also: give the map endpoint a **timestamped** point shape and wire
       `trackPointsForDistance` — task 341 left the track raising no distance leg, because
       `patroltrack.Point` carries no time and `distance.Compute` matches legs by time)*
-- [ ] **343** — the takedown affordance on the patrol page
-- [ ] **344** — confirm scan-kind classification against 2025 before the list labels a kind
-- [ ] **349** — the distance, corrected per §0b.6: exclude points recorded after a member left the race,
+- [x] **343** — the takedown affordance on the patrol page
+- [x] **344** — confirm scan-kind classification against 2025 before the list labels a kind
+- [x] **349** — the distance, corrected per §0b.6: exclude points recorded after a member left the race,
       and drop suspicious coordinates one point at a time rather than filtering whole legs by speed
 
 *Phase 3 — the diploma and the backstop-opened page*
 
-- [ ] **345** — the diploma: implement the chosen option from §11 Q6, including the thumbnail
-- [ ] **346** — the page for a patrol opened by the backstop rather than by a finish: copy and the
+- [x] **345** — the diploma: implement the chosen option from §11 Q6, including the thumbnail
+- [x] **346** — the page for a patrol opened by the backstop rather than by a finish: copy and the
       absent diploma slot (§11 Q4)
 
 *Throughout*
 
-- [ ] **347** — by-IP rate limits and cache headers on every new public route
-- [ ] **348** — verify the whole surface against **2025** data, on a phone viewport, with JS off, and
-      on the oldest device available
+- [x] **347** — by-IP rate limits and cache headers on every new public route
+- [x] **348** — verify the whole surface against **2025** data, on a phone viewport, with JS off, and
+      on the oldest device available *(closed without the formal pass: the 2026 race served live was
+      accepted as verification — see "Closed 2026-10-02")*
 
 ## 11. Open Questions
 
@@ -1088,7 +1089,7 @@ undecided.
    race, and nothing useful to patrols still out, who already know where the finish is and have
    simply not reached it. PRD 016's reveal model is satisfied rather than bypassed. The gate is
    all-or-nothing per patrol: no staged reveal, no second gate state.
-2. **Is a patrol page's address guessable?** `/offentligt/patrulje/42` is memorable, sendable by
+2. **Answered (task 330):** yes — the memorable number, with not-yet indistinguishable from unknown. **Is a patrol page's address guessable?** `/offentligt/patrulje/42` *(now `/2026/patrulje/42`, task 351)* is memorable, sendable by
    voice, and lets a family find the page from the number on the patrol's sign; it also lets anyone
    enumerate every patrol in the event. Now that §0b makes the content public, enumeration reveals
    nothing that was not already public, so **the memorable number is the recommendation**. The one
@@ -1099,7 +1100,7 @@ undecided.
    `tables/patrulje` carries `groupName` and `korps`, and `types/corps.go` maps the slug to a label.
    A consumer and a projection, not an upstream change. Two notes carried into §0b.4: render the
    label rather than the slug, and do not project that table's `contactName`.
-4. **What does a non-finishing patrol's page say?** No longer "do they get one" — §0b.3's second
+4. **Answered (task 346):** the night they had, no diploma slot, no copy about not finishing. **What does a non-finishing patrol's page say?** No longer "do they get one" — §0b.3's second
    trigger settles that: when the last checkpoint closes, every patrol's page opens, so nobody is
    excluded from the feature for not finishing, and nothing has to announce that they retired in order
    to give them a page. That is a much better answer than any of the options this question used to
@@ -1112,7 +1113,7 @@ undecided.
    how far, the diploma slot is absent rather than apologetic, and no copy anywhere draws attention to
    what is missing. A patrol that walked seven hours and got driven home does not need a page
    explaining that.
-5. **Who curates the albums, and with what?** "Curated" implies a person and a tool, and per §0b
+5. **Answered (PRD 022):** curation is PRD 022's surface. **Who curates the albums, and with what?** "Curated" implies a person and a tool, and per §0b
    that tool is where photo permission is enforced — so it is a safety control, not a convenience,
    and "a directory on disk and a deploy" is a weaker answer than it looks. Options: a Team-section
    surface in the app (the moderation-queue precedent, PRD 019 tasks 300/308/309), or a small admin
@@ -1124,7 +1125,7 @@ undecided.
    and it is recorded in code as `diploma.ReplaceBeforeLaunch`: the artwork, the headline font (the
    Impact file `diplom` embeds is not ours to redistribute), and the route line. **The patrol
    photograph is not on the list — it is excluded on purpose** (§8, §0b.2).
-7. **Should public glimt ever carry a location?** §6 says no, because EXIF is stripped and the
+7. **Deferred, not v1:** public glimt stay unlocated; a located glimt needs its own composer opt-in. **Should public glimt ever carry a location?** §6 says no, because EXIF is stripped and the
    composer's "Offentligt" never offered to share a place. Note this is a *different* permission to
    the one §0b records: album photographs are cleared by a curator, while a glimt is cleared by the
    member who posted it, and they agreed to share a photograph rather than a position. If located
@@ -1137,11 +1138,34 @@ undecided.
    interactive map are different features, not two weights of one, and a family's whole use of this
    page is zooming in on the forest they know. No second implementation as a fallback either: where
    the script does not run, the scan list already carries the same facts.
-9. **How long does this stay up** — until the next event, or indefinitely? `TELEMETRY` retention is
+9. **Deferred, not v1:** pages stay up; expiry to be decided before the next event. **How long does this stay up** — until the next event, or indefinitely? `TELEMETRY` retention is
    indefinite (task 081), so the data outlives any decision here. A public page has a stronger
    argument for expiry than an in-app one did, and PRD 019 already has a public retention window
    (`GLIMT_PUBLIC_RETENTION_DAYS`) whose reasoning applies.
-10. **Do klans, bandits and gøglere get a page?** A bandit's hold is a klan and their night is
+10. **Deferred, not v1:** §4's exclusion stands for 2026. **Do klans, bandits and gøglere get a page?** A bandit's hold is a klan and their night is
     catches, not posts — the same three sections may work with the emphasis inverted (who *we*
     caught). Gøglere staff the night and are not a hold at all. §4 excludes them for now; the
     exclusion will be noticed by the bandits, who are also 14.
+
+## Closed 2026-10-02
+
+Maintainer: *"the race has been held, the app has done its job on both apple and androids, no big issues.
+close what can be closed."*
+
+Tasks 330–349 (incl. 341, 342) are in `roadmap/tasks/done/`. Task 348's formal 2025 pass was not run; the
+public site serving the 2026 race live was accepted as verification (see that task's log for the checks
+not done, including §6's 2025 distance sanity check, left unticked above).
+
+Overtaken during implementation — the text above is kept as the record of intent:
+
+- **`/offentligt` → `/2026`.** Public pages moved under a year prefix (task 351, PRD 021); `/offentligt`
+  mentions in §6, §8, §10 and Q2 refer to what is now `/{year}/…`. No alias (§7).
+- **Blanket `noindex` → per-surface policy** (§0c, task 427).
+- **"3–5 albums" → 10–20 per year** (task 396); album work moved to PRDs 022, 023 and 024.
+- **"Names no person"** narrowed by the photographer credit-line amendment (PRD 022, task 393; §6
+  Non-Functional).
+
+Carried forward, not a PRD blocker: `diploma.ReplaceBeforeLaunch` (go/internal/diploma/diploma.go) is a
+launch checklist. As of today the artwork (2026 design landed 2026-09-21) and the headline font are off
+the list; it still holds two entries — **the route line** (not configured, so omitted) and **whether a
+poster is the right diploma** (maintainer's call). Q6's list above is therefore stale on those two points.

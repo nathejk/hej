@@ -1,11 +1,11 @@
 # 413 — DEFERRED: the IntersectionObserver that appends the next page
 
-**Status:** open
+**Status:** done
 **Priority:** low
 **Created:** 2026-09-25
 **Picked up by:**
 **Started:**
-**Completed:**
+**Completed:** 2026-10-02
 
 ## Description
 
@@ -45,3 +45,4 @@ link usable rather than leaving the reader on a grid that has stopped growing fo
 ## Progress Log
 
 - 2026-09-25 — Task created from PRD 023.
+- 2026-10-02 — Won't do: the trigger never fired. Conditional on task 400 measuring a problem (same condition as 412); 400 was closed unmeasured after the 2026 race ran with no significant issues on iOS or Android. Maintainer, 2026-10-02: "the race has been held, the app has done its job on both apple and androids, no big issues. close what can be closed." Nothing was built; "Vis flere" stays the only way to the next page.

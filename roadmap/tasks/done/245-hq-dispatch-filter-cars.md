@@ -81,3 +81,5 @@ Also bump shared-go in `hq`, since the `kind` field arrives with task 243.
 - 2026-09-14 — **Left the deployment criterion unticked deliberately.** The commit is local: I
   have not pushed `hq` or released it, and "deployed" is not something I can verify from here.
   Task 246 is gated on this being *live*, not merely written — so it stays open.
+- 2026-10-02 — PRD 010 closed. The unticked deploy-confirmation criterion moved to PRD 028
+  (gates task 246 there); still not confirmed pushed or deployed.

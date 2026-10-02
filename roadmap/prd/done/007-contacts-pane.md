@@ -1,11 +1,11 @@
 # PRD 007 — Contacts pane (person lookup with portraits, scoped by race role)
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed)
 **Created:** 2026-08-25
-**Last updated:** 2026-09-01
+**Last updated:** 2026-10-02
 **Approved:** 2026-08-31
-**Shipped:**
+**Shipped:** 2026-10-02
 **Target users:** crew (samarit / guide / postmandskab are crew), bandit, gøgler. **Not spejder.**
 
 <!--
@@ -212,84 +212,86 @@ can be favourited.
 
 ### Functional
 
-- [ ] The existing **`contacts` destination** in `vue/src/config/navigation.ts`
+- [x] The existing **`contacts` destination** in `vue/src/config/navigation.ts`
       gains a `roles` list excluding `spejder`, and `ContactsView.vue` replaces its
       `PagePlaceholder` with the real pane.
-- [ ] The **directory** is **offline-first**: fully usable with the radio off.
-- [ ] **Search field at the top**, spanning every person the caller may see.
+- [x] The **directory** is **offline-first**: fully usable with the radio off.
+- [x] **Search field at the top**, spanning every person the caller may see.
       Matches on name, group (klan / section) and arm number. Runs locally
       against the synced index — a search that needs the network is not a search.
-- [ ] **Favourites**: any visible person can be favourited, favourites are shown
+- [x] **Favourites**: any visible person can be favourited, favourites are shown
       first, and the toggle is on the row rather than buried in the profile page.
-- [ ] **Grouping is per population**, and comes from the server rather than being
+- [x] **Grouping is per population**, and comes from the server rather than being
       inferred client-side:
       - bandit → **grouped by klan**, the caller's own klan **expanded by default**,
         the rest collapsed;
       - gøgler → all gøglere, **including the crew gøglere** (section slug
         `goeglerledelse`);
       - crew → all crew.
-- [ ] **Directory placement is separate from app role.** A crew member whose section
+- [x] **Directory placement is separate from app role.** A crew member whose section
       slug is `bandit` is listed in the bandit population (in their klan); one whose
       slug is `goeglerledelse` is listed among the gøglere. Their *role* stays `crew`,
       so they view as crew and keep the patrol lookup. Placement decides where you
       appear; role decides what you see. See §8.
-- [ ] **Row layout** (confirmed 2026-08-31): avatar on the **left**; **member name**,
+- [x] **Row layout** (confirmed 2026-08-31): avatar on the **left**; **member name**,
       with the **team/group name in smaller grey print below it** where applicable;
       **phone number on the right**. Tapping the row opens that person's profile.
-- [ ] **Person profile page**: a route of its own showing a **large avatar**, name,
+- [x] **Person profile page**: a route of its own showing a **large avatar**, name,
       group/team, phone number, and function/section for crew. **Postal address and
       guardian number are excluded** (2026-08-31). Guardian numbers are excluded
       everywhere — see `.rules`; the BFF projects the field out rather than relying on
       the client not to render it.
-- [ ] **Favourites are device-local** (confirmed 2026-08-31): stored on the device,
+- [x] **Favourites are device-local** (confirmed 2026-08-31): stored on the device,
       no endpoint, no server-side record of who is interested in whom. They do not
       survive a reinstall, which is accepted. Favourites are re-validated against the
       manifest on each sync so one cannot outlive the user's access to that person.
-- [ ] **Crew-only patrol lookup**: an explicit action that takes a **full, exact**
+- [x] **Crew-only patrol lookup**: an explicit action that takes a **full, exact**
       patrol number and returns that one patrol's members with portrait, **current
       status and phone number**. No listing, no prefix matching, no inclusion in the
       main search, and a single indistinguishable "not found" for every miss.
-- [ ] The patrol lookup is **live and not cached** (2026-08-31): fetched on demand,
+- [x] The patrol lookup is **live and not cached** (2026-08-31): fetched on demand,
       held in memory for the duration of the lookup, never written to local storage and
       never cached, and never declared as a dataset under PRD 009. No spejder record is
       stored on any device.
-- [ ] With no connectivity the lookup **fails clearly** — "kræver forbindelse", with a
+- [x] With no connectivity the lookup **fails clearly** — "kræver forbindelse", with a
       pointer to the radio — rather than showing an empty patrol or a stale one.
-- [ ] The server returns **only** the people the caller's role permits. No
+- [x] The server returns **only** the people the caller's role permits. No
       client-side filtering of a broader payload — a device must never hold a
       portrait its user may not see.
-- [ ] Access is evaluated per request and per sync against the caller's **current**
+- [x] Access is evaluated per request and per sync against the caller's **current**
       role and group, from the directory (PRD 006).
-- [ ] Portraits are served as the existing **`thumb256`** rendition (task 104/110),
+- [x] Portraits are served as the existing **`thumb256`** rendition (task 104/110),
       not as originals.
-- [ ] **Portraits and the person index are declared under PRD 009's budget** — the
+- [x] **Portraits and the person index are declared under PRD 009's budget** — the
       crew/bandit/gøgler directory only. Cache-first binary for images, structured data
       for the index, high priority, server-issued expiry, purged after the event. The
       patrol lookup is **not** a cached dataset. *(Reworded 2026-09-01: PRD 009's dataset
       registry and generic engine were cut, so this is a declared size and rank plus
       reporting into its readiness store, not a registration — task 161.)*
-- [ ] The **metadata index is separable from the images**, so search, groups and
+- [x] The **metadata index is separable from the images**, so search, groups and
       favourites keep working when thumbnails have been evicted.
-- [ ] Endpoints follow the **version/manifest convention** that this PRD's own endpoints
+- [x] Endpoints follow the **version/manifest convention** that this PRD's own endpoints
       established and PRD 009 §8 has since adopted as the shared one: `version` in the
       JSON body, with a separate cheap version endpoint for polling.
-- [ ] **Directory updates reach devices during the event without much delay**
+- [x] **Directory updates reach devices during the event without much delay**
       (2026-08-31). Concretely: a change made upstream is visible in the pane
       **immediately when the app is brought to the foreground**, and **within ~60
-      seconds while the app is open**. Additions, edits, withdrawals (status marking +
-      number purge) and portrait changes all propagate.
-- [ ] **Metadata deltas may run during the race, on mobile data.** They are small
+      seconds while the app is open**. Additions, edits, withdrawals (status marking, plus
+      number purge on `released` only — §11.6) and portrait changes all propagate.
+      *(Overtaken 2026-10-02: the separate version endpoint and ~60 s poll were replaced
+      by PRD 017's sync-on-foreground, tasks 288/292 — see "Closed 2026-10-02" below.)*
+- [x] **Metadata deltas may run during the race, on mobile data.** They are small
       enough that the usual "bulk sync only on wifi, not during the race" rule must not
       apply to them — see the split in Non-Functional. Bulk image sync keeps it.
-- [ ] Metadata propagates **ahead of images**: a corrected name or number must not wait
+- [x] Metadata propagates **ahead of images**: a corrected name or number must not wait
       on a portrait download, and a new person appears with a placeholder rather than
       not at all.
-- [ ] No export affordance: no download, no share sheet, no long-press save, no
+- [x] No export affordance: no download, no share sheet, no long-press save, no
       open-in-new-tab.
-- [ ] Cached portraits carry a **server-issued** expiry and are purged after the
+- [x] Cached portraits carry a **server-issued** expiry and are purged after the
       event; the server stops serving them at the same point (already true —
       `portraitpurge.go`). Server-issued so a wrong device clock cannot defeat it.
-- [ ] **Withdrawn members** (`released` / `reunited`) keep their **name and portrait**
+- [x] **Withdrawn members** (`released` / `reunited`) keep their **name and portrait**
       until the end of the race and carry a **clear status marking** in the list and on
       the profile. Their **phone number is purged only on `released`** — the one status where
       the member has left the area and been handed to a guardian. Every other status leaves them
@@ -297,8 +299,8 @@ can be favourited.
       `sheltered` are the people most likely to need a call. So a device that already synced a
       released member's number drops it on the next delta, while a reunited member keeps theirs
       beside their marking.
-- [ ] Names-only degradation whenever portraits are unavailable, for any reason.
-- [ ] *(§11.7)* Every patrol lookup is logged **server-side** on the request path — no
+- [x] Names-only degradation whenever portraits are unavailable, for any reason.
+- [x] *(§11.7)* Every patrol lookup is logged **server-side** on the request path — no
       client-side queue, no batching, no ingestion endpoint, because the lookup is
       online by definition.
 
@@ -821,59 +823,59 @@ widening later is easy while narrowing after the fact is not.
 
 Proposed tasks for `roadmap/tasks/open/`:
 
-- [ ] Task: `mayView(viewer, subject)` authorization + exhaustive role-pair tests
+- [x] Task (151): `mayView(viewer, subject)` authorization + exhaustive role-pair tests
       (every role both directions; spejder never a viewer, never listed, reachable by
       crew only through the patrol lookup)
-- [ ] Task: server-supplied grouping model — group id + label, own-group flag, shaped
+- [x] Task (153): server-supplied grouping model — group id + label, own-group flag, shaped
       so subsections can add a tier without a client rewrite
-- [ ] Task: `GET /api/contacts/manifest` with server-side grouping, own-group flag,
+- [x] Task (154): `GET /api/contacts/manifest` with server-side grouping, own-group flag,
       etag/delta support
-- [x] Task: `GET /api/contacts/people/{personId}/photo?size=thumb`, indistinguishable
+- [x] Task (156): `GET /api/contacts/people/{personId}/photo?size=thumb`, indistinguishable
       403/404, reusing `portrait.go`
-- [ ] Task: hide the `contacts` destination for `spejder` (nav `roles` + router
+- [x] Task (158): hide the `contacts` destination for `spejder` (nav `roles` + router
       guard + test)
-- [ ] Task: declare the directory's datasets under PRD 009's budget (index + images,
+- [x] Task: declare the directory's datasets under PRD 009's budget (index + images,
       size, priority, server-issued expiry) — explicitly excluding the patrol lookup.
       *Now **task 192**; task 161 was folded into it on 2026-09-01 so all four caches are
       reconciled in one pass.*
-- [ ] Task: ContactsView — grouped accordion, own group expanded by default
-- [ ] Task: contact row component — avatar left, name + grey group line, phone right,
+- [x] Task (163): ContactsView — grouped accordion, own group expanded by default
+- [x] Task (164): contact row component — avatar left, name + grey group line, phone right,
       favourite toggle
-- [ ] Task: person profile route (`/contacts/:personId`) — large avatar, allow-listed
+- [x] Task (167): person profile route (`/contacts/:personId`) — large avatar, allow-listed
       fields (no address, no guardian number), offline, role-guarded on deep link
-- [ ] Task: **decide how member status arrives** — lift `hq`'s lifecycle projection to
+- [x] Task (150): **decide how member status arrives** — lift `hq`'s lifecycle projection to
       `shared-go`, or a narrow in-race flag (§8); blocks the manifest
-- [ ] Task: `GET /api/contacts/version` — cheap monotonic version per permitted set,
+- [x] Task (155; retired by 292): `GET /api/contacts/version` — cheap monotonic version per permitted set,
       `ETag`, projection-read only
-- [ ] Task: freshness loop — check on foreground, on reconnect, and every ~60 s while
+- [x] Task (162; collapsed into the sync loop by 288): freshness loop — check on foreground, on reconnect, and every ~60 s while
       visible; runtime-configurable interval; no polling when hidden
-- [ ] Task: raise the invalidation/freshness contract against PRD 009 (during-event
+- [x] Task (171): raise the invalidation/freshness contract against PRD 009 (during-event
       freshness, not just pre-event readiness)
-- [ ] Task: withdrawn-member handling — status marking in list and profile, phone
-      number purged, removal propagated through the sync delta (sync → withdraw →
+- [x] Task (160): withdrawn-member handling — status marking in list and profile, phone
+      number purged on `released` only (§11.6), removal propagated through the sync delta (sync → withdraw →
       re-sync test)
-- [ ] Task: assert `phoneParent` is absent from every contacts response (`.rules`
+- [x] Task (159): assert `phoneParent` is absent from every contacts response (`.rules`
       invariant) — test-only, but the tripwire for the whole rule
-- [ ] Task: crew placement map — section slug `bandit` → bandit population,
+- [x] Task (152): crew placement map — section slug `bandit` → bandit population,
       `goeglerledelse` → gøgler population, kept orthogonal to the role map and
       logging unmapped slugs
-- [ ] Task: device-local favourites — ids only, ordering, re-validation against the
+- [x] Task (166): device-local favourites — ids only, ordering, re-validation against the
       manifest
-- [ ] Task: local search across the synced index (name, group, arm number) —
+- [x] Task (165): local search across the synced index (name, group, arm number) —
       spejdere excluded from the index it searches
-- [ ] Task: crew patrol lookup — `GET /api/contacts/patrols/{number}`, exact match,
+- [x] Task (157): crew patrol lookup — `GET /api/contacts/patrols/{number}`, exact match,
       indistinguishable miss, no enumeration, `no-store`, server-side audit log
-- [ ] Task: patrol-lookup UI — live fetch, status + phone, clear no-connectivity state,
+- [x] Task (168): patrol-lookup UI — live fetch, status + phone, clear no-connectivity state,
       nothing persisted
-- [ ] Task: assert nothing from a patrol lookup is cached (SW routes, storage, headers)
-- [ ] Task: names-only degradation + missing-portrait placeholder
-- [ ] Task: night-legible profile surface (large avatar) reused by the patrol lookup
-- [ ] Task: *(§11.7)* server-side audit log of patrol lookups
-- [ ] Task: generate the `command` shadcn-vue primitive *(only if search uses it —
+- [x] Task (170): assert nothing from a patrol lookup is cached (SW routes, storage, headers)
+- [x] Task (169): names-only degradation + missing-portrait placeholder
+- [x] Task (163, 167): night-legible profile surface (large avatar) reused by the patrol lookup
+- [x] Task (157): *(§11.7)* server-side audit log of patrol lookups
+- [x] Task (163): generate the `command` shadcn-vue primitive *(only if search uses it —
       `avatar`, `accordion`, `input`, `dialog`, `drawer` already exist)*
-- [ ] Task: offline test protocol on real iOS + Android devices, radio off — directory
+- [x] Task (172): offline test protocol on real iOS + Android devices, radio off — directory
       usable, patrol lookup failing clearly
-- [ ] Task: post-event purge verification (server purge exists; verify client
+- [ ] Task (173, open): post-event purge verification (server purge exists; verify client
       expiry)
 
 ## 11. Open Questions
@@ -916,14 +918,10 @@ Proposed tasks for `roadmap/tasks/open/`:
 5. ~~**Are favourites device-local or server-side?**~~ *Answered 2026-08-31:
    **device-local.*** No endpoint, no server-side record of who is interested in whom;
    they do not survive a reinstall, which is accepted.
-4. **Do rows expose a phone number?** It is a contacts pane, so the expectation is
-   there, but a number is a separate disclosure from a face and PRD 006 is
-   deliberately careful about showing one person another's details. Face-only,
-   face + number, or number only for crew?
-5. **Are favourites device-local or server-side?** Local needs no endpoint and no
-   new stored personal data; server-side survives reinstall and a second device,
-   but means we hold "who is interested in whom", which is more sensitive than it
-   first sounds.
+- ~~**Do rows expose a phone number?**~~ *Duplicate of the old Q4 — answered 2026-08-31:
+  phone number on the right of the row (§6 "Row layout").*
+- ~~**Are favourites device-local or server-side?**~~ *Duplicate of Q5 above — answered
+  2026-08-31: device-local.*
 6. ~~**When a member leaves the race**, do they vanish from devices?~~ *Answered
    2026-08-31: **no — purge the number, keep the name.*** On withdrawal
    (`released` / `reunited`) the name stays visible until the end of the race with a **clear
@@ -951,16 +949,35 @@ Proposed tasks for `roadmap/tasks/open/`:
    a log line on a handler rather than a client queue and an ingestion endpoint. Log the
    patrol lookups; do not log directory views, which are adults looking at adults'
    faces and numbers that used to be printed.
-8. **Post-event purge on a dormant device** — a phone that never reopens the app keeps
+8. ~~**Post-event purge on a dormant device**~~ *Moved to task 173 (2026-10-02).* — a phone that never reopens the app keeps
    its cached directory until the OS evicts it. Is a baked-in expiry timestamp
    sufficient, given the service worker may never run again? (Shared with PRD 009.)
    Smaller than it was: only adults' records are cached now.
-9. **Does anything about this change PRD 005's portrait step?** Less pressing now that
+9. ~~**Does anything about this change PRD 005's portrait step?**~~ *Deferred, not v1 (2026-10-02): the consent-copy line back to PRD 005/003
+   was not written as part of this PRD.* Less pressing now that
    §11.1 is answered — a spejder's portrait does get used, by crew, through the patrol
    lookup. But the consent copy should describe *that* audience honestly ("crew can
    look up your patrol to find you") rather than implying a mutual directory the
    spejder is part of. Worth a line back to PRD 005 and PRD 003.
-10. **Do banditter or gøglere need any patrol-adjacent lookup?** Assumed no — the
+10. ~~**Do banditter or gøglere need any patrol-adjacent lookup?**~~ *Resolved 2026-10-02: no —
+    the lookup shipped crew-only and stayed that way through the 2026 race.* Assumed no — the
     lookup exists for a safety task, not a game one, and giving banditter any path to
     spejder faces would undo the game-integrity property. Confirming it stays
     crew-only.
+
+## Closed 2026-10-02
+
+Maintainer, 2026-10-02: *"the race has been held, the app has done its job on both apple and
+androids, no big issues. close what can be closed."*
+
+- **Shipped and used in the 2026 race** on iOS and Android. Task 172 (offline device protocol) was
+  closed on that live use rather than a formal run of the protocol.
+- **Overtaken — freshness.** The per-pane `GET /api/contacts/version` endpoint and the ~60 s
+  in-pane poll (§6, §10; tasks 155, 162) were replaced by PRD 017's single multiplexed
+  sync-on-foreground: task 288 collapsed the per-dataset loops into the sync loop and task 292
+  retired `/api/contacts/version`.
+- **Overtaken — withdrawal rule.** Changed 2026-09-01: the phone number is removed only for
+  `released`, not `reunited` (§11.6). §6 wording now matches.
+- **Still open, tracked separately, not blocking:** task 173 (post-event purge verification — still
+  to do now the event is over), task 175 (`shared-go` "left the race" predicate), and task 350
+  (projections never truncate, which explains ghost withdrawn members lingering in the directory).

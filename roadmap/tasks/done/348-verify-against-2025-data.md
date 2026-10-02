@@ -1,11 +1,11 @@
 # 348 — Verify the whole public surface against 2025 data
 
-**Status:** open
+**Status:** done
 **Priority:** high
 **Created:** 2026-09-19
 **Picked up by:**
 **Started:**
-**Completed:**
+**Completed:** 2026-10-02
 
 ## Description
 
@@ -54,3 +54,12 @@ unknown patrol number.
 <!-- Append entries here — never edit or delete existing entries -->
 
 - 2026-09-19 — Task created from PRD 011 §9 / §10 (throughout).
+- 2026-10-02 — Closed without running the formal pass. The public site served the 2026 race live, and the
+  maintainer accepted that as verification: *"the race has been held, the app has done its job on both apple
+  and androids, no big issues. close what can be closed."* Acceptance criteria are left unticked because
+  they were not done as written. Specifically **not done**: the JS-off and CSS-off checks, and the check on
+  the oldest device (iPad mini 2, iOS 12.5.8); the 2025 distance sanity check against the course's planned
+  length (no sample recorded); track rendering against task 082's measured coverage; deliberate checks of a
+  no-track patrol, a patrol with unpositioned scans, a backstop-opened page and the not-yet page vs. an
+  unknown number; and the human read of a real patrol page's HTML for personal data (task 337's automated
+  assertions still stand). No findings recorded, because none were gathered. PRD 011 closed the same day.

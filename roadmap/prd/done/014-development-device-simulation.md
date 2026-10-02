@@ -1,11 +1,11 @@
 # PRD 014 — Development device simulation
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed / Claude), with knj
 **Created:** 2026-09-12
-**Last updated:** 2026-09-12
+**Last updated:** 2026-10-02
 **Approved:** 2026-09-12
-**Shipped:**
+**Shipped:** 2026-10-02
 **Target users:** developer (and, secondarily, anyone doing pre-event QA on a laptop)
 
 <!--
@@ -187,77 +187,77 @@ compounds per feature; the fix is one-off.
 
 **Device simulation**
 
-- [ ] A persisted dev device profile: `{ mobile: boolean, standalone: boolean,
+- [x] A persisted dev device profile: `{ mobile: boolean, standalone: boolean,
       platform: 'ios' | 'android' | 'chromium' | 'webview' | 'other' }`, in
       `localStorage['hej.dev.device']`.
-- [ ] `helpers/platform.ts`'s `defaultEnv()` yields to the profile, so
+- [x] `helpers/platform.ts`'s `defaultEnv()` yields to the profile, so
       `isMobileDevice()`, `isStandalone()` and `installPlatform()` return the
       simulated answers **without their signatures, logic or injectability
       changing**. The override lives in the environment, not in the predicates.
-- [ ] `detectPlatform()` in `config/permissions.ts` honours the same profile, so
+- [x] `detectPlatform()` in `config/permissions.ts` honours the same profile, so
       `blockedGuidance()` renders the iOS/Android copy on demand.
-- [ ] `?dev=iphone|ipad|android|chromium|tab|desktop|off` writes or clears the
+- [x] `?dev=iphone|ipad|android|chromium|tab|desktop|off` writes or clears the
       profile before the router's first navigation (i.e. from `main.ts`, alongside
       `initGateOverride()`), and works when typed onto `/desktop.html`.
-- [ ] The gate chain is otherwise untouched: with `dev=iphone` the app runs
+- [x] The gate chain is otherwise untouched: with `dev=iphone` the app runs
       steps 2–4 for real and onboarding actually gates.
-- [ ] `dev=tab` produces mobile-but-not-standalone, i.e. the install wall.
-- [ ] `dev=desktop` clears simulation, so the desktop hand-off can be tested too.
+- [x] `dev=tab` produces mobile-but-not-standalone, i.e. the install wall.
+- [x] `dev=desktop` clears simulation, so the desktop hand-off can be tested too.
 
 **Dev panel**
 
-- [ ] `components/DevPanel.vue`, rendered only when `import.meta.env.DEV`,
+- [x] `components/DevPanel.vue` (shipped as `src/dev/DevPanel.vue`), rendered only when `import.meta.env.DEV`,
       alongside `LayoutDebug` in `App.vue`. Collapsed to a small handle by default;
       its expanded state persists.
-- [ ] Shows, always, the *effective* values: simulated vs real `mobile`,
+- [x] Shows, always, the *effective* values: simulated vs real `mobile`,
       `standalone`, `platform`, plus `__BUILD_ID__`, gate state and
       `install_gate`.
-- [ ] Device profile controls (the toggles above), applied without a reload where
+- [x] Device profile controls (the toggles above), applied without a reload where
       possible and with one where not.
-- [ ] **Reset onboarding** — clears the onboarding store's persisted completion.
-- [ ] **Log out / clear session** — drops the session cookie and session store.
-- [ ] **Force offline** — drives `app.store.online` to `false` (the store already
+- [x] **Reset onboarding** — clears the onboarding store's persisted completion.
+- [x] **Log out / clear session** — drops the session cookie and session store.
+- [x] **Force offline** — drives `app.store.online` to `false` (the store already
       accepts a corrected value) so PRD 009's offline states can be produced
       without DevTools throttling, which also kills the dev server's HMR socket.
-- [ ] **Clear caches** — SW caches, `trackDb`, contacts cache, runtime-config
+- [x] **Clear caches** — SW caches, `trackDb`, contacts cache, runtime-config
       mirror; then unregister the service worker.
-- [ ] **Fake safe-area insets** — sets `--sat/--sar/--sab/--sal` (`assets/main.css`)
+- [x] **Fake safe-area insets** — sets `--sat/--sar/--sab/--sal` (`assets/main.css`)
       to iPhone-with-notch values, so the shell geometry a phone produces is
       inspectable. Uses the existing indirection rather than `env()` directly.
-- [ ] **Fake position** — on/off, a pinned coordinate in the event area, and an
+- [x] **Fake position** — on/off, a pinned coordinate in the event area, and an
       optional slow track playback.
 
 **Position simulation**
 
-- [ ] A dev geolocation provider satisfying the slice `location.store` /
+- [x] A dev geolocation provider satisfying the slice `location.store` /
       `track.store` already depend on, injected at the same seam rather than by
       patching `navigator`.
-- [ ] Answers `getCurrentPosition` and `watchPosition`, with configurable accuracy,
+- [x] Answers `getCurrentPosition` and `watchPosition`, with configurable accuracy,
       so the map's accuracy-circle and staleness states are reachable.
-- [ ] Optional playback over a small hard-coded polyline, at a walking pace, so
+- [x] Optional playback over a small hard-coded polyline, at a walking pace, so
       movement-driven behaviour (recentring, track logging, tile prefetch) fires.
-- [ ] Can simulate a **failure** (`PERMISSION_DENIED`, `POSITION_UNAVAILABLE`,
+- [x] Can simulate a **failure** (`PERMISSION_DENIED`, `POSITION_UNAVAILABLE`,
       timeout), since `track.store`'s failure-dedup path and the map's "location
       off" state are otherwise hard to reach deliberately.
 
 **Login in dev**
 
-- [ ] `GET /api/dev/pin?phone=` returns the currently issued PIN for a number.
+- [x] `GET /api/dev/pin?phone=` returns the currently issued PIN for a number.
       Registered **only** when the BFF's env is `development`; absent otherwise —
       not present-and-403, so a production binary has no such route at all.
-- [ ] OpenAPI annotations, per repo rules, with the description stating plainly
+- [x] OpenAPI annotations, per repo rules, with the description stating plainly
       that the route does not exist outside development.
-- [ ] The dev panel shows the PIN for the number currently being logged in, with a
+- [x] The dev panel shows the PIN for the number currently being logged in, with a
       copy affordance. Autofill is acceptable but must not skip the input, since
       the input's own behaviour (paste, iOS autofill, validation) is under test.
 
 **Safety**
 
-- [ ] Every frontend branch keyed on `import.meta.env.PROD` / `DEV`, so Vite
+- [x] Every frontend branch keyed on `import.meta.env.PROD` / `DEV`, so Vite
       compiles it out — the pattern `gates.ts:23` already uses.
-- [ ] A unit test asserting the profile is inert and unwritable when `PROD`.
-- [ ] A Go test asserting `/api/dev/pin` is not routed outside `development`.
-- [ ] A build-output check (script or CI step) asserting the production bundle
+- [x] A unit test asserting the profile is inert and unwritable when `PROD`.
+- [x] A Go test asserting `/api/dev/pin` is not routed outside `development`.
+- [x] A build-output check (script or CI step) asserting the production bundle
       contains neither `hej.dev.device` nor the dev panel.
 
 ### Non-Functional
@@ -341,7 +341,8 @@ first cut leaked into production — see the note at the end of this section.
   user-agent table. Plus `devPlatform.spec.ts`.
 - **New:** `src/dev/bootstrap.ts` — the single entry point; registers the provider.
 - **New:** `src/dev/DevPanel.vue`.
-- **New:** `src/dev/devGeolocation.ts` — the fake position provider + playback.
+- **New:** `src/dev/devGeolocation.ts` — the fake position provider; playback shipped
+  separately as `src/dev/devPlayback.ts`, and the PIN fetch as `src/dev/devPin.ts`.
 - **Changed:** `src/helpers/platform.ts` — `defaultEnv()` consults a **registered**
   provider (`setDevEnvProvider`), and exports `devNavigator()` for `permissions.ts`.
   The predicates and the `PlatformEnv` seam are untouched, which is what keeps
@@ -435,8 +436,19 @@ remaining items are the same shape — things only a browser can answer:
 2. **The 10-second onboarding re-run** (§9's headline metric) — a stopwatch measurement.
 3. **The route-coverage claim** — that every route in `router/index.ts` is reachable on the laptop.
 
-Until those are done this PRD should stay in `doing/`. The tasks that carry them have the relevant
+~~Until those are done this PRD should stay in `doing/`.~~ (Superseded 2026-10-02 — see below.) The tasks that carry them have the relevant
 criteria marked `[~]` rather than `[x]`, so nothing here is claimed that has not been shown.
+
+**Closed 2026-10-02 without the formal checks.** Items 1–3 above were never run as a recorded,
+stopwatch-and-checklist verification: no one formally confirmed the insets moving the shell, the fake
+position drawing with its accuracy circle, the < 10 s onboarding re-run, or every route being reachable
+on a laptop. The layer was, however, used throughout development, and task 221 confirmed the core
+`?dev=iphone` / `?dev=tab` / `?dev=off` paths headlessly. The maintainer closed the PRD after the 2026
+race on that basis:
+
+> "the race has been held, the app has done its job on both apple and androids, no big issues. close what can be closed."
+
+The metrics below are therefore recorded as unmeasured, not as met.
 
 ### Metrics
 
@@ -462,8 +474,8 @@ files, so they should land and be used before the rest is judged.
 
 **Phase 1 — simulation (the core)**
 
-- [ ] **Task 206:** add `config/devDevice.ts` — persisted dev device profile, `?dev=` parse, `PROD`-inert, with tests, wired into `main.ts` before the router's first navigation
-- [ ] **Task 207:** have `platform.ts`'s `defaultEnv()` and `permissions.ts`'s `detectPlatform()` honour the dev profile
+- [x] **Task 206:** add `config/devDevice.ts` (shipped as `src/dev/devDevice.ts`) — persisted dev device profile, `?dev=` parse, `PROD`-inert, with tests, wired into `main.ts` before the router's first navigation
+- [x] **Task 207:** have `platform.ts`'s `defaultEnv()` and `permissions.ts`'s `detectPlatform()` honour the dev profile
 
 (The `main.ts` wiring was originally listed as a third task and was folded into 206
 when the tasks were written: it is two lines, and separating it would leave 206
@@ -471,27 +483,32 @@ complete but inert.)
 
 **Phase 2 — the panel**
 
-- [ ] **Task 208:** add `DevPanel.vue` with effective-state readout and device-profile toggles
-- [ ] **Task 209:** dev panel resets — onboarding, session, caches, service worker
-- [ ] **Task 210:** dev panel force-offline toggle driving `app.store.online`
-- [ ] **Task 211:** dev panel fake safe-area insets via the `--sat/--sar/--sab/--sal` seam
+- [x] **Task 208:** add `DevPanel.vue` with effective-state readout and device-profile toggles
+- [x] **Task 209:** dev panel resets — onboarding, session, caches, service worker
+- [x] **Task 210:** dev panel force-offline toggle driving `app.store.online`
+- [x] **Task 211:** dev panel fake safe-area insets via the `--sat/--sar/--sab/--sal` seam
 
 **Phase 3 — position**
 
-- [ ] **Task 212:** add `helpers/devGeolocation.ts` — fake position provider with accuracy and failure modes
-- [ ] **Task 213:** fake track playback over a hard-coded event-area polyline
-- [ ] **Task 214:** inject the dev provider into `location.store` and `track.store` at the existing seam
+- [x] **Task 212:** add `helpers/devGeolocation.ts` (shipped as `src/dev/devGeolocation.ts`) — fake position provider with accuracy and failure modes
+- [x] **Task 213:** fake track playback over a hard-coded event-area polyline
+- [x] **Task 214:** inject the dev provider into `location.store` and `track.store` at the existing seam
 
 **Phase 4 — login**
 
-- [ ] **Task 215:** add dev-only `GET /api/dev/pin` with OpenAPI annotations and an absence test
-- [ ] **Task 216:** surface the dev PIN in the dev panel
+- [x] **Task 215:** add dev-only `GET /api/dev/pin` with OpenAPI annotations and an absence test
+- [x] **Task 216:** surface the dev PIN in the dev panel
 
 **Phase 5 — guardrails and docs**
 
-- [ ] **Task 217:** CI check that the production bundle contains no dev-layer strings
-- [ ] **Task 218:** document laptop testing in `README.md`, including the VAPID setup for push
-- [ ] **Task 219:** write the mobile-only smoke checklist (§7.4) into `roadmap/`
+- [x] **Task 217:** CI check that the production bundle contains no dev-layer strings
+- [x] **Task 218:** document laptop testing in `README.md`, including the VAPID setup for push
+- [x] **Task 219:** write the mobile-only smoke checklist (§7.4) into `roadmap/`
+
+**Follow-ups (added at close)**
+
+- [x] **Task 221:** `?dev=` lost the race against the desktop redirect — fixed; `?dev=iphone`, `?dev=tab` and `?dev=off` verified headlessly in Chrome
+- [x] **Task 270:** dev-simulation fixtures for every verdict and reveal state
 
 ## 11. Open Questions
 
@@ -499,6 +516,8 @@ complete but inert.)
    `DEV` only is proposed, because it is the only line Vite draws for us that
    cannot be crossed at runtime. A staging exception would need its own mechanism
    and would weaken the safety story.
+
+   **Decided 2026-10-02 (at close): `DEV` only**, as proposed and as shipped.
 2. **Where does the fake polyline come from?** A hand-picked route near the 2026
    event area is proposed. Deriving it from a real seeded track would be more
    realistic but puts a participant's actual movements into committed source —
@@ -525,9 +544,34 @@ complete but inert.)
    would mean simulating an identity the BFF does not agree with — the endpoints
    would still answer 403 — so it may create more confusion than it removes.
    Proposed: no, log in as a seeded member of the role instead.
+
+   **Decided 2026-10-02 (at close): no role simulation** — log in as a seeded member of the role.
 5. **Should the dev panel be able to fire a test push to itself**, or is that
-   better as a BFF dev endpoint? Deferred; not needed for phase 1.
+   better as a BFF dev endpoint? Deferred; not needed for phase 1. **Still deferred at
+   close (2026-10-02)** — not built; a future PRD if wanted.
 6. **Does anything in `LayoutDebug.vue` become redundant** once the panel exists,
    and if so should they merge? Proposed: leave both, because `LayoutDebug` is
    driven by `SHOW_LAYOUT_DEBUG` and is usable *in production on a real phone*,
    which is precisely what this panel must never be.
+
+   **Decided 2026-10-02 (at close): leave both**, as proposed and as shipped.
+
+## Closed 2026-10-02
+
+All tasks 206–219, plus follow-ups 221 and 270, are in `roadmap/tasks/done/`. Closed by the
+maintainer after the 2026 race: "the race has been held, the app has done its job on both apple and
+androids, no big issues. close what can be closed." The §9 manual browser checks were not formally
+run (see §9).
+
+Where the shipped code differs from this document:
+
+- **Paths.** The whole layer lives in `vue/src/dev/` — `DevPanel.vue`, `devDevice.ts`,
+  `devGeolocation.ts`, `devPlayback.ts`, `devPin.ts` (plus `bootstrap.ts`, `platformSim.ts`,
+  `resets.ts`, `forcedOffline.ts`, `fakeSafeArea.ts`) — not `components/DevPanel.vue`,
+  `config/devDevice.ts` or `helpers/devGeolocation.ts` as §6 and §10 name them. Those references are
+  annotated in place.
+- **`?dev=desktop`'s hand-off target.** A desktop browser is now handed off to the public `/2026`
+  site (task 351), not `/desktop.html`. `/desktop.html` is kept only for the dev boot — the page
+  `?dev=` is typed onto. References to `/desktop.html` as the browser experience (§2, §4, §5) are
+  historical.
+

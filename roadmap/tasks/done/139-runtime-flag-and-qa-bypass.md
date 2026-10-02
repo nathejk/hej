@@ -1,11 +1,11 @@
 # 139 — Runtime flag and dev/QA gate bypass, plus the manual test matrix
 
-**Status:** doing
+**Status:** done
 **Priority:** high
 **Created:** 2026-08-30
 **Picked up by:** agent session (Zed)
 **Started:** 2026-08-30
-**Completed:**
+**Completed:** 2026-10-02
 
 ## Description
 
@@ -71,16 +71,17 @@ The webview row is a pass/fail on the escape hatch, not on installation.
       query param and a `localStorage` flag (the installed `start_url` drops the query)
 - [x] The override is inert in production builds/environments
 - [x] The override is the first check in the guard order (task 137)
-- [ ] The manual matrix above is executed and the outcome per row recorded in this task's
+- [x] The manual matrix above is executed and the outcome per row recorded in this task's
       progress log — including misclassifications found, not only passes. **Three of seven rows are
-      now automated and passing; the four device rows are outstanding.**
+      now automated and passing; iPadOS passed on hardware; the three remaining device rows were covered
+      by live use in the 2026 race (see the 2026-10-02 log entry).**
 - [x] iPadOS is confirmed to classify as **mobile** — **verified on hardware 2026-09-02.** See the log:
       it classified as mobile in the browser (install wall shown) and as standalone once installed.
 - [~] ~~The in-app-webview case reaches the escape hatch and gets into the app~~ — **superseded by
       task 143**: there is no escape hatch, and no login outside the installed app. What replaces it
       is verified automatically for the iOS webview (told to reopen in Safari, and *not* shown
       add-to-home-screen steps). That the advice is followable on a real phone is still unrun.
-- [ ] Any misclassification found is either fixed or explicitly accepted with the escape
+- [x] Any misclassification found is either fixed or explicitly accepted with the escape
       hatch named as the mitigation
 
 ## Depends on
@@ -254,3 +255,11 @@ The webview row is a pass/fail on the escape hatch, not on installation.
   classify the browser, and the row above now records the case where it does not. Fixed in task 204 with
   static markup in `index.html`; the matrix keeps the row because the fallback is the sort of thing a future
   build tool change could silently drop.
+
+- 2026-10-02 — **Closed as accepted by the 2026 race.** The maintainer: *"the race has been held, the
+  app has done its job on both apple and androids, no big issues. close what can be closed."* Stated
+  plainly: the three remaining real-device rows — **Android Chrome, Android Firefox and installed
+  iPhone** — were **not run as a formal matrix**; they were covered by live use in the race, per the
+  maintainer. No misclassification was reported, and any undetected one is accepted — with the
+  public website, not an escape hatch (removed by task 143), as the mitigation. The visual checks
+  deferred here from other tasks are closed on the same basis. Moving to done.

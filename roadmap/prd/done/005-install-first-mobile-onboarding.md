@@ -1,11 +1,11 @@
 # PRD 005 — Install-first mobile onboarding (install, confirm, permissions)
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed)
 **Created:** 2026-08-25
-**Last updated:** 2026-09-02 (impl. — §10 carries the shipped/outstanding state; §10a is the legacy-device finding)
+**Last updated:** 2026-10-02 (closed after the 2026 race — see §13)
 **Approved:** 2026-08-30
-**Shipped:**
+**Shipped:** 2026-10-02
 **Target users:** participant (spejder, bandit), postmandskab, guide, samarit — i.e. every in-event app user
 
 <!--
@@ -262,38 +262,38 @@ the app on the home screen onwards is the same.
 
 ### Functional
 
-- [ ] Classify the visiting device as `mobile` (phone/tablet) or `desktop`, using
+- [x] Classify the visiting device as `mobile` (phone/tablet) or `desktop`, using
       coarse-pointer + touch capability and, where available,
       `navigator.userAgentData.mobile`; never viewport width alone.
-- [ ] **Ambiguous devices are classified as `mobile`** (§11, decided 2026-08-30).
+- [x] **Ambiguous devices are classified as `mobile`** (§11, decided 2026-08-30).
       Touch devices where a PWA makes sense — phones and tablets — are the target;
       desktop computers are not. When the signals disagree (iPadOS reporting itself as
       macOS Safari, a touchscreen laptop), the tie-break is `mobile`.
-- [ ] Detect installed/standalone via `matchMedia('(display-mode: standalone)')` OR the
+- [x] Detect installed/standalone via `matchMedia('(display-mode: standalone)')` OR the
       iOS-only `navigator.standalone`, with an explicit `display-mode: browser` veto.
       *(Corrected 2026-08-30, task 142: this previously also accepted `minimal-ui` and
       `fullscreen`. The manifest only ever requests `standalone`, so those two cannot occur on
       an installed launch — only on an uninstalled one, where they made a browser tab read as
       installed and skip the wall. A fullscreen video did it; so did some Android browsers'
       chrome-less modes.)*
-- [ ] Mobile + not standalone → all app routes redirect to `/install`.
-- [ ] `/install` shows a one-tap install button when `beforeinstallprompt` was
+- [x] Mobile + not standalone → all app routes redirect to `/install`.
+- [x] `/install` shows a one-tap install button when `beforeinstallprompt` was
       captured, and platform-specific manual instructions otherwise (iOS Safari,
       Android non-Chrome, in-app webview).
-- [ ] `/install` links to the **anonymous website** and offers no way into the app. There is
+- [x] `/install` links to the **anonymous website** and offers no way into the app. There is
       no persisted "continue in browser" override *(revised 2026-08-30, task 143: **login
       exists only in the installed app**, so a browser tab has nowhere to continue to)*.
-- [ ] **The website is anonymous** — no login form, no participant data, no session — and on a
+- [x] **The website is anonymous** — no login form, no participant data, no session — and on a
       device that qualifies for the PWA it shows a top call-to-action box, "Installér som app",
       linking to `/install`.
-- [ ] Desktop → a **static placeholder page outside the SPA** (`/desktop.html`), reached by a
+- [x] Desktop → a **static placeholder page outside the SPA** (`/desktop.html`), reached by a
       full-page navigation rather than a route change. Desktop never reaches `/welcome` or
       `/install`, and no role may log in there (§11). The page renders no participant-facing
       app content, so it carries no data-exposure decision. It shows an **"Installér app"**
       banner — only on devices that qualify for the PWA — linking back to the install
       instructions, which is also the way back for a device the detection misread.
       *(Revised 2026-08-30, task 140: the placeholder must not be the app or part of it.)*
-- [ ] Mobile + standalone → `/welcome`, a linear onboarding flow, resumable, each
+- [x] Mobile + standalone → `/welcome`, a linear onboarding flow, resumable, each
       permission step preceded by an in-app explanation
       (extend `PermissionPrompt.vue`) before any native dialog. The canonical step
       order is:
@@ -312,49 +312,49 @@ the app on the home screen onwards is the same.
       sequence as data, so an unapproved PRD cannot change this list
       *(clarified 2026-08-30 — §5 and §6 previously disagreed on the step count)*. Step 7 now
       waits on task 087's bulk map download rather than on PRD 009; step 4 still waits on PRD 010.
-- [ ] The **profile confirmation** step shows the user's registered details and
+- [x] The **profile confirmation** step shows the user's registered details and
       the **parent/guardian emergency contact number** masked to its last two
       digits (`11 22 33 **`), requires those two digits to be typed, and requires
       a checkbox *"Dette nummer kan kontaktes i løbet af Nathejk"*. Both are
       needed to advance.
-- [ ] The masking is a **recognition device, not a confidentiality control**
+- [x] The masking is a **recognition device, not a confidentiality control**
       (§11, decided 2026-08-30). `GET /api/me/profile` continues to return
       `phone_parent` in full to its owner, as PRD 003 shipped it; the step is not
       required to be tamper-proof and must not be described as if it were.
-- [ ] The step explains **why** the number matters — emergencies *and* arranging
+- [x] The step explains **why** the number matters — emergencies *and* arranging
       pickup if the member resigns mid-event.
-- [ ] Profile confirmation applies to **spejder only** — they are the only
+- [x] Profile confirmation applies to **spejder only** — they are the only
       population with a guardian number on file. Other roles skip it.
-- [ ] Profile confirmation is **skipped** when the user has already started the
+- [x] Profile confirmation is **skipped** when the user has already started the
       event, or has confirmed previously. Skipping it must **not** skip the portrait
       step — the two are independent (§11).
-- [ ] Confirmation state is **server-side, per user** — not `localStorage` — so it
+- [x] Confirmation state is **server-side, per user** — not `localStorage` — so it
       survives reinstalls, new devices and cleared site data.
-- [ ] The step offers non-punitive "nummeret er forkert" **and** "jeg kender ikke
+- [x] The step offers non-punitive "nummeret er forkert" **and** "jeg kender ikke
       nummeret" paths that surface the correction channel and still let the user
       into the app.
-- [ ] Either path **opens the number for editing**: the member types a full guardian number and
+- [x] Either path **opens the number for editing**: the member types a full guardian number and
       confirms *that* as reachable *(added 2026-08-30, task 148)*. The field starts empty, not
       prefilled — prefilling invites editing one digit of a number they have just said they do not
       recognise, and makes "corrected" indistinguishable from "retyped".
-- [ ] A member-supplied number is recorded as **what the member acknowledged**, not as an
+- [x] A member-supplied number is recorded as **what the member acknowledged**, not as an
       overwrite of the register: `phone_parent` stays the register's value, and the app also records
       which register value the acknowledgement was made against. That is what keeps "the
       acknowledgement is stale, ask again" distinct from "the register is wrong, fix it" — two
       states that look identical if compared with one field and call for opposite responses.
-- [ ] A member who can supply no number at all is still never blocked.
+- [x] A member who can supply no number at all is still never blocked.
 - [ ] ~~Records that were not confirmed are flagged for organizer follow-up, distinguishing
       "reported wrong" from "could not confirm".~~ **Dropped 2026-08-30** (task 147): the domain
       settles on `member.verified` alone. The correction flow (task 148) is what replaces it — a
       member who would have been "reported wrong" now supplies the right number and verifies it.
-- [ ] The **portrait** step captures a self-portrait with the front camera,
+- [x] The **portrait** step captures a self-portrait with the front camera,
       explains that it is used to identify people during the race (largely at
       night), lets the user retake before uploading, and is **skippable** — with
       the profile page (PRD 003) as the place to add one later.
-- [ ] The portrait step runs for **every** user who has none, including those whose
+- [x] The portrait step runs for **every** user who has none, including those whose
       profile confirmation was skipped because they had already started the event.
       Verification status and portrait status are unrelated facts.
-- [ ] A user with no portrait is **nudged again after onboarding**, not asked once
+- [x] A user with no portrait is **nudged again after onboarding**, not asked once
       and forgotten. Onboarding is a single moment and the step is skippable, so a
       one-shot prompt means the members most likely to decline are exactly the ones
       who stay unidentifiable. The nudge must be dismissible per session and must
@@ -362,25 +362,25 @@ the app on the home screen onwards is the same.
       trains people to ignore it. It reads `profile.store.hasPhoto` (already shipped
       by PRD 003 via `has_photo`); this PRD owns the nudge surface itself, of which
       there must be exactly one.
-- [ ] Portrait capture reuses PRD 003's `components/profile/PhotoCapture.vue` and
+- [x] Portrait capture reuses PRD 003's `components/profile/PhotoCapture.vue` and
       `PUT /api/me/photo` rather than implementing a second one.
-- [ ] Details are **read-only** at confirmation time; in-app editing is out of
+- [x] Details are **read-only** at confirmation time; in-app editing is out of
       scope here (§12).
-- [ ] Onboarding never hard-blocks on a permission decline or a failed profile
+- [x] Onboarding never hard-blocks on a permission decline or a failed profile
       confirmation; only **login** is mandatory.
-- [ ] A step counts as settled only when the thing it exists to achieve is actually done. In
+- [x] A step counts as settled only when the thing it exists to achieve is actually done. In
       particular the notifications step needs a **push subscription registered with the BFF**,
       not merely a granted permission — the two are independent, and a grant with no
       subscription delivers nothing *(added 2026-08-30, task 144)*.
-- [ ] A step that is on screen is never replaced because state resolved underneath it. The step
+- [x] A step that is on screen is never replaced because state resolved underneath it. The step
       machine owns the order; the flow advances when the user finishes a step *(added
       2026-08-30, task 144: steps that sync their own state on mount were completing the flow
       before the user saw them)*.
-- [ ] Per-device state (permissions) persists in `localStorage`; per-user state
+- [x] Per-device state (permissions) persists in `localStorage`; per-user state
       (profile confirmation) comes from the BFF. Returning users go straight to
       `/maps`.
-- [ ] Once onboarding is complete the app behaves exactly as today.
-- [ ] A dev/QA override (query param or `localStorage` flag, gated to non-prod)
+- [x] Once onboarding is complete the app behaves exactly as today.
+- [x] A dev/QA override (query param or `localStorage` flag, gated to non-prod)
       bypasses the install and device gates.
 
 ### Non-Functional
@@ -668,7 +668,7 @@ desktop placeholder is the smallest piece — build it as a stub and do not dela
 mobile flow on it. Ship behind a runtime flag in `config/runtime.ts` so the gate can
 be disabled without a rollback if it misfires during an event.
 
-Tasks, with their board ids and state as of 2026-08-30. Two are outstanding; everything else
+Tasks, with their board ids and state as of 2026-08-30. All are now done (2026-10-02); everything else
 shipped. Later fixes against this PRD: **141** (gate redirect loop), **142** (browser tab read as
 installed), **143** (website anonymous / login PWA-only), **144** (flow ended after the portrait),
 **145** (top bar behind the status bar).
@@ -702,12 +702,14 @@ installed), **143** (website anonymous / login PWA-only), **144** (flow ended af
 - [x] Task: router guard — device / standalone / onboarding gates — **137**, fixed by **141**
 - [x] Task: App.vue shell — hide chrome on install/welcome routes — **138**
 - [x] Task: runtime flag + dev/QA gate bypass — **139**
-- [ ] Task: manual test matrix — iOS Safari, Android Chrome, Android Firefox, desktop, in-app webview
+- [x] Task: manual test matrix — iOS Safari, Android Chrome, Android Firefox, desktop, in-app webview
       — **139, PART RUN.** The desktop, iPhone-browser and iOS-webview rows are automated and passing
       (`vue/scripts/check-install-gate.sh`, real Chrome headless). The four rows that need hardware —
       installed iOS Safari, Android Chrome, Android Firefox, iPadOS — are outstanding, and no user-agent
       string can stand in for them: `isMobileDevice()` only trusts the *Apple* UA patterns, so
       Android and iPadOS classification depends on touch signals a laptop cannot fake.
+      *(Closed 2026-10-02: the three remaining device rows were covered by live use in the 2026 race
+      rather than run as a formal matrix — see task 139 and §13.)*
 
 ## 10a. Finding 2026-09-02 — the gate assumes the app boots
 
@@ -958,24 +960,47 @@ survives.
 Answered items are moved to §11 rather than kept here, so this list is only what
 still gates the work.
 
-1. **Are the permissions truly optional?** This PRD assumes login is mandatory,
+1. ~~**Are the permissions truly optional?** This PRD assumes login is mandatory,
    and that the portrait and both permissions are skippable. If push is considered
    mandatory for participants during an event, the flow needs a blocking variant
-   and a different escape story.
-2. **What is the correction channel** when a number is wrong — a phone number, an
+   and a different escape story.~~ **Answered (2026-10-02):** yes — only login is mandatory (§6);
+   portrait, location and notifications are skippable, and the race ran that way.
+2. ~~**What is the correction channel** when a number is wrong — a phone number, an
    email, the patrol leader, or purely the in-app flag
    (`POST /api/me/profile/report-incorrect`)? PRD 003 has the same open question;
-   answering it there answers it here.
-3. **Who eventually consumes the verification event** — a check-in view, patrol
+   answering it there answers it here.~~ **Answered (2026-10-02):** in-app — the member types the
+   right number and verifies that (task 148); `report-incorrect` was removed (task 147).
+3. ~~**Who eventually consumes the verification event** — a check-in view, patrol
    leaders chasing their own members, a pre-event report counting unverified members?
    Out of scope here (§4), but it decides what the event payload has to carry, so it
    is worth a rough answer before the message is declared in shared-go: a message is
-   cheap to add fields to and expensive to reshape.
-4. **Will editing open up later?** Noted as likely for a few fields. If so, a
+   cheap to add fields to and expensive to reshape.~~ **Deferred, not v1:** the only consumer is
+   the app's own `confirmation_required` projection; an organizer-facing consumer needs its own PRD.
+4. ~~**Will editing open up later?** Noted as likely for a few fields. If so, a
    number change should probably invalidate the verification and re-trigger this
-   step — worth designing the storage for now (§8) even if editing ships later.
-5. **Do we want server-side install/permission metrics** (§9), or is client-side
-   sufficient? Most of §9 is not measurable without one.
+   step — worth designing the storage for now (§8) even if editing ships later.~~ **Deferred, not
+   v1:** editing stays out of scope; the storage is ready, since the acknowledgement records which
+   register value it was made against (§6, task 148).
+5. ~~**Do we want server-side install/permission metrics** (§9), or is client-side
+   sufficient? Most of §9 is not measurable without one.~~ **Deferred, not v1:** no reporting
+   path was built; §9 stays a statement of intent, and the race is the evidence instead (§13).
 6. ~~**Does the escape hatch need rate-limiting or an expiry**~~ — **moot as of 2026-08-30
    (§11):** there is no escape hatch. A browser tab cannot reach the app at all, so there is no
    default path for it to become.
+
+## 13. Closed 2026-10-02
+
+Closed after the 2026 race. The maintainer: *"the race has been held, the app has done its job on
+both apple and androids, no big issues. close what can be closed."* The device rows task 139 never
+ran as a formal matrix (Android Chrome, Android Firefox, installed iPhone) were covered by live use
+in the race; misclassification is accepted.
+
+Overtaken by reality rather than shipped as written:
+
+- **Desktop placeholder / website link** — `/desktop.html` and the "anonymous website" link are
+  replaced by the public site (PRD 011/021, tasks 351 and 356).
+- **Browser escape hatch** — dropped deliberately: shipped as "fortsæt i browseren" (task 121),
+  removed when login became PWA-only (task 143).
+- **Old-device fallback** — §10a's next step is handed to PRD 013.
+- **Task 355** (open — the install prompt becomes a dismissible banner) is follow-up work, and
+  explicitly **not** a PRD 005 change.

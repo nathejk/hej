@@ -1,11 +1,11 @@
 # PRD 010 — Vehicle registration (cars and trailers, self-registered)
 
-**Status:** doing
+**Status:** done
 **Author:** agent session (Zed)
 **Created:** 2026-08-25
-**Last updated:** 2026-09-14
+**Last updated:** 2026-10-02
 **Approved:** 2026-09-14
-**Shipped:**
+**Shipped:** 2026-10-02
 **Target users:** **every role except spejder** — i.e. `allRolesExcept('spejder')`: bandit, postmandskab, guide, samarit, gøgler, crew. Stated as an exclusion rather than an allow-list, deliberately (§6).
 
 ---
@@ -124,19 +124,19 @@ car. See §8.
       default rather than silently locked out. This follows the existing comment on
       `allRolesExcept` in `vue/src/config/roles.ts`, which exists because an allow-list
       got this wrong once.
-- [ ] A trailer is a **second vehicle**: its own row, its own plate, its own
+- [ ] *Moved to PRD 028.* A trailer is a **second vehicle**: its own row, its own plate, its own
       edit/remove — never a boolean or a description on the towing car.
 - [ ] Skipping is a single tap and carries no penalty.
 - [ ] Registration captures: plate (required), brand, model, colour, seat count
       excluding the driver, free-text description.
-- [ ] A **trailer** can be registered, optionally alongside a car, distinguished by
+- [ ] *Moved to PRD 028.* A **trailer** can be registered, optionally alongside a car, distinguished by
       the vehicle's `kind` rather than by a convention (§8). Registering "a car and a
       trailer" yields two vehicles in the inventory.
 - [ ] A trailer is never offered as a pickup vehicle: the pool is
       `kind = car AND seatCount > 0`.
-- [ ] Plates are normalised in one place, shared by registration and duplicate
+- [ ] *Moved to PRD 028.* Plates are normalised in one place, shared by registration and duplicate
       detection.
-- [ ] A duplicate plate within the event year is surfaced to the user rather than
+- [ ] *Moved to PRD 028.* A duplicate plate within the event year is surfaced to the user rather than
       creating a second row.
 - [ ] The profile page (PRD 003) lists the user's vehicles and allows edit and
       remove.
@@ -331,33 +331,39 @@ Tasks created in `roadmap/tasks/open/` on approval (2026-09-14):
 
 **Car half:**
 
-- [ ] 234 — shared-go: `CustodianUserIDs` on `vehicle.Filter` (prerequisite for the read
+- [x] 234 — shared-go: `CustodianUserIDs` on `vehicle.Filter` (prerequisite for the read
       endpoint; see §8)
-- [ ] 235 — wire shared-go's `vehicle` entity into `hej` (mux consumer, `data.Models`,
+- [x] 235 — wire shared-go's `vehicle` entity into `hej` (mux consumer, `data.Models`,
       command facade)
-- [ ] 236 — plate normalisation helper + tests (one implementation, shared by
+- [x] 236 — plate normalisation helper + tests (one implementation, shared by
       registration and duplicate detection)
-- [ ] 237 — BFF `GET /api/me/vehicles`, custodian-scoped
-- [ ] 238 — BFF `POST /api/me/vehicles` incl. duplicate-plate `409`
-- [ ] 239 — BFF `PATCH` / `DELETE /api/me/vehicles/{id}` with custodian authorisation
-- [ ] 240 — frontend: vehicles Pinia store + API client
-- [ ] 241 — onboarding `vehicle` step (role gate, yes/no gate, form)
-- [ ] 242 — profile page "Mine køretøjer" section (list, edit, remove, add)
+- [x] 237 — BFF `GET /api/me/vehicles`, custodian-scoped
+- [x] 238 — BFF `POST /api/me/vehicles` incl. duplicate-plate `409`
+- [x] 239 — BFF `PATCH` / `DELETE /api/me/vehicles/{id}` with custodian authorisation
+- [x] 240 — frontend: vehicles Pinia store + API client
+- [x] 241 — onboarding `vehicle` step (role gate, yes/no gate, form)
+- [x] 242 — profile page "Mine køretøjer" section (list, edit, remove, add)
 
 **Trailer half, in this order:**
 
-- [ ] 243 — shared-go: `types.VehicleKind` (`car`/`trailer`) with `Valid()`, a `kind`
+- [x] 243 — shared-go: `types.VehicleKind` (`car`/`trailer`) with `Valid()`, a `kind`
       column `NOT NULL DEFAULT "car"`, `Kind` on `RegisterFields` and on
       `NathejkVehicleRegistered`, **and a projector default so a replay of pre-`kind`
       events yields `car`**
-- [ ] 244 — bump shared-go in `hej` and verify `GOWORK=off`
-- [ ] 245 — `hq`: filter dispatch/pickup views to `kind = car`, and bump shared-go there
-      (separate repo; **prerequisite** for the next task, not a follow-up)
-- [ ] 246 — trailer registration in onboarding and on the profile page
+- [x] 244 — bump shared-go in `hej` and verify `GOWORK=off`
+- [x] 245 — `hq`: filter dispatch/pickup views to `kind = car`, and bump shared-go there
+      (separate repo; **prerequisite** for the next task, not a follow-up) — *deploy confirmation moved to PRD 028*
+- [ ] 246 — *moved to PRD 028* — trailer registration in onboarding and on the profile page
 
 ## 11. Decisions
 
 Answered questions are recorded here rather than deleted, so the reasoning survives.
+
+- **Closed 2026-10-02.** The car half shipped and served the 2026 race with no big issues.
+  Trailer registration (task 246), cross-app plate spelling (task 248, §12.8) and task 245's
+  deploy confirmation moved to PRD 028, together with open questions 1–4, 8 and 9.
+
+- **Q7 resolved — `kind`, not `type`.** Shipped in task 243.
 
 - **2026-09-14 — Eligibility is "everyone except spejder", and the step is its own step.**
   Earlier drafts named bandit, gøgler and crew, which happens to be the same population
@@ -407,7 +413,7 @@ Answered questions are recorded here rather than deleted, so the reasoning survi
    depends on it.
 7. **`kind` or `type`?** §8 chose `kind` to avoid the Go-keyword friction; `type` would
    match `types.TeamType`'s precedent. Trivially reversible before the shared-go change
-   ships, awkward afterwards. *Settled by shipping: `kind`, as of task 243.*
+   ships, awkward afterwards. *Resolved: `kind`, shipped in task 243.*
 8. **Where does plate normalisation belong?** Raised 2026-09-14 by task 248: `hej`
    normalises (`internal/plate`), `hq` stores what the organiser typed, so the inventory
    holds one car as both `EC16795` and `DK+EC16795` and the duplicate check cannot see

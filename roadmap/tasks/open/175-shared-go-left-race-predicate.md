@@ -42,3 +42,4 @@ Until this lands, `hej` derives the flag in one place with a comment pointing he
 ## Progress Log
 
 - 2026-08-31 — Task created as a follow-up from task 150's decision.
+- 2026-10-02 — Left open as a standalone follow-up; it no longer blocks PRD 007, which closed 2026-10-02.

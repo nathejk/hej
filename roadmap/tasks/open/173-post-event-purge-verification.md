@@ -38,3 +38,4 @@ Shared with PRD 009.
 ## Progress Log
 
 - 2026-08-31 — Task created from PRD 007 §6 / §9 / §11.8.
+- 2026-10-02 — Left open as a standalone follow-up; it no longer blocks PRD 007, which closed 2026-10-02. Still genuinely needs doing now the event is over — the post-event purge can only be verified after the race.

@@ -1,11 +1,11 @@
 # 411 — QA pass on the baseline devices, because the Go suite cannot execute any of this
 
-**Status:** open
+**Status:** done
 **Priority:** medium
 **Created:** 2026-09-25
 **Picked up by:**
 **Started:**
-**Completed:**
+**Completed:** 2026-10-02
 
 ## Description
 
@@ -59,3 +59,4 @@ where they went. A pass with no notes is indistinguishable from a pass that did 
 
 - 2026-09-25 — Task created from PRD 023.
 - 2026-09-25 — Sharpened by task 415, which found two bugs in first use that this pass was meant to catch: the viewer could not be closed at all (a cascade conflict on `dialog`), and a `?foto=` load opened it with no controls (an initialisation order). Every guard written for tasks 402–408 passed throughout, because they assert *decisions* — no surface check, no `files` in a share, the filmstrip hidden by media query — and no source-reading test can see a cascade conflict or an ordering. **Two checks from this pass are cheap enough to run on every change to the viewer, and should be:** open it and close it, and reload the page it leaves in the address bar.
+- 2026-10-02 — Closed without running the formal QA pass. Maintainer, 2026-10-02: "the race has been held, the app has done its job on both apple and androids, no big issues. close what can be closed." The viewer served the 2026 race on iOS and Android with no significant issues reported; accepted by the maintainer on real use. **No device-by-device pass was executed** and no checklist above was walked; the acceptance boxes stay unticked to say so.
