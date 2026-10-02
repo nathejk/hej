@@ -126,16 +126,27 @@ start() {
     fi
 
     echo "==> gates: get / test / vet / staticcheck / build / pinned-build"
-    # `-timeout 120s`, not 10s. `cmd/api` takes ~25s on an ARM laptop because a dozen tests each
-    # issue a login PIN and `pin.Store` bcrypts it — deliberately expensive, by the whole point of
-    # bcrypt. With a warm test cache `go test` answers instantly and a 10s budget looked fine; the
-    # first change that invalidated that package's cache turned the gate into a *timeout panic*,
-    # which reads as "build failed" and leaves the API not running, with a goroutine dump instead of
-    # a test failure to explain it. The Dockerfile's own gate already allows 60s (see `RUN go test
-    # -timeout 60s`), so 10s here was also inconsistent with the image build. See task 220.
+    # `-timeout 5m`, matching the Dockerfile's gate exactly — and it has been raised twice for the same reason, so
+    # the pattern is worth naming: **this is a deadlock guard, not a performance budget**, and it has to sit well
+    # clear of the suite's honest runtime or it fails green code.
+    #
+    # 10s -> 120s (task 220): `cmd/api` takes ~25s on an ARM laptop because a dozen tests each issue a login PIN and
+    # `pin.Store` bcrypts it — deliberately expensive, by the whole point of bcrypt. With a warm cache `go test`
+    # answered instantly and 10s looked fine; the first change that invalidated that package's cache turned the gate
+    # into a *timeout panic*, which reads as "build failed" and leaves the API not running, with a goroutine dump
+    # instead of a test failure to explain it.
+    #
+    # 120s -> 5m (2026-10-02): the same thing again, one order of magnitude up. `cmd/api` is ~70s on the host and
+    # ~75s warm in here, so 120s looked like plenty of headroom — until a cleared build cache plus a loaded laptop
+    # put it at 120.5s. The panic named one test, which had been running for 0s: nothing was stuck, the suite was
+    # simply still going. CI had already learned this and moved to 5m ("a slower shared runner tipped it over and
+    # failed a green commit", run #104), which left **the dev loop stricter than the image build** — the exact
+    # inconsistency the 10s note above complained about, reintroduced from the other direction.
+    #
+    # So: this number tracks the Dockerfile's. If one moves, move the other.
     # shellcheck disable=SC2086
     if go get -v ./... \
-        && go test -timeout 120s ./... \
+        && go test -timeout 5m ./... \
         && go vet ./... \
         && go tool staticcheck ./... \
         && go build ./... \
