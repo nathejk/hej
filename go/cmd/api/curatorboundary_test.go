@@ -78,10 +78,11 @@ var adminOwnedFiles = map[string]bool{
 	// These endpoints return HTML rather than JSON, which does not widen anything: the same `requireAdmin`
 	// applies, so the draft-visible data reaches the same person it would have as JSON.
 	"adminfragments.go": true,
-	// The diploma photographs into an album (task 397). Reads `PhotoCurator.Photo` so a photograph a curator
-	// deleted stays deleted, `Tags` to avoid re-tagging, and `AlbumCurator.All`/`Album` to find its draft album and
-	// the memberships already in it — removed ones included, so a photograph taken out stays out.
-	"admindiplomaalbum.go": true,
+	// The patrol photographs filed into the "Start" and "Slut" albums (replacing task 397's button). Reads
+	// `PhotoCurator.Photo` so a photograph a curator deleted stays deleted, `Tags` to avoid re-tagging and to find
+	// a patrol's earlier photograph, and `AlbumCurator.All`/`Album` to find its albums and the memberships in them.
+	// A reaction, not a handler: nothing it reads reaches a response.
+	"diplomaalbums.go": true,
 	// The photo-refusal reaction (task 397). Reads `PhotoCurator.TeamAlbumItems` to find every album — drafts
 	// included — that shows a refusing patrol's photographs, so it can take them down. Publishes removals only;
 	// nothing it reads reaches a response.

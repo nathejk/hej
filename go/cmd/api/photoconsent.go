@@ -17,7 +17,7 @@ import (
 // # Why this is needed on top of the diploma's gate
 //
 // `patrolphoto.Cover` stops returning a refused patrol's photograph, which covers the diploma. But a photograph
-// already copied into the library — by the diploma-album button or by a curator — is its own record, and an album
+// already copied into the library — by the diploma albums (diplomaalbums.go) or by a curator — is its own record, and an album
 // holding it would keep showing it. So when hq records a refusal, every live album membership of a photograph
 // tagged with that patrol is removed. The photograph stays in the library: a refusal can be withdrawn, and
 // deleting the bytes is a curator's decision, not this one's.
@@ -27,7 +27,7 @@ import (
 // This is a reaction, not a projection: it publishes. Projections replay the stream from zero on every boot, and
 // replaying an old refusal would take down photographs a curator put back after the patrol withdrew it. So a
 // message older than this process is ignored. A refusal that arrived while the app was down is caught by the
-// diploma-album button, which sweeps every refused patrol before filing anything.
+// diploma albums' boot run, which sweeps every refused patrol before filing anything (diplomaalbums.go).
 
 // consentReactor removes a refusing patrol's photographs from albums as the refusal arrives.
 type consentReactor struct {
@@ -68,7 +68,7 @@ func (c *consentReactor) HandleMessage(msg cqrs.Message) error {
 	}
 	app := c.app.Load()
 	if app == nil {
-		c.logger.Error("a photo refusal arrived before the application was ready; press the diploma-album button to apply it",
+		c.logger.Error("a photo refusal arrived before the application was ready; the diploma albums' next run applies it",
 			"year", year, "team", teamID)
 		return nil
 	}

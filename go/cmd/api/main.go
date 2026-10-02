@@ -497,6 +497,9 @@ func run(logger *slog.Logger) error {
 	var pageReports *pagereport.Table
 	// consent is the photo-refusal reaction (task 397) — see photoconsent.go. Nil without a broker.
 	var consent *consentReactor
+	// diplomaAlbums files the patrol photographs into the "Start" and "Slut" albums — see diplomaalbums.go. Nil
+	// without a broker.
+	var diplomaAlbums *diplomaReactor
 	if ev != nil && (err == nil || noBroker) {
 		if t, cerr := kort.New(ev.publisherOrNil(), ev.writer, ev.reader,
 			// A body we cannot decode is the one signal that our mirrored copy of hq's event shapes
@@ -635,10 +638,21 @@ func run(logger *slog.Logger) error {
 		// Takes a refusing patrol's photographs out of albums as hq records the refusal (task 397). Created here so
 		// the callback can register it; it is handed the application once that exists, below.
 		consent = newConsentReactor(logger)
+		diplomaAlbums = newDiplomaReactor(cfg.eventYear, logger)
 
 		ev.connectInBackground(ctx, cfg, logger, func() {
 			// Step 2 of the three-way registration described in eventing.go.
 			var projections []cqrs.Consumer
+
+			// The diploma albums' boot run waits for the four projections it reads to have replayed. Without all
+			// four there is nothing to file, and the reactor is not registered.
+			fileDiplomas := patrolPhotos != nil && photos != nil && albums != nil && publicPatrols != nil
+			awaited := func(c cqrs.Consumer) cqrs.Consumer {
+				if fileDiplomas {
+					return diplomaAlbums.awaitCatchup(c)
+				}
+				return c
+			}
 			if persons != nil {
 				projections = append(projections, persons)
 			}
@@ -664,19 +678,19 @@ func run(logger *slog.Logger) error {
 				projections = append(projections, glimts)
 			}
 			if albums != nil {
-				projections = append(projections, albums)
+				projections = append(projections, awaited(albums))
 			}
 			if photos != nil {
-				projections = append(projections, photos)
+				projections = append(projections, awaited(photos))
 			}
 			if publicPatrols != nil {
-				projections = append(projections, publicPatrols)
+				projections = append(projections, awaited(publicPatrols))
 			}
 			if years != nil {
 				projections = append(projections, years)
 			}
 			if patrolPhotos != nil {
-				projections = append(projections, patrolPhotos)
+				projections = append(projections, awaited(patrolPhotos))
 			}
 			if trackPoints != nil {
 				projections = append(projections, trackPoints)
@@ -686,6 +700,9 @@ func run(logger *slog.Logger) error {
 			}
 			if patrolPhotos != nil && photos != nil && albums != nil {
 				projections = append(projections, consent)
+			}
+			if fileDiplomas {
+				projections = append(projections, diplomaAlbums)
 			}
 
 			ev.registerProjections(logger, projections...)
@@ -954,6 +971,9 @@ func run(logger *slog.Logger) error {
 	}
 	if consent != nil {
 		consent.app.Store(app)
+	}
+	if diplomaAlbums != nil {
+		diplomaAlbums.setApp(app)
 	}
 
 	logger.Info("configuration loaded", "env", cfg.env, "port", cfg.port, "web_root", cfg.webRoot, "version", vcs.Version())

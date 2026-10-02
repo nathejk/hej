@@ -285,6 +285,9 @@ func (c consumer) handleUpdated(msg cqrs.Message, year string) error {
 			"boundsVerdict="+quote(verdict),
 		)
 	}
+	if body.FileName != nil {
+		sets = append(sets, "fileName="+quote(NormalizeFileName(*body.FileName)))
+	}
 	if len(sets) == 0 {
 		return nil
 	}

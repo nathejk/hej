@@ -22,6 +22,18 @@ type Queries interface {
 
 	// Refused lists the year's patrols whose Fototilladelse records a refusal.
 	Refused(year string) ([]string, error)
+
+	// Latest returns each patrol's newest photograph of one camera-app type ("start", "maal"), by patrol number.
+	//
+	// What fills the per-type diploma albums: one photograph per patrol, the last taken. A patrol whose
+	// Fototilladelse records a refusal is not listed, for the reason Cover returns nothing for it.
+	Latest(year, typ string) ([]TeamPhoto, error)
+}
+
+// TeamPhoto is one patrol's photograph, with the patrol's number.
+type TeamPhoto struct {
+	Team
+	Photo
 }
 
 // Team is one patrol with a usable photograph.
@@ -175,6 +187,47 @@ func (q querier) Refused(year string) ([]string, error) {
 			return nil, err
 		}
 		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// Latest picks each patrol's newest photograph of a type.
+//
+// Newest by capturedAt, the shutter time, not arrival — the same ordering Cover uses — with the ref as the tie-break
+// so a burst sharing a second still has one answer. The refusal is in the WHERE clause, as in Cover and Teams.
+func (q querier) Latest(year, typ string) ([]TeamPhoto, error) {
+	if year == "" || typ == "" {
+		return nil, nil
+	}
+	rows, err := q.db.Query(`
+		SELECT teamId, number, ref, thumbRef, contentType, width, height, type
+		FROM (
+			SELECT p.teamId, COALESCE(pp.teamNumber, '') AS number, p.ref, p.thumbRef, p.contentType,
+			       p.width, p.height, p.type,
+			       ROW_NUMBER() OVER (PARTITION BY p.teamId ORDER BY p.capturedAt DESC, p.ref ASC) AS rn
+			FROM patrol_photo p
+			LEFT JOIN patrol_photo_consent k
+			  ON k.year = p.year AND k.teamId = p.teamId
+			LEFT JOIN public_patrol pp
+			  ON pp.year = p.year AND pp.teamId = p.teamId
+			WHERE p.year = ? AND p.type = ? AND COALESCE(k.refused, 0) = 0
+		) latest
+		WHERE rn = 1
+		ORDER BY CAST(number AS UNSIGNED) ASC, teamId ASC`, year, typ)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TeamPhoto
+	for rows.Next() {
+		var t TeamPhoto
+		var thumb, contentType sql.NullString
+		if err := rows.Scan(&t.TeamID, &t.Number, &t.Ref, &thumb, &contentType, &t.Width, &t.Height, &t.Type); err != nil {
+			return nil, err
+		}
+		t.ThumbRef = thumb.String
+		t.ContentType = contentType.String
+		out = append(out, t)
 	}
 	return out, rows.Err()
 }

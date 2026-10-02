@@ -253,6 +253,11 @@ type Updated struct {
 	// Location, when present, replaces the coordinate and its verdict together.
 	Location *Location `json:"location,omitempty"`
 
+	// FileName renames the photograph, for an album sorted by filename. Used by the diploma albums, which name
+	// a patrol's photograph after its zero-padded number so the album sorts by patrol. Normalised like the
+	// upload's. A sort key, as on Uploaded — not a source of meaning.
+	FileName *string `json:"fileName,omitempty"`
+
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 

@@ -321,6 +321,25 @@ func TestUpdatedSetsOnlyTheCaption(t *testing.T) {
 	}
 }
 
+// A rename touches the filename and nothing else — the diploma albums rename photographs a curator may have
+// captioned.
+func TestUpdatedRenamesOnly(t *testing.T) {
+	stmts := fold(t, "PHOTO.2026.photo."+hash("a")+".updated", Updated{
+		PhotoID: hash("a"), Year: "2026", FileName: str("  007.jpg "), UpdatedAt: at,
+	})
+	if len(stmts) != 1 {
+		t.Fatalf("want 1 statement, got %d", len(stmts))
+	}
+	if !strings.Contains(stmts[0], `fileName="007.jpg"`) {
+		t.Errorf("want the normalised filename\ngot: %s", stmts[0])
+	}
+	for _, forbidden := range []string{"caption", "credit", "latitude"} {
+		if strings.Contains(stmts[0], forbidden) {
+			t.Errorf("a rename must not write %s\ngot: %s", forbidden, stmts[0])
+		}
+	}
+}
+
 // The reason `Updated`'s fields are pointers, and the reason it matters more here than anywhere else in
 // the service: this is the event a bulk action publishes. Setting a location on forty selected
 // photographs must not blank forty captions.
