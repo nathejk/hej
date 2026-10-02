@@ -464,9 +464,10 @@ func TestTheAlbumPageWiresTheViewer(t *testing.T) {
 			"the display image, addressed by ref so the media route's immutable header is honest (task 456)"},
 		{`data-thumb="/api/public/albums/al-1/media/` + firstItemRef(t, store) + `?variant=thumb"`,
 			"the thumbnail, for the filmstrip — the same address with a variant"},
-		{`data-viewer-permalink="/2026/album/loerdag-morgen/foto/` + shortPhotoRef(firstItemRef(t, store)) + `"`,
+		{`data-viewer-permalink="/2026/album/loerdag-morgen/f/` + shortPhotoRef(firstItemRef(t, store)) + `"`,
 			"and the durable address, which is what share hands to somebody else (task 447) — 12 characters of " +
-				"the ref since task 486, where the media addresses above keep the whole thing"},
+				"the ref since task 486 and an `f` segment since 487, where the media addresses above keep the " +
+				"whole ref because they reach the blob store"},
 		{`data-caption="Ved målstregen"`, "the caption reaches the viewer without a request"},
 		{`data-credit="` + fixtureCredit + `"`, "and so does the credit"},
 		{`id="foto-0"`, "the anchor half of the deep link"},
@@ -1252,11 +1253,13 @@ func TestAlbumMediaByRefIsScopedToItsPublishedAlbum(t *testing.T) {
 	}
 }
 
-// A photograph's permalink (task 447): `/{year}/album/{slug}/foto/{ref}`, shortened to 12 characters in task 486.
+// A photograph's permalink (task 447): `/{year}/album/{slug}/f/{ref}`, shortened to 12 characters in task 486 and to
+// an `f` segment in 487.
 //
-// Both lengths, in one test, because the pair **is** the requirement: the short form is what the page mints now, and
-// the long form is what is already in people's chat histories. Task 447 set that rule for `?foto={ordinal}` and this
-// inherits it — old addresses keep resolving, the page stops minting them.
+// **Every address this route has ever minted, in one test**, because the set is the requirement rather than the
+// newest member of it. Task 447 set the rule for `?foto={ordinal}` and it has held twice since: an address we have
+// handed out keeps working, and the page stops minting it. Two shortenings later that means four things resolve, and a
+// test per shortening would let the oldest quietly stop being checked.
 func TestAlbumPhotoPermalinkLandsOnThePhotograph(t *testing.T) {
 	app, store := albumApp(t)
 	srv := httptest.NewServer(app.routes())
@@ -1266,17 +1269,24 @@ func TestAlbumPhotoPermalinkLandsOnThePhotograph(t *testing.T) {
 	// No redirect following: the redirect *is* the behaviour.
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
-	for name, segment := range map[string]string{
-		"the 12-character form the page mints":         shortPhotoRef(ref),
-		"the 64-character form minted before task 486": ref,
-		// Anything between the two resolves as well, which is what makes a hand-trimmed or line-wrapped link do
-		// something sensible rather than silently landing on the album.
-		"an intermediate prefix": ref[:20],
+	for name, path := range map[string]string{
+		// What the page mints today.
+		"/f/ and 12 characters": "/f/" + shortPhotoRef(ref),
+		// What it minted between tasks 486 and 487.
+		"/foto/ and 12 characters": "/foto/" + shortPhotoRef(ref),
+		// What it minted from task 447 until 486 — the oldest shape, and the one most likely to be in a mail thread.
+		"/foto/ and the whole 64-character ref": "/foto/" + ref,
+		// The combination nothing ever minted, which still has to work: a reader who edits a URL by hand, or a tool
+		// that rewrote one segment and not the other.
+		"/f/ and the whole ref, which was never minted": "/f/" + ref,
+		// Anything between the two lengths resolves as well, which is what makes a hand-trimmed or line-wrapped link
+		// do something sensible rather than silently landing on the album.
+		"an intermediate prefix": "/f/" + ref[:20],
 		// Upper-cased on the way, as some mail clients and link previewers do. Silently not matching would be
 		// indistinguishable from a taken-down photograph.
-		"upper-cased by a mail client": strings.ToUpper(shortPhotoRef(ref)),
+		"upper-cased by a mail client": "/f/" + strings.ToUpper(shortPhotoRef(ref)),
 	} {
-		resp, err := client.Get(srv.URL + "/2026/album/loerdag-morgen/foto/" + segment)
+		resp, err := client.Get(srv.URL + "/2026/album/loerdag-morgen" + path)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -1284,6 +1294,9 @@ func TestAlbumPhotoPermalinkLandsOnThePhotograph(t *testing.T) {
 
 		// **302, never 301.** The ref-to-ordinal mapping changes whenever the album is re-sorted, so a permanent
 		// redirect would invite caches to pin one — and the link would rot in exactly the way this route prevents.
+		//
+		// Note the old segment is **not** redirected to the new one either: that would be a second hop on every
+		// shared link, and the two addresses are equals rather than one being the canonical form of the other.
 		if resp.StatusCode != http.StatusFound {
 			t.Errorf("%s: want 302, got %d: a permanent redirect would pin a mapping that a re-sort changes",
 				name, resp.StatusCode)
@@ -1295,25 +1308,22 @@ func TestAlbumPhotoPermalinkLandsOnThePhotograph(t *testing.T) {
 	}
 }
 
-// The minted permalink is 12 hex characters, and they are the start of the ref.
+// The minted permalink is `/f/` plus 12 hex characters, and they are the start of the ref.
 //
 // The prefix property is the reason hex won over base62 (task 486): back-compat above is a prefix match rather than a
 // second decoder, and a curator can check a shared link against the full ref in the admin tool by eye. A denser
-// encoding would have bought four characters out of a ~50-character URL and cost all of that.
+// encoding would have bought four characters and cost all of that.
 func TestTheMintedPermalinkIsTwelveCharactersOfTheRef(t *testing.T) {
 	ref := strings.Repeat("3f", 32)
 	got := albumPhotoPermalink("/2026", "natten", ref)
 
-	const want = "/2026/album/natten/foto/3f3f3f3f3f3f"
+	const want = "/2026/album/natten/f/3f3f3f3f3f3f"
 	if got != want {
 		t.Errorf("albumPhotoPermalink = %q, want %q", got, want)
 	}
 	if seg := got[strings.LastIndex(got, "/")+1:]; !strings.HasPrefix(ref, seg) {
 		t.Errorf("the minted segment %q is not a prefix of the ref. That property is the whole reason this is "+
 			"hex and not a denser encoding — lose it and the back-compat match needs a decoder.", seg)
-	}
-	if n := len(albumPhotoPermalink("/2026", "natten", ref)) - len(want); n != 0 {
-		t.Errorf("length drifted by %d", n)
 	}
 
 	// Lowering the constant would rot links already minted: a link in somebody's chat history cannot grow
@@ -1322,6 +1332,40 @@ func TestTheMintedPermalinkIsTwelveCharactersOfTheRef(t *testing.T) {
 	if albumPermalinkRefLen < 12 {
 		t.Errorf("albumPermalinkRefLen is %d. Raising it is safe; lowering it below 12 rots links that are "+
 			"already shared (task 486 R2).", albumPermalinkRefLen)
+	}
+}
+
+// Every segment this route has minted is still registered.
+//
+// Read off the router rather than asserted by hand, because the failure being prevented is somebody "tidying up" the
+// alias once `/f/` has been live for a while and the old links feel historical. They are not historical to the family
+// whose mail thread holds one — a permalink's whole claim is that it keeps working, and a link that 404s is a worse
+// outcome than the long URL ever was.
+func TestEverySegmentThePermalinkHasMintedStillResolves(t *testing.T) {
+	app, store := albumApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	ref := shortPhotoRef(firstItemRef(t, store))
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+
+	// `f` since task 487, `foto` from 447 until then. Add to this list, never replace it.
+	for _, segment := range []string{"f", "foto"} {
+		resp, err := client.Get(srv.URL + "/2026/album/loerdag-morgen/" + segment + "/" + ref)
+		if err != nil {
+			t.Fatalf("/%s/: %v", segment, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusNotFound {
+			t.Errorf("/%s/ is no longer registered. Links using it are in mail threads and chat histories, and a "+
+				"permalink's whole claim is that it keeps working — see routes.go.", segment)
+		}
+	}
+
+	// And the segment the page mints is one of them, so this cannot pass while the builder emits a third thing.
+	if albumPermalinkSegment != "f" {
+		t.Errorf("albumPermalinkSegment is %q; if that is deliberate, register it in routes.go **beside** the "+
+			"existing ones and add it to this list rather than replacing one", albumPermalinkSegment)
 	}
 }
 

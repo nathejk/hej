@@ -189,12 +189,23 @@ func (app *application) routes() http.Handler {
 	// artwork it is lifted from is the year's poster.
 	router.HandlerFunc(http.MethodGet, publicRoot+"/share-card.png", app.shareCardHandler)
 	router.HandlerFunc(http.MethodGet, publicRoot+"/album/:slug", app.albumPageHandler)
-	// A photograph's durable address (task 447). Redirects onto the album page's own state; see the handler.
+	// A photograph's durable address (task 447, shortened in 486, and the segment shortened in 487). Redirects onto
+	// the album page's own state; see the handler.
 	//
-	// `/album/{slug}/foto/{ref}` rather than `/album/{slug}/{ref}`, which is what was asked for, and the reason
-	// is mechanical: the admin album editor is registered at `{year}/album/:slug/edit` under this same root, and
-	// httprouter cannot have a wildcard sibling of a literal segment — it panics at registration. A literal
-	// `foto` also matches the vocabulary the query parameter already uses.
+	// `/album/{slug}/f/{ref}` rather than `/album/{slug}/{ref}`, which is what was asked for, and the reason is
+	// mechanical: the admin album editor is registered at `{year}/album/:slug/edit` under this same root, and
+	// httprouter cannot have a wildcard sibling of a literal segment — it panics at registration. So *some* literal
+	// is required, and `f` is the shortest one available.
+	router.HandlerFunc(http.MethodGet, publicRoot+"/album/:slug/f/:ref", app.albumPhotoPermalinkHandler)
+	// **The old segment, kept because the links are already out there** (task 487).
+	//
+	// `foto` was minted from task 447 until 487 and those links are in chat histories and mail threads, which is the
+	// same reason `?foto={ordinal}` still resolves and the 64-character ref still resolves. The rule this repo keeps
+	// landing on: an address we have handed out keeps working, and the page stops minting it.
+	//
+	// One handler, not two: a second copy would be a second place for the ref matching to drift, and the whole point
+	// of the alias is that both addresses mean exactly the same thing. Three literals now sit at this position —
+	// `f`, `foto` and the admin tool's `edit` — which httprouter is happy with.
 	router.HandlerFunc(http.MethodGet, publicRoot+"/album/:slug/foto/:ref", app.albumPhotoPermalinkHandler)
 	// The shared photo viewer's two assets (task 402). **Outside the year prefix and outside /admin**, because
 	// both surfaces load them and one of those surfaces answers `no-store` to everything under its own prefix

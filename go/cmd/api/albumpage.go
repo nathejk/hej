@@ -331,7 +331,7 @@ func albumRequestedSide(items []album.Item, query url.Values) string {
 // every cache to pin one, and the link would then rot in precisely the way this feature exists to prevent.
 //
 // @Summary      A photograph's permalink (HTML redirect)
-// @Description  The durable public address of one photograph: `/{year}/album/{slug}/foto/{ref}`, where `ref` is the first 12 characters of the photograph's content hash (task 486). **Matched as a prefix of any length**, so the 64-character links minted before the shortening keep resolving — those are in people's chat histories — and a hand-trimmed one still does something sensible. Case-insensitive, because link previewers and mail clients change case. **302 onto the album page** with `?foto={ordinal}` and the matching fragment, resolved fresh on every visit — which is what makes the link durable: the ordinal moves whenever the album is re-sorted (PRD 024) and the ref does not. Never a permanent redirect, because a cache that pinned one would rot the link in exactly the way this route exists to prevent. A ref that is not in the album, or no longer is, redirects to the **album** rather than answering 404: a taken-down photograph must not make an album look deleted (PRD 023 §8). A prefix matching more than one photograph does the same, rather than guessing between them. An unknown, unpublished or deleted album answers 404 identically, and so does everything here when the public album section is switched off. Unauthenticated; ignores the session cookie.
+// @Description  The durable public address of one photograph: `/{year}/album/{slug}/f/{ref}`, where `ref` is the first 12 characters of the photograph's content hash (tasks 486, 487). **Matched as a prefix of any length**, so the 64-character links minted before the shortening keep resolving — those are in people's chat histories — and a hand-trimmed one still does something sensible. Case-insensitive, because link previewers and mail clients change case. **`/foto/{ref}` is an alias of this route** and keeps resolving for the same reason: it was the minted segment from task 447 until 487. **302 onto the album page** with `?foto={ordinal}` and the matching fragment, resolved fresh on every visit — which is what makes the link durable: the ordinal moves whenever the album is re-sorted (PRD 024) and the ref does not. Never a permanent redirect, because a cache that pinned one would rot the link in exactly the way this route exists to prevent. A ref that is not in the album, or no longer is, redirects to the **album** rather than answering 404: a taken-down photograph must not make an album look deleted (PRD 023 §8). A prefix matching more than one photograph does the same, rather than guessing between them. An unknown, unpublished or deleted album answers 404 identically, and so does everything here when the public album section is switched off. Unauthenticated; ignores the session cookie.
 // @Tags         public-site
 // @Produce      html
 // @Param        slug  path      string  true   "album slug"
@@ -339,6 +339,7 @@ func albumRequestedSide(items []album.Item, query url.Values) string {
 // @Success      302  "redirect to the album page, on the photograph"
 // @Failure      404  "unknown, unpublished or deleted album — or the section is switched off"
 // @Failure      503  {object}  map[string]string  "the albums are unavailable"
+// @Router       /{year}/album/{slug}/f/{ref} [get]
 // @Router       /{year}/album/{slug}/foto/{ref} [get]
 //
 // # A ref that is not there lands on the album
@@ -442,15 +443,20 @@ func photoRefHasPrefix(ref, prefix string) bool {
 	return strings.EqualFold(ref[:len(prefix)], prefix)
 }
 
-// albumPhotoPermalink builds a photograph's durable public address (task 447, shortened in task 486).
+// albumPhotoPermalink builds a photograph's durable public address (task 447, shortened in tasks 486 and 487).
 //
-// `/{year}/album/{slug}/foto/{ref[:12]}`, which is the maintainer's shape with one segment added. The shape was
+// `/{year}/album/{slug}/f/{ref[:12]}`, which is the maintainer's shape with one segment added. The shape was
 // chosen for a reason worth keeping visible: **every public photograph is in an album**, so the album is part of
 // what a photograph is publicly, and the ref is the part that does not move when the album is re-sorted.
 //
-// The extra `foto` is not taste. `{year}/album/{slug}/edit` is the admin album editor, registered under the same
+// The extra segment is not taste. `{year}/album/{slug}/edit` is the admin album editor, registered under the same
 // root, and httprouter refuses a wildcard sibling of a literal segment — `/album/{slug}/{ref}` panics at
-// registration. `foto` also matches the vocabulary of the `?foto=` parameter it resolves onto.
+// registration. So *something* literal has to be there, and `f` is the shortest thing available.
+//
+// It was `foto` from task 447 until 487, which matched the vocabulary of the `?foto=` parameter this resolves onto.
+// That connection is the one thing the shortening costs, and it is paid in a comment rather than in a URL: `foto`
+// **keeps resolving** (see routes.go) because those links are already in chat histories, so nothing that was handed
+// out stops working — the page simply stops minting it.
 //
 // One place, because the page renders it into an attribute and the route below parses it back, and a builder
 // and a parser that disagree about a URL shape produce links that resolve to the wrong photograph rather than
@@ -468,7 +474,7 @@ func photoRefHasPrefix(ref, prefix string) bool {
 // somebody. That is the worst place on the curve to sit, so the saving stops at twelve.
 //
 // A **prefix** rather than a denser encoding, which was costed and declined (task 486). base62 at eight characters
-// carries the same 48 bits, but the URL is ~50 characters of which 42 are fixed — so it buys four characters, and
+// carries the same 48 bits, but the URL is ~50 characters of which most are fixed — so it buys four characters, and
 // pays for them with case-sensitivity, confusable glyphs, and the loss of the one property that makes this cheap:
 // the short form **is** the start of the ref, so back-compat below is a prefix match rather than a second decoder,
 // and a curator can check a shared link against the full ref by eye.
@@ -476,8 +482,15 @@ func albumPhotoPermalink(root, slug, ref string) string {
 	if slug == "" || ref == "" {
 		return ""
 	}
-	return root + "/album/" + slug + "/foto/" + shortPhotoRef(ref)
+	return root + "/album/" + slug + "/" + albumPermalinkSegment + "/" + shortPhotoRef(ref)
 }
+
+// albumPermalinkSegment is the literal that separates the album from the photograph.
+//
+// A constant because it is minted here and registered in routes.go, and those two disagreeing produces links that
+// 404 rather than links that are wrong — the better failure, but still one nobody would notice until a share was
+// clicked. Changing it means **adding** a route, never editing the existing one: see the alias in routes.go.
+const albumPermalinkSegment = "f"
 
 // albumPermalinkRefLen is how many hex characters of the ref a minted permalink carries.
 //
