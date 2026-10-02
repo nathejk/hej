@@ -437,11 +437,10 @@ func assertScriptsAreDeferredAndOurs(t *testing.T, page string) {
 //
 // # Why the declaration is asserted, not just the attributes
 //
-// `data-viewer-actions="share,fullscreen"` is the mechanism by which the public viewer has **no editing
-// controls**. Not a hidden button, not a disabled one: the viewer builds only what the page names, so there is
-// nothing on a public page for anybody to un-hide. A future edit that added `caption` here would be a public
-// caption editor, and since no test can execute the viewer's JavaScript, this line of markup is where that gets
-// caught.
+// `data-viewer-actions` is the mechanism by which the public viewer has **no editing controls**. Not a hidden
+// button, not a disabled one: the viewer builds only what the page names, so there is nothing on a public page for
+// anybody to un-hide. A future edit that added `caption` here would be a public caption editor, and since no test can
+// execute the viewer's JavaScript, this line of markup is where that gets caught.
 func TestTheAlbumPageWiresTheViewer(t *testing.T) {
 	app, store := albumApp(t)
 	srv := httptest.NewServer(app.routes())
@@ -451,8 +450,8 @@ func TestTheAlbumPageWiresTheViewer(t *testing.T) {
 	page := string(body)
 
 	for _, want := range []struct{ needle, why string }{
-		{`data-viewer-actions="share,fullscreen"`,
-			"share and fullscreen, and nothing that edits: the public viewer's controls are what this page names"},
+		{`data-viewer-actions="share,download,fullscreen"`,
+			"share, save and fullscreen, and nothing that edits: the public viewer's controls are what this page names"},
 		{`data-viewer-history="foto"`,
 			"the current photograph is reflected in ?foto=, which is the parameter task 401 taught the server"},
 		{`data-share-title="Lørdag morgen — Nathejk 2026"`,
@@ -480,13 +479,17 @@ func TestTheAlbumPageWiresTheViewer(t *testing.T) {
 	// The viewer must not be able to edit anything from here, and the way to be sure is that the page never asks
 	// for a control that could. Read the declaration back out and check every name in it, rather than hunting for
 	// substrings: an allowlist cannot be defeated by a spelling nobody thought of.
+	//
+	// `download` joined the list in task 488 and is a **read**, like the other two: it saves the stripped display
+	// image already on screen. Anything that writes — `caption`, `credit` — still belongs only behind the credential.
+	// Widen this list by naming the action and saying which of those two it is.
 	for _, declared := range regexp.MustCompile(`data-viewer-actions="([^"]*)"`).FindAllStringSubmatch(page, -1) {
 		for _, name := range strings.Split(declared[1], ",") {
 			switch strings.TrimSpace(name) {
-			case "share", "fullscreen":
+			case "share", "download", "fullscreen":
 			default:
-				t.Errorf("the public page declares the viewer action %q; only share and fullscreen belong on an "+
-					"unauthenticated surface", name)
+				t.Errorf("the public page declares the viewer action %q; only share, download and fullscreen "+
+					"belong on an unauthenticated surface — those three read, and nothing there may write", name)
 			}
 		}
 	}

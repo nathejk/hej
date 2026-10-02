@@ -40,6 +40,11 @@
     share:
       '<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/>' +
       '<line x1="12" x2="12" y1="2" y2="15"/>',
+    // Lucide: download. Deliberately the mirror of `share` above — same box, arrow reversed — because the two sit
+    // side by side and the pair reads as "out of here" and "onto my phone" without either needing a label read.
+    download:
+      '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/>' +
+      '<line x1="12" x2="12" y1="15" y2="3"/>',
     maximize:
       '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/>' +
       '<path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
@@ -971,9 +976,13 @@
   //
   // `navigator.share` accepts `files`, and this deliberately never passes any. The distinction is the takedown
   // path: a shared **link** stops working when a photograph is taken down, and a shared **JPEG** does not. It is
-  // also what keeps this a way to say "look at this" rather than a republishing tool. Somebody who wants the
-  // file can save it from the photograph; we are simply not the ones handing out copies that outlive a
-  // takedown.
+  // also what keeps this a way to say "look at this" rather than a republishing tool. Somebody who wants the file
+  // can save it from the photograph; we are simply not the ones putting a copy into a group chat.
+  //
+  // **Task 488 added a save button beside this one, and it does not weaken the rule above** — see its comment. The
+  // short version: this control is about what *we* hand to a third party on somebody's behalf, and that still never
+  // includes bytes. Saving is the visitor acting on the photograph in front of them, which long-press and
+  // right-click have always allowed. A takedown governs what we serve, and that is unchanged by either.
   //
   // # The title is the album's, never the caption
   //
@@ -1053,6 +1062,108 @@
       },
     });
   }
+
+  // Save this photograph (task 488).
+  //
+  // # What it hands over, and what it deliberately does not
+  //
+  // **The display image** — `item.full`, the same bytes already on screen. That is the "fair size" the maintainer
+  // asked for: a 1600px JPEG, a few hundred kilobytes, enough for a print at postcard size or an attachment, and
+  // already what the page loaded, so on a cache hit this costs no transfer at all.
+  //
+  // Not the photographer's file. The viewer has no way to ask for one and must not gain one: that copy keeps the
+  // camera's metadata, including where the photograph was taken, and it is reachable only behind the curator's
+  // credential (PRD 027). This file is one copy shared by the public album page and the admin tool, so a variant
+  // added here for a curator's convenience would ship to the open web the same afternoon — which is why there is a
+  // test that fails if this file so much as names one.
+  //
+  // # Why this does not contradict the share button above
+  //
+  // Share says, at length, that it never passes `files` because a shared **link** stops working after a takedown and
+  // a shared **JPEG** does not — "we are simply not the ones handing out copies that outlive a takedown". That is
+  // still true of *sharing*, and it is the reason this is a separate control rather than files added to the share
+  // sheet.
+  //
+  // What changed is narrower than it looks. The same comment already conceded the capability: "somebody who wants the
+  // file can save it from the photograph". Long-press on a phone and right-click on a laptop have always produced
+  // exactly these bytes, so this button removes friction from something a visitor could already do, deliberately,
+  // while looking at the photograph. It does not hand out copies on somebody's behalf into a group chat, and the
+  // bytes it saves are the stripped rendition rather than the file the camera wrote.
+  //
+  // The honest summary: a takedown still cannot recall a copy somebody saved, and it never could. What a takedown
+  // governs is what we **serve**, and that is unchanged.
+  //
+  // # An anchor rather than fetch-into-a-blob
+  //
+  // `<a download>` lets the browser do the work: no second copy of the bytes in JavaScript memory, and the request is
+  // the same same-origin URL the `<img>` already has, so a cached response is reused and the media route's
+  // `immutable` year applies. Fetching into a blob would re-download a few hundred kilobytes on a phone to achieve
+  // the same file, and would need the response to be readable — a needless requirement on an `<img>` that already
+  // displayed.
+  //
+  // The `download` attribute is honoured because this is same-origin; cross-origin it would be ignored and the
+  // browser would navigate instead. Nothing here is cross-origin, and if that ever changes this control breaks
+  // loudly (a navigation away from the album) rather than quietly.
+  function downloadName(ctx) {
+    // Derived from the permalink when the page supplied one, because that is the only string here that knows what
+    // album this is: `/2026/album/natten/f/766ec78fe2c3` gives "natten". The viewer itself knows nothing about
+    // albums (PRD 023 §7.7) and must not start.
+    var base = '';
+    if (ctx.item.permalink) {
+      var parts = ctx.item.permalink.split('/');
+      // The segment after "album", when the address has that shape. Read by name rather than by index so a future
+      // change to the path's depth cannot silently pick the year.
+      for (var i = 0; i < parts.length - 1; i++) {
+        if (parts[i] === 'album') {
+          base = parts[i + 1];
+          break;
+        }
+      }
+    }
+    if (!base) {
+      // No permalink: the album title, reduced to something a filesystem will not argue with. Lowercased ASCII
+      // letters and digits, everything else a hyphen — deliberately cruder than the server's slug rules, because a
+      // filename does not have to round-trip and a second slug implementation that nearly matches is worse than an
+      // obviously different one.
+      base = (ctx.config.shareTitle || 'foto')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+    }
+    if (!base) base = 'foto';
+
+    // The ordinal, which is **a label on a copy and not an address**. It moves when the album is re-sorted, and that
+    // is fine here in a way it was not fine for the permalink (task 447): nobody resolves a filename. It is also the
+    // number the visitor can see on the page, so two saved files are told apart the way they were seen.
+    var n = ctx.item.ordinal;
+    return n ? base + '-' + n + '.jpg' : base + '.jpg';
+  }
+
+  // Registered unconditionally, unlike share: there is no capability to feature-detect. An `<a download>` works
+  // everywhere this viewer runs, and a browser that ignored the attribute would open the photograph rather than
+  // save it — a worse outcome than a download, and still not a broken one.
+  //
+  // Which pages *get* the control is the host page's decision, as it is for every action here: the public album page
+  // declares it, the curator's tool does not, because that tool has the whole album as a zip and the photographer's
+  // file besides.
+  window.hejViewer.register('download', {
+    icon: 'download',
+    // Names the thing rather than the mechanism, like "Del" above: a visitor wants the photograph, not a transfer.
+    label: 'Hent dette billede',
+    activate: function (ctx) {
+      if (!ctx.item.full) return;
+
+      var a = document.createElement('a');
+      a.href = ctx.item.full;
+      a.download = downloadName(ctx);
+      // Appended before clicking and removed after: Firefox ignores a click on an anchor that is not in the
+      // document. `display:none` would not help — it has to be connected, not visible.
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    },
+  });
 
   // **Last, and that is the fix for a real bug** (task 415).
   //

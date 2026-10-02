@@ -417,7 +417,7 @@ func TestTheViewerRegistersItsControlsBeforeItCanOpen(t *testing.T) {
 	if start < 0 {
 		t.Fatal("viewer.js never starts")
 	}
-	for _, name := range []string{"register('fullscreen'", "register('share'"} {
+	for _, name := range []string{"register('fullscreen'", "register('share'", "register('download'"} {
 		at := strings.Index(code, name)
 		if at < 0 {
 			t.Errorf("no %s", name)

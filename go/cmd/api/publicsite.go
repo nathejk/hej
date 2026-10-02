@@ -1455,15 +1455,20 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
 {{if .Album.Description}}<p class="intro">{{.Album.Description}}</p>{{end}}
 
 {{if .Items}}
-{{/* The container declares what the viewer may do here (PRD 023 §7.7): share and fullscreen, and no editing.
+{{/* The container declares what the viewer may do here (PRD 023 §7.7): share, save and fullscreen, and no editing.
      The viewer reads this and builds exactly those controls — it has no idea which surface it is on, so "the
      public viewer has no caption editor" is a control that is never built rather than a branch that could be
      inverted.
 
+     The "download" action sits between the two it belongs with (task 488): beside share, because "send this to
+     somebody" and "keep this" are the same impulse one step apart, and before fullscreen, which is about this page
+     rather than about the photograph. It saves the **display image** — the stripped 1600px rendition already on
+     screen, never the photographer's file, which lives behind the curator's credential (PRD 027).
+
      data-viewer-history names the query parameter the current photograph is reflected in, which is task 401's
      ?foto=. Only this page declares one, because only this page has a server that understands it. */}}
 <div class="photos" data-viewer
-     data-viewer-actions="share,fullscreen"
+     data-viewer-actions="share,download,fullscreen"
      data-viewer-history="foto"
      data-viewer-label="Billeder fra {{.Album.Title}}"
      data-share-title="{{.Album.Title}} — Nathejk {{.Year}}">
