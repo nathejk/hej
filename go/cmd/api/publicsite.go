@@ -144,9 +144,15 @@ type publicPageData struct {
 	// wrong rather than a page that fails.
 	Origin string
 
-	// Path is the page's own path, for `og:url`. The **query is dropped**: an album shared at `?foto=9` should
-	// present as the album, or every ordinal becomes a separate card in Facebook's index of the same page.
+	// Path is the page's own path, for `og:url`. The **query is dropped**: an ordinal is not an address that lasts,
+	// because it moves when the album is re-sorted.
 	Path string
+
+	// CanonicalPath, when set, is what `og:url` names instead of Path — the address the page *means*, when that is
+	// not the one it was reached at. An album opened on one photograph (`?foto=9`, which is where a shared
+	// permalink lands) names that photograph's permalink, so a platform re-scraping `og:url` comes back to the
+	// photograph rather than to the album (task 490). Ignored on a failure page, which names no path at all.
+	CanonicalPath string
 
 	// share is the resolved card, filled in by the renderer. See ShareCardResolved.
 	share shareCard
@@ -247,6 +253,9 @@ func (d publicPageData) ShareCardResolved() shareCard {
 func (d publicPageData) Canonical() string {
 	if d.HideCanonical {
 		return ""
+	}
+	if d.CanonicalPath != "" && d.Path != "" {
+		return absoluteURL(d.Origin, d.CanonicalPath)
 	}
 	return absoluteURL(d.Origin, d.Path)
 }

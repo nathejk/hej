@@ -162,6 +162,43 @@ func TestEachSurfacePreviewsAsItsOwnThing(t *testing.T) {
 		}
 	})
 
+	// A shared photograph previews as itself (task 490). The share button sends the permalink, which lands on the album
+	// page at `?foto=`; that page must show the photograph and name the permalink as og:url, because a platform
+	// re-scrapes og:url — an album address there would bring the cover back.
+	t.Run("a shared photograph is itself, at its permalink", func(t *testing.T) {
+		ref := itemRef(t, store, 1)
+		resp, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return nil }}).
+			Get(srv.URL + "/2026/album/loerdag-morgen/f/" + ref[:12])
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		raw, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tags := shareTagsOf(t, string(raw))
+
+		if want := "/api/public/albums/al-1/media/" + ref + "?variant=medium"; !strings.HasSuffix(tags["og:image"], want) {
+			t.Errorf("og:image = %q, want the shared photograph at %q", tags["og:image"], want)
+		}
+		if want := "/2026/album/loerdag-morgen/f/" + ref[:12]; !strings.Contains(string(raw),
+			`<meta property="og:url" content="`+srv.URL+want+`">`) {
+			t.Errorf("og:url must be the photograph's permalink %q, not the album", want)
+		}
+		if tags["og:title"] != "Lørdag morgen" {
+			t.Errorf("og:title = %q, want the album's title", tags["og:title"])
+		}
+	})
+
+	t.Run("an unknown ordinal is the album's own card", func(t *testing.T) {
+		_, body := getPublic(t, srv.URL+"/2026/album/loerdag-morgen?foto=999", nil)
+		want := "/api/public/albums/al-1/media/" + itemRef(t, store, 0) + "?variant=medium"
+		if got := shareTagsOf(t, string(body))["og:image"]; !strings.HasSuffix(got, want) {
+			t.Errorf("og:image = %q, want the cover", got)
+		}
+	})
+
 	t.Run("an album with no cover falls back to the branded card", func(t *testing.T) {
 		empty := &albumStore{albums: []albumStoreEntry{{
 			album:     album.Album{ID: "al-empty", Slug: "tomt", Title: "Tomt album"},

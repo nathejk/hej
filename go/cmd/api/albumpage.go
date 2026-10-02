@@ -54,6 +54,10 @@ type publicAlbumPageData struct {
 	// page that does not exist.
 	HasMore  bool
 	NextSide int
+
+	// Shared is the photograph the page was opened on with `?foto=`, or nil. It is what a shared photograph's link
+	// lands on, so it is what the share card shows (task 490).
+	Shared *album.Item
 }
 
 // albumPageCap is how many photographs one response carries (task 399, PRD 023 §2a.3).
@@ -173,6 +177,16 @@ func (d publicAlbumPageData) ShareCard() shareCard {
 		}
 	}
 
+	// **A shared photograph is its own card** (task 490). A permalink lands here with `?foto=`, and somebody who shared
+	// one photograph expects that photograph in the preview, not the album's cover — the pushback that reversed the
+	// cover-only card. The title and description stay the album's: a caption is free text that could name a person,
+	// for the reason above.
+	if d.Shared != nil && d.Shared.Ref != "" {
+		card.Image = "/api/public/albums/" + url.PathEscape(d.Album.ID) + "/media/" + d.Shared.Ref + "?variant=medium"
+		card.ImageAlt = "Billede fra albummet " + d.Album.Title
+		return card
+	}
+
 	// The cover, at the 800px rendition — nearest the size a card is rendered at, and already the one the frontpage's
 	// grid asks for (task 461). Addressed by **ref**, like everything else on this page since task 462.
 	//
@@ -253,6 +267,17 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 	data := publicAlbumPageData{
 		publicPageData: publicPageData{Year: app.config.eventYear, Title: a.Title, Root: app.publicRoot()},
 		Album:          a,
+	}
+
+	// Opened on one photograph: the share card and og:url name it (task 490).
+	if ordinal, err := strconv.Atoi(r.URL.Query().Get("foto")); err == nil {
+		for i := range items {
+			if items[i].Ordinal == ordinal && items[i].Ref != "" {
+				data.Shared = &items[i]
+				data.CanonicalPath = albumPhotoPermalink(app.publicRoot(), a.Slug, items[i].Ref)
+				break
+			}
+		}
 	}
 
 	window, side, hasMore := albumPageWindow(items, albumRequestedSide(items, r.URL.Query()))
