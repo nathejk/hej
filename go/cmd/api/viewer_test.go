@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -426,6 +427,58 @@ func TestTheViewerRegistersItsControlsBeforeItCanOpen(t *testing.T) {
 		if at > start {
 			t.Errorf("%s is registered after the viewer can open, so a ?foto= load builds its action row from an "+
 				"empty registry — a viewer with nothing but a close button", name)
+		}
+	}
+}
+
+// Every control's icon name is one the icon table actually has.
+//
+// # Why this is worth a test for a lookup in a map
+//
+// Because `icon()` is `'<svg …>' + ICONS[name] + '</svg>'`, and a name that is not a key yields the string
+// "undefined" inside an `<svg>`. That renders as **an empty button**: correctly sized, correctly labelled, focusable,
+// and invisible. No console error, nothing in any Go test, and the viewer keeps working — which is the combination
+// that gets shipped.
+//
+// The risk was theoretical while every key was a single lowercase word. Task 488 added `cloud-download`, the first
+// key with a hyphen, which cannot be written as a bare identifier and so has to be quoted in both the table and the
+// registration — two spellings that must agree, where previously there was one shape to get wrong.
+func TestEveryRegisteredIconExistsInTheIconTable(t *testing.T) {
+	code := withoutComments(viewerAsset(t, "viewer.js"))
+
+	// The table's keys: either `name:` or `'name':` at the start of a line inside the ICONS literal.
+	start := strings.Index(code, "var ICONS = {")
+	if start < 0 {
+		t.Fatal("viewer.js has no ICONS table; this guard needs updating")
+	}
+	table := code[start:]
+	if end := strings.Index(table, "\n  };"); end > 0 {
+		table = table[:end]
+	}
+	keys := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(?m)^\s{4}'?([\w-]+)'?:`).FindAllStringSubmatch(table, -1) {
+		keys[m[1]] = true
+	}
+	if len(keys) < 6 {
+		t.Fatalf("found %d icons (%v); the table had six before task 488, so this guard is no longer reading it",
+			len(keys), keys)
+	}
+
+	// Every name any control asks for, plus the three the chrome hard-codes through `button()`.
+	asked := regexp.MustCompile(`icon: '([\w-]+)'`).FindAllStringSubmatch(code, -1)
+	if len(asked) == 0 {
+		t.Fatal("no control declares an icon; this guard is reading the wrong thing")
+	}
+	for _, m := range asked {
+		if !keys[m[1]] {
+			t.Errorf("a control asks for the icon %q, which the ICONS table does not have. The lookup yields "+
+				"\"undefined\" inside an <svg>, so the button renders empty — correctly sized, correctly labelled, "+
+				"focusable and invisible, with nothing in any log to say so.", m[1])
+		}
+	}
+	for _, m := range regexp.MustCompile(`button\('[\w-]+', '([\w-]+)'`).FindAllStringSubmatch(code, -1) {
+		if !keys[m[1]] {
+			t.Errorf("the chrome asks for the icon %q, which the ICONS table does not have", m[1])
 		}
 	}
 }

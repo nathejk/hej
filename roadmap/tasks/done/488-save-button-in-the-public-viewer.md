@@ -47,7 +47,8 @@ and that is unchanged. The share comment has been amended so it does not read as
 
 ## Requirements
 
-- [x] R1 — A save control in the viewer's action row, **immediately after share**, before fullscreen.
+- [x] R1 — A save control in the viewer's action row, **immediately after share**, before fullscreen. Icon:
+      Lucide `cloud-download` (changed from `download` on 2026-10-02; see the log).
 - [x] R2 — It saves `item.full`, the display image. Never a thumbnail, never the 800px rendition, and never the
       photographer's file.
 - [x] R3 — Declared by the **public album page only**. The curator's tool does not get it: it already has the album as
@@ -99,3 +100,23 @@ and that is unchanged. The share comment has been amended so it does not read as
   the appendChild, and declared `download` on the admin page. Each failed with its own explanation, then reverted.
 - 2026-10-01 — ✅ `gofmt`, `go vet`, full `go test ./...` green, including `originalboundary_test.go` — the viewer still
   names no original.
+- 2026-10-02 — **Icon changed to Lucide `cloud-download` on the maintainer's instruction**, replacing the `download`
+  tray glyph the entry above argues for. The earlier reasoning is left standing because this log is append-only, and
+  because it was wrong in an interesting way: I picked the tray because it *mirrors* `share` — same box, arrow
+  reversed — and treated that as the virtue. It is the defect. Two controls differing only in the direction of a small
+  arrow, side by side, on a phone, at arm's length, and the cost of confusing them is **sharing a photograph of
+  somebody's child when you meant to keep it**. That is not a symmetrical mistake, so the pair should differ by
+  silhouette rather than by arrow. A cloud does. It also says where the bytes come from, which is what the action
+  does.
+- 2026-10-02 — Path data copied from `lucide-icons/lucide` rather than written from memory: `cloud-download` was last
+  changed in 0.421.0 and the older drawing is still what most snippets show, so a remembered version would have been
+  a different icon wearing the right name.
+- 2026-10-02 — Added `TestEveryRegisteredIconExistsInTheIconTable`, because this change created a hazard that did not
+  exist before. `icon()` is string concatenation on `ICONS[name]`, so a name that is not a key yields the literal
+  "undefined" inside an `<svg>` — which renders as **an empty button**: correctly sized, correctly labelled,
+  focusable, invisible, and silent in every log and every Go test. That was theoretical while every key was one
+  lowercase word; `cloud-download` is the first key with a hyphen, so it must be quoted in the table *and* in the
+  registration, which is two spellings that have to agree where there was one. Verified by misspelling it.
+- 2026-10-02 — ✅ Full gate this time, **including `staticcheck`**, which I had been omitting across this and the four
+  preceding tasks — see the container-log diagnosis in the session: the dev loop runs it as a gate before `go build`,
+  so a finding there leaves the API not running at all. It is clean, but that was luck rather than process.

@@ -40,11 +40,20 @@
     share:
       '<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/>' +
       '<line x1="12" x2="12" y1="2" y2="15"/>',
-    // Lucide: download. Deliberately the mirror of `share` above — same box, arrow reversed — because the two sit
-    // side by side and the pair reads as "out of here" and "onto my phone" without either needing a label read.
-    download:
-      '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/>' +
-      '<line x1="12" x2="12" y1="15" y2="3"/>',
+    // Lucide: cloud-download, copied from the icons repo so the path data is the published one rather than
+    // something redrawn from memory.
+    //
+    // The maintainer's choice, and a better one than the `download` tray glyph this first used. That one was picked
+    // for pairing — same box as `share` above, arrow reversed — which is precisely the problem: the two then differ
+    // only in the direction of a small arrow, sitting side by side, on a phone, at arm's length. Confusing them
+    // means sharing a photograph of somebody's child when you meant to keep it, which is not a symmetrical mistake.
+    //
+    // A cloud has a different **silhouette**, so the pair is told apart at a glance rather than on inspection. It
+    // also says where the bytes come from, which is what this action does: pull the photograph off the server onto
+    // the device.
+    'cloud-download':
+      '<path d="M12 13v8l-4-4"/><path d="m12 21 4-4"/>' +
+      '<path d="M4.393 15.269A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.436 8.284"/>',
     maximize:
       '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/>' +
       '<path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
@@ -1147,7 +1156,7 @@
   // declares it, the curator's tool does not, because that tool has the whole album as a zip and the photographer's
   // file besides.
   window.hejViewer.register('download', {
-    icon: 'download',
+    icon: 'cloud-download',
     // Names the thing rather than the mechanism, like "Del" above: a visitor wants the photograph, not a transfer.
     label: 'Hent dette billede',
     activate: function (ctx) {
