@@ -1,10 +1,10 @@
 # PRD 029 — Video in public albums
 
-**Status:** draft
+**Status:** doing
 **Author:** agent session
 **Created:** 2026-10-03
-**Last updated:** 2026-10-03 (open questions answered)
-**Approved:**
+**Last updated:** 2026-10-03
+**Approved:** 2026-10-03
 **Shipped:**
 **Target users:** photographer (uploads, via the PRD 022 library) · public visitor (watches, on the public site)
 
