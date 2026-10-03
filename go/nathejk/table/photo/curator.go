@@ -319,6 +319,16 @@ type LibraryPhoto struct {
 	// than the column. Readers must treat 0 as "unknown" rather than as a dimension.
 	OriginalWidth  int
 	OriginalHeight int
+
+	// Kind is "photo" or "video", Status "processing" | "ready" | "failed" (PRD 029). See table.sql for what
+	// the ref fields above mean for a video.
+	Kind       string
+	Status     string
+	DurationMs int
+	VideoRef   string
+	VideoSdRef string
+	// FailReason is ffmpeg's account of a failed transcode. Curator-only.
+	FailReason string
 }
 
 // Tag is one patrol attribution.
@@ -347,6 +357,7 @@ const libraryColumns = `
 	p.photoId, p.blobRef, p.thumbRef, p.mediumRef, p.caption, p.credit, p.creditCrewId, p.width, p.height, p.bytes,
 	p.latitude, p.longitude, p.boundsVerdict, p.deleted, p.shotAt, p.fileName, p.uploadedAt,
 	p.originalRef, p.originalContentType, p.originalBytes, p.originalWidth, p.originalHeight,
+	p.kind, p.status, p.durationMs, p.videoRef, p.videoSdRef, p.failReason,
 	(SELECT COUNT(*) FROM album_item i
 	  WHERE i.photoId = p.photoId AND i.deleted = 0) AS albumCount,
 	(SELECT COUNT(*) FROM photo_patrol t
@@ -562,6 +573,7 @@ func scanLibraryPhoto(rows *sql.Rows) (LibraryPhoto, error) {
 		&p.Width, &p.Height, &p.Bytes,
 		&lat, &lng, &p.BoundsVerdict, &deleted, &shotAt, &p.FileName, &p.UploadedAt,
 		&p.OriginalRef, &p.OriginalContentType, &p.OriginalBytes, &p.OriginalWidth, &p.OriginalHeight,
+		&p.Kind, &p.Status, &p.DurationMs, &p.VideoRef, &p.VideoSdRef, &p.FailReason,
 		&p.AlbumCount, &p.TagCount); err != nil {
 		return LibraryPhoto{}, err
 	}

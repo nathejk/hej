@@ -206,7 +206,7 @@ func (app *application) deleteAdminPhotoHandler(w http.ResponseWriter, r *http.R
 	//
 	// Listed last rather than beside `p.Ref` deliberately: the order here is the order bytes are freed in, and the
 	// original is the one object whose loss is unrecoverable, so it is freed after everything cheaper has succeeded.
-	refs := make([]string, 0, 4)
+	refs := make([]string, 0, 6)
 	if p.Ref != "" {
 		refs = append(refs, p.Ref)
 	}
@@ -216,6 +216,14 @@ func (app *application) deleteAdminPhotoHandler(w http.ResponseWriter, r *http.R
 	}
 	if p.MediumRef != "" {
 		refs = append(refs, p.MediumRef)
+	}
+	// A video's renditions (PRD 029). `videoRef` equals `Ref` for a ready video, so it is skipped when it would
+	// list the same object twice.
+	if p.VideoRef != "" && p.VideoRef != p.Ref {
+		refs = append(refs, p.VideoRef)
+	}
+	if p.VideoSdRef != "" {
+		refs = append(refs, p.VideoSdRef)
 	}
 	// "" for every photograph uploaded before PRD 027 shipped, which is most of the library and permanently so.
 	// Nothing to free in that case, and that is a normal takedown rather than a partial one.

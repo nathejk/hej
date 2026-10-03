@@ -290,3 +290,40 @@ func readRepoFile(t *testing.T, path string) string {
 	}
 	return string(src)
 }
+
+// A video's takedown frees both MP4s, the poster and the original (PRD 029, task 492).
+//
+// For a video `Ref` and `VideoRef` name the same 720p object, so it must be freed once, not fail on the second
+// attempt; the 480p rendition is the column a delete path would most easily forget, because only long clips have one.
+func TestAdminDeleteFreesEveryVideoRendition(t *testing.T) {
+	app, srv := adminApp(t)
+
+	put := func(b string) string {
+		t.Helper()
+		ref, err := app.blobs.Put(context.Background(), []byte(b))
+		if err != nil {
+			t.Fatalf("seeding: %v", err)
+		}
+		return ref.String()
+	}
+	hd, sd, poster, posterMedium, original :=
+		put("the 720p mp4"), put("the 480p mp4"), put("poster thumb"), put("poster 800px"), put("the phone's .mov")
+
+	app.models.PhotoCurator = &libraryCurator{rows: []photo.LibraryPhoto{{
+		ID: hd, Ref: hd, ThumbRef: poster, MediumRef: posterMedium, OriginalRef: original,
+		Kind: "video", Status: "ready", DurationMs: 22 * 60 * 1000, VideoRef: hd, VideoSdRef: sd,
+		BoundsVerdict: photo.BoundsNone,
+	}}}
+	app.commands = commandsWithPublisher(t, &cqrstest.Publisher{})
+
+	if got := deleteAdminPhoto(t, srv, srv.URL, hd).StatusCode; got != http.StatusNoContent {
+		t.Fatalf("want 204, got %d", got)
+	}
+	for name, ref := range map[string]string{
+		"720p": hd, "480p": sd, "poster": poster, "800px poster": posterMedium, "original": original,
+	} {
+		if exists, _ := app.blobs.Exists(context.Background(), blobRefOf(ref)); exists {
+			t.Errorf("the %s should have been freed", name)
+		}
+	}
+}

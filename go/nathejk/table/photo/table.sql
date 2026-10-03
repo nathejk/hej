@@ -170,6 +170,32 @@ CREATE TABLE IF NOT EXISTS photo (
     originalWidth INT NOT NULL DEFAULT 0,
     originalHeight INT NOT NULL DEFAULT 0,
 
+    -- # Video (PRD 029)
+    --
+    -- A library item is a photograph or a video, and both live in this table so albums, ordering (PRD 024),
+    -- credit (PRD 025) and patrol tags need no second path (PRD 029 §8, option A). Every existing row is a
+    -- photograph that is ready, which is what the defaults say, so no backfill is needed.
+    --
+    -- For a video, `thumbRef`/`mediumRef` hold the **poster** at the usual sizes, `originalRef` the uploaded
+    -- file (PRD 027 rules: backed up, admin-only), and `blobRef` the 720p MP4 -- so every reader that serves
+    -- "the display rendition" serves something playable. `videoSdRef` is the 480p MP4, held only for clips
+    -- over five minutes. Both MP4s are cache class: rebuilt from the original on a miss.
+    kind VARCHAR(8) NOT NULL DEFAULT "photo",
+
+    -- `processing` until the transcode worker reports, then `ready` or `failed`. Only `ready` may appear in a
+    -- published album (task 503). Photographs are always `ready`.
+    status VARCHAR(12) NOT NULL DEFAULT "ready",
+
+    durationMs INT NOT NULL DEFAULT 0,
+
+    -- The 720p rendition is `blobRef` (above); this column exists so the delete walks can name it as a video
+    -- rendition rather than infer it. Equal to `blobRef` for a ready video, "" otherwise.
+    videoRef VARCHAR(64) NOT NULL DEFAULT "",
+    videoSdRef VARCHAR(64) NOT NULL DEFAULT "",
+
+    -- ffmpeg's reason, shown to the curator on a failed item. Never public.
+    failReason VARCHAR(255) NOT NULL DEFAULT "",
+
     -- The curator's words for this photograph, shared by every album it appears in.
     --
     -- One caption rather than one per album membership. A photograph in "Natten" and in "Postmandskabet"
@@ -335,7 +361,11 @@ CREATE TABLE IF NOT EXISTS photo (
     -- `RefsInUse` consults it inside the **library takedown** (task 478), where freeing too much destroys the
     -- only copy of somebody's file and freeing too little leaves an EXIF-bearing photograph on disk after it was
     -- taken down. Neither outcome should also be slow.
-    KEY original_lookup (originalRef)
+    KEY original_lookup (originalRef),
+    -- The two video renditions (PRD 029). Same reason as every other ref: `RefsInUse` asks about them inside
+    -- a delete path.
+    KEY video_lookup (videoRef),
+    KEY video_sd_lookup (videoSdRef)
 );
 
 -- Which patrols a photograph shows (PRD 022 §8.6, task 367).

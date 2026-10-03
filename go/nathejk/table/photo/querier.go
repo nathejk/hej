@@ -77,6 +77,14 @@ type Photo struct {
 	Height    int
 	Bytes     int
 
+	// Kind is "photo" or "video" (PRD 029). For a video, Ref is the 720p MP4 and Thumb/Medium the poster.
+	Kind       string
+	Status     string
+	DurationMs int
+	// VideoRef equals Ref for a ready video; VideoSdRef is the 480p MP4 or "". See table.sql.
+	VideoRef   string
+	VideoSdRef string
+
 	// Lat/Lng are nil unless the photograph carries a usable coordinate. Nil rather than zero for the
 	// reason the scan projection gives: 0,0 is the Atlantic off Ghana, and "not plottable" must be
 	// distinguishable from "plotted at the equator".
@@ -102,7 +110,7 @@ func (q querier) Get(year, photoID string) (Photo, bool, error) {
 
 	rows, err := q.db.Query(`
 		SELECT photoId, blobRef, thumbRef, mediumRef, caption, width, height, bytes,
-		       latitude, longitude, boundsVerdict
+		       latitude, longitude, boundsVerdict, kind, status, durationMs, videoRef, videoSdRef
 		FROM photo
 		WHERE year = ? AND photoId = ? AND deleted = 0`, year, photoID)
 	if err != nil {
@@ -116,7 +124,7 @@ func (q querier) Get(year, photoID string) (Photo, bool, error) {
 	var p Photo
 	var lat, lng sql.NullFloat64
 	if err := rows.Scan(&p.ID, &p.Ref, &p.ThumbRef, &p.MediumRef, &p.Caption, &p.Width, &p.Height, &p.Bytes,
-		&lat, &lng, &p.BoundsVerdict); err != nil {
+		&lat, &lng, &p.BoundsVerdict, &p.Kind, &p.Status, &p.DurationMs, &p.VideoRef, &p.VideoSdRef); err != nil {
 		return Photo{}, false, err
 	}
 	// Both halves or neither. A row with one is not a position, and the fold does not write one — but a
@@ -171,7 +179,7 @@ func (q querier) RefsInUse(year string, excluding []string, refs []string) (map[
 	//
 	// `originalRef` is the newest and the one with the most at stake: it is the photographer's file, the only copy of
 	// it, and it is what a library takedown has to be able to free (PRD 027 R8).
-	columns := []string{"blobRef", "thumbRef", "mediumRef", "originalRef"}
+	columns := []string{"blobRef", "thumbRef", "mediumRef", "originalRef", "videoRef", "videoSdRef"}
 
 	args := make([]any, 0, len(refs)*len(columns)+1)
 	args = append(args, year)

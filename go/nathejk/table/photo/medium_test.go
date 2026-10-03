@@ -118,6 +118,8 @@ func TestRefsInUseInterrogatesEveryRefColumn(t *testing.T) {
 		{"blobRef", "a photograph's only copy deleted while another photograph still shows it"},
 		{"thumbRef", "a thumbnail deleted from under a live album grid"},
 		{"mediumRef", "an 800px rendition deleted from under a live viewer, or orphaned on disk forever"},
+		{"videoRef", "a 720p video deleted from under a live album, or orphaned on disk forever (PRD 029)"},
+		{"videoSdRef", "a 480p video deleted from under a live album, or orphaned on disk forever (PRD 029)"},
 	} {
 		if !strings.Contains(body, "SELECT photoId") || !strings.Contains(body, c.column) {
 			t.Errorf("RefsInUse never mentions %s. Cost of the omission: %s (task 368, task 409)\n%s",
@@ -154,7 +156,7 @@ func TestRefsInUseDerivesItsPlaceholdersFromItsColumns(t *testing.T) {
 func TestGetSelectsEveryRefColumn(t *testing.T) {
 	body := funcBody(t, "querier.go", "func (q querier) Get(")
 
-	for _, col := range []string{"blobRef", "thumbRef", "mediumRef"} {
+	for _, col := range []string{"blobRef", "thumbRef", "mediumRef", "videoRef", "videoSdRef"} {
 		if !strings.Contains(body, col) {
 			t.Errorf("Get does not select %s, so a caller building a ref list from a Photo would miss it\n%s",
 				col, body)
@@ -182,7 +184,7 @@ func TestTheLibraryColumnsIncludeEveryRef(t *testing.T) {
 	}
 	list := src[start+open+1 : start+open+1+close]
 
-	for _, col := range []string{"p.blobRef", "p.thumbRef", "p.mediumRef"} {
+	for _, col := range []string{"p.blobRef", "p.thumbRef", "p.mediumRef", "p.videoRef", "p.videoSdRef"} {
 		if !strings.Contains(list, col) {
 			t.Errorf("libraryColumns omits %s. The contact sheet would render from it and the library delete "+
 				"path would never purge it\n%s", col, list)
@@ -198,7 +200,8 @@ func TestTheLibraryColumnsIncludeEveryRef(t *testing.T) {
 // the trap task 393 hit with the credit column and task 409's process note restates.
 func TestEveryRefColumnIsIndexedOnBothPaths(t *testing.T) {
 	schema := photoSource(t, "table.sql")
-	for _, key := range []string{"KEY ref_lookup (blobRef)", "KEY thumb_lookup (thumbRef)", "KEY medium_lookup (mediumRef)"} {
+	for _, key := range []string{"KEY ref_lookup (blobRef)", "KEY thumb_lookup (thumbRef)", "KEY medium_lookup (mediumRef)",
+		"KEY video_lookup (videoRef)", "KEY video_sd_lookup (videoSdRef)"} {
 		if !strings.Contains(schema, key) {
 			t.Errorf("table.sql is missing %s", key)
 		}
@@ -208,6 +211,11 @@ func TestEveryRefColumnIsIndexedOnBothPaths(t *testing.T) {
 	if !strings.Contains(boot, `"mediumRef"`) {
 		t.Error("table.go does not EnsureColumn mediumRef, so an existing database keeps the old table and " +
 			"every read naming the column fails at its first query (task 409's process note)")
+	}
+	for _, idx := range []string{"video_lookup", "video_sd_lookup"} {
+		if !strings.Contains(boot, idx) {
+			t.Errorf("table.go does not ensure %s, so on an existing database the purge check scans (PRD 029)", idx)
+		}
 	}
 	if !strings.Contains(boot, "medium_lookup") {
 		t.Error("table.go does not ensure the medium_lookup index. EnsureColumn adds columns, not keys, so " +

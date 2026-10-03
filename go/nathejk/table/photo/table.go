@@ -108,6 +108,14 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
 		{"originalBytes", `originalBytes INT NOT NULL DEFAULT 0`},
 		{"originalWidth", `originalWidth INT NOT NULL DEFAULT 0`},
 		{"originalHeight", `originalHeight INT NOT NULL DEFAULT 0`},
+
+		// Video (PRD 029, task 492). The defaults describe every existing row: a photograph, ready.
+		{"kind", `kind VARCHAR(8) NOT NULL DEFAULT "photo"`},
+		{"status", `status VARCHAR(12) NOT NULL DEFAULT "ready"`},
+		{"durationMs", `durationMs INT NOT NULL DEFAULT 0`},
+		{"videoRef", `videoRef VARCHAR(64) NOT NULL DEFAULT ""`},
+		{"videoSdRef", `videoSdRef VARCHAR(64) NOT NULL DEFAULT ""`},
+		{"failReason", `failReason VARCHAR(255) NOT NULL DEFAULT ""`},
 	} {
 		if err := cqrs.EnsureColumn(r, w, "photo", col.name, col.ddl); err != nil {
 			return nil, fmt.Errorf("photo: ensure column %s: %w", col.name, err)
@@ -126,6 +134,9 @@ func New(_ cqrs.Publisher, w cqrs.Writer, r cqrs.Reader) (*Table, error) {
 		// library takedown, where the two ways to be wrong are destroying the only copy of somebody's file and
 		// leaving an EXIF-bearing photograph on disk after it was taken down.
 		{"original_lookup", "ALTER TABLE photo ADD KEY original_lookup (originalRef)"},
+		// The video renditions (PRD 029).
+		{"video_lookup", "ALTER TABLE photo ADD KEY video_lookup (videoRef)"},
+		{"video_sd_lookup", "ALTER TABLE photo ADD KEY video_sd_lookup (videoSdRef)"},
 	} {
 		if err := cqrs.EnsureIndex(r, w, "photo", idx.name, idx.ddl); err != nil {
 			return nil, fmt.Errorf("photo: ensure index %s: %w", idx.name, err)
