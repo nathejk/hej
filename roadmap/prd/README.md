@@ -144,5 +144,6 @@ Repo specifics to respect:
 | 026 | Social share previews for the public site | done |
 | 027 | Keep the photographer's original | done |
 | 028 | Trailer registration and one plate spelling across apps | draft |
+| 029 | Video in public albums | draft |
 
 Keep this table current when a PRD is added or changes folder.
