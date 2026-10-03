@@ -3,7 +3,7 @@
 **Status:** draft
 **Author:** agent session
 **Created:** 2026-10-03
-**Last updated:** 2026-10-03
+**Last updated:** 2026-10-03 (open questions answered)
 **Approved:**
 **Shipped:**
 **Target users:** photographer (uploads, via the PRD 022 library) · public visitor (watches, on the public site)
@@ -20,8 +20,9 @@ moves to done/. See roadmap/prd/README.md for the lifecycle.
 
 Let a photographer add **video clips** to the photo library and to albums, next to photographs. The
 server transcodes every clip to a single **720p H.264 MP4** with a poster frame. Clips longer than five
-minutes also get a **480p** version. In the album viewer the current video **autoplays muted**, and
-**Space** toggles pause.
+minutes also get a **480p** version. In the album viewer the current video **autoplays**: muted when
+the visitor arrived by swiping, with sound when they opened it with a click or tap. **Space** toggles
+pause, and short clips loop.
 
 ## 2. Problem & Motivation
 
@@ -65,8 +66,8 @@ glimt needs `ffmpeg` after all (PRD 020 §4), it can reuse this pipeline.
   Because originals are kept, it can be added later without re-uploading.
 - **Editing.** No trimming, cutting or rotation. Upload a finished clip.
 - **Participant upload.** That is PRD 020.
-- **Patrol tagging and auto-filing of video** (task 489's Start/Slut albums). Photos only for now.
-- **Video in the zip download.** The album zip stays photographs; see §11.
+- **Auto-filing video into the Start/Slut albums** (task 489). Those albums stay photographs only.
+  Videos *can* be patrol-tagged (§6).
 - **Subtitles/captions.** Not now.
 
 ## 5. User Stories & Scenarios
@@ -92,7 +93,8 @@ glimt needs `ffmpeg` after all (PRD 020 §4), it can reuse this pipeline.
    rendition refs, duration and dimensions.
 4. The photographer adds the clip to an album like a photograph.
 5. A visitor opens the album. The grid shows the poster, a play glyph and the duration.
-6. The visitor opens the clip in the viewer. It autoplays **muted**, with an unmute button. Space
+6. The visitor opens the clip in the viewer. It autoplays, with sound if the viewer was opened by a
+   click or tap and **muted** if they swiped to it (an unmute button is shown). Space
    toggles pause. Swiping to the next item pauses and unloads the video.
 
 ### Edge cases
@@ -121,13 +123,21 @@ glimt needs `ffmpeg` after all (PRD 020 §4), it can reuse this pipeline.
       `posterThumb`, `posterMedium`.
 - [ ] Transcode settings: H.264 High, `yuv420p`, CRF 23, `maxrate` 2.5 Mbit/s (720p) / 1 Mbit/s
       (480p), AAC 128k (96k at 480p), `+faststart`, `-map_metadata -1`, rotation applied.
-- [ ] Transcoding is async in a worker. Events: `video.uploaded`, `video.transcoded`, `video.failed`
+- [ ] Transcoding is async in a **dedicated goroutine in the API binary** (one job at a time). Events: `video.uploaded`, `video.transcoded`, `video.failed`
       on the PHOTO stream.
 - [ ] Only items whose transcode has succeeded can appear in a **published** album.
 - [ ] Every media route that serves video honours **HTTP Range** (206, `Accept-Ranges: bytes`)
       without breaking the existing ETag/`immutable` caching.
-- [ ] Viewer: `autoplay muted playsinline`, a visible unmute button, and native or custom controls
-      with a seek bar and duration.
+- [ ] Viewer: `autoplay playsinline`. **With sound when the viewer was opened by a click or tap**
+      (a user gesture, which browsers allow), falling back to muted if `play()` is rejected. **Muted
+      when the visitor swiped to it from a neighbouring item**, with an unmute button. Once the
+      visitor unmutes, that choice holds for the rest of the viewer session. Native or custom
+      controls with a seek bar and duration.
+- [ ] Clips **≤ 15 s loop**; longer clips stop on the last frame.
+- [ ] Videos can be **patrol-tagged** like photographs (`photo_patrol`), so a refusal can find them
+      (task 489's reason). Auto-filing into Start/Slut skips videos.
+- [ ] The **album zip download includes videos**. "Original" gives the original file; every other
+      size gives the 720p MP4.
 - [ ] Keyboard: **Space** toggles play/pause (and `preventDefault`s scroll), **← / →** seek ±10 s,
       **M** toggles mute. Ignored while focus is in a form field.
 - [ ] Only the visible item plays. Leaving it pauses it and releases the source.
@@ -147,8 +157,8 @@ glimt needs `ffmpeg` after all (PRD 020 §4), it can reuse this pipeline.
 - **Transcode time.** A 22-min clip completes within ~2× real time on the production host; measure it.
   Encoding runs at reduced priority (`nice`) so it never starves the API.
 - **Storage.** The originals dominate: a 22-min 4K iPhone clip can be 3+ GB. See §11 Q1.
-- **Accessibility.** Controls ≥ 44 px, keyboard operable, focus visible. Autoplay is always muted,
-  and nothing plays sound without an explicit action.
+- **Accessibility.** Controls ≥ 44 px, keyboard operable, focus visible. Sound plays only after
+  an explicit click or tap. Swipe-arrival and grid never play sound.
 
 ## 7. UX / UI Notes
 
@@ -167,7 +177,7 @@ glimt needs `ffmpeg` after all (PRD 020 §4), it can reuse this pipeline.
 
 - **BFF (Go):** extend `POST /api/admin/photos` (or add a sibling upload route) for chunked upload.
   When the upload completes, store the original and emit `video.uploaded`.
-- **Worker:** a goroutine pool in the API process, or a separate binary in the same image. It consumes
+- **Worker:** a goroutine of its own **in the API binary** (decided), one job at a time. It consumes
   `video.uploaded`, shells out to `ffprobe`/`ffmpeg`, writes renditions to the blob store and emits
   `video.transcoded`/`video.failed`. **`ffmpeg` is added to the API Docker image** (a deliberate
   change from PRD 020's stance, which applies only to the glimt path).
@@ -231,7 +241,7 @@ existing admin auth.
 
 | risk | mitigation |
 |---|---|
-| ffmpeg in the image grows it (~80–100 MB) | Accept, or run the worker as a separate image. |
+| ffmpeg in the image grows it (~80–100 MB) | Accept. |
 | CPU-heavy encode slows the API during the race | `nice`, one concurrent job, and in practice uploads happen after the race. |
 | Disk fills from originals | Decide §11 Q1 before shipping. Add a total-storage check on upload. |
 | Delete walk does not know a new ref → orphaned or wrongly deleted bytes | Explicit tests, as in task 409. |
@@ -264,21 +274,22 @@ Proposed tasks for `roadmap/tasks/open/` (created on approval):
 - [ ] Task: `blob.Store` seekable read and Range on media routes (shared with PRD 020), re-measuring the 304 path
 - [ ] Task: Library UI: video tiles, processing/failed states, retry
 - [ ] Task: Public grid: poster, play glyph, duration
-- [ ] Task: Viewer: muted autoplay, unmute, controls, Space/←/→/M, pause on leave
+- [ ] Task: Viewer: autoplay (sound after click, muted after swipe), unmute, loop ≤ 15 s, controls, Space/←/→/M, pause on leave
+- [ ] Task: Patrol tagging for videos; Start/Slut auto-filing skips them
+- [ ] Task: Videos in the album zip (original or 720p)
 - [ ] Task: SD selection heuristic and HD toggle
 - [ ] Task: Share previews and the publish gate (only `ready` video in published albums)
 - [ ] Task: Verify the 2026 clips end to end on iOS, Android and Firefox
 
 ## 11. Open Questions
 
-1. **Keep 4K originals forever?** They are the bulk of the storage. Alternatives: keep a 1080p
-   high-quality master (CRF ~18) instead, or keep originals for N months. PRD 027's reasoning favours
-   keeping, but the volume has to be sized for it.
-2. **Caps:** are 30 min and 4 GB right?
-3. **Autoplay with sound** when the viewer was opened by a click? Browsers usually allow it after a
-   user gesture. The default here is muted, always.
-4. **Loop short clips** (e.g. under 15 s), like a live photo? The default is no loop.
-5. **Zip download:** include the 720p MP4s, skip videos, or make it an option?
-6. **Worker in-process or as its own binary/container?** In-process is simpler; separate isolates the
-   CPU load.
-7. **Do videos join patrol tagging and auto-filing (task 489)** later?
+All answered by the maintainer on 2026-10-03:
+
+1. **Keep 4K originals?** Yes, keep them until storage becomes a problem. Revisit then, with a 1080p
+   master or time-limited originals as the options.
+2. **Caps?** 30 min and 4 GB confirmed.
+3. **Sound?** Sound is fine after a click or tap. Swipe-arrival stays muted (§6).
+4. **Loop short clips?** Yes, clips ≤ 15 s loop.
+5. **Zip download?** Yes, videos are included (§6).
+6. **Worker?** A goroutine of its own in the same binary.
+7. **Patrol tagging?** Yes, videos are taggable. They are never filed into the Start/Slut albums.
