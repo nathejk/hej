@@ -301,6 +301,12 @@ func (app *application) syncDiplomaAlbum(ctx context.Context, year, typ, title, 
 		if err != nil {
 			return err
 		}
+		// **No videos in Start and Slut** (PRD 029 §11 Q7). A video may be patrol-tagged like a photograph, so a
+		// refusal can find it, but these two albums are one photograph per patrol and a clip is not one.
+		if strings.HasPrefix(t.ContentType, "video/") || (known && existing.Kind == "video") {
+			res.Skipped++
+			continue
+		}
 		if known && existing.Deleted {
 			// A curator took it down, possibly because somebody asked. Not this sync's decision to reverse, and
 			// the patrol's older photograph is not a substitute: it was replaced for a reason too.
@@ -388,15 +394,26 @@ func (app *application) syncDiplomaAlbum(ctx context.Context, year, typ, title, 
 		if err != nil {
 			return err
 		}
-		if len(tags) == 0 {
+		// A video goes whatever its tags say: these albums never hold one (PRD 029 §11 Q7), however it got there.
+		p, known, err := app.models.PhotoCurator.Photo(year, it.PhotoID)
+		if err != nil {
+			return err
+		}
+		isVideo := known && p.Kind == "video"
+		// Otherwise untagged is a curator's addition, and stays.
+		if len(tags) == 0 && !isVideo {
 			continue
+		}
+		reason := "Erstattet af patruljens nyeste billede"
+		if isVideo {
+			reason = "Videoer hører ikke til i dette album"
 		}
 		if err := app.publishAlbum(year, album.VerbItemRemoved, albumID, album.ItemRemoved{
 			AlbumID:   albumID,
 			Year:      year,
 			PhotoID:   it.PhotoID,
 			Ordinal:   it.Ordinal,
-			Reason:    "Erstattet af patruljens nyeste billede",
+			Reason:    reason,
 			RemovedAt: time.Now().UTC(),
 		}); err != nil {
 			return err

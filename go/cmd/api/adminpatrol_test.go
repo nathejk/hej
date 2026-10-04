@@ -406,3 +406,19 @@ func TestAdminTagWritesAreLogged(t *testing.T) {
 		t.Error("the log should carry the team id and number, not the patrol's name")
 	}
 }
+
+// A video is tagged like a photograph (PRD 029 §11 Q7, task 501), so a patrol's refusal finds its clips too.
+func TestAdminTagsAVideo(t *testing.T) {
+	patrols := &stubPublicPatrols{byNumber: map[string]publicpatrol.Patrol{"42": oernene()}}
+	app, srv, pub := tagApp(t, patrols)
+	clip := strings.Repeat("d", 64)
+	app.models.PhotoCurator = &libraryCurator{rows: []photo.LibraryPhoto{{ID: clip, Kind: "video", Status: "ready"}}}
+
+	resp := postAdmin(t, srv, "/api/admin/photos/tags", `{"photoIds":["`+clip+`"],"number":"42"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", resp.StatusCode, adminBody(t, resp))
+	}
+	if s := pub.Subjects(); len(s) != 1 || !strings.HasSuffix(s[0], "."+photo.VerbPatrolTagged) {
+		t.Errorf("published %v", s)
+	}
+}
