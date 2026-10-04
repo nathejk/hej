@@ -3,7 +3,7 @@
 **Status:** doing
 **Author:** agent session
 **Created:** 2026-10-03
-**Last updated:** 2026-10-03
+**Last updated:** 2026-10-04
 **Approved:** 2026-10-03
 **Shipped:**
 **Target users:** photographer (uploads, via the PRD 022 library) · public visitor (watches, on the public site)
@@ -78,7 +78,7 @@ glimt needs `ffmpeg` after all (PRD 020 §4), it can reuse this pipeline.
   not play yet.
 - As a **visitor**, I want a clip to start playing when I swipe to it, so that the album flows like
   the race did.
-- As a **visitor**, I want to press Space to pause, and use ← / → to seek, so that I can watch a long
+- As a **visitor**, I want to press Space to pause, and use Shift+← / → (or J / L) to seek, so that I can watch a long
   clip properly.
 - As a **parent on 4G**, I want a 22-minute clip to play without stalling.
 
@@ -138,7 +138,8 @@ glimt needs `ffmpeg` after all (PRD 020 §4), it can reuse this pipeline.
       (task 489's reason). Auto-filing into Start/Slut skips videos.
 - [ ] The **album zip download includes videos**. "Original" gives the original file; every other
       size gives the 720p MP4.
-- [ ] Keyboard: **Space** toggles play/pause (and `preventDefault`s scroll), **← / →** seek ±10 s,
+- [ ] Keyboard: **Space** toggles play/pause (and `preventDefault`s scroll), **Shift+← / →** and **J / L** seek ±10 s
+      (bare ← / → keep moving between items, or arrowing through an album would stop at the first video),
       **M** toggles mute. Ignored while focus is in a form field.
 - [ ] Only the visible item plays. Leaving it pauses it and releases the source.
 - [ ] Grid: poster + play glyph + duration; `preload="none"` outside the viewer.
@@ -221,7 +222,7 @@ existing admin auth.
   `POST /api/admin/videos/uploads/{id}/complete` (new).
 - `POST /api/admin/videos/{id}/retry` (new).
 - `GET /api/public/albums/{id}/media/{ordinal}` (changed): serves `video/mp4`, honours Range (206),
-  and takes `?q=480` for the SD rendition.
+  and takes `?variant=sd` for the SD rendition (the route's existing parameter, rather than a new `?q=`).
 - Album and library list responses (changed): gain `kind`, `durationMs`, `status`, `hasSd`.
 
 **Every new or changed endpoint needs OpenAPI annotations** (`.rules`), including 206, 413 and 416.
