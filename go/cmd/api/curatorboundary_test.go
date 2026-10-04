@@ -37,6 +37,9 @@ var adminOwnedFiles = map[string]bool{
 	// a distinction only the curator read can make, because the public read reports both as not found, and
 	// getting it wrong would mean a re-upload silently restoring a photograph somebody objected to.
 	"adminupload.go": true,
+	// The video upload (PRD 029, task 494). Same read for the same reason as the photograph upload: a clip a
+	// curator deleted must not be restored by uploading it again.
+	"adminvideoupload.go": true,
 	// The contact sheet's list and media reads. The **whole point** of it being on the curator interface: it
 	// returns photographs no album references, and on request deleted ones, which is exactly what a public read
 	// must never do. Its media handler also resolves an id through this read rather than handing it to the blob

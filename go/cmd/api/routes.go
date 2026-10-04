@@ -304,6 +304,12 @@ func (app *application) routes() http.Handler {
 		// One file per request (task 372). The batching is the browser's, which is what keeps one bad file
 		// from failing a batch of three hundred — see adminupload.go's header.
 		router.HandlerFunc(http.MethodPost, "/api/admin/photos", app.requireAdmin(app.requireAdminYear(app.uploadAdminPhotoHandler)))
+		// Videos arrive in resumable chunks instead (PRD 029, task 494): a clip is up to 4 GB, and one dropped
+		// connection must not cost the photographer the whole transfer. See adminvideoupload.go.
+		router.HandlerFunc(http.MethodPost, "/api/admin/videos/uploads", app.requireAdmin(app.requireAdminYear(app.createVideoUploadHandler)))
+		router.HandlerFunc(http.MethodGet, "/api/admin/videos/uploads/:uploadId", app.requireAdmin(app.requireAdminYear(app.showVideoUploadHandler)))
+		router.HandlerFunc(http.MethodPut, "/api/admin/videos/uploads/:uploadId", app.requireAdmin(app.requireAdminYear(app.putVideoChunkHandler)))
+		router.HandlerFunc(http.MethodPost, "/api/admin/videos/uploads/:uploadId/complete", app.requireAdmin(app.requireAdminYear(app.completeVideoUploadHandler)))
 		// The contact sheet's reads (task 374). Both go through the **curator** interface, so drafts and
 		// deleted rows are reachable here and structurally unreachable from anything public (PRD 022 §8.8).
 		//

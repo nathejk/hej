@@ -35,6 +35,7 @@ import (
 	"nathejk.dk/internal/sms"
 	"nathejk.dk/internal/users"
 	"nathejk.dk/internal/vcs"
+	"nathejk.dk/internal/video"
 	"nathejk.dk/nathejk/table/album"
 	"nathejk.dk/nathejk/table/checkgroup"
 	"nathejk.dk/nathejk/table/checkpoint"
@@ -248,6 +249,14 @@ type application struct {
 	// blobs stores binary objects that cannot be rebuilt from the event log —
 	// portrait bytes (PRDs 003/007). Never nil: it falls back to memory.
 	blobs blob.Store
+
+	// videoProbe reads an uploaded video's container (PRD 029). nil means `video.Probe`, i.e. ffprobe; tests set a
+	// fake so they need no binary.
+	videoProbe video.Prober
+
+	// videoWake nudges the transcode worker after an upload or a retry (task 495). nil when no worker runs, which
+	// is every test app and any process without a blob store that can hold files.
+	videoWake chan struct{}
 
 	// renditionRebuilds coalesces concurrent rebuilds of the same missing rendition
 	// (task 430, see blobrepair.go).
