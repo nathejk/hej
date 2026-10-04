@@ -61,20 +61,41 @@ func (app *application) runVideoWorker(ctx context.Context, poll time.Duration) 
 	recent := map[string]time.Time{}
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
+	// Rechecks after a wake that found nothing. The wake comes straight after the publish, and the projection that
+	// is the queue folds the event a moment later — so the first look routinely misses the very upload that sent it.
+	// Without these the job waited for the next tick: found uploading a real clip (task 504), 56 s idle before a 5 s
+	// transcode.
+	var recheck <-chan time.Time
+	rechecks := 0
 	for {
+		worked := false
 		for app.processNextVideo(ctx, recent) {
+			worked = true
 			if ctx.Err() != nil {
 				return
 			}
+		}
+		if !worked && rechecks > 0 {
+			recheck = time.After(videoWakeRecheck)
+			rechecks--
 		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-app.videoWake:
+			rechecks = videoWakeRechecks
+		case <-recheck:
 		case <-ticker.C:
 		}
 	}
 }
+
+const (
+	// videoWakeRecheck and videoWakeRechecks bound how long a wake keeps looking for its job: ten seconds, which is
+	// far beyond any projection lag seen, before the minute's poll takes over.
+	videoWakeRecheck  = time.Second
+	videoWakeRechecks = 10
+)
 
 // processNextVideo runs one pending job, if there is one not recently attempted. It reports whether it did.
 func (app *application) processNextVideo(ctx context.Context, recent map[string]time.Time) bool {

@@ -322,6 +322,11 @@ func (app *application) putVideoChunkHandler(w http.ResponseWriter, r *http.Requ
 	if start != offset {
 		// Not an error the client did wrong so much as a fact it lost: tell it where to continue. Written by hand
 		// rather than through WriteJSON so the status is a literal the OpenAPI guard can see.
+		//
+		// **The body is read first, and thrown away.** Go closes the connection when a handler answers without
+		// reading a body larger than 256 KB, so an 8 MiB chunk answered unread reaches the client as a broken pipe
+		// rather than as this 409 — found uploading a real clip (task 504). Bounded by the chunk cap checked above.
+		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, maxVideoChunk))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		_ = json.NewEncoder(w).Encode(videoUploadState{

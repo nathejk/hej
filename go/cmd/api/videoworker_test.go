@@ -10,12 +10,15 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"nathejk.dk/internal/video"
 	"nathejk.dk/nathejk/table/photo"
 
+	"github.com/jrgensen/cqrs"
 	"github.com/jrgensen/cqrs/cqrstest"
 )
 
@@ -166,5 +169,61 @@ func TestRetryRequeuesOnlyAFailedVideo(t *testing.T) {
 	}
 	if s := pub.Subjects(); len(s) != 1 || !strings.HasSuffix(s[0], ".videoqueued") {
 		t.Errorf("published %v", s)
+	}
+}
+
+// lagCurator is a library whose queue is empty until `ready` is set, as a projection is before it folds an event.
+type lagCurator struct {
+	*libraryCurator
+	ready atomic.Bool
+}
+
+func (c *lagCurator) ProcessingVideos(limit int) ([]photo.PendingVideo, error) {
+	if !c.ready.Load() {
+		return nil, nil
+	}
+	return c.libraryCurator.ProcessingVideos(limit)
+}
+
+// lockedPublisher is cqrstest.Publisher made safe to read while the worker goroutine publishes.
+type lockedPublisher struct {
+	mu sync.Mutex
+	*cqrstest.Publisher
+}
+
+func (p *lockedPublisher) Publish(msg cqrs.Message) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.Publisher.Publish(msg)
+}
+
+func (p *lockedPublisher) count() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.Messages)
+}
+
+// A wake that arrives before the projection has the row still finds the job within seconds, not at the next poll
+// (task 504: an upload's job waited 56 s for the minute's tick).
+func TestVideoWorkerFindsAJobThatLagsItsWake(t *testing.T) {
+	app, _, v := workerApp(t, false, 40_000)
+	lag := &lagCurator{libraryCurator: app.models.PhotoCurator.(*libraryCurator)}
+	app.models.PhotoCurator = lag
+	pub := &lockedPublisher{Publisher: &cqrstest.Publisher{}}
+	app.commands = commandsWithPublisher(t, pub)
+	app.videoWake = make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go app.runVideoWorker(ctx, time.Hour)
+
+	app.notifyVideoWorker()
+	time.Sleep(300 * time.Millisecond)
+	lag.ready.Store(true)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && pub.count() == 0 {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if pub.count() == 0 {
+		t.Fatalf("the job for %s was not picked up within 5 s of its wake", v.PhotoID)
 	}
 }

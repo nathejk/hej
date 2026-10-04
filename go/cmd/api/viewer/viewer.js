@@ -574,8 +574,12 @@
     v.src = startQuality(item) === 'sd' ? item.sd : item.full;
     paintQuality(item);
     var started = v.play();
+    var src = v.getAttribute('src');
     if (started && typeof started.catch === 'function') {
-      started.catch(function () {
+      started.catch(function (err) {
+        // Only a refusal is retried muted. An AbortError means the visitor paused, or moved on, before playback
+        // began — retrying then would restart a video they just stopped, without its sound.
+        if (!err || err.name !== 'NotAllowedError' || v.getAttribute('src') !== src) return;
         if (!v.muted) {
           setMuted(true);
           paintUnmute();
