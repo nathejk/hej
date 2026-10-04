@@ -138,6 +138,13 @@
     unmute.textContent = 'Slå lyd til';
     unmute.hidden = true;
 
+    // HD/SD, only for a clip that has a 480p rendition (task 500). A toggle a visitor can always reach, whatever
+    // the automatic choice was: a connection heuristic is a guess, and the visitor is the one who can see.
+    var quality = document.createElement('button');
+    quality.type = 'button';
+    quality.className = 'hv-quality';
+    quality.hidden = true;
+
     var missing = document.createElement('p');
     missing.className = 'hv-missing';
     missing.textContent = 'Billedet er ikke tilgængeligt.';
@@ -156,6 +163,7 @@
     stage.appendChild(img);
     stage.appendChild(video);
     stage.appendChild(unmute);
+    stage.appendChild(quality);
     stage.appendChild(missing);
     stage.appendChild(next);
     // **The info panel lives over the photograph, not under it** (task 416).
@@ -182,6 +190,10 @@
       soundOn: false,
       // Set while *we* change `muted`, so the volumechange that follows is not mistaken for the visitor's choice.
       settingMute: false,
+      quality: quality,
+      // "sd" once the visitor or a stall chose it, for the rest of this viewing; "" lets each video decide.
+      preferSd: '',
+      stallTimer: 0,
       bar: bar,
       info: info,
       strip: strip,
@@ -239,6 +251,28 @@
       ui.soundOn = !video.muted;
       paintUnmute();
     });
+    // A stall of more than STALL_MS on the 720p rendition drops to 480p, at the same position (task 500).
+    video.addEventListener('waiting', function () {
+      clearTimeout(ui.stallTimer);
+      ui.stallTimer = setTimeout(function () {
+        var item = ui.items[ui.index];
+        if (!item || item.kind !== 'video' || !item.sd || currentQuality(item) !== 'hd') return;
+        // Still not playable: readyState below HAVE_FUTURE_DATA means the buffer did not catch up.
+        if (video.readyState >= 3) return;
+        ui.preferSd = 'sd';
+        switchQuality(item, 'sd');
+      }, STALL_MS);
+    });
+    video.addEventListener('playing', function () { clearTimeout(ui.stallTimer); });
+    quality.addEventListener('click', function () {
+      var item = ui.items[ui.index];
+      if (!item || !item.sd) return;
+      var next = currentQuality(item) === 'hd' ? 'sd' : 'hd';
+      // A manual choice holds for the rest of the viewing, in either direction.
+      ui.preferSd = next === 'sd' ? 'sd' : 'hd';
+      switchQuality(item, next);
+    });
+
     unmute.addEventListener('click', function () {
       setMuted(false);
       ui.soundOn = true;
@@ -451,6 +485,60 @@
   var LOOP_MS = 15000;
   // How far Shift+arrow and J/L seek.
   var SEEK_S = 10;
+  // How long the 720p rendition may stall before the viewer drops to 480p (PRD 029 §6).
+  var STALL_MS = 2000;
+
+  // slowConnection reports what the browser knows about the link, where it says anything at all. Only Chromium
+  // exposes it; elsewhere this is false and the stall fallback below is what protects a visitor on poor data.
+  function slowConnection() {
+    var c = navigator.connection;
+    if (!c) return false;
+    if (c.saveData) return true;
+    return c.effectiveType === 'slow-2g' || c.effectiveType === '2g' || c.effectiveType === '3g';
+  }
+
+  // The rendition a video should start on: 480p when it has one and the visitor chose it, or the connection is
+  // slow and they did not choose otherwise; 720p in every other case.
+  function startQuality(item) {
+    if (!item.sd) return 'hd';
+    if (ui.preferSd === 'sd') return 'sd';
+    if (ui.preferSd === 'hd') return 'hd';
+    return slowConnection() ? 'sd' : 'hd';
+  }
+
+  function currentQuality(item) {
+    return item.sd && ui.video.getAttribute('src') === item.sd ? 'sd' : 'hd';
+  }
+
+  function paintQuality(item) {
+    var q = ui.quality;
+    if (!item || item.kind !== 'video' || !item.sd) {
+      q.hidden = true;
+      return;
+    }
+    var sd = currentQuality(item) === 'sd';
+    q.hidden = false;
+    q.textContent = sd ? 'SD' : 'HD';
+    q.setAttribute('aria-label', sd ? 'Lav kvalitet — skift til høj kvalitet' : 'Høj kvalitet — skift til lav kvalitet');
+    q.setAttribute('aria-pressed', sd ? 'false' : 'true');
+  }
+
+  // switchQuality swaps the rendition under the visitor, keeping the position and whether it was playing.
+  function switchQuality(item, to) {
+    var v = ui.video;
+    var at = v.currentTime || 0;
+    var wasPlaying = !v.paused;
+    v.src = to === 'sd' ? item.sd : item.full;
+    v.addEventListener('loadedmetadata', function restore() {
+      v.removeEventListener('loadedmetadata', restore);
+      try { v.currentTime = at; } catch (_) { /* a stream that cannot seek starts from 0 */ }
+      if (wasPlaying) {
+        var p = v.play();
+        if (p && typeof p.catch === 'function') p.catch(function () {});
+      }
+    });
+    paintQuality(item);
+  }
 
   function setMuted(muted) {
     var v = ui.video;
@@ -483,7 +571,8 @@
     v.poster = item.medium || item.thumb || '';
     v.loop = item.durationMs > 0 && item.durationMs <= LOOP_MS;
     setMuted(!withSound);
-    v.src = item.full;
+    v.src = startQuality(item) === 'sd' ? item.sd : item.full;
+    paintQuality(item);
     var started = v.play();
     if (started && typeof started.catch === 'function') {
       started.catch(function () {
@@ -507,7 +596,9 @@
     v.removeAttribute('poster');
     // `load()` with no source is what actually aborts the network request; removing the attribute alone does not.
     v.load();
+    clearTimeout(ui.stallTimer);
     ui.unmute.hidden = true;
+    ui.quality.hidden = true;
   }
 
   // onVideoKey handles the player's keys, and reports whether it did.
@@ -876,6 +967,7 @@
     build();
     ui.gesture = byGesture !== false;
     ui.soundOn = false;
+    ui.preferSd = '';
 
     ui.items = itemsIn(container);
     if (!ui.items.length) return;
