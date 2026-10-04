@@ -222,6 +222,12 @@ func (app *application) writeAdminAlbumZipEntry(
 		return fmt.Errorf("%s: the photograph is not in the library", name)
 	}
 
+	// A video (PRD 029, task 502) is never re-rendered: "Original" is the phone's file, every other size the 720p
+	// MP4. A clip still processing has no MP4 yet, and gets its original rather than leaving a gap in the numbering.
+	if p.Kind == "video" {
+		return app.writeAdminAlbumZipVideo(r, zw, p, name, wantOriginal)
+	}
+
 	ref, derive := adminZipRendition(p, edge, wantOriginal)
 	if !ref.Valid() {
 		return fmt.Errorf("%s: the library row holds an unusable ref %q", name, p.Ref)
@@ -263,6 +269,31 @@ func (app *application) writeAdminAlbumZipEntry(
 		return fmt.Errorf("%s: no bytes were rendered", name)
 	}
 	return adminZipCopy(zw, name, bytes.NewReader(prepared.Full.Bytes))
+}
+
+// writeAdminAlbumZipVideo puts one video into the archive, streamed, under a name with the right extension.
+func (app *application) writeAdminAlbumZipVideo(
+	r *http.Request, zw *zip.Writer, p photo.LibraryPhoto, name string, wantOriginal bool,
+) error {
+	ref := blob.Ref(p.Ref)
+	original := wantOriginal || !ref.Valid()
+	if original {
+		ref = blob.Ref(p.OriginalRef)
+	}
+	if !ref.Valid() {
+		return fmt.Errorf("%s: the video has neither a rendition nor an original", name)
+	}
+	if !original {
+		// The 720p rendition is an MP4 whatever the phone recorded, so a ".MOV" name would be a lie a player
+		// might believe.
+		name = strings.TrimSuffix(name, path.Ext(name)) + ".mp4"
+	}
+	reader, err := app.blobs.Get(r.Context(), ref)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	defer reader.Close()
+	return adminZipCopy(zw, name, reader)
 }
 
 // adminZipRendition decides which stored object answers for a requested size, and whether it needs re-rendering.

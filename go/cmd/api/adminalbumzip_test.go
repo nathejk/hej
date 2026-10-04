@@ -696,3 +696,47 @@ func TestTheAlbumCardPutsItsActionsBehindTheCog(t *testing.T) {
 		t.Error("the actions row was replaced by the cog menu; two of them is worse than either")
 	}
 }
+
+// Videos in the album zip (PRD 029, task 502): the original for "Original", the 720p MP4 for every other size.
+func TestTheAlbumZipCarriesVideos(t *testing.T) {
+	app, srv, _ := albumWriteApp(t, newAlbumCurator())
+	put := func(b string) string {
+		ref, err := app.blobs.Put(context.Background(), []byte(b))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ref.String()
+	}
+	hd, orig, pending := put("the 720p mp4"), put("the phone's mov"), put("a mov still processing")
+	app.models.AlbumCurator = newAlbumCurator(&curatedAlbum{
+		a: album.CuratorAlbum{ID: "al-1", Slug: "film", Title: "Film", ItemCount: 2},
+		items: []album.CuratorItem{
+			{Ordinal: 0, PhotoID: photoID("v"), SortFileName: "IMG_0001.MOV"},
+			{Ordinal: 1, PhotoID: photoID("p"), SortFileName: "IMG_0002.MOV"},
+		},
+	})
+	app.models.PhotoCurator = &libraryCurator{rows: []photo.LibraryPhoto{
+		{ID: photoID("v"), Ref: hd, OriginalRef: orig, Kind: "video", Status: "ready"},
+		{ID: photoID("p"), OriginalRef: pending, Kind: "video", Status: "processing"},
+	}}
+
+	_, bodies := readZip(t, downloadZip(t, srv, "/api/admin/albums/al-1/zip?size=large"))
+	if string(bodies["001-IMG_0001.mp4"]) != "the 720p mp4" {
+		t.Errorf("large: want the 720p MP4 named .mp4, got entries %v", keys(bodies))
+	}
+	if string(bodies["002-IMG_0002.MOV"]) != "a mov still processing" {
+		t.Errorf("a processing video should fall back to its original, got entries %v", keys(bodies))
+	}
+	_, bodies = readZip(t, downloadZip(t, srv, "/api/admin/albums/al-1/zip?size=original"))
+	if string(bodies["001-IMG_0001.MOV"]) != "the phone's mov" {
+		t.Errorf("original: want the phone's file, got entries %v", keys(bodies))
+	}
+}
+
+func keys(m map[string][]byte) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
