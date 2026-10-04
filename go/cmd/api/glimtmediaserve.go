@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/julienschmidt/httprouter"
 
@@ -122,7 +124,7 @@ func (app *application) showGlimtMediaHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	app.streamGlimtMedia(w, r, ref, glimtID, glimtMediaCacheControl, plan)
+	app.streamGlimtMedia(w, r, ref, glimtID, glimtMediaCacheControl, plan, "image/jpeg")
 }
 
 // glimtVariantRef picks the ref for an ordinal and a variant, and says how to rebuild it if it is gone.
@@ -172,8 +174,22 @@ func glimtVariantRef(g glimt.Glimt, ordinal int, variant string) (blob.Ref, rend
 // must answer `public` where this one answers `private`, and that difference is a privacy property.
 // Passing it in keeps it visible at each call site instead of hidden in a wrapper a reader would
 // have to prove nobody changed.
+//
+// `contentType` is "image/jpeg" for every stored image, which are all re-encodes, and "video/mp4" for a library
+// video's renditions (PRD 029).
+//
+// # Range requests (task 496)
+//
+// When the store can open an object seekably (`blob.Files`, both real stores), the body goes through
+// `http.ServeContent`, which answers `Range` with 206 and `Accept-Ranges: bytes`. Safari will not play a video
+// whose server ignores Range, and every browser seeks by it — a 22-minute clip that could only be read from the
+// start could not be scrubbed. Images get the same treatment for free; nothing about them changes except that a
+// client may now ask for part of one.
+//
+// The 304 above still answers first and still costs no read: task 324's measured cache behaviour is unchanged.
 func (app *application) streamGlimtMedia(
 	w http.ResponseWriter, r *http.Request, ref blob.Ref, logID, cacheControl string, plan renditionRepair,
+	contentType string,
 ) {
 	etag := `"` + string(ref) + `"`
 
@@ -189,7 +205,7 @@ func (app *application) streamGlimtMedia(
 		return
 	}
 
-	reader, err := app.blobs.Get(r.Context(), ref)
+	reader, err := app.openMedia(r.Context(), ref)
 	if errors.Is(err, blob.ErrNotFound) && plan.possible() {
 		// The rendition is gone but rebuildable (task 430): an emptied cache, or a restore that omitted
 		// it. Rebuild off the request path and answer now from the source.
@@ -201,7 +217,7 @@ func (app *application) streamGlimtMedia(
 		ref = plan.Source
 		etag = `"` + string(ref) + `"`
 		cacheControl = degradedRenditionCacheControl
-		reader, err = app.blobs.Get(r.Context(), ref)
+		reader, err = app.openMedia(r.Context(), ref)
 	}
 	if err != nil {
 		if errors.Is(err, blob.ErrNotFound) {
@@ -215,10 +231,9 @@ func (app *application) streamGlimtMedia(
 	}
 	defer reader.Close()
 
-	// Always image/jpeg for now: every stored image is re-encoded (task 303). Task 322 will
-	// need the stored content type here for video, which is why `glimt_media.contentType`
-	// exists in the schema already.
-	w.Header().Set("Content-Type", "image/jpeg")
+	// Stated by the caller, never sniffed: every stored image is a re-encoded JPEG (task 303) and every library
+	// video rendition an MP4 the worker wrote (PRD 029).
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", cacheControl)
 	w.Header().Set("ETag", etag)
 	// **No photograph is ever indexed** (task 427, PRD 011 §0c).
@@ -232,9 +247,23 @@ func (app *application) streamGlimtMedia(
 	// on the authenticated route, which no crawler reaches anyway.
 	w.Header().Set("X-Robots-Tag", "noindex")
 
+	if rs, ok := reader.(io.ReadSeeker); ok {
+		// ServeContent honours Range and If-Range against the ETag set above. The zero modtime keeps it from
+		// adding Last-Modified, which would be a second, weaker validator for bytes that cannot change.
+		http.ServeContent(w, r, "", time.Time{}, rs)
+		return
+	}
 	if _, err := io.Copy(w, reader); err != nil {
 		// The response has already begun; there is nothing to say to the client that it
 		// would still parse.
 		app.Logger.Error("streaming glimt media", "err", err, "glimtId", logID)
 	}
+}
+
+// openMedia opens an object seekably when the store can, and as a plain stream otherwise.
+func (app *application) openMedia(ctx context.Context, ref blob.Ref) (io.ReadCloser, error) {
+	if f, ok := app.blobs.(blob.Files); ok {
+		return f.Open(ctx, ref)
+	}
+	return app.blobs.Get(ctx, ref)
 }

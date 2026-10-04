@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"nathejk.dk/internal/blob"
@@ -270,4 +271,29 @@ func (app *application) requeueVideo(year, photoID string) error {
 	}
 	app.notifyVideoWorker()
 	return nil
+}
+
+// requeuedVideos remembers which videos a public read has requeued recently, so a page of visitors hitting one
+// missing rendition publishes one event rather than one per request.
+var requeuedVideos = struct {
+	sync.Mutex
+	at map[string]time.Time
+}{at: map[string]time.Time{}}
+
+// requeueMissingVideo is the cache-miss rebuild (task 495/496): a video rendition is gone from the cache, so the
+// worker makes it again from the original. At most once per videoRecentWindow per video; errors are logged, since
+// the caller is a public read that answers 404 either way.
+func (app *application) requeueMissingVideo(year, photoID string) {
+	requeuedVideos.Lock()
+	if at, ok := requeuedVideos.at[photoID]; ok && time.Since(at) < videoRecentWindow {
+		requeuedVideos.Unlock()
+		return
+	}
+	requeuedVideos.at[photoID] = time.Now()
+	requeuedVideos.Unlock()
+	if err := app.requeueVideo(year, photoID); err != nil {
+		app.Logger.Error("requeueing a video whose rendition is missing", "photoId", photoID, "err", err)
+		return
+	}
+	app.Logger.Warn("a video rendition was missing; requeued for transcoding", "photoId", photoID)
 }

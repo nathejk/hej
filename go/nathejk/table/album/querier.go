@@ -107,6 +107,13 @@ type Item struct {
 	MediumRef string
 	Caption   string
 
+	// Kind is "photo" or "video" (PRD 029). For a video, Ref is the 720p MP4, Thumb/Medium the poster and SdRef
+	// the 480p MP4 or "". Status is "ready" for every photograph; a video is only served once it is.
+	Kind       string
+	Status     string
+	DurationMs int
+	SdRef      string
+
 	// Credit is the photographer's credit line, or "" when there is none (task 393).
 	//
 	// Comes from the **photograph**, like the caption and for the same reason (PRD 022 §8.3): one place to edit,
@@ -277,7 +284,8 @@ func (q querier) BySlug(year, slug string) (Album, []Item, bool, error) {
 func (q querier) items(albumID string) ([]Item, error) {
 	rows, err := q.db.Query(`
 		SELECT i.ordinal, i.photoId, p.blobRef, p.thumbRef, p.mediumRef, p.caption, p.credit, p.creditCrewId,
-		       p.width, p.height, p.latitude, p.longitude, p.boundsVerdict
+		       p.width, p.height, p.latitude, p.longitude, p.boundsVerdict,
+		       p.kind, p.status, p.durationMs, p.videoSdRef
 		FROM album_item i
 		JOIN photo p ON p.photoId = i.photoId
 		WHERE i.albumId = ? AND i.deleted = 0 AND p.deleted = 0
@@ -293,7 +301,8 @@ func (q querier) items(albumID string) ([]Item, error) {
 		var lat, lng sql.NullFloat64
 		if err := rows.Scan(&it.Ordinal, &it.PhotoID, &it.Ref, &it.ThumbRef, &it.MediumRef,
 			&it.Caption, &it.Credit, &it.CreditCrewID,
-			&it.Width, &it.Height, &lat, &lng, &it.BoundsVerdict); err != nil {
+			&it.Width, &it.Height, &lat, &lng, &it.BoundsVerdict,
+			&it.Kind, &it.Status, &it.DurationMs, &it.SdRef); err != nil {
 			return nil, err
 		}
 		// Both halves or neither. A row with one is not a position, and the fold does not write one —

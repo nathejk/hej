@@ -548,5 +548,5 @@ func (app *application) showAdminPhotoMediaHandler(w http.ResponseWriter, r *htt
 	// caching them would be safe in the ordinary sense — but this is an admin surface and PRD 022 §6 requires
 	// every response on it to be unstorable: a contact sheet of the event's photographs left in a shared
 	// laptop's disk cache outlives the session that fetched it.
-	app.streamGlimtMedia(w, r, stored, photoID, "no-store", plan)
+	app.streamGlimtMedia(w, r, stored, photoID, "no-store", plan, "image/jpeg")
 }

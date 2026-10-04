@@ -223,7 +223,7 @@ func (app *application) publiclyVisible(g glimt.Glimt) bool {
 func (app *application) streamPublicGlimtMedia(
 	w http.ResponseWriter, r *http.Request, ref blob.Ref, logID string, plan renditionRepair,
 ) {
-	app.streamGlimtMedia(w, r, ref, logID, publicGlimtMediaCacheControl, plan)
+	app.streamGlimtMedia(w, r, ref, logID, publicGlimtMediaCacheControl, plan, "image/jpeg")
 }
 
 // publicGlimtMediaCacheControl is a year, immutable, and **public**.

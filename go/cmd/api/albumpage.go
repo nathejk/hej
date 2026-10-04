@@ -666,13 +666,16 @@ func albumPageWindow(items []album.Item, rawSide string) ([]album.Item, int, boo
 // publication filter rather than fetching the item directly.
 //
 // @Summary      One album photograph
-// @Description  Serves the stored bytes for item `ordinal` of a **published, non-deleted** album. `variant=thumb` serves the 320px thumbnail, which is what the grid requests; `variant=medium` serves the 800px rendition, which is what the viewer's `srcset` offers a phone; anything else serves the 1600px display image. A variant whose rendition was never produced — including every photograph uploaded before the 800px rendition existed — falls back to the display image rather than answering 404, so no page ever renders a gap. Unauthenticated and it ignores the session cookie; the album's publication state is re-checked here, so this route cannot be used to reach a draft album's photographs by id. Answers 404 when `PUBLIC_ALBUMS=false` hides the feature — the bytes go with the pages, or hiding the section would only unadvertise it. Cached `public` and `immutable`, which is safe precisely because the answer does not depend on who asked. The photograph is named either by its **ref** — the content hash, which does not change when the album is re-sorted — or by its **ordinal**, which does. Only the ref form is served `immutable`: an ordinal's meaning moves under a re-sort (PRD 024), and a cache told not to revalidate would keep serving the wrong photograph for a year. Ordinal URLs keep working, with a short lifetime, because they are what links minted earlier carry.
+// @Description  Serves the stored bytes for item `ordinal` of a **published, non-deleted** album. `variant=thumb` serves the 320px thumbnail, which is what the grid requests; `variant=medium` serves the 800px rendition, which is what the viewer's `srcset` offers a phone; anything else serves the 1600px display image. A variant whose rendition was never produced — including every photograph uploaded before the 800px rendition existed — falls back to the display image rather than answering 404, so no page ever renders a gap. Unauthenticated and it ignores the session cookie; the album's publication state is re-checked here, so this route cannot be used to reach a draft album's photographs by id. Answers 404 when `PUBLIC_ALBUMS=false` hides the feature — the bytes go with the pages, or hiding the section would only unadvertise it. Cached `public` and `immutable`, which is safe precisely because the answer does not depend on who asked. The photograph is named either by its **ref** — the content hash, which does not change when the album is re-sorted — or by its **ordinal**, which does. Only the ref form is served `immutable`: an ordinal's meaning moves under a re-sort (PRD 024), and a cache told not to revalidate would keep serving the wrong photograph for a year. Ordinal URLs keep working, with a short lifetime, because they are what links minted earlier carry. **Videos** (PRD 029): for a video item the default variant is its 720p MP4 and `variant=sd` its 480p MP4 (falling back to the 720p for a clip short enough not to have one), served as `video/mp4`; `thumb` and `medium` are its poster, a JPEG. A missing video rendition answers 404 and queues the video for transcoding again. Every response honours `Range` (206, `Accept-Ranges: bytes`; an unsatisfiable range answers 416), which video playback and seeking need.
 // @Tags         public-site
 // @Produce      jpeg
+// @Produce      mp4
 // @Param        albumId  path      string  true   "album id"
 // @Param        selector  path      string  true   "the photograph: its ref (content hash), or its ordinal within the album"
-// @Param        variant  query     string  false  "full (default), medium (800px) or thumb (320px)"
+// @Param        variant  query     string  false  "full (default), medium (800px), thumb (320px), or for a video sd (480p)"
+// @Param        Range    header    string  false  "a byte range, e.g. bytes=0-1048575"
 // @Success      200  {file}    binary
+// @Success      206  {file}    binary  "the requested byte range"
 // @Failure      304  "not modified"
 // @Failure      404  {object}  map[string]string  "unknown album, unpublished, deleted, gone, or the albums section is switched off"
 // @Failure      429  {object}  map[string]string  "read rate limit, by IP"
@@ -707,7 +710,7 @@ func (app *application) albumMediaHandler(w http.ResponseWriter, r *http.Request
 	albumID := params.ByName("albumId")
 	selector := params.ByName("selector")
 
-	ref, plan, ok, err := app.albumItemRef(albumID, selector, r.URL.Query().Get("variant"))
+	ref, plan, target, ok, err := app.albumItemRef(albumID, selector, r.URL.Query().Get("variant"))
 	if err != nil {
 		app.ServerErrorResponse(w, r, err)
 		return
@@ -730,7 +733,25 @@ func (app *application) albumMediaHandler(w http.ResponseWriter, r *http.Request
 	//
 	// A ref is the hash of the bytes, so at a ref the promise is true again. An ordinal keeps working, because
 	// those URLs are already cached and shared — but it gets a short lifetime, because what it names can change.
-	app.streamGlimtMedia(w, r, ref, albumID, albumMediaCacheControl(selector), plan)
+	if target.video {
+		// A video rendition is rebuilt by the transcode worker rather than by the image repair plan (PRD 029): a
+		// missing MP4 puts the video back in the queue and answers 404 meanwhile, which the player shows as the
+		// poster. The worker rebuilds from the original, which this public route never touches itself.
+		if exists, eerr := app.blobs.Exists(r.Context(), ref); eerr == nil && !exists {
+			app.requeueMissingVideo(app.config.eventYear, target.photoID)
+			app.NotFoundResponse(w, r)
+			return
+		}
+	}
+	app.streamGlimtMedia(w, r, ref, albumID, albumMediaCacheControl(selector), plan, target.contentType)
+}
+
+// albumMediaTarget is what albumItemRef found besides the ref: what to call the bytes, and whether they are a
+// video rendition the worker owns.
+type albumMediaTarget struct {
+	contentType string
+	video       bool
+	photoID     string
 }
 
 // albumItemRef resolves an album id and ordinal to the blob ref for the requested variant.
@@ -765,10 +786,11 @@ func albumMediaCacheControl(selector string) string {
 // ordinals are short decimal numbers and a ref is a hash, so the two cannot be confused.
 func (app *application) albumItemRef(
 	albumID string, selector string, variant string,
-) (blob.Ref, renditionRepair, bool, error) {
+) (blob.Ref, renditionRepair, albumMediaTarget, bool, error) {
+	none := albumMediaTarget{}
 	published, err := app.models.Albums.Published(app.config.eventYear)
 	if err != nil {
-		return "", renditionRepair{}, false, err
+		return "", renditionRepair{}, none, false, err
 	}
 
 	slug := ""
@@ -779,12 +801,12 @@ func (app *application) albumItemRef(
 		}
 	}
 	if slug == "" {
-		return "", renditionRepair{}, false, nil
+		return "", renditionRepair{}, none, false, nil
 	}
 
 	_, items, found, err := app.models.Albums.BySlug(app.config.eventYear, slug)
 	if err != nil || !found {
-		return "", renditionRepair{}, false, err
+		return "", renditionRepair{}, none, false, err
 	}
 
 	for _, it := range items {
@@ -798,6 +820,17 @@ func (app *application) albumItemRef(
 		// the display image, which is correct rather than degraded.
 		ref := it.Ref
 		edge := 0
+		target := albumMediaTarget{contentType: "image/jpeg", photoID: it.PhotoID}
+		if it.Kind == "video" {
+			// For a video, Ref is the 720p MP4 and `sd` the 480p one where the clip has it (PRD 029). thumb and
+			// medium are the poster, a JPEG like any photograph's, and fall through to the switch below.
+			if variant != "thumb" && variant != "medium" {
+				target.contentType, target.video = "video/mp4", true
+				if variant == "sd" && it.SdRef != "" {
+					ref = it.SdRef
+				}
+			}
+		}
 		switch variant {
 		case "thumb":
 			if it.ThumbRef != "" {
@@ -812,7 +845,7 @@ func (app *application) albumItemRef(
 		if !r.Valid() {
 			// Not a hash, so not something this store put there. Refused rather than passed to the
 			// blob store, which is the one place a bad ref could become a filesystem path.
-			return "", renditionRepair{}, false, nil
+			return "", renditionRepair{}, none, false, nil
 		}
 
 		// The repair plan (task 430), only when a **derived** rendition is being served — `edge` is non-zero
@@ -835,9 +868,9 @@ func (app *application) albumItemRef(
 				}
 			}
 		}
-		return r, plan, true, nil
+		return r, plan, target, true, nil
 	}
-	return "", renditionRepair{}, false, nil
+	return "", renditionRepair{}, none, false, nil
 }
 
 // frontpageAlbums reads the album summaries the frontpage lists.
