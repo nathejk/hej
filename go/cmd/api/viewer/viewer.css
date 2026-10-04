@@ -118,6 +118,46 @@
   display: block;
 }
 
+/* The video player (PRD 029, task 499). Sized like the photograph, and only one of the two is ever shown. */
+.hv-video {
+  display: none;
+  max-width: 100%;
+  max-height: 100%;
+  background: #000;
+}
+
+.hv.is-video .hv-video {
+  display: block;
+}
+
+.hv.is-video .hv-img {
+  display: none;
+}
+
+.hv.is-video.is-missing .hv-video {
+  display: none;
+}
+
+/* Above the native controls, centred, and large enough to hit with a thumb. */
+.hv-unmute {
+  position: absolute;
+  left: 50%;
+  bottom: 4.5rem;
+  transform: translateX(-50%);
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(24, 24, 27, 0.85);
+  color: #fafafa;
+  font: inherit;
+  cursor: pointer;
+}
+
+.hv-unmute[hidden] {
+  display: none;
+}
+
 /* Hidden until an image fails, and then it replaces the photograph rather than sitting under a broken icon.
    A photograph can disappear between the page loading and a visitor reaching it — that is what a takedown
    does — so this is an ordinary state, not an error. */

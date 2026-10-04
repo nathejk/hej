@@ -118,6 +118,26 @@
     // read the same sentence twice.
     img.alt = '';
 
+    // The player for a library video (PRD 029, task 499). One element for the whole album, like the <img>: it is
+    // pointed at each video as the visitor reaches it and emptied when they leave, so only the item on screen ever
+    // plays or downloads. Native controls, because they are the seek bar, the time and the fullscreen every
+    // visitor already knows, and they are keyboard- and screen-reader-operable without our help.
+    var video = document.createElement('video');
+    video.className = 'hv-video';
+    video.controls = true;
+    video.playsInline = true;
+    // iOS reads the attribute, not the property, in older versions; without it a video opens fullscreen.
+    video.setAttribute('playsinline', '');
+    video.preload = 'metadata';
+
+    // Shown while a video plays muted — every video reached by swiping, and any the browser would only autoplay
+    // silently. The native mute control does the same thing; this one is large, labelled and impossible to miss.
+    var unmute = document.createElement('button');
+    unmute.type = 'button';
+    unmute.className = 'hv-unmute';
+    unmute.textContent = 'Slå lyd til';
+    unmute.hidden = true;
+
     var missing = document.createElement('p');
     missing.className = 'hv-missing';
     missing.textContent = 'Billedet er ikke tilgængeligt.';
@@ -134,6 +154,8 @@
     stage.appendChild(bar);
     stage.appendChild(prev);
     stage.appendChild(img);
+    stage.appendChild(video);
+    stage.appendChild(unmute);
     stage.appendChild(missing);
     stage.appendChild(next);
     // **The info panel lives over the photograph, not under it** (task 416).
@@ -152,6 +174,14 @@
       frame: frame,
       stage: stage,
       img: img,
+      video: video,
+      unmute: unmute,
+      // Whether the next video shown may play with sound because a click or tap opened the viewer on it, and
+      // whether the visitor has chosen sound for the rest of this viewing (PRD 029 §6).
+      gesture: false,
+      soundOn: false,
+      // Set while *we* change `muted`, so the volumechange that follows is not mistaken for the visitor's choice.
+      settingMute: false,
       bar: bar,
       info: info,
       strip: strip,
@@ -187,6 +217,37 @@
       // visitor reaching it. Say so, and let the arrows keep working.
       dialog.classList.remove('is-loading');
       dialog.classList.add('is-missing');
+    });
+
+    video.addEventListener('loadeddata', function () {
+      dialog.classList.remove('is-loading');
+      dialog.classList.remove('is-missing');
+      prefetchAround(ui.index);
+    });
+    video.addEventListener('error', function () {
+      // Only while a video is what is on screen: emptying the element on the way out raises an error too.
+      if (!dialog.classList.contains('is-video') || !video.getAttribute('src')) return;
+      dialog.classList.remove('is-loading');
+      dialog.classList.add('is-missing');
+    });
+    video.addEventListener('volumechange', function () {
+      if (ui.settingMute) {
+        ui.settingMute = false;
+        return;
+      }
+      // The visitor used the native control. Their choice holds for every video after this one.
+      ui.soundOn = !video.muted;
+      paintUnmute();
+    });
+    unmute.addEventListener('click', function () {
+      setMuted(false);
+      ui.soundOn = true;
+      paintUnmute();
+      // The button hides itself, and a hidden element cannot keep the focus: it would fall to <body>, outside the
+      // dialog, and every key after it — Space, the arrows, Esc — would stop reaching the viewer. Close is where
+      // the focus starts on open, so it goes back there.
+      var close = ui.bar.querySelector('.hv-close');
+      if (close) close.focus();
     });
 
     dialog.addEventListener('keydown', onKeydown);
@@ -231,6 +292,10 @@
         permalink: node.getAttribute('data-viewer-permalink') || '',
         id: node.getAttribute('data-viewer-id') || '',
         deleted: node.getAttribute('data-viewer-deleted') === 'true',
+        // A video (PRD 029): `full` is then its 720p MP4, `sd` its 480p one or "", and thumb/medium its poster.
+        kind: node.getAttribute('data-kind') === 'video' ? 'video' : 'photo',
+        sd: node.getAttribute('data-sd') || '',
+        durationMs: parseInt(node.getAttribute('data-duration-ms') || '0', 10) || 0,
       });
     }
     return out;
@@ -260,7 +325,11 @@
   // The one place a plain image URL is chosen: the display image, or the thumbnail if a photograph somehow has
   // no display rendition. This is what a browser that ignores `srcset` ends up with, and what the filmstrip
   // falls back to.
+  //
+  // **For a video it is the poster, never `full`.** `full` is then an MP4 of up to a few hundred megabytes, and this
+  // function feeds the prefetch and the filmstrip, which would otherwise download clips nobody opened.
   function pictureFor(item) {
+    if (item.kind === 'video') return item.medium || item.thumb;
     return item.full || item.thumb;
   }
 
@@ -310,7 +379,19 @@
     var item = state.items[index];
     state.dialog.classList.add('is-loading');
     state.dialog.classList.remove('is-missing');
-    applyPicture(state.img, item);
+    // Whatever was playing stops before anything else is shown: only the item on screen plays (PRD 029 §6).
+    stopVideo();
+    var isVideo = item.kind === 'video';
+    state.dialog.classList.toggle('is-video', isVideo);
+    if (isVideo) {
+      state.img.removeAttribute('srcset');
+      state.img.removeAttribute('src');
+      playVideo(item);
+    } else {
+      applyPicture(state.img, item);
+    }
+    var missing = state.stage.querySelector('.hv-missing');
+    if (missing) missing.textContent = isVideo ? 'Videoen er ikke tilgængelig lige nu.' : 'Billedet er ikke tilgængeligt.';
 
     state.info.innerHTML = '';
     if (item.caption) {
@@ -362,6 +443,112 @@
 
   function move(delta) {
     show(ui.index + delta);
+  }
+
+  // --- video (PRD 029, task 499) ---------------------------------------------
+
+  // Clips this short loop, like a live photo; longer ones stop on their last frame (PRD 029 §11 Q4).
+  var LOOP_MS = 15000;
+  // How far Shift+arrow and J/L seek.
+  var SEEK_S = 10;
+
+  function setMuted(muted) {
+    var v = ui.video;
+    if (v.muted === muted) return;
+    ui.settingMute = true;
+    v.muted = muted;
+  }
+
+  function paintUnmute() {
+    ui.unmute.hidden = !ui.dialog.classList.contains('is-video') || !ui.video.muted;
+  }
+
+  // playVideo points the player at a video and starts it.
+  //
+  // # The sound rule
+  //
+  // **With sound when a click or tap opened the viewer on this video**, because that click is the user gesture
+  // browsers require before they allow sound, and a visitor who chose a video expects to hear it. **Muted when the
+  // visitor swiped or arrowed onto it**: a swipe may not count as that gesture, and a clip blaring out mid-browse is
+  // the thing that makes people close a page. Once they unmute, sound stays on for the rest of this viewing.
+  //
+  // If the browser refuses sound anyway it is retried muted, and if it refuses even that (iOS Low Power Mode, data
+  // saver) the native controls show the poster with a play button — which is the honest state, not a failure.
+  function playVideo(item) {
+    var v = ui.video;
+    var withSound = ui.soundOn || ui.gesture;
+    // The gesture belongs to the item it opened, not to whatever comes next.
+    ui.gesture = false;
+
+    v.poster = item.medium || item.thumb || '';
+    v.loop = item.durationMs > 0 && item.durationMs <= LOOP_MS;
+    setMuted(!withSound);
+    v.src = item.full;
+    var started = v.play();
+    if (started && typeof started.catch === 'function') {
+      started.catch(function () {
+        if (!v.muted) {
+          setMuted(true);
+          paintUnmute();
+          var again = v.play();
+          if (again && typeof again.catch === 'function') again.catch(function () {});
+        }
+      });
+    }
+    paintUnmute();
+  }
+
+  // stopVideo stops the player and lets go of the file, so a clip left behind does not keep downloading.
+  function stopVideo() {
+    var v = ui.video;
+    if (!v.getAttribute('src')) return;
+    v.pause();
+    v.removeAttribute('src');
+    v.removeAttribute('poster');
+    // `load()` with no source is what actually aborts the network request; removing the attribute alone does not.
+    v.load();
+    ui.unmute.hidden = true;
+  }
+
+  // onVideoKey handles the player's keys, and reports whether it did.
+  //
+  // Space plays and pauses; M mutes. **Seeking is Shift+←/→ (and J/L), not the bare arrows**: the bare arrows
+  // already move between photographs, and a visitor arrowing through an album would otherwise be trapped inside
+  // the first video. Nothing here fires while the focus is in a text field — the curator's caption editor sits in
+  // this dialog.
+  function onVideoKey(event) {
+    var item = ui.items[ui.index];
+    if (!item || item.kind !== 'video') return false;
+    var t = event.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) {
+      return false;
+    }
+    var v = ui.video;
+    var key = event.key;
+    if (key === ' ' || key === 'Spacebar') {
+      if (v.paused) {
+        var p = v.play();
+        if (p && typeof p.catch === 'function') p.catch(function () {});
+      } else {
+        v.pause();
+      }
+      return true;
+    }
+    if (key === 'm' || key === 'M') {
+      setMuted(!v.muted);
+      ui.soundOn = !v.muted;
+      paintUnmute();
+      return true;
+    }
+    var back = key === 'j' || key === 'J' || (event.shiftKey && key === 'ArrowLeft');
+    var fwd = key === 'l' || key === 'L' || (event.shiftKey && key === 'ArrowRight');
+    if (back || fwd) {
+      var to = (v.currentTime || 0) + (fwd ? SEEK_S : -SEEK_S);
+      if (isFinite(v.duration)) to = Math.min(to, v.duration);
+      v.currentTime = Math.max(0, to);
+      return true;
+    }
+    return false;
   }
 
   function markStrip(index) {
@@ -557,6 +744,11 @@
   }
 
   function onKeydown(event) {
+    if (onVideoKey(event)) {
+      // Space would otherwise press whichever button has the focus — on open, that is Close.
+      event.preventDefault();
+      return;
+    }
     switch (event.key) {
       case 'ArrowLeft':
         event.preventDefault();
@@ -601,6 +793,12 @@
       'pointerdown',
       function (event) {
         if (event.pointerType === 'mouse') return;
+        // A drag along the bottom of a video is the seek bar, not a swipe (PRD 029 §7): changing item mid-scrub
+        // would throw the visitor out of the clip they were trying to find a moment in.
+        if (event.target === ui.video) {
+          var rect = ui.video.getBoundingClientRect();
+          if (event.clientY > rect.bottom - 64) return;
+        }
         tracking = true;
         startX = event.clientX;
         startY = event.clientY;
@@ -672,8 +870,12 @@
     return el;
   }
 
-  function open(container, index) {
+  // `byGesture` says a click or tap opened it, which is what allows a video to start with sound (see playVideo).
+  // The admin tool's "Vis stort" is a click too, so the public API treats a missing argument as true.
+  function open(container, index, byGesture) {
     build();
+    ui.gesture = byGesture !== false;
+    ui.soundOn = false;
 
     ui.items = itemsIn(container);
     if (!ui.items.length) return;
@@ -724,6 +926,8 @@
   function onClose() {
     unlockScroll();
     ui.img.removeAttribute('src');
+    stopVideo();
+    ui.dialog.classList.remove('is-video');
 
     // The strip's observer goes with the strip's contents. Left connected it would keep every thumbnail <img>
     // of the album alive for as long as the page lives, which the admin tool would accumulate one album at a
@@ -817,7 +1021,7 @@
       if (index < 0) return;
 
       event.preventDefault();
-      open(container, index);
+      open(container, index, true);
     });
   }
 
@@ -844,7 +1048,8 @@
       var items = itemsIn(container);
       for (var j = 0; j < items.length; j++) {
         if (items[j].ordinal === wanted) {
-          open(container, j);
+          // A link someone sent is not a gesture on this page: a video opened from one starts muted.
+          open(container, j, false);
           // Opened from the address rather than from a click. The address already names this photograph, so
           // moving replaces rather than pushes — but **nothing of ours is in the history**, so closing must take
           // the parameter out in place rather than pressing back. Those are two different flags for a reason;
@@ -1145,7 +1350,9 @@
     // is fine here in a way it was not fine for the permalink (task 447): nobody resolves a filename. It is also the
     // number the visitor can see on the page, so two saved files are told apart the way they were seen.
     var n = ctx.item.ordinal;
-    return n ? base + '-' + n + '.jpg' : base + '.jpg';
+    // A video saves as the MP4 it is (PRD 029).
+    var ext = ctx.item.kind === 'video' ? '.mp4' : '.jpg';
+    return n ? base + '-' + n + ext : base + ext;
   }
 
   // Registered unconditionally, unlike share: there is no capability to feature-detect. An `<a download>` works
