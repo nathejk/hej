@@ -488,3 +488,46 @@ func (app *application) notifyVideoWorker() {
 	default:
 	}
 }
+
+// retryVideoHandler puts a failed video back in the transcode queue.
+//
+// @Summary      Retry a failed video transcode
+// @Description  Returns a video whose transcode failed to `processing` and wakes the worker. Only a failed video can be retried: one that is processing is already queued, and one that is ready has nothing to redo. Requires the admin credential.
+// @Tags         admin
+// @Produce      json
+// @Param        photoId  path  string  true  "the video's id"
+// @Success      202      "queued"
+// @Failure      400      {object}  map[string]string  "no working year, or one the tool does not know (X-Admin-Year)"
+// @Failure      401      "missing or wrong admin credential — a plain-text body with a WWW-Authenticate challenge, not the JSON envelope"
+// @Failure      421      "the tool was reached over plain HTTP, so the credential in the request is refused unread"
+// @Failure      404      {object}  map[string]string  "no such video"
+// @Failure      409      {object}  map[string]string  "the video has not failed"
+// @Failure      500      {object}  map[string]string
+// @Failure      503      {object}  map[string]string  "the library or the event stream are unavailable"
+// @Router       /admin/videos/retry/{photoId} [post]
+func (app *application) retryVideoHandler(w http.ResponseWriter, r *http.Request) {
+	if app.models.PhotoCurator == nil {
+		app.ServiceUnavailableResponse(w, r, "billedarkivet er ikke tilgængeligt lige nu")
+		return
+	}
+	photoID := strings.TrimSpace(httprouter.ParamsFromContext(r.Context()).ByName("photoId"))
+	p, found, err := app.models.PhotoCurator.Photo(adminYear(r), photoID)
+	if err != nil {
+		app.ServerErrorResponse(w, r, err)
+		return
+	}
+	if !found || p.Deleted || p.Kind != "video" {
+		app.NotFoundResponse(w, r)
+		return
+	}
+	if p.Status != "failed" {
+		app.ConflictResponse(w, r, "videoen er ikke fejlet")
+		return
+	}
+	if err := app.requeueVideo(adminYear(r), photoID); err != nil {
+		app.writeAlbumPublishFailure(w, r, err)
+		return
+	}
+	app.Logger.Info("admin retried a video transcode", "photoId", photoID, "ip", clientIP(r))
+	w.WriteHeader(http.StatusAccepted)
+}

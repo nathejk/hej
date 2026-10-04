@@ -552,6 +552,9 @@ func (c *stubPhotoCurator) MissingMedium(string, int) ([]photo.LibraryPhoto, err
 	return nil, c.err
 }
 
+// ProcessingVideos: the same reasoning, for PRD 029's worker read.
+func (c *stubPhotoCurator) ProcessingVideos(int) ([]photo.PendingVideo, error) { return nil, c.err }
+
 // The end of a batch waits for the ids it was given, then says what happened (tasks 437, 438, 439).
 //
 // # Why this is worth a guard at all

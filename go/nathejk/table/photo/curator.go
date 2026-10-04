@@ -66,6 +66,10 @@ type CuratorQueries interface {
 	// through the upload path anyway.
 	MissingMedium(year string, limit int) ([]LibraryPhoto, error)
 
+	// ProcessingVideos returns live videos waiting for the transcode worker, oldest first, across every year
+	// (PRD 029, task 495). Across years because the worker serves the whole library, not one curator's page.
+	ProcessingVideos(limit int) ([]PendingVideo, error)
+
 	// Tags returns the patrols a photograph is attributed to.
 	//
 	// Returns the id and the number only. The patrol's **name** is deliberately not joined here: the
@@ -528,6 +532,40 @@ func (q curatorQuerier) Photo(year, photoID string) (LibraryPhoto, bool, error) 
 		return LibraryPhoto{}, false, err
 	}
 	return p, true, rows.Err()
+}
+
+// PendingVideo is one video the transcode worker has to process.
+type PendingVideo struct {
+	Year        string
+	PhotoID     string
+	OriginalRef string
+	DurationMs  int
+}
+
+// ProcessingVideos returns live videos in `processing`, oldest first. See CuratorQueries.
+func (q curatorQuerier) ProcessingVideos(limit int) ([]PendingVideo, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := q.db.Query(`
+		SELECT year, photoId, originalRef, durationMs
+		FROM photo
+		WHERE kind = "video" AND status = "processing" AND deleted = 0 AND originalRef <> ""
+		ORDER BY uploadedAt
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PendingVideo
+	for rows.Next() {
+		var v PendingVideo
+		if err := rows.Scan(&v.Year, &v.PhotoID, &v.OriginalRef, &v.DurationMs); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
 }
 
 // MissingMedium returns live photographs with no 800px rendition, oldest first. See CuratorQueries.

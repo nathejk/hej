@@ -310,6 +310,8 @@ func (app *application) routes() http.Handler {
 		router.HandlerFunc(http.MethodGet, "/api/admin/videos/uploads/:uploadId", app.requireAdmin(app.requireAdminYear(app.showVideoUploadHandler)))
 		router.HandlerFunc(http.MethodPut, "/api/admin/videos/uploads/:uploadId", app.requireAdmin(app.requireAdminYear(app.putVideoChunkHandler)))
 		router.HandlerFunc(http.MethodPost, "/api/admin/videos/uploads/:uploadId/complete", app.requireAdmin(app.requireAdminYear(app.completeVideoUploadHandler)))
+		// A failed transcode, tried again (task 495).
+		router.HandlerFunc(http.MethodPost, "/api/admin/videos/retry/:photoId", app.requireAdmin(app.requireAdminYear(app.retryVideoHandler)))
 		// The contact sheet's reads (task 374). Both go through the **curator** interface, so drafts and
 		// deleted rows are reachable here and structurally unreachable from anything public (PRD 022 §8.8).
 		//

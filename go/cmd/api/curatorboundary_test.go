@@ -40,6 +40,9 @@ var adminOwnedFiles = map[string]bool{
 	// The video upload (PRD 029, task 494). Same read for the same reason as the photograph upload: a clip a
 	// curator deleted must not be restored by uploading it again.
 	"adminvideoupload.go": true,
+	// The video transcode worker (task 495). Reads `PhotoCurator.ProcessingVideos`, the queue, and answers no
+	// request: it is a goroutine, so nothing it reads can reach a public response.
+	"videoworker.go": true,
 	// The contact sheet's list and media reads. The **whole point** of it being on the curator interface: it
 	// returns photographs no album references, and on request deleted ones, which is exactly what a public read
 	// must never do. Its media handler also resolves an id through this read rather than handing it to the blob

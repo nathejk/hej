@@ -253,6 +253,8 @@ type application struct {
 	// videoProbe reads an uploaded video's container (PRD 029). nil means `video.Probe`, i.e. ffprobe; tests set a
 	// fake so they need no binary.
 	videoProbe video.Prober
+	// videoRunner runs ffmpeg for the transcode worker. nil means `video.ExecRunner`.
+	videoRunner video.Runner
 
 	// videoWake nudges the transcode worker after an upload or a retry (task 495). nil when no worker runs, which
 	// is every test app and any process without a blob store that can hold files.
@@ -1000,6 +1002,9 @@ func run(logger *slog.Logger) error {
 	// this sweep enforces `glimtRetention` only — `glimtPublicRetention` is a read-time cutoff in
 	// the public feed, not a job.
 	app.runGlimtPurge(ctx, 6*time.Hour, logger)
+	// The video transcode worker (PRD 029, task 495). A goroutine here rather than a second binary, per PRD 029
+	// §11 Q6 and the same convention as the purges above.
+	app.startVideoWorker(ctx, logger)
 
 	return app.Serve(app.routes(), cfg.port)
 }

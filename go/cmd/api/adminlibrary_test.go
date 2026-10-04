@@ -54,6 +54,21 @@ func (c *libraryCurator) Counts(string) (photo.Counts, error) {
 	return c.counts, nil
 }
 
+// ProcessingVideos returns the seeded live videos in processing (PRD 029). The stub has no year column, so the
+// year is the test suite's.
+func (c *libraryCurator) ProcessingVideos(limit int) ([]photo.PendingVideo, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	var out []photo.PendingVideo
+	for _, p := range c.rows {
+		if len(out) < limit && p.Kind == "video" && p.Status == "processing" && !p.Deleted && p.OriginalRef != "" {
+			out = append(out, photo.PendingVideo{Year: "2026", PhotoID: p.ID, OriginalRef: p.OriginalRef, DurationMs: p.DurationMs})
+		}
+	}
+	return out, nil
+}
+
 // MissingMedium returns the seeded rows that have no 800px rendition, honouring the limit (task 433).
 //
 // Filtered here rather than returned wholesale so a test can seed a mix and assert the backfill only touches

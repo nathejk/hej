@@ -59,6 +59,10 @@ var adminFilesPermittedAnOriginal = map[string]bool{
 	"albummedia.go": true,
 	// The upload endpoint, which publishes the ref on `photo.Uploaded` (R2).
 	"adminupload.go": true,
+	// The video transcode worker (PRD 029, task 495). Reads a video's original to encode it, and never serves it:
+	// what it publishes are the renditions, re-encoded with `-map_metadata -1`. Not behind `requireAdmin` because it
+	// is not a route at all; nothing outside the process can reach it.
+	"videoworker.go": true,
 	// The admin media route, which serves `variant=original` as a deliberate single-photograph download (R6).
 	// Behind `requireAdmin`, with no rendition-repair plan: an original cannot be rebuilt.
 	"adminlibrary.go": true,
