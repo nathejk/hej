@@ -658,9 +658,9 @@ func run(logger *slog.Logger) error {
 			// The diploma albums' boot run waits for the four projections it reads to have replayed. Without all
 			// four there is nothing to file, and the reactor is not registered.
 			fileDiplomas := patrolPhotos != nil && photos != nil && albums != nil && publicPatrols != nil
-			awaited := func(c cqrs.Consumer) cqrs.Consumer {
+			awaited := func(name string, c cqrs.Consumer) cqrs.Consumer {
 				if fileDiplomas {
-					return diplomaAlbums.awaitCatchup(c)
+					return diplomaAlbums.awaitCatchup(name, c)
 				}
 				return c
 			}
@@ -689,19 +689,19 @@ func run(logger *slog.Logger) error {
 				projections = append(projections, glimts)
 			}
 			if albums != nil {
-				projections = append(projections, awaited(albums))
+				projections = append(projections, awaited("album", albums))
 			}
 			if photos != nil {
-				projections = append(projections, awaited(photos))
+				projections = append(projections, awaited("photo", photos))
 			}
 			if publicPatrols != nil {
-				projections = append(projections, awaited(publicPatrols))
+				projections = append(projections, awaited("publicpatrol", publicPatrols))
 			}
 			if years != nil {
 				projections = append(projections, years)
 			}
 			if patrolPhotos != nil {
-				projections = append(projections, awaited(patrolPhotos))
+				projections = append(projections, awaited("patrolphoto", patrolPhotos))
 			}
 			if trackPoints != nil {
 				projections = append(projections, trackPoints)
@@ -714,6 +714,9 @@ func run(logger *slog.Logger) error {
 			}
 			if fileDiplomas {
 				projections = append(projections, diplomaAlbums)
+				// Every awaited projection is wrapped by now and none is subscribed yet, so the count the boot run
+				// waits on is final. See diplomaReactor.armed for why this has to be said rather than inferred.
+				diplomaAlbums.arm()
 			}
 
 			ev.registerProjections(logger, projections...)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -72,6 +73,11 @@ const (
 	// diplomaSyncDebounce is how long a live event waits for more before the run starts. Long enough to gather a
 	// camera's burst of uploads, and to let the projections fold the event that triggered it.
 	diplomaSyncDebounce = 5 * time.Second
+	// diplomaCatchupFallback is how long the boot run waits for the projections to report catching up before it
+	// runs anyway. A production boot on a clean database filed nothing and logged nothing, and the wait was the one
+	// step that could stall without a trace — so it may no longer stall at all. Running early costs at most a run
+	// that files part of the year; the next event or boot completes it.
+	diplomaCatchupFallback = 3 * time.Minute
 )
 
 // diplomaReactor runs the sync at boot and after the events that change which photograph a patrol has.
@@ -84,7 +90,22 @@ type diplomaReactor struct {
 
 	// pending counts the projections the sync reads that have not yet caught up. Zero means the boot run can go.
 	pending atomic.Int32
-	booted  sync.Once
+	// waiting names them, for the log: which projection a stalled boot is waiting for is the whole diagnosis.
+	waitMu  sync.Mutex
+	waiting map[string]bool
+	// forced is set when the fallback ran the boot sync without the catch-up; live events are then served too.
+	forced atomic.Bool
+	// armed is set once every awaited projection has been registered (`arm`).
+	//
+	// **Without it, pending == 0 is ambiguous**, and that ambiguity emptied the Start album in production. The broker
+	// connects in the background, so `setApp` routinely runs *before* any projection is awaited: pending is 0
+	// because nothing has registered yet, not because everything caught up. The boot run then fired against
+	// projections that had not replayed — harmless on a warm database, where the tables still hold last boot's rows,
+	// and a run with nothing to file on a clean one. The real catch-up then found the boot run already spent.
+	armed atomic.Bool
+	// bootRuns counts boot runs started: one, ever. Read by the tests.
+	bootRuns atomic.Int32
+	booted   sync.Once
 
 	// mu serialises runs and guards the debounce timers.
 	mu     sync.Mutex
@@ -93,7 +114,8 @@ type diplomaReactor struct {
 }
 
 func newDiplomaReactor(year string, logger *slog.Logger) *diplomaReactor {
-	return &diplomaReactor{started: time.Now(), year: year, logger: logger, timers: map[string]*time.Timer{}}
+	return &diplomaReactor{started: time.Now(), year: year, logger: logger, timers: map[string]*time.Timer{},
+		waiting: map[string]bool{}}
 }
 
 func (d *diplomaReactor) Consumes() []cqrs.Subject {
@@ -123,34 +145,88 @@ var _ cqrs.Consumer = (*diplomaReactor)(nil)
 //
 // The stream library reports catch-up per handler (`stream.CatchupListener`), and the projections themselves do not
 // listen for it, so the wrapper does.
-func (d *diplomaReactor) awaitCatchup(c cqrs.Consumer) cqrs.Consumer {
+func (d *diplomaReactor) awaitCatchup(name string, c cqrs.Consumer) cqrs.Consumer {
 	d.pending.Add(1)
+	d.waitMu.Lock()
+	d.waiting[name] = true
+	d.waitMu.Unlock()
 	return &catchupSignal{Consumer: c, done: func() {
-		if d.pending.Add(-1) == 0 {
+		d.waitMu.Lock()
+		delete(d.waiting, name)
+		d.waitMu.Unlock()
+		left := d.pending.Add(-1)
+		d.logger.Info("diploma albums: a projection has caught up", "projection", name, "stillWaitingFor", left)
+		if left == 0 {
 			d.ready()
 		}
 	}}
 }
 
-// setApp hands the reactor the application, which may arrive before or after the projections catch up.
-func (d *diplomaReactor) setApp(app *application) {
-	d.app.Store(app)
+// stillWaiting lists the projections that have not reported catching up.
+func (d *diplomaReactor) stillWaiting() []string {
+	d.waitMu.Lock()
+	defer d.waitMu.Unlock()
+	out := make([]string, 0, len(d.waiting))
+	for name := range d.waiting {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// arm records that every projection the boot run waits for has been registered. Called once, from the broker's
+// connect callback, after the awaited projections are wrapped and before they are subscribed.
+func (d *diplomaReactor) arm() {
+	d.armed.Store(true)
+	d.logger.Info("diploma albums: the boot run waits for the projections to catch up", "waitingFor", d.stillWaiting())
+	time.AfterFunc(diplomaCatchupFallback, d.fallback)
 	if d.pending.Load() == 0 {
 		d.ready()
 	}
 }
 
-// ready starts the boot run once both the application and the caught-up projections are there.
-func (d *diplomaReactor) ready() {
-	if d.app.Load() == nil {
+// setApp hands the reactor the application, which may arrive before or after the projections catch up.
+func (d *diplomaReactor) setApp(app *application) {
+	d.app.Store(app)
+	d.ready()
+}
+
+// fallback runs the boot sync if the catch-up has still not arrived, and says loudly which projection never
+// reported. See diplomaCatchupFallback.
+func (d *diplomaReactor) fallback() {
+	if d.pending.Load() == 0 {
 		return
 	}
-	d.booted.Do(func() { go d.sync(d.year) })
+	if d.app.Load() == nil {
+		// No application yet, so nothing could run; setApp will call ready, and this tries again.
+		time.AfterFunc(diplomaCatchupFallback, d.fallback)
+		return
+	}
+	d.logger.Warn("diploma albums: the projections did not report catching up; running the boot sync anyway",
+		"after", diplomaCatchupFallback, "stillWaitingFor", d.stillWaiting())
+	d.forced.Store(true)
+	d.booted.Do(func() {
+		d.bootRuns.Add(1)
+		go d.sync(d.year)
+	})
+}
+
+// ready starts the boot run once the application is there, the projections are registered, and all have caught up.
+// Called from each of those three events; only the last one to happen gets past the checks.
+func (d *diplomaReactor) ready() {
+	if d.app.Load() == nil || !d.armed.Load() || d.pending.Load() > 0 {
+		return
+	}
+	d.booted.Do(func() {
+		d.logger.Info("diploma albums: the projections have caught up; running the boot sync")
+		d.bootRuns.Add(1)
+		go d.sync(d.year)
+	})
 }
 
 // schedule runs the sync for a year once the events stop arriving for diplomaSyncDebounce.
 func (d *diplomaReactor) schedule(year string) {
-	if d.app.Load() == nil || d.pending.Load() > 0 {
+	if d.app.Load() == nil || ((!d.armed.Load() || d.pending.Load() > 0) && !d.forced.Load()) {
 		// Still booting; the boot run will see this event's effect.
 		return
 	}
@@ -184,14 +260,14 @@ func (d *diplomaReactor) sync(year string) {
 			"uploaded", res.Uploaded, "added", res.Added, "replaced", res.Replaced)
 		return
 	}
-	if res.changed() || res.Skipped > 0 {
-		// Skips alone are worth a line: a run that skipped every patrol because foto was unreachable otherwise
-		// looks exactly like a run with nothing to do.
-		d.logger.Info("filed the patrol photographs into albums", "year", year,
-			"uploaded", res.Uploaded, "renamed", res.Renamed, "tagged", res.Tagged, "added", res.Added,
-			"replaced", res.Replaced, "refusedRemoved", res.RefusedRemoved, "resorted", res.Resorted,
-			"skipped", res.Skipped)
-	}
+	// **Every run logs**, including one with nothing to do. It used to log only on a change or a skip, and that is
+	// how a production boot that filed nothing left no trace of whether it had run at all. `patrols` is what each
+	// type's read returned: zero there with photographs on the stream is its own diagnosis.
+	d.logger.Info("filed the patrol photographs into albums", "year", year,
+		"patrols", res.Patrols, "changed", res.changed(),
+		"uploaded", res.Uploaded, "renamed", res.Renamed, "tagged", res.Tagged, "added", res.Added,
+		"replaced", res.Replaced, "refusedRemoved", res.RefusedRemoved, "resorted", res.Resorted,
+		"skipped", res.Skipped)
 }
 
 // catchupSignal is a projection that also reports when it has replayed.
@@ -216,6 +292,8 @@ type diplomaSyncResult struct {
 	Resorted       int
 	// Skipped are patrols whose photograph could not be fetched, or was deleted from the library.
 	Skipped int
+	// Patrols is how many patrols each type's read returned ("start", "maal"), for the log.
+	Patrols map[string]int
 }
 
 func (r diplomaSyncResult) changed() bool {
@@ -259,6 +337,10 @@ func (app *application) syncDiplomaAlbum(ctx context.Context, year, typ, title, 
 	if err != nil {
 		return err
 	}
+	if res.Patrols == nil {
+		res.Patrols = map[string]int{}
+	}
+	res.Patrols[typ] = len(latest)
 	if len(latest) == 0 {
 		// Nothing of this type yet; no empty album is created for it.
 		return nil

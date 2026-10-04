@@ -84,3 +84,53 @@ func TestStartAndSlutHoldNoVideos(t *testing.T) {
 		t.Errorf("want only the filed video removed, got %v (published %v)", removed, pub.Subjects())
 	}
 }
+
+// A boot whose catch-up never arrives still runs, and from then on live events are served (task 504 follow-up: a
+// production boot on a clean database filed nothing and logged nothing).
+func TestTheDiplomaBootRunDoesNotWaitForever(t *testing.T) {
+	d := newDiplomaReactor("2026", quietLogger())
+	d.app.Store(&application{})
+	d.awaitCatchup("patrolphoto", &catchupSignal{})
+	d.armed.Store(true)
+	if got := d.stillWaiting(); len(got) != 1 || got[0] != "patrolphoto" {
+		t.Fatalf("stillWaiting = %v", got)
+	}
+	d.fallback()
+	if !d.forced.Load() {
+		t.Error("the fallback did not take over from the catch-up")
+	}
+	// The boot run was claimed by the fallback: a late catch-up must not start a second one.
+	ran := false
+	d.booted.Do(func() { ran = true })
+	if ran {
+		t.Error("the fallback did not claim the boot run")
+	}
+}
+
+// **The production bug.** The application arrives before the broker has registered anything, so "nothing pending"
+// at that moment means "nothing registered yet". The boot run must wait for arm, and then for every catch-up.
+func TestTheDiplomaBootRunWaitsForRegistrationAndCatchUp(t *testing.T) {
+	d := newDiplomaReactor("2026", quietLogger())
+	d.app.Store(&application{}) // no models: the run itself returns at once
+	d.ready()                   // setApp, before the broker connected
+	if d.bootRuns.Load() != 0 {
+		t.Fatal("the boot run fired before any projection was registered")
+	}
+
+	sig := d.awaitCatchup("patrolphoto", &catchupSignal{}).(*catchupSignal)
+	d.armed.Store(true) // what arm does, without its fallback timer
+	d.ready()
+	if d.bootRuns.Load() != 0 {
+		t.Fatal("the boot run fired before the projection caught up")
+	}
+
+	sig.CaughtUp()
+	if d.bootRuns.Load() != 1 {
+		t.Fatalf("want the boot run once the projection caught up, got %d runs", d.bootRuns.Load())
+	}
+	sig.CaughtUp()
+	d.ready()
+	if d.bootRuns.Load() != 1 {
+		t.Errorf("the boot run must happen once, got %d", d.bootRuns.Load())
+	}
+}
