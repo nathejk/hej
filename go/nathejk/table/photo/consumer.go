@@ -38,6 +38,10 @@ func (c consumer) Consumes() []cqrs.Subject {
 		cqrs.SubjectFromStr("PHOTO.*.photo.*.patroltagged"),
 		cqrs.SubjectFromStr("PHOTO.*.photo.*.patroluntagged"),
 		cqrs.SubjectFromStr("PHOTO.*.photo.*.deleted"),
+		cqrs.SubjectFromStr("PHOTO.*.photo.*.videouploaded"),
+		cqrs.SubjectFromStr("PHOTO.*.photo.*.videotranscoded"),
+		cqrs.SubjectFromStr("PHOTO.*.photo.*.videofailed"),
+		cqrs.SubjectFromStr("PHOTO.*.photo.*.videoqueued"),
 	}
 }
 
@@ -76,6 +80,14 @@ func (c consumer) handleMessage(msg cqrs.Message, subject cqrs.Subject) error {
 		return c.handleMediumAdded(msg, year)
 	case subject.Match("photo.*.photo.*.deleted"):
 		return c.handleDeleted(msg, year)
+	case subject.Match("photo.*.photo.*.videouploaded"):
+		return c.handleVideoUploaded(msg, year)
+	case subject.Match("photo.*.photo.*.videotranscoded"):
+		return c.handleVideoTranscoded(msg, year)
+	case subject.Match("photo.*.photo.*.videofailed"):
+		return c.handleVideoFailed(msg, year)
+	case subject.Match("photo.*.photo.*.videoqueued"):
+		return c.handleVideoQueued(msg, year)
 	}
 	return nil
 }
@@ -662,6 +674,11 @@ const (
 	VerbPatrolTagged    = "patroltagged"
 	VerbPatrolUntagged  = "patroluntagged"
 	VerbDeleted         = "deleted"
+	// The video verbs, PRD 029: see videoevents.go. No parentheses here, the verb guard reads to the first one.
+	VerbVideoUploaded   = "videouploaded"
+	VerbVideoTranscoded = "videotranscoded"
+	VerbVideoFailed     = "videofailed"
+	VerbVideoQueued     = "videoqueued"
 )
 
 var _ cqrs.Consumer = consumer{}
