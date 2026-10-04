@@ -841,6 +841,24 @@ func (app *application) albumItemRef(
 				if variant == "sd" && it.SdRef != "" {
 					ref = it.SdRef
 				}
+			} else {
+				// The poster's other size when this one is missing — **never the MP4**, which is what the photograph
+				// fallback below would serve, under an image/jpeg label, to a share card or an <img>.
+				poster, other := it.MediumRef, it.ThumbRef
+				if variant == "thumb" {
+					poster, other = it.ThumbRef, it.MediumRef
+				}
+				if poster == "" {
+					poster = other
+				}
+				if poster == "" {
+					return "", renditionRepair{}, none, false, nil
+				}
+				r := blob.Ref(poster)
+				if !r.Valid() {
+					return "", renditionRepair{}, none, false, nil
+				}
+				return r, renditionRepair{}, target, true, nil
 			}
 		}
 		switch variant {

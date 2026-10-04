@@ -149,3 +149,25 @@ func TestTheCountAndTheCoverSeeTheSamePhotographsAsThePage(t *testing.T) {
 		t.Errorf("want both subqueries to require a live photograph, found %d", got)
 	}
 }
+
+// Only ready items reach a public read (PRD 029, task 503): a video still transcoding, or one that failed, has
+// nothing a visitor can play.
+func TestPublicReadsServeOnlyReadyItems(t *testing.T) {
+	src, err := os.ReadFile("querier.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fn := range []string{"func (q querier) Published(", "func (q querier) items("} {
+		start := strings.Index(string(src), fn)
+		if start < 0 {
+			t.Fatalf("%s not found; this guard needs updating", fn)
+		}
+		body := string(src[start:])
+		if end := strings.Index(body[1:], "\nfunc "); end > 0 {
+			body = body[:end]
+		}
+		if !strings.Contains(body, `p.status = "ready"`) {
+			t.Errorf("%s does not filter on status, so a processing or failed video would be public", fn)
+		}
+	}
+}

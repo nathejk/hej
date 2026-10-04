@@ -126,3 +126,30 @@ func TestAlbumGridShowsAVideoAsItsPoster(t *testing.T) {
 		t.Error("the grid must not embed video: it would download clips nobody opened")
 	}
 }
+
+// A poster request never falls back to the MP4 (task 503): a share card or an <img> would get a video labelled JPEG.
+func TestAVideoPosterNeverFallsBackToTheMP4(t *testing.T) {
+	app, srv, hd, _ := videoAlbumApp(t)
+	store := app.models.Albums.(*albumStore)
+	it := &store.albums[len(store.albums)-1].items[0]
+
+	it.MediumRef = ""
+	resp, body := getPublic(t, srv.URL+"/api/public/albums/al-video/media/"+hd+"?variant=medium", nil)
+	if string(body) != "poster-thumb" || resp.Header.Get("Content-Type") != "image/jpeg" {
+		t.Errorf("medium with no medium poster should serve the thumb poster, got %q %s", body, resp.Header.Get("Content-Type"))
+	}
+	it.ThumbRef = ""
+	resp, _ = getPublic(t, srv.URL+"/api/public/albums/al-video/media/"+hd+"?variant=thumb", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("a video with no poster must answer 404 for a poster, got %d", resp.StatusCode)
+	}
+}
+
+// The share card of a video's permalink is its poster (task 503).
+func TestAVideoShareCardIsItsPoster(t *testing.T) {
+	_, srv, hd, _ := videoAlbumApp(t)
+	_, raw := getPublic(t, srv.URL+"/2026/album/film?foto=0", nil)
+	if !strings.Contains(string(raw), `/api/public/albums/al-video/media/`+hd+`?variant=medium`) {
+		t.Error("the share card should point at the video's medium poster")
+	}
+}

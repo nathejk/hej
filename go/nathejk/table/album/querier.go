@@ -198,13 +198,13 @@ func (q querier) Published(year string) ([]Album, error) {
 		SELECT a.albumId, a.slug, a.title, a.description, a.sortOrder,
 		       (SELECT COUNT(*) FROM album_item i
 		         JOIN photo p ON p.photoId = i.photoId
-		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0) AS itemCount,
+		         WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0 AND p.status = "ready") AS itemCount,
 		       cp.blobRef, cp.mediumRef
 		FROM album a
 		LEFT JOIN photo cp ON cp.photoId = (
 		         SELECT i.photoId FROM album_item i
 		           JOIN photo p ON p.photoId = i.photoId
-		           WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0
+		           WHERE i.albumId = a.albumId AND i.deleted = 0 AND p.deleted = 0 AND p.status = "ready"
 		           ORDER BY `+coverOrder+` LIMIT 1)
 		WHERE a.year = ? AND a.deleted = 0 AND a.published = 1
 		ORDER BY a.sortOrder ASC, a.albumId ASC`, year)
@@ -276,6 +276,11 @@ func (q querier) BySlug(year, slug string) (Album, []Item, bool, error) {
 
 // items returns one album's live items, in curator order.
 //
+// **Only `status = "ready"`** (PRD 029, task 503), here and in every public read in this file: a video is in the
+// library from the moment it is uploaded, but has nothing playable until the transcode worker has run, and a
+// failed one never will. A photograph is always ready. The curator's reads (curator.go) see every status, which
+// is how a curator finds a failed clip to retry.
+//
 // The join to `photo` is inner and requires the photograph to be live, which is what makes a deleted
 // photograph disappear from this album without anything having told the album so. An item whose
 // photograph has not been folded yet behaves identically — invisible rather than a row with nothing in it
@@ -288,7 +293,7 @@ func (q querier) items(albumID string) ([]Item, error) {
 		       p.kind, p.status, p.durationMs, p.videoSdRef
 		FROM album_item i
 		JOIN photo p ON p.photoId = i.photoId
-		WHERE i.albumId = ? AND i.deleted = 0 AND p.deleted = 0
+		WHERE i.albumId = ? AND i.deleted = 0 AND p.deleted = 0 AND p.status = "ready"
 		ORDER BY i.ordinal ASC`, albumID)
 	if err != nil {
 		return nil, err
