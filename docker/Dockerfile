@@ -20,7 +20,7 @@
 # `go tool`, so nothing extra is installed here.
 FROM golang:1.25 AS api-dev
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends inotify-tools \
+    && apt-get install -y --no-install-recommends inotify-tools ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 ENV GOCACHE=/go/.cache/go-build
 WORKDIR /app
@@ -109,7 +109,12 @@ RUN sh scripts/check-no-dev-layer.sh dist
 FROM alpine:3.20 AS prod
 ARG BUILD_VERSION=dev
 ENV SENTRY_RELEASE=${BUILD_VERSION}
-RUN apk add --no-cache ca-certificates tzdata
+# ffmpeg/ffprobe for the video transcode worker (PRD 029, task 491). The alpine
+# package adds ~111 MB; the static build (mwader/static-ffmpeg) was measured at
+# ~208 MB for the two binaries, so the package wins despite its shared libs.
+# api-dev installs Debian's ffmpeg: a different version, so the worker must only
+# use options both support (libx264, aac, scale, -movflags +faststart).
+RUN apk add --no-cache ca-certificates tzdata ffmpeg
 COPY --from=build /hej-api /hej-api
 COPY --from=ui-builder /app/dist /www
 ENV ENV=production
