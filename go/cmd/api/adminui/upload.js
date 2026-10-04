@@ -198,6 +198,7 @@ function initUpload(ctx) {
   // --- one file -------------------------------------------------------------
 
   async function upload(job) {
+    if (isVideo(job.file)) return uploadVideo(job);
     const body = new FormData();
     body.append('photo', job.file);
 
@@ -234,7 +235,7 @@ function initUpload(ctx) {
     if (id && (what === 'stored' || what === 'already')) batch.file.push(id);
   }
 
-  function applyOutcome(li, out) {
+  function applyOutcome(li, out, storedLabel) {
     // A response we cannot read is not a success we should claim. The id is required on every outcome, not only
     // the stored one: it is the contract of this endpoint (`adminUploadResponse`) and it is what the wait at the
     // end of the batch is built on.
@@ -255,7 +256,124 @@ function initUpload(ctx) {
     // The id the server just generated from the bytes. Waited for below, because getting it back from a *read* is
     // what proves the event has been through the stream and into the projection.
     tally('stored', out.photoId);
-    finishRow(li, 'ok', '', out, 'Lagt op');
+    finishRow(li, 'ok', '', out, storedLabel || 'Lagt op');
+  }
+
+  // --- one video (PRD 029, task 497) -----------------------------------------
+  //
+  // # Chunks, not one request
+  //
+  // A clip is up to 4 GB and a camp's uplink drops. So a video goes up through a server-side session in 8 MiB
+  // chunks (`adminvideoupload.go`): a dropped chunk is retried from the offset the server reports, with back-off,
+  // and the row shows a percentage rather than a spinner for twenty minutes.
+  //
+  // The session id is remembered in localStorage against the file's name, size and date, so dragging the same clip
+  // in again after a closed laptop continues where it stopped instead of starting over. The server forgets a session
+  // after 24 hours; a stale id answers 404 and the upload simply starts fresh.
+
+  const VIDEO_NAME = /\.(mov|mp4|m4v|webm|avi|mts|m2ts|3gp|mkv)$/i;
+  function isVideo(file) {
+    return (file.type && file.type.startsWith('video/')) || VIDEO_NAME.test(file.name || '');
+  }
+
+  function sessionKey(file) {
+    return 'hej-video-upload:' + file.name + ':' + file.size + ':' + (file.lastModified || 0);
+  }
+
+  const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
+  async function videoSession(file) {
+    const key = sessionKey(file);
+    const remembered = localStorage.getItem(key);
+    if (remembered) {
+      try {
+        const res = await ctx.fetch('/api/admin/videos/uploads/' + encodeURIComponent(remembered));
+        if (res.ok) {
+          const s = await res.json();
+          return { id: s.uploadId, offset: s.offset, chunk: s.chunkSize };
+        }
+      } catch (_) { /* start a new one below */ }
+      localStorage.removeItem(key);
+    }
+    const res = await ctx.fetch('/api/admin/videos/uploads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName: file.name, size: file.size }),
+    });
+    const s = await res.json().catch(() => null);
+    if (!res.ok) return { error: (s && (s.error || s.message)) || videoReason(res.status) };
+    localStorage.setItem(key, s.uploadId);
+    return { id: s.uploadId, offset: 0, chunk: s.chunkSize };
+  }
+
+  async function uploadVideo(job) {
+    const file = job.file;
+    const state = job.li.querySelector('.state');
+    try {
+      const session = await videoSession(file);
+      if (session.error) { tally('failed'); finishRow(job.li, 'err', session.error); return; }
+      const url = '/api/admin/videos/uploads/' + encodeURIComponent(session.id);
+      const chunk = session.chunk || (8 << 20);
+      let offset = session.offset;
+      let failures = 0;
+
+      while (offset < file.size) {
+        state.textContent = 'Uploader video… ' + Math.floor((offset * 100) / file.size) + ' %';
+        const end = Math.min(offset + chunk, file.size);
+        try {
+          const res = await ctx.fetch(url, {
+            method: 'PUT',
+            headers: { 'Content-Range': 'bytes ' + offset + '-' + (end - 1) + '/' + file.size,
+                       'Content-Type': 'application/octet-stream' },
+            body: file.slice(offset, end),
+          });
+          const s = await res.json().catch(() => null);
+          // 409 is the server saying where it actually is — after a chunk whose response was lost, say.
+          if ((res.ok || res.status === 409) && s) { offset = s.offset; failures = 0; continue; }
+          if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+            localStorage.removeItem(sessionKey(file));
+            tally('failed');
+            finishRow(job.li, 'err', (s && (s.error || s.message)) || videoReason(res.status));
+            return;
+          }
+          throw new Error('HTTP ' + res.status);
+        } catch (err) {
+          if (++failures > 8) {
+            tally('failed');
+            finishRow(job.li, 'err', 'Forbindelsen svigtede for mange gange. Træk videoen ind igen — den fortsætter, ' +
+              'hvor den slap.');
+            return;
+          }
+          state.textContent = 'Forbindelsen svigtede — prøver igen…';
+          await sleep(Math.min(30000, 1000 * 2 ** failures));
+          try {
+            const r = await ctx.fetch(url);
+            if (r.ok) offset = (await r.json()).offset;
+          } catch (_) { /* the next PUT will find out */ }
+        }
+      }
+
+      state.textContent = 'Kontrollerer videoen…';
+      const res = await ctx.fetch(url + '/complete', { method: 'POST' });
+      let payload = null;
+      try { payload = await res.json(); } catch (_) { /* an error page rather than JSON */ }
+      localStorage.removeItem(sessionKey(file));
+      if (!res.ok) {
+        tally('failed');
+        finishRow(job.li, 'err', (payload && (payload.error || payload.message)) || videoReason(res.status));
+        return;
+      }
+      applyOutcome(job.li, payload, 'Lagt op — behandles');
+    } catch (err) {
+      tally('failed');
+      finishRow(job.li, 'err', 'Forbindelsen blev afbrudt. Træk videoen ind igen — den fortsætter, hvor den slap.');
+    }
+  }
+
+  function videoReason(status) {
+    if (status === 413) return 'Videoen er for stor eller for lang (højst 4 GB og 30 minutter).';
+    if (status === 400) return 'Filen er ikke en video vi kan læse.';
+    return httpReason(status);
   }
 
   function httpReason(status) {
@@ -278,7 +396,12 @@ function initUpload(ctx) {
     // shows the photographer what they actually selected. The server's own rendition is the contact sheet's
     // job (task 374). Revoked on load so a 300-file batch does not hold 300 decoded bitmaps.
     let thumb;
-    if (file.type && file.type.startsWith('image/')) {
+    if (isVideo(file)) {
+      // No local preview for a video: decoding one to draw a frame costs more than the row is worth.
+      thumb = document.createElement('div');
+      thumb.className = 'noimg';
+      thumb.textContent = '▶';
+    } else if (file.type && file.type.startsWith('image/')) {
       thumb = document.createElement('img');
       thumb.alt = '';
       const url = URL.createObjectURL(file);

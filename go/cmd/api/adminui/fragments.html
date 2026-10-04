@@ -425,9 +425,15 @@ Everything that is not a cell arrives as an out-of-band swap, which is how one r
              album page never emits this, and TestThePublicAlbumPageCarriesNoFilename holds that — the filename's
              bound since task 448 is that it lives behind the credential. */}}
         {{if .FileName}}data-filename="{{.FileName}}"{{end}}
-        {{if .Deleted}}data-viewer-deleted="true"{{end}}>
-  <img loading="lazy" decoding="async" alt="{{.Caption}}"
-       src="/api/admin/photos/{{.ID}}/media?variant=thumb&amp;year={{$.Year}}">
+        {{if .Deleted}}data-viewer-deleted="true"{{end}}
+        {{/* A video (PRD 029, task 497). The status rides on the cell so the retry action can tell which of a
+             selection failed; the viewer reads data-kind to play rather than show. */}}
+        {{if .IsVideo}}data-kind="video" data-status="{{.Status}}"{{if .DurationMs}} data-duration-ms="{{.DurationMs}}"{{end}}{{end}}>
+  {{if .Processing}}<span class="vidstate" aria-label="video, behandles">behandles…</span>
+  {{else if .Failed}}<span class="vidstate failed" title="{{.FailReason}}">video fejlede</span>
+  {{else}}<img loading="lazy" decoding="async" alt="{{.Caption}}"
+       src="/api/admin/photos/{{.ID}}/media?variant=thumb&amp;year={{$.Year}}">{{end}}
+  {{if .IsVideo}}<span class="vidbadge" aria-label="video, {{.Duration}}">▶ {{.Duration}}</span>{{end}}
   <span class="tick" aria-hidden="true">✓</span>
   <span class="marks">
     {{if eq .BoundsVerdict "inside"}}<span class="mark inside">position</span>

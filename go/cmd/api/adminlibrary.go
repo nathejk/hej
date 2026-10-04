@@ -114,6 +114,29 @@ type adminLibraryPhoto struct {
 
 	Deleted    bool   `json:"deleted,omitempty"`
 	UploadedAt string `json:"uploadedAt,omitempty"`
+
+	// Kind is "photo" or "video", Status a video's "processing" | "ready" | "failed" (PRD 029, task 497).
+	// FailReason is ffmpeg's account of a failure: curator-only, like everything on this response.
+	Kind       string `json:"kind,omitempty"`
+	Status     string `json:"status,omitempty"`
+	DurationMs int    `json:"durationMs,omitempty"`
+	FailReason string `json:"failReason,omitempty"`
+}
+
+// IsVideo, Processing and Failed are for the tile template, which would otherwise compare strings inline.
+func (p adminLibraryPhoto) IsVideo() bool    { return p.Kind == "video" }
+func (p adminLibraryPhoto) Processing() bool { return p.IsVideo() && p.Status == "processing" }
+func (p adminLibraryPhoto) Failed() bool     { return p.IsVideo() && p.Status == "failed" }
+
+// Duration is the clip's length as m:ss, or h:mm:ss from an hour.
+func (p adminLibraryPhoto) Duration() string { return formatDuration(p.DurationMs) }
+
+func formatDuration(ms int) string {
+	s := ms / 1000
+	if s >= 3600 {
+		return fmt.Sprintf("%d:%02d:%02d", s/3600, s/60%60, s%60)
+	}
+	return fmt.Sprintf("%d:%02d", s/60, s%60)
 }
 
 // listAdminPhotosHandler returns one page of the year's library.
@@ -274,6 +297,10 @@ func (app *application) readAdminLibraryPage(w http.ResponseWriter, r *http.Requ
 			TagCount:      p.TagCount,
 			Deleted:       p.Deleted,
 			UploadedAt:    p.UploadedAt,
+			Kind:          p.Kind,
+			Status:        p.Status,
+			DurationMs:    p.DurationMs,
+			FailReason:    p.FailReason,
 		})
 	}
 	return page, true
@@ -491,7 +518,17 @@ func (app *application) showAdminPhotoMediaHandler(w http.ResponseWriter, r *htt
 
 	ref := p.Ref
 	edge := 0
-	switch r.URL.Query().Get("variant") {
+	// A video's display rendition is its 720p MP4 and its thumb/medium its poster (PRD 029); its original is
+	// whatever the phone recorded, so it is labelled with the type stored at upload.
+	contentType := "image/jpeg"
+	variant := r.URL.Query().Get("variant")
+	if p.Kind == "video" && variant != "thumb" && variant != "medium" {
+		contentType = "video/mp4"
+	}
+	if variant == "original" && p.OriginalRef != "" && p.OriginalContentType != "" && p.Kind == "video" {
+		contentType = p.OriginalContentType
+	}
+	switch variant {
 	case "thumb":
 		if p.ThumbRef != "" {
 			ref, edge = p.ThumbRef, glimtThumbEdges[0]
@@ -548,5 +585,5 @@ func (app *application) showAdminPhotoMediaHandler(w http.ResponseWriter, r *htt
 	// caching them would be safe in the ordinary sense — but this is an admin surface and PRD 022 §6 requires
 	// every response on it to be unstorable: a contact sheet of the event's photographs left in a shared
 	// laptop's disk cache outlives the session that fetched it.
-	app.streamGlimtMedia(w, r, stored, photoID, "no-store", plan, "image/jpeg")
+	app.streamGlimtMedia(w, r, stored, photoID, "no-store", plan, contentType)
 }

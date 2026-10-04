@@ -186,6 +186,7 @@
     <button type="button" data-act="caption">Billedtekst</button>
     <button type="button" data-act="credit">Fotokredit</button>
     <button type="button" data-act="delete">Fjern eller slet</button>
+    <button type="button" data-act="retry">Behandl video igen</button>
     <button type="button" id="clearsel">Ryd valg</button>
   </div>
 
@@ -429,6 +430,7 @@
 // @inject captionaction.js
 // @inject creditaction.js
 // @inject deleteaction.js
+// @inject retryaction.js
 // @inject upload.js
 // @inject albumeditor.js
 // @inject albumorder.js
@@ -453,7 +455,7 @@
         <!-- Lucide: image-up -->
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7"/><path d="m21 15-3-3-3 3"/><path d="M18 12v9"/><circle cx="9" cy="9" r="2"/></svg>
         Vælg billeder
-        <input type="file" id="files" multiple accept="image/*">
+        <input type="file" id="files" multiple accept="image/*,video/*">
       </label>
       <div class="progress" hidden id="prog">
         <div class="bar"><i id="bar"></i></div>

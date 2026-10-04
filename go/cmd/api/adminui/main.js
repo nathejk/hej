@@ -288,6 +288,7 @@ function initAdminTool() {
   initCaptionAction(ctx);
   initCreditAction(ctx);
   initDeleteAction(ctx);
+  initRetryAction(ctx);
 
   // The two features that belong to one view each (task 396): upload is the all-photos view's, the editor card is
   // the album view's. The rest above is shared by both.

@@ -188,6 +188,13 @@ h2 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
 /* The sprite is a definition, not a picture. `hidden` alone is enough in every engine this tool supports, but a
    stray stylesheet resetting `[hidden]` would drop a blank 300px box at the top of the page. */
 .sprite { display: none; }
+/* Video tiles (PRD 029, task 497). A tile with no poster yet holds the same 4:3 box an image would, so the grid
+   does not jump when the transcode finishes; the play badge is top-right, clear of the tick and the marks. */
+.vidstate { display: grid; place-items: center; width: 100%; aspect-ratio: 4 / 3; background: #e4e4e7;
+            color: #52525b; font-size: 0.8125rem; }
+.vidstate.failed { background: #fee2e2; color: #b91c1c; }
+.vidbadge { position: absolute; top: 0.25rem; right: 0.25rem; font-size: 0.6875rem; padding: 0.0625rem 0.375rem;
+            border-radius: 999px; background: #27272aee; color: #fafafa; }
 .cell.gone { opacity: 0.5; }
 .cell.gone img { filter: grayscale(1); }
 

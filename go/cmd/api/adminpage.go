@@ -318,6 +318,7 @@ func (app *application) renderAdminPage(w http.ResponseWriter, r *http.Request, 
 //go:embed adminui/main.js adminui/sheetshell.js adminui/contactsheet.js adminui/upload.js
 //go:embed adminui/albumaction.js adminui/positionaction.js adminui/patrolaction.js
 //go:embed adminui/creditaction.js adminui/deleteaction.js adminui/viewaction.js adminui/vieweredit.js
+//go:embed adminui/retryaction.js
 //go:embed adminui/fragments.html
 //go:embed adminui/vendor/htmx.min.js adminui/vendor/alpine.min.js adminui/vendor/pico.min.css adminui/vendor/vendor.txt
 var adminUIFS embed.FS
@@ -350,6 +351,7 @@ var adminPageScripts = []string{
 	"adminui/captionaction.js",
 	"adminui/creditaction.js",
 	"adminui/deleteaction.js",
+	"adminui/retryaction.js",
 	"adminui/upload.js",
 	"adminui/albumeditor.js",
 	"adminui/albumorder.js",
