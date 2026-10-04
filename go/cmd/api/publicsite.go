@@ -1062,6 +1062,9 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
   .photos .frame img { width: 100%; height: 100%; object-fit: cover; display: block;
          transition: opacity .15s ease-in-out; }
   .photos .tile:hover .frame img { opacity: .85; }
+  .photos .frame { position: relative; }
+  .photos .vid { position: absolute; right: .375rem; bottom: .375rem; padding: .125rem .5rem; border-radius: 999px;
+                 background: rgba(24, 24, 27, .8); color: #fafafa; font-size: .75rem; line-height: 1.4; }
   /* The tile carries no caption and no credit (tasks 403 and 473), so there is nothing positioned over it and
      every tile is exactly a square.
 
@@ -1415,7 +1418,8 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
      {{if .HasMedium}}data-medium="/api/public/albums/{{$album.ID}}/media/{{.Ref}}?variant=medium"{{end}}
      data-thumb="/api/public/albums/{{$album.ID}}/media/{{.Ref}}?variant=thumb"
      {{if .Caption}}data-caption="{{.Caption}}"{{end}}
-     {{if .Credit}}data-credit="{{.Credit}}"{{end}}>
+     {{if .Credit}}data-credit="{{.Credit}}"{{end}}
+     {{if .IsVideo}}data-kind="video" data-duration-ms="{{.DurationMs}}"{{if .HasSd}} data-sd="/api/public/albums/{{$album.ID}}/media/{{.Ref}}?variant=sd"{{end}}{{end}}>
     <!-- The thumbnail, always: this page is read by a lot of people at once on whatever connection
          they have. Every item gets its own tag — there is no carousel here, so every photograph is
          reachable on a desktop without a swipe and without script. See the handler comment.
@@ -1440,6 +1444,9 @@ var publicSiteTemplates = template.Must(template.New("publicsite").Funcs(publicS
            alt="{{if .Caption}}{{.Caption}}{{else}}Billede fra {{$album.Title}}{{end}}"
            loading="lazy" decoding="async"
            {{if and .Width .Height}}width="{{.Width}}" height="{{.Height}}"{{end}}>
+      <!-- A video's tile is its poster with a play glyph and its length (PRD 029, task 498). The grid never loads
+           video: the bytes are fetched only when the viewer opens on the item, or the link is followed. -->
+      {{if .IsVideo}}<span class="vid" aria-label="video, {{.Duration}}"><span aria-hidden="true">▶</span> {{.Duration}}</span>{{end}}
     </span>
   </a>
   <!-- **The credit is not on the tile** (task 473). It was, from task 403 to task 473, and the reasoning then was

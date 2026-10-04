@@ -107,3 +107,22 @@ func TestAlbumVideoMissingRenditionIsRequeued(t *testing.T) {
 		t.Errorf("want exactly one requeue for three misses, got %v", s)
 	}
 }
+
+// The grid shows a video as its poster with a glyph and its length, and loads no video bytes (task 498).
+func TestAlbumGridShowsAVideoAsItsPoster(t *testing.T) {
+	_, srv, hd, _ := videoAlbumApp(t)
+	_, raw := getPublic(t, srv.URL+"/2026/album/film", nil)
+	body := string(raw)
+	for _, want := range []string{
+		`data-kind="video"`, `data-duration-ms="1320000"`, `aria-label="video, 22:00"`,
+		`data-sd="/api/public/albums/al-video/media/` + hd + `?variant=sd"`,
+		`src="/api/public/albums/al-video/media/` + hd + `?variant=thumb"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the album page lacks %s", want)
+		}
+	}
+	if strings.Contains(body, "<video") {
+		t.Error("the grid must not embed video: it would download clips nobody opened")
+	}
+}

@@ -140,7 +140,16 @@ type publicAlbumItem struct {
 	// The page addresses photographs by ordinal for exactly that reason, and this field carries the one bit
 	// the template actually needs rather than the string it would be tempting to pass.
 	HasMedium bool
+
+	// IsVideo marks a video item (PRD 029, task 498): its Ref serves the 720p MP4, its thumb and medium the poster,
+	// and HasSd says a 480p MP4 exists for the viewer to fall back to. DurationMs is shown on the tile.
+	IsVideo    bool
+	HasSd      bool
+	DurationMs int
 }
+
+// Duration is the clip's length for the tile's badge.
+func (it publicAlbumItem) Duration() string { return formatDuration(it.DurationMs) }
 
 // ShareCard is the album's own preview: its cover, its title, its description (PRD 026, task 467).
 //
@@ -306,12 +315,15 @@ func (app *application) albumPageHandler(w http.ResponseWriter, r *http.Request)
 			// The **name**, never the reference (PRD 025 §6 R6): the id is a handle to a person record, and
 			// `publicAlbumItem` is a type this page renders into HTML. An unresolvable reference is "" here,
 			// which the template already renders as no credit line at all.
-			Ref:       it.Ref,
-			Permalink: albumPhotoPermalink(app.publicRoot(), a.Slug, it.Ref),
-			Credit:    resolvedCredit(it.Credit, it.CreditCrewID, creditNames),
-			Width:     it.Width,
-			Height:    it.Height,
-			HasMedium: it.MediumRef != "",
+			Ref:        it.Ref,
+			Permalink:  albumPhotoPermalink(app.publicRoot(), a.Slug, it.Ref),
+			Credit:     resolvedCredit(it.Credit, it.CreditCrewID, creditNames),
+			Width:      it.Width,
+			Height:     it.Height,
+			HasMedium:  it.MediumRef != "",
+			IsVideo:    it.Kind == "video",
+			HasSd:      it.SdRef != "",
+			DurationMs: it.DurationMs,
 		})
 	}
 
